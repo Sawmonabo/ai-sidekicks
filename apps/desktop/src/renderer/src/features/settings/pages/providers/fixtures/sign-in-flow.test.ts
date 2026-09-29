@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 import {
   accountPlaneCalls,
@@ -135,7 +135,7 @@ describe("readRegistrationFields", () => {
   }
 
   /** The refusal one reading carries, or `undefined` where it admitted the fields. */
-  function refusalOf(reading: RegistrationFieldReading): ConsoleRefusal | undefined {
+  function refusalOf(reading: RegistrationFieldReading): Refusal | undefined {
     return reading.kind === "refused" ? reading.refusal : undefined;
   }
 

@@ -21,7 +21,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { TranscriptViewport } from "./TranscriptViewport.js";
 import {
@@ -67,7 +67,7 @@ interface BindingHolder {
 }
 
 interface BoundLedgerViewportProps {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly rows: readonly ViewportRow[];
   readonly renderRow: (row: ViewportRow) => React.ReactNode;
   readonly feedLabel: string;
@@ -113,7 +113,7 @@ function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element
 }
 
 interface DetachedBindingProps {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly rows: readonly ViewportRow[];
   readonly holder: BindingHolder;
 }

@@ -26,7 +26,7 @@
 // a preference. A `showReasoning` flag anywhere in this family would be a second
 // answer to a question the daemon already answers.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";
 
 /** One arm of the contract's closed availability discriminant. */
@@ -54,7 +54,7 @@ export type ReasoningReading =
   | { readonly status: "not-asked" }
   | { readonly status: "reading" }
   | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What one arm says of itself when it carries no entries to show. */
 export interface ReasoningAvailabilityCopy {

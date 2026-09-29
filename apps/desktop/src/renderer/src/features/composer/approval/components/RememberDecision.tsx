@@ -35,7 +35,7 @@ import { Select } from "@base-ui/react/select";
 import { OverlaySelectPopup } from "@renderer/console/primitives/index.js";
 import {
   REMEMBERED_SCOPE_KINDS,
-  SCOPE_KIND_PHRASE,
+  RULE_SCOPE_LABELS,
   type RememberedScopeKind,
 } from "@renderer/lib/approval-vocabulary.js";
 import { type ApprovalResolveRequest } from "@renderer/services/approvals/approval-records.js";
@@ -131,7 +131,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>
-                <Select.ItemText>{SCOPE_KIND_PHRASE[kind]}</Select.ItemText>
+                <Select.ItemText>{RULE_SCOPE_LABELS[kind]}</Select.ItemText>
               </Select.Item>
             ))}
           </OverlaySelectPopup>

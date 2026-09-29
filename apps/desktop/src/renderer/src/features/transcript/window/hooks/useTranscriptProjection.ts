@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptRowRetention } from "../row-retention.js";
@@ -45,8 +45,8 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
 
 /** The log this window holds. A named function, so the selector identity is stable. */
 function readTimeline(state: {
-  readonly timeline: readonly ConsoleSessionEvent[];
-}): readonly ConsoleSessionEvent[] {
+  readonly timeline: readonly ProjectedSessionEvent[];
+}): readonly ProjectedSessionEvent[] {
   return state.timeline;
 }
 

@@ -1,6 +1,6 @@
 // What answering a phase parked on a person puts, and what the answer settles to.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
@@ -56,7 +56,7 @@ export type WorkflowHumanFormOutcome =
       /** When the daemon recorded it, wire-verbatim and never re-formatted here. */
       readonly submittedAt: string;
     }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** The form's act, and where the last one got to. */
 export interface WorkflowHumanFormDispatch {

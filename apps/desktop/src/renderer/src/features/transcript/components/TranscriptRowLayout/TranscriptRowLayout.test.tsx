@@ -24,8 +24,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
-import { actorHueTokenName } from "@renderer/styles/tokens.js";
+import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { formatHueWheelTokenName } from "@renderer/styles/tokens.js";
 import { LedgerRow } from "./TranscriptRowLayout.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
@@ -79,14 +79,14 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
   it("carries the user's own hue token for a step on the wheel", () => {
     const row = basicRow({ agentHueStep: 7 });
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
-      `var(--meridian-${actorHueTokenName(7)})`,
+      `var(--meridian-${formatHueWheelTokenName(7)})`,
     );
     expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(false);
   });
 
   it("refuses to wrap or clamp a step that is off the wheel", () => {
-    const offWheelSteps = [ACTOR_HUE_STEPS, ACTOR_HUE_STEPS + 3, -1, 1.5, Number.NaN];
-    const onWheelHues = Array.from({ length: ACTOR_HUE_STEPS }, (_unused, step) =>
+    const offWheelSteps = [HUE_WHEEL_STEPS, HUE_WHEEL_STEPS + 3, -1, 1.5, Number.NaN];
+    const onWheelHues = Array.from({ length: HUE_WHEEL_STEPS }, (_unused, step) =>
       edgeOf(basicRow({ agentHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
     );
 
@@ -102,7 +102,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
 
     // ...and the on-wheel hues really are twelve distinct values, so the assertion
     // above is checking a populated set rather than an empty one.
-    expect(new Set(onWheelHues).size).toBe(ACTOR_HUE_STEPS);
+    expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
   });
 
   it("keeps the hue off the body text by putting it only on the edge", () => {

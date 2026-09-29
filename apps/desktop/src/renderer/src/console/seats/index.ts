@@ -49,7 +49,7 @@
 // A family reaching past it into another family's subtree is reaching for a body,
 // and a body is exactly what a seat exists to keep it from holding.
 //
-// ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `ConsolePaneChrome`
+// ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `PaneFrame`
 // is the chrome every pane wears — kind glyph, breadcrumb, control strip, focus
 // treatments — and it is here for the same reason every other seat is: the deck that
 // provides its host control is a VIEW family, six sibling families each draw a
@@ -124,15 +124,15 @@ export {
 export {
   /** @consumedBy a view family that has not landed yet */
   paneEntityScopeFor,
-  type ConsolePaneAddress,
+  type PaneAddress,
   /** @consumedBy a view family that has not landed yet */
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
+  type PaneLink,
+  type PaneOpener,
   /** @consumedBy a view family that has not landed yet */
   type PaneEntityScopeDeclaration,
 } from "@renderer/routing/panes/pane-address.js";
 
-export { parseConsolePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+export { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 
 export {
   PaneRegistry,
@@ -161,17 +161,17 @@ export {
 // family door that another family imports EAGERLY is on every launch's initial graph
 // whether or not settings is ever opened — which is the defect
 // `settings/settings-page-registry.ts` records measuring. Building a second normaliser
-// beside `LoadedLazyBody` would have been two settle semantics to keep in step, so the
+// beside `LoaderBackedBody` would have been two settle semantics to keep in step, so the
 // board that lives outside this directory reads the one that already exists.
 //
-// `PENDING_PANE_BODY_ATTRIBUTE` joins it, and the reason the marker had no door line
+// `PENDING_BODY_ATTRIBUTE` joins it, and the reason the marker had no door line
 // expires with the same change: it had exactly one reader outside this directory and that
 // reader was a test — the screenshot tier's capture helper, which refuses to photograph a
 // half-loaded body — so a door line would have been a specifier no shipped module reads,
 // which the module-shape rule in `apps/desktop/AGENTS.md` rejects rather than tolerates.
 // A settings page waiting on its chunk is the same hazard the marker exists for, so the
 // attribute now has a production reader and a door line is what it is owed.
-// `pendingPaneKindsIn` and `pendingPaneBodiesIn` still have none and still take the
+// `listPendingBodyNames` and `findPendingBodies` still have none and still take the
 // leaf directly, for the reason above: their only consumer outside this directory is
 // that helper.
 //
@@ -184,10 +184,10 @@ export {
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
 export {
-  PENDING_PANE_BODY_ATTRIBUTE,
+  PENDING_BODY_ATTRIBUTE,
   reservedBodyRegion,
 } from "@renderer/components/LazyBody/pending-body-marker.js";
-export { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+export { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 
 export {
   findComposerRenderer,
@@ -246,7 +246,7 @@ export {
 // shipped families name the owner slot's contract on the slots they declare — the
 // ledger's message card and timeline pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
-export { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
+export { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 export {
   paneBodyForKind,
   type PaneContextOf,
@@ -323,8 +323,8 @@ export { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead
 // subscription, scheduler, or teardown behind it — and a MUTATION needs the same
 // translation with no read to route through, which is why they are free functions
 // and why they left that module when it was split.
-export { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
-export { servedValueOrRaise } from "@renderer/services/daemon/unwrap-daemon-reply.js";
+export { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+export { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
 // `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method

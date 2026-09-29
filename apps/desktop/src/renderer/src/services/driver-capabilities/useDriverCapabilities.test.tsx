@@ -210,7 +210,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
 
   function initialisedStore(): SessionStore {
     const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     return store;
   }
 
@@ -275,7 +275,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     expect(capabilityCallCount(counted)).toBe(1);
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [] });
+      sessionStore.initialize({ cursor: 4, entities: [] });
     });
     await settleScheduledRead(counted.bridge);
 

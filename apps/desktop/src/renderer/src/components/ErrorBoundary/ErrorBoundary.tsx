@@ -19,14 +19,14 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {
   /** What failed, in the person's words: "the timeline", "the approvals pane". */
-  readonly surfaceName: string;
+  readonly regionName: string;
   readonly children: ReactNode;
   /** Rendered instead of the default card, when a surface wants its own. */
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
 /** Catches a render failure in its subtree, reports it, and offers a retry in place. */
-export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBoundaryState> {
   public constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { error: undefined, attempt: 0 };
@@ -49,7 +49,7 @@ export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceE
     // broken every time any pane hit a rendering bug.
     reportTripwire(
       "surface-render-failure",
-      `SurfaceErrorBoundary(${this.props.surfaceName})`,
+      `ErrorBoundary(${this.props.regionName})`,
       `${error.message}${describeComponentStack(errorInfo)}`,
     );
   }
@@ -77,7 +77,7 @@ export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceE
     if (this.props.fallback !== undefined) {
       return this.props.fallback(error, retry);
     }
-    return <RenderFailureCard regionName={this.props.surfaceName} error={error} onRetry={retry} />;
+    return <RenderFailureCard regionName={this.props.regionName} error={error} onRetry={retry} />;
   }
 }
 

@@ -10,7 +10,7 @@ import { createElement } from "react";
 
 import { AgentsPane, AgentConsoleFrame } from "./AgentsPane.js";
 import {
-  ConsolePaneChrome,
+  PaneFrame,
   paneBodyForKind,
   type PaneContext,
   type PaneContextOf,
@@ -51,7 +51,7 @@ function paneBodyInChrome(
   renderBody: (context: PaneContextOf<"agent-console">) => React.ReactNode,
 ): (context: PaneContext) => React.ReactNode {
   return paneBodyForKind("agent-console", (context) =>
-    createElement(ConsolePaneChrome, {
+    createElement(PaneFrame, {
       kind: "agent-console",
       sessionId: context.sessionStore?.sessionId,
       entity: context.entity,

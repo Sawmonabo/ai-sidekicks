@@ -1,6 +1,6 @@
 import { createContext, useContext, type Context } from "react";
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
 import type { AttentionReading } from "../attention-summary.js";
 
@@ -38,7 +38,7 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
 export function useAttention(): WindowAttention {
   const held = useContext(WindowAttentionContext);
   if (held === undefined) {
-    throw new ConsoleRefusalError(
+    throw new RefusalError(
       refuse(
         SESSION_ATTENTION_ORIGIN,
         "binding-unmounted",

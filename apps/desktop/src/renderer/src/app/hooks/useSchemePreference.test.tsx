@@ -22,7 +22,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type SchemePreference } from "@renderer/styles/tokens.js";
 import { useSchemePreference, type SchemePreferenceSurface } from "./useSchemePreference.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -43,7 +43,7 @@ function storeThatWrites(): UiStateStore {
 }
 
 interface SchemeProbeProps {
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
   readonly uiStateStore: UiStateStore;
   readonly onSurface: (surface: SchemePreferenceSurface) => void;
 }
@@ -55,7 +55,7 @@ function SchemeProbe(props: SchemeProbeProps): null {
 
 /** Mount the real hook and let the hydration read land. */
 async function mountScheme(
-  frameStore: FrameStore,
+  frameStore: WindowStore,
   uiStateStore: UiStateStore,
 ): Promise<{ readonly choose: (preference: SchemePreference) => Promise<void> }> {
   let surface: SchemePreferenceSurface | undefined;
@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("useSchemePreference — a refused write is disclosed, never discarded", () => {
   it("keeps the chosen scheme and raises a banner saying it will not persist", async () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const probe = await mountScheme(frameStore, storeThatCannotWrite());
 
     await probe.choose("dark");
@@ -106,7 +106,7 @@ describe("useSchemePreference — a refused write is disclosed, never discarded"
   });
 
   it("replaces its own banner when the scheme is changed again and refused again", async () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const probe = await mountScheme(frameStore, storeThatCannotWrite());
 
     await probe.choose("dark");
@@ -119,7 +119,7 @@ describe("useSchemePreference — a refused write is disclosed, never discarded"
   it("negative control: a write that lands raises nothing", async () => {
     // Without this, a hook that banner-ed every choice would satisfy both cases
     // above while reporting a failure on every successful write.
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const uiStateStore = storeThatWrites();
     const probe = await mountScheme(frameStore, uiStateStore);
 
@@ -135,7 +135,7 @@ describe("useSchemePreference — hydration is a pure read", () => {
   it("applies a stored preference at mount", async () => {
     const uiStateStore = storeThatWrites();
     await uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "dark");
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     await mountScheme(frameStore, uiStateStore);
 
@@ -149,7 +149,7 @@ describe("useSchemePreference — hydration is a pure read", () => {
     // settles.
     const uiStateStore = storeThatWrites();
     await uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "dark");
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     await mountScheme(frameStore, uiStateStore);
 

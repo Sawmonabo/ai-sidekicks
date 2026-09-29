@@ -9,7 +9,7 @@
 // EVERY DEPENDENCY IS ONE OBJECT, so a new one is one edit rather than one at each
 // call site, and the three optional members travel together for a reason each states.
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerTarget } from "../composer-target.js";
 import type { CommandExecutor } from "../types.js";
@@ -64,7 +64,7 @@ export interface SendController {
   readonly placeholder: string;
   readonly status: SendControllerStatus;
   /** The last refusal, composer-side or daemon-side, until the person types again. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   changeText(next: string): void;
   send(): Promise<void>;
   /** Walk one message older. `false` when the caret is not at the start edge. */

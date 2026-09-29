@@ -33,7 +33,7 @@
 // coalescing frame may make a row measurement late and may not make the height the window
 // ranges against late. What stays here is which sink is installed, and what a pass reads.
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { OverflowMeasurementBatch } from "../viewport/overflow-measurement-batch.js";
@@ -71,7 +71,7 @@ export interface ScrollContainer {
 export type OverflowMeasurementSink = (geometry: ScrollGeometry) => void;
 
 export interface ScrollControllerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Within this many pixels of the bottom counts as the tail. */
   readonly tailTolerancePx?: number;
 }

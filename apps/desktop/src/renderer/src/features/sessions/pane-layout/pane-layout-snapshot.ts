@@ -33,7 +33,7 @@
 // each one names a DEFECT; a tripwire throws in a development build, which is
 // exactly right for a store mutated outside its chokepoint and exactly wrong for a
 // snapshot written by last week's build. So decoding answers with typed
-// `ConsoleRefusal`s — the console's one refusal shape — which the deck renders
+// `Refusal`s — the console's one refusal shape — which the deck renders
 // through `primitives/Refusal`. The drop is loud, counted, and on screen; it is not
 // a crash.
 //
@@ -42,12 +42,12 @@
 // is what lets the grammar be tested against hand-written records — including ones
 // no version of this console would ever write.
 
-import { isConsoleRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import {
   isEphemeralPaneKind,
   isPaneKind,
-  parseConsolePaneAddress,
+  parsePaneAddress,
 } from "@renderer/console/seats/index.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import { isPaneLayoutDensity } from "./pane-layout-density.js";
@@ -300,8 +300,8 @@ function decodePane(
   // written straight back out on the next save and surviving every restart. The
   // grammar knows both things this one cannot: WHICH entity kinds each pane kind is
   // a view of, and what an identifier is allowed to look like.
-  const address = parseConsolePaneAddress(kind, readEntityCandidate(entry));
-  if (isConsoleRefusal(address)) {
+  const address = parsePaneAddress(kind, readEntityCandidate(entry));
+  if (isRefusal(address)) {
     // Two sentences for five parse codes, because what a person can do about a
     // dropped pane is the same either way, and this module's own vocabulary is
     // closed. The parse's code is the precise one and stays where it was raised.

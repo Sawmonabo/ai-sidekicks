@@ -15,7 +15,7 @@ import {
   TRIPWIRE_KINDS,
   TripwireError,
   TripwireRegistry,
-  consoleTripwires,
+  windowTripwires,
   reportTripwire,
   type TripwireReport,
 } from "./tripwires.js";
@@ -214,19 +214,19 @@ describe("the console's own registry", () => {
 
   beforeEach(() => {
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("is what reportTripwire writes to", () => {
     reportTripwire("apply-chokepoint-bypass", "console/core/tripwires.test.ts", "driven by a test");
 
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    expect(consoleTripwires.reports()[0]?.site).toBe("console/core/tripwires.test.ts");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports()[0]?.site).toBe("console/core/tripwires.test.ts");
   });
 });

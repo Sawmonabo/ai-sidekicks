@@ -6,7 +6,7 @@
 // kind would be two fixture epochs, and a case comparing a figure derived under one
 // against a figure derived under the other would be measuring the setup.
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
 
 export const VISIBLE_WINDOW_SESSION_ID = "session-visible-window";
@@ -29,7 +29,7 @@ export const EVERY_ROW_QUERY = "user.message";
 export function syntheticEventLog(
   count: number,
   sessionId: string = VISIBLE_WINDOW_SESSION_ID,
-): readonly ConsoleSessionEvent[] {
+): readonly ProjectedSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => ({
     id: `event-${String(index)}`,
     sessionId,

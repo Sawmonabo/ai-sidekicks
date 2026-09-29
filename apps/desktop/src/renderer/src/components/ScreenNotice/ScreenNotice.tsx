@@ -30,7 +30,7 @@ import "./ScreenNotice.css";
 import { ChordHint } from "../ChordHint/ChordHint.js";
 import { COMMAND_PALETTE_OPEN_CHORD } from "@renderer/lib/chord-format.js";
 
-export function SurfaceAbsence(props: { readonly children: React.ReactNode }): React.JSX.Element {
+export function ScreenNotice(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="meridian-surface-absence">
       <div className="meridian-surface-absence__body">{props.children}</div>

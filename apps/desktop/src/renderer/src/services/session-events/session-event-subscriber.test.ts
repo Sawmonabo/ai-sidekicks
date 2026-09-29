@@ -16,7 +16,7 @@ import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventBinder } from "./session-event-subscriber.js";
 import {
@@ -34,8 +34,8 @@ const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
 // they are RECORDED instead, because these cases assert that a breach was detected
 // and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 describe("SessionEventBinder — the console's one subscription to the wire", () => {
@@ -128,8 +128,8 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
 
     expect(binder.droppedAfterCloseCount).toBe(1);
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    expect(consoleTripwires.reports().at(-1)?.site).toBe("console/frame/session-event-binder.ts");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.site).toBe("console/frame/session-event-binder.ts");
 
     binder.dispose();
   });
@@ -145,7 +145,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
 
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(1);
     expect(binder.droppedAfterCloseCount).toBe(0);
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
 
     binder.dispose();
   });

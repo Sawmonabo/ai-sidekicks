@@ -28,13 +28,13 @@
 // output rather than a second reading of the route, so there is one grammar deciding
 // what "a different address" means.
 //
-// Both reach the screen through the `SurfaceAbsence` primitive, which is the
+// Both reach the screen through the `ScreenNotice` primitive, which is the
 // console's one centering wrapper; the ledger and the pending surface body draw
 // through the same component, which is why it is a module and not a block in here.
 
 import { Fragment } from "react";
 
-import { Nothing, SurfaceAbsence } from "@renderer/console/primitives/index.js";
+import { Nothing, ScreenNotice } from "@renderer/console/primitives/index.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import {
   screenRegistry,
@@ -61,9 +61,9 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   // rendering of that frame is a read in flight.
   if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {
     return (
-      <SurfaceAbsence>
+      <ScreenNotice>
         <Nothing kind="not-loaded" title="This session is opening." />
-      </SurfaceAbsence>
+      </ScreenNotice>
     );
   }
 
@@ -83,12 +83,12 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
 
 function AddressNamesNothing(props: { readonly attempted: string }): React.JSX.Element {
   return (
-    <SurfaceAbsence>
+    <ScreenNotice>
       <Nothing
         kind="error"
         title="That address does not name anything in the console."
         detail={`Nothing is registered for ${props.attempted}. The Sessions list is the way back.`}
       />
-    </SurfaceAbsence>
+    </ScreenNotice>
   );
 }

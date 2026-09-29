@@ -7,7 +7,7 @@
 // them. No JSX here, so every arm is drivable from a test with no rendered tree at
 // all, which is what the exhaustive tails below are worth.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
 import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunControlDispatch.js";
 
@@ -25,8 +25,8 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
  */
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
-  | { readonly kind: "refused"; readonly notice: ConsoleRefusal }
-  | { readonly kind: "recorded"; readonly notice: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly notice: Refusal }
+  | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
  * Read one settled dispatch the way this form has to act on it.
@@ -93,7 +93,7 @@ export function readInterventionFormSettlement(
  * Total over the closed refusal set, so a second reason fails to compile here rather
  * than reaching a user as an empty sentence beside a form that did nothing.
  */
-export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
+export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
   return refuse(RUN_INTERVENTION_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
 

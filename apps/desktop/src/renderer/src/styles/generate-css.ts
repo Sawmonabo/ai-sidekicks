@@ -35,7 +35,7 @@
 import { formatOklch } from "./color.js";
 import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
-  ATTRIBUTION_EDGE_WIDTH_PX,
+  LEADING_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
   RADIUS_SCALE_REM,
   REFLOW_MIN_WIDTH_PX,
@@ -43,11 +43,11 @@ import {
   TOKEN_ALIASES,
 } from "./palette.js";
 import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
-import type { ConsoleScheme } from "./tokens.js";
+import type { ColorScheme } from "./tokens.js";
 import {
   HUE_WHEEL,
   SCHEME_COLOR_TOKENS,
-  actorHueTokenName,
+  formatHueWheelTokenName,
   tokenReference,
   tokenVariableName,
 } from "./tokens.js";
@@ -180,7 +180,7 @@ function declaration(tokenName: string, value: string): string {
   return `  ${tokenVariableName(tokenName)}: ${value};`;
 }
 
-function schemeColorBlock(scheme: ConsoleScheme, indent: string): string {
+function schemeColorBlock(scheme: ColorScheme, indent: string): string {
   const lines: string[] = [];
   for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {
     lines.push(`${indent}${declaration(tokenName, formatOklch(pair[scheme]))}`);
@@ -194,7 +194,7 @@ function invariantBlock(): string {
   lines.push("");
   lines.push("  /* User wheel — identity, never attention, never theme. */");
   HUE_WHEEL.forEach((color, step) => {
-    lines.push(declaration(actorHueTokenName(step), formatOklch(color)));
+    lines.push(declaration(formatHueWheelTokenName(step), formatOklch(color)));
   });
 
   lines.push("");
@@ -222,7 +222,7 @@ function invariantBlock(): string {
   for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
-  lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("attribution-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   // The reflow floor. Emitted rather than written into `frame.css` as a literal
   // because it is the palette's number and the frame is only the first thing to

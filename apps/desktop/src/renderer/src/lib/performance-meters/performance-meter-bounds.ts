@@ -19,7 +19,7 @@
  * `as const` so each figure is a literal type: a reader that compares against one
  * of these cannot silently be handed a widened `number`.
  */
-export const PERF_METER_BOUNDS = {
+export const PERFORMANCE_METER_BOUNDS = {
   /**
    * Samples one series retains, oldest dropped first.
    *

@@ -9,10 +9,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import type { FrameStore } from "@renderer/store/window/window-store.js";
+import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
@@ -39,7 +39,7 @@ export interface WindowCommandsInput {
    * `sessionActive` is derived from it rather than from the route.
    */
   readonly lastOpenedSessionId: string | undefined;
-  readonly windowStore: FrameStore;
+  readonly windowStore: WindowStore;
   /**
    * This window's durable store, for the keybinding overrides: a rebound chord is
    * installed whether or not anybody opens the Keyboard page.
@@ -88,7 +88,7 @@ export function useWindowCommands(
   // A bridge-backed command with no surface of its own refuses on a window banner,
   // which the store composes.
   const raiseRefusalBanner = useCallback(
-    (refusal: ConsoleRefusal) => {
+    (refusal: Refusal) => {
       windowStore.raiseRefusalBanner(refusal);
     },
     [windowStore],

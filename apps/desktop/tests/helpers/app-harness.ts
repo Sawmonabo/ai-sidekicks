@@ -31,9 +31,9 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import { CONSOLE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { UI_STATE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
-import { type ConsoleScheme } from "@renderer/styles/tokens.js";
+import { type ColorScheme } from "@renderer/styles/tokens.js";
 
 /**
  * Load every deferred body the console's own boards are holding.
@@ -98,7 +98,7 @@ export async function pressKeys(sequence: string): Promise<void> {
  * Chromium-only, through CDP. The browser-mode tiers pin Chromium, so this is a
  * capability of the configured browser rather than an assumption about browsers.
  */
-export async function emulateSystemScheme(scheme: ConsoleScheme): Promise<void> {
+export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
   await cdp().send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: scheme }],
   });
@@ -271,7 +271,7 @@ export async function awaitSessionRouteMounted(container: HTMLElement): Promise<
 export async function resetDurableAppState(): Promise<void> {
   cleanup();
   await settleOneTurn();
-  await deleteConsoleDatabase();
+  await deleteUiStateDatabase();
 }
 
 /**
@@ -289,15 +289,15 @@ export async function resetDurableAppState(): Promise<void> {
  * host on which this function isolates nothing, and answering quietly there would
  * report the absence of isolation as isolation.
  */
-async function deleteConsoleDatabase(): Promise<void> {
+async function deleteUiStateDatabase(): Promise<void> {
   if (typeof indexedDB === "undefined") {
     throw new Error(
-      `this page has no indexedDB global, so ${CONSOLE_DATABASE_NAME} cannot be deleted and every ` +
+      `this page has no indexedDB global, so ${UI_STATE_DATABASE_NAME} cannot be deleted and every ` +
         "case after this one would mount over the records the case before it wrote",
     );
   }
 
-  const deletion = indexedDB.deleteDatabase(CONSOLE_DATABASE_NAME);
+  const deletion = indexedDB.deleteDatabase(UI_STATE_DATABASE_NAME);
   await new Promise<void>((resolve, reject) => {
     deletion.onsuccess = (): void => {
       resolve();
@@ -305,7 +305,7 @@ async function deleteConsoleDatabase(): Promise<void> {
     deletion.onerror = (): void => {
       reject(
         new Error(
-          `${CONSOLE_DATABASE_NAME} refused to be deleted (${describeDeletionFailure(deletion.error)}), ` +
+          `${UI_STATE_DATABASE_NAME} refused to be deleted (${describeDeletionFailure(deletion.error)}), ` +
             "so the next mount would be restored into the arrangement the last one left",
         ),
       );
@@ -313,7 +313,7 @@ async function deleteConsoleDatabase(): Promise<void> {
     deletion.onblocked = (): void => {
       reject(
         new Error(
-          `${CONSOLE_DATABASE_NAME} is still open, so its deletion is blocked: a console mounted ` +
+          `${UI_STATE_DATABASE_NAME} is still open, so its deletion is blocked: a console mounted ` +
             "earlier in this page never had its store closed, and the next mount would be restored " +
             "into the arrangement that console left",
         ),

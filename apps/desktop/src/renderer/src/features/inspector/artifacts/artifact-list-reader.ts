@@ -13,7 +13,7 @@
 // The methods stay on this class because the reader is the one object a surface holds.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { ArtifactRowActions } from "./artifact-row-actions.js";
 import { type ArtifactRowActionHost } from "./artifact-row-action-host.js";
 import {
@@ -36,7 +36,7 @@ export interface ArtifactPaneReaderOptions extends ArtifactReadScheduleOptions {
 
 /** One pane's reading of a session's artifacts, and the acts a surface can put to the port. */
 export class ArtifactPaneReader extends ArtifactReadSchedule {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #actions: ArtifactRowActions;
   readonly #changes = new Emitter<ArtifactListReading>("artifact pane reading");
 

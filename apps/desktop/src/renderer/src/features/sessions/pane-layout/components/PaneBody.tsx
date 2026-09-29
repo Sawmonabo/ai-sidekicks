@@ -6,13 +6,13 @@
 // arms of its own.
 
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type PaneContext, type PaneDescriptor } from "@renderer/console/seats/index.js";
 
 /** The registered body, or the refusal that says why this pane has no address. */
 export function PaneBody(props: {
   readonly descriptor: PaneDescriptor;
-  readonly context: PaneContext | ConsoleRefusal;
+  readonly context: PaneContext | Refusal;
 }): React.ReactNode {
   return isPaneContext(props.context) ? (
     props.descriptor.render(props.context)
@@ -22,6 +22,6 @@ export function PaneBody(props: {
 }
 
 /** Whether what the deck resolved for a pane is an address or a refusal. */
-function isPaneContext(resolved: PaneContext | ConsoleRefusal): resolved is PaneContext {
+function isPaneContext(resolved: PaneContext | Refusal): resolved is PaneContext {
   return !("code" in resolved);
 }

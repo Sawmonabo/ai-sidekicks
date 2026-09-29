@@ -55,7 +55,7 @@ describe("repos — the pane kinds", () => {
         {descriptor?.render(contextForPane())}
       </LiveAnnouncerProvider>,
     );
-    // The name is a pattern and not the whole name, because `seats/ConsolePaneChrome`
+    // The name is a pattern and not the whole name, because `seats/PaneFrame`
     // names a pane by its address trail and the kind is the crumb the trail ends on.
     const region = within(container).getByRole("region", { name: /Diff$/u });
     // And the trail really is a trail: the subject the descriptor was handed is in the

@@ -20,15 +20,15 @@
 
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
 import type { AttachedPaneViewHost } from "./view-host.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** A host that records what it was handed, and can be told to reject. */
 export class RecordingViewHost implements AttachedPaneViewHost {
   public readonly transport = "recording";
   public readonly samples: PaneGeometrySample[] = [];
-  #rejection: ConsoleRefusal | undefined;
+  #rejection: Refusal | undefined;
 
-  public rejectNextWith(refusal: ConsoleRefusal): void {
+  public rejectNextWith(refusal: Refusal): void {
     this.#rejection = refusal;
   }
 

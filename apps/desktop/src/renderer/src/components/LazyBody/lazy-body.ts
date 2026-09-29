@@ -79,7 +79,7 @@ export interface PreloadableRegistry<TKey> {
  * the reason they would be wrong here — two boards in one process (an auxiliary window,
  * a suite composing its own) would share one.
  */
-export class LoadedLazyBody<TContext extends object> {
+export class LoaderBackedBody<TContext extends object> {
   readonly #loader: LazyBodyLoader<TContext>;
   readonly #fallback: (context: TContext) => React.ReactNode;
   /**
@@ -162,7 +162,7 @@ export class LoadedLazyBody<TContext extends object> {
    * A FULFILLED LOAD IS MEMOISED FOREVER. A REJECTED ONE IS NOT, and keeping it was a
    * defect rather than a policy. The memo outlives every mount — the registration is the
    * board's and the board is the window's — so a retained rejection poisoned the
-   * registration for the life of the window: `SurfaceErrorBoundary`'s "Try again"
+   * registration for the life of the window: `ErrorBoundary`'s "Try again"
    * remounted the subtree onto the same dead promise without the loader ever being asked
    * again, and navigating away and back arrived at it too. Clearing it is what makes the
    * next ask a real request.

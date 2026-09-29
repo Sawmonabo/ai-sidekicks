@@ -14,14 +14,14 @@
 // rewrites the meaning of every row that agent already wrote.
 
 import type { OklchColor } from "./color.js";
-import { ACTOR_HUE_STEPS } from "./palette.js";
-import { readHueWheelColor, actorHueTokenName } from "./tokens.js";
+import { HUE_WHEEL_STEPS } from "./palette.js";
+import { readHueWheelColor, formatHueWheelTokenName } from "./tokens.js";
 
 /** One agent's place on the wheel. */
-export interface ActorHueAssignment {
+export interface AgentHueAssignment {
   /** The identity this assignment belongs to. */
   readonly userId: string;
-  /** Wheel step, 0 to `ACTOR_HUE_STEPS - 1`. */
+  /** Wheel step, 0 to `HUE_WHEEL_STEPS - 1`. */
   readonly step: number;
   /** The resolved color of the step. */
   readonly color: OklchColor;
@@ -37,8 +37,8 @@ export interface ActorHueAssignment {
  * sessions each start their own wheel.
  */
 export class AgentHueAllocator {
-  readonly #assignmentsByUserId = new Map<string, ActorHueAssignment>();
-  readonly #occupantCountByStep: number[] = new Array<number>(ACTOR_HUE_STEPS).fill(0);
+  readonly #assignmentsByUserId = new Map<string, AgentHueAssignment>();
+  readonly #occupantCountByStep: number[] = new Array<number>(HUE_WHEEL_STEPS).fill(0);
 
   /**
    * Admit an identity in log order and return its assignment. Idempotent:
@@ -49,7 +49,7 @@ export class AgentHueAllocator {
    * a user id, an agent id, or nobody, with no discriminator between the first two, so
    * the wheel is keyed on whoever an event is attributed to.
    */
-  public admit(userId: string): ActorHueAssignment {
+  public admit(userId: string): AgentHueAssignment {
     const existing = this.#assignmentsByUserId.get(userId);
     if (existing !== undefined) {
       return existing;
@@ -58,11 +58,11 @@ export class AgentHueAllocator {
     const step = this.#leastOccupiedStep();
     const occupantCount = this.#occupantCountByStep[step] ?? 0;
 
-    const assignment: ActorHueAssignment = {
+    const assignment: AgentHueAssignment = {
       userId,
       step,
       color: readHueWheelColor(step),
-      tokenName: actorHueTokenName(step),
+      tokenName: formatHueWheelTokenName(step),
       sharesStepWithEarlierUser: occupantCount > 0,
     };
 
@@ -77,12 +77,12 @@ export class AgentHueAllocator {
    * must render the unrecognized shape, not silently mint one, so this does NOT
    * allocate.
    */
-  public assignmentFor(userId: string): ActorHueAssignment | undefined {
+  public assignmentFor(userId: string): AgentHueAssignment | undefined {
     return this.#assignmentsByUserId.get(userId);
   }
 
   /** Every assignment, in log order. */
-  public assignments(): readonly ActorHueAssignment[] {
+  public assignments(): readonly AgentHueAssignment[] {
     return [...this.#assignmentsByUserId.values()];
   }
 
@@ -99,7 +99,7 @@ export class AgentHueAllocator {
   #leastOccupiedStep(): number {
     let bestStep = 0;
     let bestOccupantCount = this.#occupantCountByStep[0] ?? 0;
-    for (let step = 1; step < ACTOR_HUE_STEPS && bestOccupantCount > 0; step += 1) {
+    for (let step = 1; step < HUE_WHEEL_STEPS && bestOccupantCount > 0; step += 1) {
       const occupantCount = this.#occupantCountByStep[step] ?? 0;
       if (occupantCount < bestOccupantCount) {
         bestStep = step;

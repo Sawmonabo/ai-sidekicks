@@ -12,7 +12,7 @@
 // goes through it. The scheme's key is shared because a second reader, the end-to-end
 // tier opening its own connection, addresses that record directly.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ChordPlatform } from "@renderer/console/primitives/index.js";
 import type { Keybinding } from "../commands/command-types.js";
@@ -32,7 +32,7 @@ export type KeybindingBindResult =
   | {
       readonly outcome: "bound";
       readonly chord: KeybindingOverride;
-      readonly unsaved: ConsoleRefusal | undefined;
+      readonly unsaved: Refusal | undefined;
     }
   | { readonly outcome: "refused"; readonly refusal: KeybindingOverrideRefusal };
 

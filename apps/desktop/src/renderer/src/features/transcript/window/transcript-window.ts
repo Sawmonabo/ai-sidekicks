@@ -26,7 +26,7 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   ChildRunIndex,
   type ChildRunEntry,
@@ -155,7 +155,7 @@ export function readRunGroupKey(row: TimelineRow): string | undefined {
  * with no store and no React at all — `groupRowsByRun`' own precedent, for its reason.
  */
 export function deriveLedgerWindow(
-  timeline: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
   hasUnreceivedEntries: boolean,
   retention: TranscriptRowRetention = new TranscriptRowRetention(),
 ): TranscriptWindowModel {

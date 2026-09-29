@@ -27,7 +27,7 @@ import type { SessionStore, SessionStoreState } from "../session-store.js";
 import type { TimelineResumeDecision } from "../timeline-resume.js";
 
 /** Whether the store has been initialised, so a surface can tell "not loaded" apart. */
-export function useSessionInitialised(store: SessionStore): boolean {
+export function useSessionInitialized(store: SessionStore): boolean {
   return useStore(store.readable, readInitialised);
 }
 
@@ -96,8 +96,8 @@ export function useSessionDegradedCause(store: SessionStore): SessionDegradedCau
  *
  * SUBSCRIBED THROUGH THE REGISTRY'S OWN SETTLEMENT FAN-OUT, and it has to be. This
  * reading used to subscribe to the store's revision counter on the claim that a
- * completed read writes the decision and calls `initialise` in the same tick — but
- * `initialise` consults `admitsSnapshotAt` and refuses a snapshot behind the store's
+ * completed read writes the decision and calls `initialize` in the same tick — but
+ * `initialize` consults `admitsSnapshotAt` and refuses a snapshot behind the store's
  * cursor, which is exactly what the recovering re-read after a refused resume position
  * answers with. The read completes, the decision settles, the revision does not move,
  * and a reading watching the revision alone never learns the refusal happened. So the

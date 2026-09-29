@@ -9,7 +9,7 @@ import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
 import { APPROVALS_SCENARIO } from "../../../../../fixtures/scenarios/approval-request.js";
 import { SessionStore } from "../session/session-store.js";
 import {
-  type ConsoleSessionEvent,
+  type ProjectedSessionEvent,
   type EntityProjectorTable,
 } from "../session/entities/entities.js";
 
@@ -32,7 +32,7 @@ export function storeDrivenByScenario(): SessionStore {
  */
 export function storeOver(
   projectors: EntityProjectorTable | undefined,
-  extraEvents: readonly ConsoleSessionEvent[] = [],
+  extraEvents: readonly ProjectedSessionEvent[] = [],
 ): SessionStore {
   const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);
   const store = new SessionStore({
@@ -42,12 +42,12 @@ export function storeOver(
   // A base state current as of the beat just before the scenario's first: a store
   // treats the distance from its cursor to an event as a gap, so a cursor of `-1`
   // would degrade a store for a hole the scenario never had.
-  store.initialise({
+  store.initialize({
     cursor: Math.min(...sequences) - 1,
     entities: [],
   });
   store.applyBatch([
-    ...APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent),
+    ...APPROVALS_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),
     ...extraEvents,
   ]);
   return store;
@@ -59,7 +59,7 @@ export function approvalEvent(options: {
   readonly sequence: number;
   readonly payload: Readonly<Record<string, unknown>> | undefined;
   readonly actorId?: string;
-}): ConsoleSessionEvent {
+}): ProjectedSessionEvent {
   return {
     id: `event-${String(options.sequence)}`,
     sessionId: SESSION_ID,

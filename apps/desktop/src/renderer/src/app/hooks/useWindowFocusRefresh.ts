@@ -22,7 +22,7 @@
 
 import { useEffect } from "react";
 
-import type { FrameStore } from "@renderer/store/window/window-store.js";
+import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
 /**
@@ -33,7 +33,7 @@ import type { SessionStoreRegistry } from "@renderer/store/session/session-store
  * window coming back from one that never left.
  */
 export function useWindowFocusRefresh(
-  frameStore: FrameStore,
+  frameStore: WindowStore,
   sessionStoreRegistry: SessionStoreRegistry,
 ): void {
   useEffect(() => {

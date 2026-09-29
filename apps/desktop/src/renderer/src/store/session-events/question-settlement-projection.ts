@@ -22,8 +22,8 @@
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";
 import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
+  StoredEntity,
+  ProjectedSessionEvent,
   EntityMutation,
   EntityProjectorTable,
 } from "../session/entities/entities.js";
@@ -31,7 +31,7 @@ import { driverAskIdentitySegments } from "../session/waiting-on-person/driver-a
 import {
   QUESTION_EVENT_TYPES,
   readQuestionPayload,
-  type DriverAskReading,
+  type QuestionReading,
   type QuestionState,
   type QuestionSettlement,
 } from "./question-reading.js";
@@ -77,8 +77,8 @@ export const QUESTION_SETTLEMENT_PROJECTOR_OWNER = "session-events";
  * ask's and this module is the one place it is composed.
  */
 export function findQuestionSettlement(
-  questions: Readonly<Record<string, ConsoleEntity>>,
-  ask: DriverAskReading,
+  questions: Readonly<Record<string, StoredEntity>>,
+  ask: QuestionReading,
 ): QuestionSettlement | undefined {
   const key = questionKeyOf(ask.runId, ask.askId);
   const body = key === undefined ? undefined : questions[key]?.body;
@@ -98,7 +98,7 @@ export function findQuestionSettlement(
 }
 
 /** Fold one terminal into the question it settles. Pure: it reads the event alone. */
-function projectQuestionSettlement(event: ConsoleSessionEvent): readonly EntityMutation[] {
+function projectQuestionSettlement(event: ProjectedSessionEvent): readonly EntityMutation[] {
   const payload = event.payload ?? {};
   const question = readQuestionPayload(event.kind, payload);
   const key =

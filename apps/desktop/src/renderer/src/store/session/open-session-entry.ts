@@ -52,9 +52,9 @@
 // it again, which would cost two reads per refresh for as long as it stayed refused.
 //
 // WHY THE DECISION CARRIES ITS OWN NOTIFICATION. It used to ride the store's revision
-// bump on the claim that a completed read writes the decision AND calls `initialise`
+// bump on the claim that a completed read writes the decision AND calls `initialize`
 // in the same tick. That pairing is not sound and the refusal path is where it breaks:
-// `initialise` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
+// `initialize` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
 // cursor — and the re-read after a refused position answers at the beginning of the
 // window, which is exactly behind it. So the read completes, the decision settles, the
 // revision does not move, and a reading subscribed to the revision alone never learns
@@ -64,7 +64,7 @@
 // It reads no wire itself. The `read` performer is supplied by the composition
 // root, which is what keeps this family below `bridge/` in the console's DAG.
 
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import type { EntityProjectorTable } from "./entities/entities.js";
 // Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
 // back into `session/` is why: that door is an edge to the trigger surface, which reads
@@ -135,7 +135,7 @@ export interface OpenSessionEntryOptions {
    */
   readonly onTimelineResumeSettled?: () => void;
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
   readonly projectors?: EntityProjectorTable;
   /** Timeline rows each store retains. */
@@ -281,7 +281,7 @@ export class OpenSessionEntry {
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
       // The recovering read submitted nothing, so the window it established opens at
       // the beginning of the log and there is no position before it to name.
-      this.store.initialise(snapshot);
+      this.store.initialize(snapshot);
       return;
     }
     if (snapshot === undefined) {
@@ -295,7 +295,7 @@ export class OpenSessionEntry {
     // where the next one starts and not only when it went wrong.
     this.#settleTimelineResume(decision);
     // A completed re-pull is the ONE thing that clears the sticky degraded
-    // flag — `initialise` does that — which is why the read lands here and
+    // flag — `initialize` does that — which is why the read lands here and
     // not on a caller that might forget.
     //
     // AND THE POSITION THIS READ WAS PERFORMED FROM TRAVELS WITH IT, because this
@@ -307,7 +307,7 @@ export class OpenSessionEntry {
     // for the whole console. Omitted rather than passed as `undefined` where none was
     // submitted: the member is optional and this package forbids the explicit-
     // undefined form.
-    this.store.initialise(
+    this.store.initialize(
       submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
     );
   }

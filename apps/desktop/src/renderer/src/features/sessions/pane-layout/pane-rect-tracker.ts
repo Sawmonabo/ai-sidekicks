@@ -37,7 +37,7 @@
 // only the WHEN.
 
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "./pane-layout-measures.js";
 import {
@@ -49,7 +49,7 @@ import {
 
 /** What a tracker is built from: its frame clock, its write sink and the window's airspace. */
 export interface PaneRectTrackerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Where a deduped batch of rects is written. Called at most once per frame. */
   readonly onFlush: (rects: readonly TrackedRect[]) => void;
   /**
@@ -65,7 +65,7 @@ export interface PaneRectTrackerOptions {
 
 /** Tracks each pane's visible rect and writes the changed ones at most once per frame. */
 export class PaneRectTracker {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #onFlush: (rects: readonly TrackedRect[]) => void;
   readonly #airspace: AirspaceRegistry;
   readonly #elementsByPaneId = new Map<string, Element>();

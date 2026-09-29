@@ -34,7 +34,7 @@
 // projection of the present does not move.
 
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from "./session-state.js";
@@ -42,7 +42,7 @@ import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from ".
 /** What one backward page added to a log, and what it could not. */
 export interface EarlierWindowMerge {
   /** The log with the page's admitted rows in front of it, oldest first. */
-  readonly timeline: readonly ConsoleSessionEvent[];
+  readonly timeline: readonly ProjectedSessionEvent[];
   /** Rows admitted at the head. */
   readonly admitted: number;
   /**
@@ -79,12 +79,12 @@ export interface EarlierWindowDependencies {
  * nothing.
  */
 export function mergeEarlierWindow(
-  timeline: readonly ConsoleSessionEvent[],
-  earlier: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
+  earlier: readonly ProjectedSessionEvent[],
 ): EarlierWindowMerge {
   const headSequence = timeline[0]?.sequence;
   const admittedSequences = new Set<number>();
-  const prefix: ConsoleSessionEvent[] = [];
+  const prefix: ProjectedSessionEvent[] = [];
   let refusedNotEarlier = 0;
   let duplicates = 0;
 
@@ -144,7 +144,7 @@ export interface EarlierWindowFold {
  */
 export function foldEarlierWindowPage(
   current: SessionStoreState,
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   collaborators: EarlierWindowDependencies,
 ): EarlierWindowFold {
   const admissible = orderBatchBySequence(

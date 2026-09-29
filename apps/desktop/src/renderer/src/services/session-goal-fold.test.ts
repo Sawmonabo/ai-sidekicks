@@ -6,7 +6,7 @@
 // fold ranks by are the origin's, and the projection says which entry it read.
 
 import { describe, expect, it } from "vitest";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { foldSessionGoal } from "./session-goal.js";
 import {
   event,
@@ -176,7 +176,7 @@ describe("the fold is ordered by origin and not by arrival", () => {
     ] as const;
     const arrivalOnThisNode = [authored[0], authored[1], authored[2]];
     const arrivalOnThatNode = [authored[2], authored[1], authored[0]];
-    const timelineFor = (arrivals: readonly (typeof authored)[number][]): ConsoleSessionEvent[] =>
+    const timelineFor = (arrivals: readonly (typeof authored)[number][]): ProjectedSessionEvent[] =>
       arrivals.map((entry, index) => ({
         // The local position is this node's; the envelope id is the event's own and
         // is the same wherever it lands, which is why the comparator may use it.

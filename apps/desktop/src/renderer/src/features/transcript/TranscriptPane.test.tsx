@@ -1,6 +1,6 @@
 // What this pane hands its chrome, and the hole in the middle of it.
 //
-// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/ConsolePaneChrome`'s:
+// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/PaneFrame`'s:
 // which controls it draws and when, that a pane is named by its whole trail, that an
 // unattributed pane borrows nobody's hue, and that a mismatched address is refused
 // rather than thrown are all claims about that component, asserted once beside it.
@@ -24,7 +24,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
+import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
 import { registerTimelineRowRenderer } from "@renderer/console/seats/index.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
@@ -79,7 +79,7 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 
   it("hands over the hue the deck attributed the pane to, untouched", () => {
-    const actorHue = tokenReference(actorHueTokenName(3));
+    const actorHue = tokenReference(formatHueWheelTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
   });
@@ -144,7 +144,7 @@ describe("TimelinePane — the row slot", () => {
   it("negative control: the same store with no events shows the empty session", () => {
     registerTimelineRowRenderer("timeline-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [] });
+    sessionStore.initialize({ cursor: -1, entities: [] });
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
     });

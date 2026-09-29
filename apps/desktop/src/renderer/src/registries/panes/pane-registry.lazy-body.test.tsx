@@ -20,12 +20,12 @@ import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
-import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { countingLoader, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 /** A pane body of the shape a converted family ships: its own chrome around its content. */
 function chromedBody(
@@ -33,7 +33,7 @@ function chromedBody(
   text: string,
 ): (context: PaneContext) => React.ReactNode {
   return (context: PaneContext): React.ReactNode =>
-    createElement(ConsolePaneChrome, {
+    createElement(PaneFrame, {
       kind,
       sessionId: undefined,
       focusHue: context.focusHue,
@@ -69,7 +69,7 @@ describe("the deck's board — a loader-form registration", () => {
 
     // Before: the chrome is painted and the body is not, and the pane says which body it
     // is waiting for.
-    expect(pendingPaneKindsIn(container)).toStrictEqual(["diff"]);
+    expect(listPendingBodyNames(container)).toStrictEqual(["diff"]);
     expect(container.textContent).not.toContain("the diff body");
     expect(container.querySelectorAll(".meridian-pane")).toHaveLength(1);
 
@@ -78,7 +78,7 @@ describe("the deck's board — a loader-form registration", () => {
     // After: the body is there and the marker is gone, so a capture taken now is a
     // picture of the pane rather than of its reserved region.
     expect(container.textContent).toContain("the diff body");
-    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(listPendingBodyNames(container)).toStrictEqual([]);
   });
 
   it("reserves the same box the loaded body draws", async () => {
@@ -123,7 +123,7 @@ describe("the deck's board — a loader-form registration", () => {
       <>{registry.descriptorFor("browser")?.render(syntheticPaneContextAt("browser"))}</>,
     );
     await settle();
-    expect(pendingPaneKindsIn(container)).toStrictEqual(["browser"]);
+    expect(listPendingBodyNames(container)).toStrictEqual(["browser"]);
   });
 });
 
@@ -143,7 +143,7 @@ describe("the deck's board — one fetch per registration", () => {
       <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>,
     );
 
-    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(listPendingBodyNames(container)).toStrictEqual([]);
     expect(container.textContent).toContain("the diff body");
   });
 

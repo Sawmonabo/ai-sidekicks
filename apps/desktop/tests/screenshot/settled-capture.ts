@@ -12,7 +12,7 @@
 //
 // SO THE REFUSAL IS STRUCTURAL RATHER THAN A WAIT. There is no timer to tune and no
 // "settled" heuristic to get wrong: `PendingPaneBody` stamps a marker while its module
-// is in flight, `pendingPaneKindsIn` reads it back, and a capture whose tree carries one
+// is in flight, `listPendingBodyNames` reads it back, and a capture whose tree carries one
 // fails by name. A surface that needs its body first awaits it in its own mount helper —
 // which is where the knowledge of what that surface is waiting for lives.
 //
@@ -42,10 +42,10 @@
 import { expect } from "vitest";
 import { page } from "vitest/browser";
 
-// The LEAF and not the family door: `pendingPaneKindsIn` has no production reader, so
+// The LEAF and not the family door: `listPendingBodyNames` has no production reader, so
 // `console/seats/index.ts` carries no line for it — a door line only a test reaches is
 // what the module-shape rules in `apps/desktop/AGENTS.md` reject.
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { settle } from "../helpers/settle.js";
 import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
 
@@ -94,7 +94,7 @@ class TesterWindowDriver implements CaptureWindowDriver {
  * Refuse a capture whose tree still holds an unloaded pane body.
  *
  * TAKES THE KINDS RATHER THAN THE ELEMENT, which is what makes the refusal itself
- * testable without a browser: the DOM read is `pendingPaneKindsIn`'s and has its own
+ * testable without a browser: the DOM read is `listPendingBodyNames`'s and has its own
  * suite beside the marker it reads, and this half is a pure function a node tier can
  * plant a failure into. Fused into one function, the only way to prove the refusal
  * fires would be to mint a real half-loaded capture, which is the thing it exists to
@@ -285,14 +285,14 @@ export class CaptureWindow {
  * `holdWhole` has run. `capture-viewport.ts` states the rule and owns the number.
  */
 export async function captureSettled(element: Element, captureName: string): Promise<void> {
-  assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
+  assertNoPendingPaneBodies(listPendingBodyNames(element), captureName);
   const captureWindow = new CaptureWindow({
     width: window.innerWidth,
     height: window.innerHeight,
   });
   try {
     await captureWindow.holdWhole(element, captureName);
-    assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
+    assertNoPendingPaneBodies(listPendingBodyNames(element), captureName);
     await expect(element).toMatchScreenshot(captureName, {
       timeout: stabilityWaitMsFor(captureWindow.heldViewportRatio),
     });

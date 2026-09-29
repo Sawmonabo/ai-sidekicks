@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityMutation,
 } from "@renderer/store/session/entities/entities.js";
 import { EntityProjectorRegistry } from "./entity-projector-registry.js";
@@ -23,7 +23,7 @@ const PROBE_EVENT_KIND = "probe.registered";
 /** A projector that names the event it saw, so a snapshot can be shown to hold it. */
 function probeProjector(
   entityId: string,
-): (event: ConsoleSessionEvent) => readonly EntityMutation[] {
+): (event: ProjectedSessionEvent) => readonly EntityMutation[] {
   return (event) => [
     {
       operation: "upsert",

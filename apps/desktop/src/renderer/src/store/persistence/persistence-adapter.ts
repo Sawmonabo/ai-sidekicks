@@ -14,7 +14,7 @@
 // quota gauge carries the same reason so a surface reading only the gauge cannot
 // report a silent nothing where a degradation belongs.
 
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
 import type { PersistedValueClass } from "./persisted-value-classes.js";
 
@@ -119,13 +119,13 @@ export interface PersistenceAdapter {
 /**
  * An adapter-level failure, carrying the refusal the store will surface.
  *
- * A `ConsoleRefusalError` rather than a second error class doing the same job: the
+ * A `RefusalError` rather than a second error class doing the same job: the
  * console has one refusal-carrying exception, and an adapter failure caught three
- * layers up is `isConsoleRefusal`-readable without anyone having to know this
+ * layers up is `isRefusal`-readable without anyone having to know this
  * subtree exists. All this subclass adds is the narrowed refusal type and its own
  * name.
  */
-export class PersistenceAdapterError extends ConsoleRefusalError {
+export class PersistenceAdapterError extends RefusalError {
   /**
    * Narrowed, not redeclared: the base constructor assigns the field and `declare`
    * emits no class member, so this is a type-level narrowing with no runtime

@@ -11,7 +11,7 @@
 // callers — the overlay registry and the pane's position observer — bound motion
 // differently while sharing one loop.
 
-import type { ConsoleClock, ScheduledHandle } from "@renderer/lib/clock.js";
+import type { Clock, ScheduledHandle } from "@renderer/lib/clock.js";
 
 export interface MotionFrameSamplerOptions {
   /**
@@ -25,7 +25,7 @@ export interface MotionFrameSamplerOptions {
    */
   readonly isMotionRunning: () => boolean;
   /** The frame source. A real clock unless a test says otherwise. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Called once per frame while the subject is moving, and once as it comes to rest. */
   readonly onFrame: () => void;
 }
@@ -48,7 +48,7 @@ export interface MotionFrameSamplerOptions {
  */
 export class MotionFrameSampler {
   readonly #isMotionRunning: () => boolean;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #onFrame: () => void;
   #queuedFrame: ScheduledHandle | undefined;
 

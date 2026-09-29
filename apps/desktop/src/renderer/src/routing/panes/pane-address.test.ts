@@ -21,16 +21,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
-import { type ConsolePaneAddress } from "./pane-address.js";
-import { parseConsolePaneAddress } from "./parse-pane-address.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
+import { type PaneAddress } from "./pane-address.js";
+import { parsePaneAddress } from "./parse-pane-address.js";
 import { AGENT, ARTIFACT, BROWSER_PAGE, RUN, refusalFrom } from "./pane-address.test-support.js";
 
 /** One arm of the address union, so a case can read the member that arm carries. */
-type AddressArm<TKind extends ConsolePaneAddress["kind"]> = Extract<
-  ConsolePaneAddress,
-  { readonly kind: TKind }
->;
+type AddressArm<TKind extends PaneAddress["kind"]> = Extract<PaneAddress, { readonly kind: TKind }>;
 
 describe("the address union, at a typed call site", () => {
   it("refuses an entity kind the pane is not a view of", () => {
@@ -113,14 +110,14 @@ const CHECKOUT_ENTITY_KINDS = ["workspace", "worktree"] as const;
 /** Kinds that exist in the store and own no checkout, so no record or change set is drawn. */
 const KINDS_WITHOUT_A_CHECKOUT = ["user", "repo"] as const;
 
-const REPO: ConsoleEntityRef & { readonly kind: "repo" } = { kind: "repo", id: "repo-1" };
+const REPO: EntityRef & { readonly kind: "repo" } = { kind: "repo", id: "repo-1" };
 
 describe("the inspector, over the checkout the session is holding", () => {
   it("parses an inspector address for a workspace and for a worktree", () => {
     for (const entityKind of CHECKOUT_ENTITY_KINDS) {
-      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies EntityRef;
 
-      expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
+      expect(parsePaneAddress("inspector", entity)).toStrictEqual({
         kind: "inspector",
         entity,
       });
@@ -136,7 +133,7 @@ describe("the inspector, over the checkout the session is holding", () => {
     for (const entityKind of [...KINDS_WITHOUT_A_CHECKOUT, "run"]) {
       const entity = { kind: entityKind, id: `${entityKind}-1` };
 
-      expect(refusalFrom(parseConsolePaneAddress("inspector", entity)).code).toBe(
+      expect(refusalFrom(parsePaneAddress("inspector", entity)).code).toBe(
         "pane-entity-kind-mismatch",
       );
     }
@@ -146,9 +143,9 @@ describe("the inspector, over the checkout the session is holding", () => {
 describe("the diff pane, over the same checkout", () => {
   it("parses a diff address for a workspace and for a worktree", () => {
     for (const entityKind of CHECKOUT_ENTITY_KINDS) {
-      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies EntityRef;
 
-      expect(parseConsolePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
+      expect(parsePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
     }
   });
 
@@ -159,18 +156,12 @@ describe("the diff pane, over the same checkout", () => {
     // @ts-expect-error a run owns no checkout, so no change set is drawn for it
     const runDiff: AddressArm<"diff"> = { kind: "diff", entity: RUN };
     expect(runDiff.entity.kind).toBe("run");
-    expect(refusalFrom(parseConsolePaneAddress("diff", RUN)).code).toBe(
-      "pane-entity-kind-mismatch",
-    );
-    expect(refusalFrom(parseConsolePaneAddress("diff", ARTIFACT)).code).toBe(
-      "pane-entity-kind-mismatch",
-    );
+    expect(refusalFrom(parsePaneAddress("diff", RUN)).code).toBe("pane-entity-kind-mismatch");
+    expect(refusalFrom(parsePaneAddress("diff", ARTIFACT)).code).toBe("pane-entity-kind-mismatch");
     for (const entityKind of KINDS_WITHOUT_A_CHECKOUT) {
       const entity = { kind: entityKind, id: `${entityKind}-1` };
 
-      expect(refusalFrom(parseConsolePaneAddress("diff", entity)).code).toBe(
-        "pane-entity-kind-mismatch",
-      );
+      expect(refusalFrom(parsePaneAddress("diff", entity)).code).toBe("pane-entity-kind-mismatch");
     }
   });
 });

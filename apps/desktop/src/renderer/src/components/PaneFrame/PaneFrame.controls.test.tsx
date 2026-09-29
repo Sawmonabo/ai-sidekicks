@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneChrome } from "./PaneFrame.js";
+import { PaneFrame } from "./PaneFrame.js";
 import { renderPaneFrame } from "./PaneFrame.test-support.js";
 import { PaneControlsContext } from "./pane-controls.js";
 
@@ -22,12 +22,12 @@ function controlLabels(pane: HTMLElement): readonly (string | null)[] {
   );
 }
 
-describe("ConsolePaneChrome — where the controls come from", () => {
+describe("PaneFrame — where the controls come from", () => {
   it("draws no control when nobody can close the pane", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(controlLabels(pane)).toStrictEqual([]);
   });
@@ -35,9 +35,9 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   it("takes the close from the deck's context", () => {
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(controlLabels(pane)).toStrictEqual(["Close this pane"]);
@@ -53,7 +53,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
           },
         }}
       >
-        <ConsolePaneChrome
+        <PaneFrame
           kind="timeline"
           sessionId="session-1"
           focusHue={undefined}
@@ -62,7 +62,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
           }}
         >
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     pane.querySelector<HTMLButtonElement>(".meridian-pane__control")?.click();
@@ -72,14 +72,14 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   it("puts the kind's own actions before the close", () => {
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome
+        <PaneFrame
           kind="diff"
           sessionId="session-1"
           focusHue={undefined}
           actions={<button type="button">Stage</button>}
         >
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     const buttons = [...pane.querySelectorAll("button")].map((button) => button.textContent);
@@ -88,7 +88,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   });
 });
 
-describe("ConsolePaneChrome — the drag handle", () => {
+describe("PaneFrame — the drag handle", () => {
   it("hands the host its own head element, which is what the drag adapter binds to", () => {
     const registered: (HTMLElement | null)[] = [];
     const pane = renderPaneFrame(
@@ -99,9 +99,9 @@ describe("ConsolePaneChrome — the drag handle", () => {
           },
         }}
       >
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(registered[0]).toBe(pane.querySelector(".meridian-pane__head"));
@@ -113,9 +113,9 @@ describe("ConsolePaneChrome — the drag handle", () => {
     const registered: (HTMLElement | null)[] = [];
     renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(registered).toStrictEqual([]);

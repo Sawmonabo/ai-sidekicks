@@ -20,7 +20,7 @@
 // definition registry view, and `sessions/` from the attention read. View families are
 // siblings, so no one of them can hold a hook the other two call — the family that
 // wrote it would be the family the others deep-import into. That is the same argument
-// `SurfaceAbsence` and `primitives/chord/chord-format.ts` are here on, and it is why this is a
+// `ScreenNotice` and `primitives/chord/chord-format.ts` are here on, and it is why this is a
 // primitive rather than a settings module that grew readers.
 //
 // IT OWNS NO LATCH. `reading-announcement.ts` next door states the "once per distinct

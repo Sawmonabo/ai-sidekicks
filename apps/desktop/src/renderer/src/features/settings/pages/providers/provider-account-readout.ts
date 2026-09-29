@@ -19,7 +19,7 @@ import type {
 import type { UnreadableDeliveryReading } from "@renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "@renderer/services/wire-reads/read-lifecycle.js";
 import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import type { ProviderQuotaFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
 /**
  * The empty projection, named once so an unread registry shares one frozen array.
@@ -99,7 +99,7 @@ export interface ProviderAccountDeliveryReading {
 /** The four things a readout is composed from, named so no caller passes a reading. */
 export interface ProviderAccountReadoutParts {
   /** Which reading is current for each key, and every account the registry carries. */
-  readonly fold: ProviderQuotaFold;
+  readonly fold: ProviderAccountFold;
   /**
    * What the deliveries carry that the fold does not hold.
    *

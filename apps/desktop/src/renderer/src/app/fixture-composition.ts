@@ -8,7 +8,7 @@
 // session named here exists.
 
 import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { ScenarioFixtureControl } from "@renderer/services/daemon/selection.fixture.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
@@ -56,7 +56,7 @@ export function createFixtureComposition(scenarioId: string): BridgeComposition 
   return {
     createBridge: () => createFixtureBridge({ scenario }),
     installBridgeHandles: (bridge) => {
-      const removeTripwires = hangOnPage(page, TRIPWIRE_FIXTURE_GLOBAL, consoleTripwires);
+      const removeTripwires = hangOnPage(page, TRIPWIRE_FIXTURE_GLOBAL, windowTripwires);
       const engine = bridge.scenarioEngine;
       const removeScenarioControl =
         engine === undefined

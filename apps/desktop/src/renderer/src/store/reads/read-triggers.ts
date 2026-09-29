@@ -24,7 +24,7 @@
 // keep a second copy of a four-line flip, the flip moved into this module's own
 // memory — beside the timeline cursor it is minted and discarded with, because they
 // are one memory of one session's history — and the bridge module was deleted.
-import type { ConsoleSessionEvent } from "../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 
 /**
@@ -67,7 +67,7 @@ export interface ReadTriggerTarget {
    * to re-declare a set, and the set is what two readings asking the same question must
    * agree on.
    */
-  admitsTriggeringEvent?(event: ConsoleSessionEvent): boolean;
+  admitsTriggeringEvent?(event: ProjectedSessionEvent): boolean;
   /** Ask for a read. Coalescing, debouncing, and the call itself are the reading's. */
   requestRead(reason: RefreshReason): void;
 }
@@ -86,7 +86,10 @@ export interface ReadTriggerTarget {
  * The kind is checked FIRST and the predicate only after, so a reading pays the cost of
  * reading a payload only for frames it had already declared an interest in.
  */
-export function eventTriggersRead(target: ReadTriggerTarget, event: ConsoleSessionEvent): boolean {
+export function eventTriggersRead(
+  target: ReadTriggerTarget,
+  event: ProjectedSessionEvent,
+): boolean {
   if (!target.triggeringEventKinds.has(event.kind)) {
     return false;
   }

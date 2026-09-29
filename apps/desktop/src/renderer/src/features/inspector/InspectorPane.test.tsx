@@ -33,7 +33,7 @@ const UNUSED_BRIDGE: ConsoleBridge = createFixture().bridge;
 /**
  * The entity an inspector is addressed at.
  *
- * Read off the address union rather than widened to `ConsoleEntityRef`: the
+ * Read off the address union rather than widened to `EntityRef`: the
  * inspector's arm admits a workspace or a worktree, so a run or a repo
  * reference is refused at the address and never reaches this pane.
  */
@@ -72,7 +72,7 @@ function accessibleName(pane: HTMLElement): string {
 /** A session store holding the one worktree the link cases inspect. */
 function storeWithWorktree(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
+  store.initialize({
     cursor: 1,
     entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
   });
@@ -82,7 +82,7 @@ function storeWithWorktree(): SessionStore {
 describe("the inspector's one boundary absence", () => {
   // There is no case for an inspector opened with no entity, and that is the
   // address union's doing: the inspector's arm REQUIRES one, so the refusal lives
-  // at `parseConsolePaneAddress` — where an untyped layout row or route is read —
+  // at `parsePaneAddress` — where an untyped layout row or route is read —
   // and this body is never reached without it.
   it("says so when there is an entity and no session to read it from", () => {
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
@@ -103,7 +103,7 @@ describe("the inspector's one boundary absence", () => {
 describe("the inspector with an entity and a session", () => {
   it("hands the read to the addressed kind's record", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({
+    store.initialize({
       cursor: 1,
       entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
     });

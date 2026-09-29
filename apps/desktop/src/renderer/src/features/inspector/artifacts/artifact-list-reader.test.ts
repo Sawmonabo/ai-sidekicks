@@ -60,7 +60,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
       await readThrough(clock);
       expect(reader.performCount).toBe(1);
 
-      sessionStore.initialise({ cursor: 0, entities: [] });
+      sessionStore.initialize({ cursor: 0, entities: [] });
       sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
@@ -91,7 +91,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     await readThrough(clock);
 
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     await readThrough(clock);
 
     expect(reader.performCount).toBe(2);
@@ -108,7 +108,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     reader.start();
     await readThrough(clock);
 
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.applyBatch([
       eventOfKind(SESSION_ID, "run.queued", 1),
       eventOfKind(SESSION_ID, "workspace.stale", 2),
@@ -129,7 +129,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     expect(clock.pendingCount).toBe(0);
 
     reader.dispose();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));
     await readThrough(clock);

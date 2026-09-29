@@ -13,11 +13,11 @@
 // and the oldest survivor is an ordinary gap the reconciler names on its own.
 
 import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /** Events held for a base state, oldest first, never more than the cap. */
 export class PreInitializationBuffer {
-  readonly #held: ConsoleSessionEvent[] = [];
+  readonly #held: ProjectedSessionEvent[] = [];
   #dropCount = 0;
 
   /** Events waiting for a base state. Never more than `PRE_INITIALISATION_BUFFER_CAP`. */
@@ -45,7 +45,7 @@ export class PreInitializationBuffer {
    * to look at, and the loss the drop causes is reported either way — as the gap
    * between the snapshot cursor and the oldest survivor.
    */
-  public push(event: ConsoleSessionEvent): boolean {
+  public push(event: ProjectedSessionEvent): boolean {
     this.#held.push(event);
     if (this.#held.length <= PRE_INITIALISATION_BUFFER_CAP) {
       return false;
@@ -56,7 +56,7 @@ export class PreInitializationBuffer {
   }
 
   /** Take everything held, leaving the buffer empty. */
-  public drain(): ConsoleSessionEvent[] {
+  public drain(): ProjectedSessionEvent[] {
     return this.#held.splice(0, this.#held.length);
   }
 }

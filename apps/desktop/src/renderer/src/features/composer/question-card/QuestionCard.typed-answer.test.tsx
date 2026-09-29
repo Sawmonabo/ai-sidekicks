@@ -15,8 +15,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
-  ASK_ANSWER_UNSENT,
-  type DriverAskReading,
+  UNSENT_ANSWER_DELIVERY,
+  type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 import { InputAskCard } from "./QuestionCard.js";
 import type { RunId } from "@ai-sidekicks/contracts";
@@ -29,7 +29,7 @@ const SECOND_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150002" as RunId;
 
 const NOW_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 0, 0);
 
-function askOn(runId: RunId): DriverAskReading {
+function askOn(runId: RunId): QuestionReading {
   return {
     askId: SHARED_ASK_ID,
     runId,
@@ -51,7 +51,7 @@ function renderBothAsks(): HTMLElement {
           body={undefined}
           ask={askOn(runId)}
           nowEpochMilliseconds={NOW_MILLISECONDS}
-          delivery={ASK_ANSWER_UNSENT}
+          delivery={UNSENT_ANSWER_DELIVERY}
           onAnswer={() => {
             // The dispatch is another suite's subject; this one is about identity.
           }}

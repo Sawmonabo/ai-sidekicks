@@ -15,8 +15,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SESSION_ID, createHarness } from "./session-event-subscriber.test-support.js";
 
 /** A scenario whose single beat delivers exactly the given payload at time zero. */
@@ -24,7 +24,7 @@ function scenarioDelivering(id: string, event: unknown): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
     id,
-    beats: [{ atMs: 0, event: event as ConsoleSessionEvent }],
+    beats: [{ atMs: 0, event: event as ProjectedSessionEvent }],
   };
 }
 
@@ -32,8 +32,8 @@ function scenarioDelivering(id: string, event: unknown): ConsoleScenario {
 // they are RECORDED instead, because these cases assert that a breach was detected
 // and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 describe("SessionEventBinder — the payload boundary", () => {
@@ -50,7 +50,7 @@ describe("SessionEventBinder — the payload boundary", () => {
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
     // Counted, and deliberately not reported: an unfamiliar payload is a fact
     // about the wire, and a tripwire would name it a defect in the console.
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
 
     binder.dispose();
   });

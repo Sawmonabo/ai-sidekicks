@@ -32,7 +32,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
     registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(2, "run-2")]);
@@ -67,7 +67,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
     registry.enqueue("session-1", [eventAt(1, "run-1")]);
@@ -106,7 +106,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     expect(readCalls).toStrictEqual([["subscribe", "window-focus", "reconnect"]]);
     expect(registry.refreshCountFor("session-1")).toBe(1);
     // The read is what establishes the store; the registry does not make the
-    // caller remember to call `initialise` afterwards.
+    // caller remember to call `initialize` afterwards.
     expect(store.snapshot().initialised).toBe(true);
     expect(store.snapshot().cursor).toBe(7);
     expect(store.snapshot().partitions.run["session-1-run"]?.state).toBe("queued");

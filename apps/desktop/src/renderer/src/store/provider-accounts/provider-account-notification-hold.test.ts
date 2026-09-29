@@ -12,16 +12,16 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "./provider-account-notification-hold.js";
-import { ProviderQuotaNotificationHold } from "./provider-account-notification-hold.js";
+import { ProviderAccountNotificationHold } from "./provider-account-notification-hold.js";
 
 /** Parsed through the registered union rather than cast, so the frame is a real one. */
 function removalOf(accountId: string): ProviderAccountNotification {
   return ProviderAccountNotificationSchema.parse({ kind: "account_removed", accountId });
 }
 
-describe("ProviderQuotaNotificationHold", () => {
+describe("ProviderAccountNotificationHold", () => {
   it("holds nothing until a read begins", () => {
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
 
     expect(hold.isHolding).toBe(false);
     expect(hold.release()).toStrictEqual([]);
@@ -31,7 +31,7 @@ describe("ProviderQuotaNotificationHold", () => {
     // Order is the whole claim: a removal followed by a re-registration and the
     // reverse pair are the same two frames, and only the sequence says which state
     // the registry ended in.
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
     hold.hold(removalOf("acct-two"));
@@ -46,7 +46,7 @@ describe("ProviderQuotaNotificationHold", () => {
   });
 
   it("says the caller must re-read once the cap is reached", () => {
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
     hold.begin();
     for (let held = 0; held < PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP; held += 1) {
       expect(hold.hold(removalOf(`acct-${String(held)}`))).toBe("held");
@@ -61,7 +61,7 @@ describe("ProviderQuotaNotificationHold", () => {
   it("a read begun after a release starts empty rather than replaying the last one's", () => {
     // The overflow path's sequence, and the double-apply the release above rules out:
     // frames handed to the caller once must not be handed over a second time.
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
     hold.release();
@@ -77,7 +77,7 @@ describe("ProviderQuotaNotificationHold", () => {
     // trigger begins a second read while the opening one is still travelling, and the
     // opening one's reply is then discarded by its ordinal. Clearing here dropped
     // every frame it held — silently, by the method whose purpose is that none is.
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
 
@@ -95,7 +95,7 @@ describe("ProviderQuotaNotificationHold", () => {
     // The cap bounds the BUFFER and not one attempt's share of it, so an inherited
     // hold that fills degrades to the same re-read as any other. A cap re-based per
     // attempt would let a run of superseded reads grow the buffer without bound.
-    const hold = new ProviderQuotaNotificationHold();
+    const hold = new ProviderAccountNotificationHold();
     hold.begin();
     for (let held = 0; held < PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP; held += 1) {
       expect(hold.hold(removalOf(`acct-${String(held)}`))).toBe("held");

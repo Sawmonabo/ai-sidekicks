@@ -27,7 +27,7 @@ function establish(
   store: SessionStore,
   options: { readonly cursor: number; readonly touchedAtIso: string },
 ): void {
-  store.initialise({
+  store.initialize({
     cursor: options.cursor,
     entities: [
       {

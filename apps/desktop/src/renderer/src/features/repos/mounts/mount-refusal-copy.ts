@@ -42,7 +42,7 @@
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
-import type { RefusalRecoveryCopy } from "@renderer/lib/refusal-remedies.js";
+import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
 
 /**
  * Every daemon refusal code the repos mount surfaces can receive.
@@ -96,7 +96,7 @@ export interface MountRefusalContext {
 const NO_DISTINCTIONS: readonly string[] = [];
 
 /** What an attach of a folder with no git repository in it reads as. */
-const NOT_A_GIT_REPOSITORY_RECOVERY: RefusalRecoveryCopy = {
+const NOT_A_GIT_REPOSITORY_RECOVERY: CasedRefusalRemedy = {
   nextMove: "Could not attach: not a git repository",
   distinctions: NO_DISTINCTIONS,
 };
@@ -105,7 +105,7 @@ const NOT_A_GIT_REPOSITORY_RECOVERY: RefusalRecoveryCopy = {
  * The table. Total over the codes above, so a code added to the tuple and not here
  * fails to compile rather than surfacing with no move.
  */
-const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecoveryCopy>> = {
+const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, CasedRefusalRemedy>> = {
   "repo.not_found": {
     nextMove:
       "This mount is gone from the session. The list re-reads itself; if the row is still here after that, the read and the daemon disagree.",
@@ -236,7 +236,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
 export function mountRefusalRemedy(
   code: string,
   context?: MountRefusalContext,
-): RefusalRecoveryCopy | undefined {
+): CasedRefusalRemedy | undefined {
   if (code === "workspace.mode_unsupported") {
     const reason = context?.restrictionReason;
     if (reason !== undefined) {

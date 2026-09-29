@@ -172,7 +172,7 @@ describe("readProjectedSessionEvent — the census pairing of type and category"
 
   it("carries no category onto the console event, which no reader above reads", () => {
     // The pairing is CHECKED here and travels no further: every projector routes on
-    // `kind`, so a `category` member on `ConsoleSessionEvent` would be minted ahead of
+    // `kind`, so a `category` member on `ProjectedSessionEvent` would be minted ahead of
     // its reader. Asserted on the whole decoded value in the first case of this file;
     // pinned here as the claim rather than as a side effect of that assertion.
     const decoded = readProjectedSessionEvent(registeredEnvelope());

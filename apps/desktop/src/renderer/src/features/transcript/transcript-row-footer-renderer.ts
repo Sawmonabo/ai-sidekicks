@@ -26,7 +26,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
+import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
 /** What the ledger hands a row footer. */
 export interface TranscriptRowFooterRendererProps {
@@ -47,7 +47,7 @@ export type TimelineRowFooterRenderer = (
   props: TranscriptRowFooterRendererProps,
 ) => React.ReactNode;
 
-const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
+const timelineRowFooterSeat = new SingleEntryRegistry<TimelineRowFooterRenderer>(
   "timeline row footer",
   "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );

@@ -53,7 +53,7 @@ import {
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
 } from "../persistence-caps.js";
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -113,14 +113,14 @@ export interface UiStateStoreOptions {
    * trim — which orders entirely on these stamps — can be driven on frozen time
    * instead of on whether two writes happened to land in the same millisecond.
    */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
 }
 
 export class UiStateStore {
   readonly #adapterReady: Promise<PersistenceAdapter>;
   readonly #sessionPartitionCap: number;
   readonly #recordByteCap: number;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #health = new PersistenceHealthTracker();
   #closed = false;
 

@@ -49,7 +49,7 @@
 // read of ${subject} was refused`), or keeps it out of the verb's way entirely. The
 // suite beside this file asserts it against both a singular and a plural subject.
 
-import type { ConsoleRefusal } from "./refusal.js";
+import type { Refusal } from "./refusal.js";
 import { formatCount } from "./wire-figures.js";
 
 /**
@@ -102,7 +102,7 @@ export type ReadingState =
    * `whole-answer` the refusal is all there is, and on `beside-an-answer` what is on
    * screen arrived some other way and is a fragment of unknown size.
    */
-  | { readonly kind: "refused"; readonly scope: RefusalScope; readonly refusal: ConsoleRefusal }
+  | { readonly kind: "refused"; readonly scope: RefusalScope; readonly refusal: Refusal }
   /**
    * The reading is behind its producer and by how much is not known.
    *
@@ -112,7 +112,7 @@ export type ReadingState =
    * a count nobody sent, and rendering it as `served` would claim a completeness the
    * producer has just said it cannot vouch for.
    */
-  | { readonly kind: "stale"; readonly refusal: ConsoleRefusal | undefined }
+  | { readonly kind: "stale"; readonly refusal: Refusal | undefined }
   /**
    * Deliveries arrived that this build could not read. They changed no row, which is
    * exactly why the rows alone cannot show it: a list that did not move looks like a
@@ -125,7 +125,7 @@ export type ReadingState =
       readonly kind: "partial";
       readonly unreadableCount: number;
       /** The newest unreadable delivery's own parse refusal, where one was kept. */
-      readonly newestRefusal: ConsoleRefusal | undefined;
+      readonly newestRefusal: Refusal | undefined;
     }
   /**
    * The producer cut its own enumeration. How many were dropped is not on the wire
@@ -154,7 +154,7 @@ export type ReadingState =
       readonly kind: "unchecked";
       readonly uncheckedCount: number;
       /** The newest refusal among the parts that went unanswered, where one was kept. */
-      readonly newestRefusal: ConsoleRefusal | undefined;
+      readonly newestRefusal: Refusal | undefined;
     };
 
 /**
@@ -178,7 +178,7 @@ export type PartialReadNotice =
       readonly shape: "sentence";
       /** A whole sentence, leading with nothing. */
       readonly copy: string;
-      readonly refusal: ConsoleRefusal | undefined;
+      readonly refusal: Refusal | undefined;
     }
   | {
       readonly shape: "counted-sentence";
@@ -186,7 +186,7 @@ export type PartialReadNotice =
       readonly figure: string;
       /** The rest of the sentence, which the figure leads. */
       readonly copy: string;
-      readonly refusal: ConsoleRefusal | undefined;
+      readonly refusal: Refusal | undefined;
     };
 
 /** The one shape that claims the reading is whole. */
@@ -205,7 +205,7 @@ const COMPLETE_NOTICE: PartialReadNotice = { shape: "none" };
  */
 export function unreadableDeliveryReading(
   unreadableCount: number,
-  newestRefusal: ConsoleRefusal | undefined,
+  newestRefusal: Refusal | undefined,
 ): ReadingState {
   if (!Number.isInteger(unreadableCount) || unreadableCount < 1) {
     return { kind: "served" };

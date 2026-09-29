@@ -45,11 +45,11 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { settleScheduledRead } from "../scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
 
@@ -82,7 +82,7 @@ function composerSessionStore(throughKind: string): SessionStore {
     sessionId: COMPOSER_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
     (beat) => beat.event.kind === throughKind,
   );
@@ -92,7 +92,7 @@ function composerSessionStore(throughKind: string): SessionStore {
   store.applyBatch(
     COMPOSER_SCENARIO.beats
       .slice(0, lastIndex + 1)
-      .map((beat) => beat.event as ConsoleSessionEvent),
+      .map((beat) => beat.event as ProjectedSessionEvent),
   );
   return store;
 }
@@ -146,7 +146,7 @@ function requireNoReadInFlight(container: HTMLElement): void {
 /** Mount the composer at one address, over a store fed to one point in the log. */
 async function mountComposerAt(options: {
   readonly throughKind: string;
-  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
   const container = await mountSurfaceSettled(
@@ -155,7 +155,7 @@ async function mountComposerAt(options: {
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      frameStore={new FrameStore()}
+      frameStore={new WindowStore()}
       route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,

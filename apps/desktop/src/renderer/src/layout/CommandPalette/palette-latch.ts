@@ -23,7 +23,7 @@
 // one source of truth for eligibility, which is the rule that file states about
 // itself.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type {
   CommandInvocationOutcome,
   CommandRegistry,
@@ -67,7 +67,7 @@ export type PaletteInvocationRefusalCode = Exclude<CommandInvocationOutcome["sta
  * renderings as a shell block or a persistence refusal, with no translation where two
  * of them are shown at once.
  */
-export interface PaletteInvocationRefusal extends ConsoleRefusal {
+export interface PaletteInvocationRefusal extends Refusal {
   readonly code: PaletteInvocationRefusalCode;
 }
 

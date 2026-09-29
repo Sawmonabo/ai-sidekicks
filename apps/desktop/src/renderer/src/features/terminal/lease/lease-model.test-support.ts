@@ -15,7 +15,7 @@
 // raw one rather than beside it, and there is a single answer to what an event's id,
 // session, and instant look like.
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TERMINAL_SCENARIO_CAST } from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
@@ -42,7 +42,7 @@ export function leaseEventWithPayload(
   sequence: number,
   payload: Record<string, unknown> | undefined,
   actorId: string | undefined = OTHER_DEVICE_ID,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     // The console's one admitted-event builder, plus the member it does not take: the
     // actor a lease move is attributed to. Spread over it rather than spelled again, on
@@ -67,6 +67,6 @@ export function transitionEvent(
   holderUserId: string | null,
   previousHolderUserId: string | null = null,
   actorId: string | undefined = holderUserId ?? undefined,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return leaseEventWithPayload(sequence, { holderUserId, previousHolderUserId, reason }, actorId);
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
-import type { ConsoleClock, ScheduledHandle } from "@renderer/lib/clock.js";
+import type { Clock, ScheduledHandle } from "@renderer/lib/clock.js";
 import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/deadlines.js";
 
 /**
@@ -43,7 +43,7 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
  * is outstanding — which is what makes `ManualClock.pendingCount === 0` a checkable
  * statement about an idle console rather than an assertion about one.
  */
-export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[]): number {
+export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): number {
   // Read once per CLOCK, during the render that first sees one. A render body that
   // read the clock on every pass would be a render whose output depends on when it
   // ran, which is the impurity the frozen clock exists to remove; a cell that read it

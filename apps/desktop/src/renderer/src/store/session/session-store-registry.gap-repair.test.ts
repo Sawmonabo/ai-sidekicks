@@ -46,7 +46,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       },
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
 
     registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(5, "run-5")]);
     clock.runFrame();
@@ -84,7 +84,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       },
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
 
     registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(2, "run-2"), eventAt(3, "run-3")]);
     clock.runFrame();
@@ -117,7 +117,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       },
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
 
     registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(5, "run-5")]);
     clock.runFrame();

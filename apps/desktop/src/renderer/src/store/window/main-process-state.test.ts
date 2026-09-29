@@ -3,17 +3,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  describeShellConnection,
+  describeDaemonConnection,
   mainProcessReportsAreEqual,
-  type ShellState,
+  type MainProcessState,
 } from "./main-process-state.js";
 import { REPORTED_CONNECTIONS } from "@test/helpers/shell-states.js";
 
-describe("describeShellConnection", () => {
+describe("describeDaemonConnection", () => {
   it("answers a non-empty sentence for every supervisor state", () => {
     const described = new Set<string>();
     for (const connection of [{ kind: "unreported" } as const, ...REPORTED_CONNECTIONS]) {
-      const sentence = describeShellConnection(connection);
+      const sentence = describeDaemonConnection(connection);
       expect(sentence.length, connection.kind).toBeGreaterThan(0);
       described.add(sentence);
     }
@@ -24,7 +24,7 @@ describe("describeShellConnection", () => {
 });
 
 describe("mainProcessReportsAreEqual", () => {
-  const base: ShellState = {
+  const base: MainProcessState = {
     connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
     negotiation: undefined,
     lastHeartbeatAt: "2026-01-01T10:00:00.000Z",

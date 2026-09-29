@@ -27,7 +27,7 @@ import {
   type ProviderName,
 } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * Where a brokered sign-in has got to.
@@ -108,7 +108,7 @@ export type TokenRegistrationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "submitting" }
   | { readonly kind: "registered"; readonly account: ProviderAccountRegisterResponse["account"] }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /**
  * Starts a brokered sign-in for one account.
@@ -194,7 +194,7 @@ export interface AdmittedRegistrationFields {
 /** What the form's own fields amount to: a request it can send, or a refusal to show. */
 export type RegistrationFieldReading =
   | { readonly kind: "admitted"; readonly fields: AdmittedRegistrationFields }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /**
  * Read the form's ordinary fields, before anything is sent and before the token is read.

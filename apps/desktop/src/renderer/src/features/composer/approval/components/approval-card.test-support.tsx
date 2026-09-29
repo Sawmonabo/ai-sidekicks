@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 
 import { ApprovalCard } from "./ApprovalCard.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   type ApprovalRecord,
   type ApprovalResolveRequest,
@@ -40,7 +40,7 @@ export function pendingRecord(overrides: Partial<ApprovalRecord> = {}): Approval
 export function renderCard(
   record: ApprovalRecord,
   isResolving = false,
-  refusal: ConsoleRefusal | undefined = undefined,
+  refusal: Refusal | undefined = undefined,
 ): ApprovalResolveRequest[] {
   const requests: ApprovalResolveRequest[] = [];
   render(

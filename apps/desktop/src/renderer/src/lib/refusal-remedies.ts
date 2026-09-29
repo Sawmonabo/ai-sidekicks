@@ -40,7 +40,7 @@ export type RefusalRendering = "inline" | "card" | "banner";
  * one of two variants: the app-wide table's entry, or a feature table's entry with the
  * exclusive cases one code stands for.
  */
-export type RefusalRemedy = AppRefusalRemedy | RefusalRecoveryCopy;
+export type RefusalRemedy = AppRefusalRemedy | CasedRefusalRemedy;
 
 /**
  * The app-wide table's entry: the shape a refusal calls for, its next move, and whether
@@ -76,7 +76,7 @@ export interface AppRefusalRemedy {
  * move: an empty list says "there is exactly one move" instead of "somebody forgot to
  * write them".
  */
-export interface RefusalRecoveryCopy {
+export interface CasedRefusalRemedy {
   readonly nextMove: string;
   readonly distinctions: readonly string[];
 }

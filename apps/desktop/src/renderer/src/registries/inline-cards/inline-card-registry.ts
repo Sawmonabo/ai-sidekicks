@@ -20,9 +20,9 @@
 // reference is registered, the local `InlineCardAttachmentRef` below is deleted and
 // the contract type imported in its place — one edit.
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";
@@ -108,7 +108,7 @@ export interface AttachmentInlineCardProps {
 /**
  * A reference to one entity in the console's `artifact` partition.
  *
- * `ConsoleEntityRef` narrowed to the one kind this card can render, EXTENDED from
+ * `EntityRef` narrowed to the one kind this card can render, EXTENDED from
  * it rather than restated: `id` keeps its single home, and `kind` is fixed to the
  * literal. The unnarrowed ref admits all twelve kinds, so a caller could hand the
  * artifact card a `run` reference and the body would look the row up in a partition
@@ -120,7 +120,7 @@ export interface AttachmentInlineCardProps {
  * boundary at which an untyped `kind` could arrive and nothing for a runtime check
  * to catch that the compiler has not already refused.
  */
-export interface ArtifactEntityRef extends ConsoleEntityRef {
+export interface ArtifactEntityRef extends EntityRef {
   readonly kind: "artifact";
 }
 
@@ -192,7 +192,7 @@ export class InlineCardRegistry {
       owner: descriptor.owner,
       render: (props) => {
         if (props.kind !== kind) {
-          throw new ConsoleRefusalError(
+          throw new RefusalError(
             refuse(
               INLINE_CARD_ORIGIN,
               "card-kind-mismatch",

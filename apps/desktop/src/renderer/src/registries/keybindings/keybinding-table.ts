@@ -32,7 +32,7 @@
 // because the per-binding text-entry guard runs first: the table declines the
 // press rather than stealing it.
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { isTextEntryTarget } from "@renderer/console/primitives/index.js";
 import type { CommandInvocationOutcome, CommandRegistry } from "../commands/command-registry.js";
 import type { Keybinding } from "../commands/command-types.js";
@@ -91,7 +91,7 @@ export interface KeybindingTableOptions {
 /**
  * Thrown by `setBindings` when two bindings can be live on one chord.
  *
- * A `ConsoleRefusalError` and not a bare `Error`. `core/refusal.ts` names the
+ * A `RefusalError` and not a bare `Error`. `core/refusal.ts` names the
  * key-binding table as one of the five that had minted a refusal vocabulary of its
  * own, and the Keyboard settings page has to render this beside a persistence
  * refusal, where two shapes would need two renderers.
@@ -102,7 +102,7 @@ export interface KeybindingTableOptions {
  * `conflicts` is kept beside the refusal because the settings page renders one row
  * per conflicting pair, which `detail`'s single sentence cannot carry.
  */
-export class KeybindingConflictError extends ConsoleRefusalError {
+export class KeybindingConflictError extends RefusalError {
   public readonly conflicts: readonly KeybindingConflict[];
 
   public constructor(conflicts: readonly KeybindingConflict[]) {

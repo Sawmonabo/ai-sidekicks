@@ -27,7 +27,7 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 import { paneRegistry } from "@renderer/console/seats/index.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "../helpers/lazy-body-contexts.js";
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
@@ -100,6 +100,6 @@ describe("the shared browser mount", () => {
     deferred.arrive(() => LOADED_BODY_TEXT);
     const { container } = await mounting;
     expect(container.textContent).toContain(LOADED_BODY_TEXT);
-    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(listPendingBodyNames(container)).toStrictEqual([]);
   });
 });

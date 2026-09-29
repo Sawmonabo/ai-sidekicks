@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import {
   byteFacet,
   countAttributedTo,
@@ -20,7 +20,7 @@ import {
 
 const INSTANT = "2026-01-01T16:30:05.000Z";
 
-function entityWithBody(body: Readonly<Record<string, unknown>>): ConsoleEntity {
+function entityWithBody(body: Readonly<Record<string, unknown>>): StoredEntity {
   return { kind: "run", id: "run-1", body };
 }
 
@@ -123,7 +123,7 @@ describe("an expiry, which has three answers", () => {
 });
 
 describe("counting what a session attributes to a user", () => {
-  const entities: Readonly<Record<string, ConsoleEntity>> = {
+  const entities: Readonly<Record<string, StoredEntity>> = {
     "run-1": { kind: "run", id: "run-1", attributedTo: "user-1" },
     "run-2": { kind: "run", id: "run-2", attributedTo: "user-2" },
     "run-3": { kind: "run", id: "run-3", attributedTo: "user-1" },

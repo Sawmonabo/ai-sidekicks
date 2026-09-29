@@ -30,13 +30,13 @@
 //
 // The mechanism it measures is the immutable apply. Both stores hold the same
 // entities and do the same work per event — replace one entity by id — but a
-// flat `Record<string, ConsoleEntity>` must copy all 20,000 keys to produce the
+// flat `Record<string, StoredEntity>` must copy all 20,000 keys to produce the
 // new identity a subscriber can compare, while a partitioned
-// `Record<ConsoleEntityKind, Record<string, ConsoleEntity>>` copies only the
-// touched kind's partition — `BENCHMARK_ENTITY_COUNT / CONSOLE_ENTITY_KINDS.length`
+// `Record<EntityKind, Record<string, StoredEntity>>` copies only the
+// touched kind's partition — `BENCHMARK_ENTITY_COUNT / ENTITY_KINDS.length`
 // keys — plus an outer record with one key per kind. The saving is structural,
 // not incidental, and it scales with the partition count rather than with any
-// figure written here: every count below is read off `CONSOLE_ENTITY_KINDS`, which
+// figure written here: every count below is read off `ENTITY_KINDS`, which
 // `console/store/entities/entities.ts` declares once and this file imports, so a kind added
 // there moves the arithmetic without touching this comment.
 //
@@ -85,7 +85,7 @@
 // benchmark exists to price.
 //
 // The entity KIND SET is not local either, and no longer could be.
-// `CONSOLE_ENTITY_KINDS` is imported from `console/store/entities/entities.ts`,
+// `ENTITY_KINDS` is imported from `console/store/entities/entities.ts`,
 // which declares it once: a second copy here would have been a closed set restated,
 // and it drifted the moment the store grew `workflow-definition` — under-counting
 // the partitions this benchmark exists to measure.
@@ -95,9 +95,9 @@ import { performance } from "node:perf_hooks";
 
 import { expect, test } from "vitest";
 
-import { CONSOLE_ENTITY_KINDS } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS } from "@renderer/lib/entity-kinds.js";
 import { emptyPartitions } from "@renderer/store/session/entities/entities.js";
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import {
   mergeUpsert,
   type SessionPartitions,
@@ -126,7 +126,7 @@ const RECORDED_SAMPLE_COUNT = 25;
 /**
  * The floor the partitioned arm must clear against the flat one.
  *
- * The structural expectation is about `CONSOLE_ENTITY_KINDS.length`× — one
+ * The structural expectation is about `ENTITY_KINDS.length`× — one
  * partition out of that many, plus the outer record — and the spec's own figures
  * are ~23×. Three is deliberately far below both: this assertion exists to catch
  * the apply path losing its partitioning, not to police a shared runner's
@@ -137,29 +137,29 @@ const MINIMUM_PARTITIONING_SPEEDUP = 3;
 
 /** Any store the benchmark can drive. */
 interface ConsoleEntityStore {
-  seed(entities: readonly ConsoleEntity[]): void;
-  apply(entity: ConsoleEntity): void;
+  seed(entities: readonly StoredEntity[]): void;
+  apply(entity: StoredEntity): void;
   readonly entityCount: number;
 }
 
 /**
- * The control: one flat `Record<string, ConsoleEntity>` with an immutable apply.
+ * The control: one flat `Record<string, StoredEntity>` with an immutable apply.
  *
  * Never a product artifact — it exists so the partitioned arm has something to
  * be measured against.
  */
 export class FlatConsoleEntityStore implements ConsoleEntityStore {
-  #entities: Readonly<Record<string, ConsoleEntity>> = {};
+  #entities: Readonly<Record<string, StoredEntity>> = {};
 
-  seed(entities: readonly ConsoleEntity[]): void {
-    const seeded: Record<string, ConsoleEntity> = {};
+  seed(entities: readonly StoredEntity[]): void {
+    const seeded: Record<string, StoredEntity> = {};
     for (const entity of entities) {
       seeded[entity.id] = entity;
     }
     this.#entities = seeded;
   }
 
-  apply(entity: ConsoleEntity): void {
+  apply(entity: StoredEntity): void {
     this.#entities = { ...this.#entities, [entity.id]: entity };
   }
 
@@ -185,7 +185,7 @@ export class FlatConsoleEntityStore implements ConsoleEntityStore {
 export class PartitionedConsoleEntityStore implements ConsoleEntityStore {
   #partitions: SessionPartitions = emptyPartitions();
 
-  seed(entities: readonly ConsoleEntity[]): void {
+  seed(entities: readonly StoredEntity[]): void {
     let seeded: SessionPartitions = emptyPartitions();
     for (const entity of entities) {
       seeded = mergeUpsert(seeded, entity);
@@ -193,13 +193,13 @@ export class PartitionedConsoleEntityStore implements ConsoleEntityStore {
     this.#partitions = seeded;
   }
 
-  apply(entity: ConsoleEntity): void {
+  apply(entity: StoredEntity): void {
     this.#partitions = mergeUpsert(this.#partitions, entity);
   }
 
   get entityCount(): number {
     let total = 0;
-    for (const kind of CONSOLE_ENTITY_KINDS) {
+    for (const kind of ENTITY_KINDS) {
       total += Object.keys(this.#partitions[kind]).length;
     }
     return total;
@@ -225,10 +225,10 @@ class DeterministicSequence {
 }
 
 /** Builds the entity population, spread evenly across every console entity kind. */
-export function buildConsoleEntities(entityCount: number): readonly ConsoleEntity[] {
-  const entities: ConsoleEntity[] = [];
+export function buildConsoleEntities(entityCount: number): readonly StoredEntity[] {
+  const entities: StoredEntity[] = [];
   for (let ordinal = 0; ordinal < entityCount; ordinal += 1) {
-    const kind = CONSOLE_ENTITY_KINDS[ordinal % CONSOLE_ENTITY_KINDS.length] ?? "session";
+    const kind = ENTITY_KINDS[ordinal % ENTITY_KINDS.length] ?? "session";
     entities.push({
       kind,
       id: `${kind}-${String(ordinal).padStart(6, "0")}`,
@@ -246,11 +246,11 @@ export function buildConsoleEntities(entityCount: number): readonly ConsoleEntit
  * updated copy, which is what a session-event apply does to a projection.
  */
 export function buildApplyEventStream(
-  entities: readonly ConsoleEntity[],
+  entities: readonly StoredEntity[],
   eventCount: number,
-): readonly ConsoleEntity[] {
+): readonly StoredEntity[] {
   const sequence = new DeterministicSequence(0x5eed_1c17);
-  const events: ConsoleEntity[] = [];
+  const events: StoredEntity[] = [];
   for (let ordinal = 0; ordinal < eventCount; ordinal += 1) {
     const target = entities[sequence.nextBelow(entities.length)];
     if (target === undefined) {
@@ -274,8 +274,8 @@ export function buildApplyEventStream(
  */
 export function measurePerEventApplyCost(
   createStore: () => ConsoleEntityStore,
-  entities: readonly ConsoleEntity[],
-  events: readonly ConsoleEntity[],
+  entities: readonly StoredEntity[],
+  events: readonly StoredEntity[],
   sampleCount: number,
   warmUpSampleCount: number,
 ): { readonly samples: readonly number[]; readonly statistics: BenchmarkSampleStatistics } {
@@ -332,7 +332,7 @@ test(
 
     const sharedContext = {
       entityCount: BENCHMARK_ENTITY_COUNT,
-      partitionCount: CONSOLE_ENTITY_KINDS.length,
+      partitionCount: ENTITY_KINDS.length,
       eventsPerSample: EVENTS_PER_SAMPLE,
       warmUpSamplesDiscarded: WARM_UP_SAMPLE_COUNT,
       nodeVersion: process.version,
@@ -345,7 +345,7 @@ test(
         label: "Flat entity map — immutable apply at 20,000 entities (control)",
         unit: "ms/event",
         samples: flat.samples,
-        context: { ...sharedContext, storeShape: "Record<string, ConsoleEntity>" },
+        context: { ...sharedContext, storeShape: "Record<string, StoredEntity>" },
       },
       {
         benchmarkId: "store-fan-out.partitioned",
@@ -364,7 +364,7 @@ test(
 
     console.log(
       [
-        `store fan-out @ ${BENCHMARK_ENTITY_COUNT.toLocaleString("en-US")} entities, ${CONSOLE_ENTITY_KINDS.length} partitions`,
+        `store fan-out @ ${BENCHMARK_ENTITY_COUNT.toLocaleString("en-US")} entities, ${ENTITY_KINDS.length} partitions`,
         ...appendedRows.map((row) => `  ${formatBenchmarkLedgerRow(row)}`),
         `  partitioning speedup (median): ${speedup.toFixed(1)}×`,
         `  ledger: ${ledgerFilePath}`,

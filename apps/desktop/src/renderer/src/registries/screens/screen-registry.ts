@@ -22,7 +22,7 @@
 import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingScreenBody } from "./PendingScreenBody.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "./screen-context.js";
@@ -98,7 +98,7 @@ export class ScreenRegistry {
    * the descriptor is what every MOUNT site reads and none of them has business knowing
    * whether the surface it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySlot = new Map<ScreenName, LoadedLazyBody<ScreenContext>>();
+  readonly #loadedBodiesBySlot = new Map<ScreenName, LoaderBackedBody<ScreenContext>>();
 
   /** Claim a slot. A second claim by a different owner is an error, not a swap. */
   public register(registration: ScreenRegistration): void {
@@ -117,7 +117,7 @@ export class ScreenRegistry {
     // The fallback is the route's own absence frame, empty. Supplied here rather than by
     // the generic machinery, because what a route reserves while it loads is a
     // route-shaped question.
-    const loadedBody = new LoadedLazyBody(registration.body, (context: ScreenContext) =>
+    const loadedBody = new LoaderBackedBody(registration.body, (context: ScreenContext) =>
       createElement(PendingScreenBody, { context }),
     );
     // Registered BEFORE the loader table is written, so a `register` the keyed registry

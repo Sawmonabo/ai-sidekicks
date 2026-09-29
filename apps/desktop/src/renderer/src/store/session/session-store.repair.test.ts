@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 
@@ -27,7 +27,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
    */
   function degradedAtCursorSeven(): SessionStore {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 5, entities: [] });
+    store.initialize({ cursor: 5, entities: [] });
     store.apply(eventAt(7));
     return store;
   }
@@ -37,7 +37,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 6 }]);
 
-    store.initialise({
+    store.initialize({
       cursor: 7,
       entities: [],
       timeline: [eventAt(6), eventAt(7)],
@@ -55,7 +55,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     const store = degradedAtCursorSeven();
     const before = store.snapshot();
 
-    store.initialise({
+    store.initialize({
       cursor: 6,
       entities: [],
       timeline: [eventAt(6)],
@@ -74,11 +74,11 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     // ordinary focus refresh, and a snapshot carrying no timeline would empty the
     // one the store had.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));
     const before = store.snapshot();
 
-    store.initialise({ cursor: 1, entities: [] });
+    store.initialize({ cursor: 1, entities: [] });
 
     expect(store.snapshot()).toBe(before);
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1]);
@@ -86,7 +86,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
 });
 
 describe("failure matrix — events arrive before initialisation and the read never comes", () => {
-  function eventsFrom(count: number): ConsoleSessionEvent[] {
+  function eventsFrom(count: number): ProjectedSessionEvent[] {
     return Array.from({ length: count }, (_unused, index) => eventAt(index + 1));
   }
 
@@ -110,7 +110,7 @@ describe("failure matrix — events arrive before initialisation and the read ne
     const overflowBy = 3;
     store.applyBatch(eventsFrom(PRE_INITIALISATION_BUFFER_CAP + overflowBy));
 
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const timeline = store.snapshot().timeline;
     expect(timeline).toHaveLength(PRE_INITIALISATION_BUFFER_CAP);
@@ -130,7 +130,7 @@ describe("failure matrix — events arrive before initialisation and the read ne
     expect(store.preInitialisationDropCount).toBe(0);
     expect(store.snapshot().degradedCause).toBeUndefined();
 
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     expect(store.snapshot().timeline).toHaveLength(PRE_INITIALISATION_BUFFER_CAP);
     expect(store.snapshot().gaps).toStrictEqual([]);

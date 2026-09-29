@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
@@ -196,7 +196,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   it("states a refusal where a person can read it when no ledger is mounted", () => {
     // Not a silent press: the act has no surface of its own, so it takes rule 9's
     // banner — which is exactly what a ledger chord from the settings page needs.
-    const raised: ConsoleRefusal[] = [];
+    const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => raised.push(refusal));
     registerTranscriptCommands(commandContributionRegistry, new MountedTranscript());
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);

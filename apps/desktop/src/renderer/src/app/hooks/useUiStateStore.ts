@@ -86,7 +86,7 @@ function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
  *
  * Fired without awaiting: `close` awaits the open it may still be racing, and neither
  * a cleanup nor a render can await. The store declares no failure —
- * `openConsoleDatabase` never rejects and neither adapter's `close` throws — so a
+ * `openUiStateDatabase` never rejects and neither adapter's `close` throws — so a
  * rejection escaping here would be a defect, and an unhandled one is how it gets
  * found.
  *

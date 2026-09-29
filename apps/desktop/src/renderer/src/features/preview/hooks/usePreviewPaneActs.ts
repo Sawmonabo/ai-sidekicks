@@ -35,7 +35,7 @@
 import { useCallback } from "react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire-rejection.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -99,13 +99,13 @@ const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> =
 /** The pane's acts, and the one refusal they report between them. */
 export interface PreviewPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /**
    * Dispatch one act. The thunk answers with the refusal to render, or `undefined`
    * where the act was served; a rejection is normalized through the console's one
    * wire-rejection reader, so a code the other side sent survives.
    */
-  run(act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void;
+  run(act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void;
   /**
    * Refuse here and now, without crossing the boundary. Outranks anything in flight.
    *
@@ -139,14 +139,14 @@ export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): Previ
     () => new BrowserActSequence(),
     BROWSER_ACT_SEQUENCE_DISPOSAL,
   );
-  const { value: refusal, publish } = useSubjectScopedState<ConsoleRefusal | undefined>(
+  const { value: refusal, publish } = useSubjectScopedState<Refusal | undefined>(
     bridge,
     paneId,
     () => undefined,
   );
 
   const run = useCallback(
-    (act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void => {
+    (act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void => {
       const token = sequence.begin();
       void act().then(
         (outcome) => {

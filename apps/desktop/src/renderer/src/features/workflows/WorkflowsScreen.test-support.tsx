@@ -19,7 +19,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import {
   PaneRegistry,
   type PaneContext,
@@ -51,7 +51,7 @@ export interface ComposedWindow {
 
 /** The surface context the screen is handed, and this composition's own pane board. */
 export function composeWindow(): ComposedWindow {
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   const committedRoute: ConsoleRoute = { kind: "workflows" };
   frameStore.navigate(committedRoute);
   const paneRegistry = new PaneRegistry();

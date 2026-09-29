@@ -19,7 +19,7 @@
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -61,7 +61,7 @@ export interface AgentLibrarySnapshot {
   readonly armedDeletionId: string | undefined;
   readonly deletingId: string | undefined;
   /** The view's own refusal per row, dropped when that row is attempted again. */
-  readonly refusalByDefinitionId: ReadonlyMap<string, ConsoleRefusal>;
+  readonly refusalByDefinitionId: ReadonlyMap<string, Refusal>;
   readonly editorSubject: AgentDefinitionEditorSubject | undefined;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
@@ -268,14 +268,11 @@ export class AgentLibraryView implements ReadTriggerTarget {
     read.release();
   }
 
-  #refusalsWith(
-    definitionId: string,
-    refusal: ConsoleRefusal,
-  ): ReadonlyMap<string, ConsoleRefusal> {
+  #refusalsWith(definitionId: string, refusal: Refusal): ReadonlyMap<string, Refusal> {
     return new Map(this.#snapshot.refusalByDefinitionId).set(definitionId, refusal);
   }
 
-  #refusalsWithout(definitionId: string): ReadonlyMap<string, ConsoleRefusal> {
+  #refusalsWithout(definitionId: string): ReadonlyMap<string, Refusal> {
     const remaining = new Map(this.#snapshot.refusalByDefinitionId);
     remaining.delete(definitionId);
     return remaining;
@@ -301,7 +298,7 @@ export class AgentLibraryView implements ReadTriggerTarget {
  * row is already on its way out, and another row's delete is in front of theirs.
  * Neither names the record in the way, which would say nothing they can act on.
  */
-function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
+function deleteAlreadyRunning(isTheSameRecord: boolean): Refusal {
   return refuse(
     AGENT_LIBRARY_REFUSAL_ORIGIN,
     "delete-already-running",

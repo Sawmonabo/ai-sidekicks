@@ -23,7 +23,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 
 import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 
 /** The rank a first candidate takes: newer than nothing, so it seats. */
 const NEWER_THAN_NOTHING = -1;
@@ -74,10 +74,10 @@ export function stateAdmitsSteer(state: string | undefined): boolean {
  * row is one the store has learned less about, not a newer one.
  */
 export function resolveAddressedRun(
-  runs: Readonly<Record<string, ConsoleEntity>>,
+  runs: Readonly<Record<string, StoredEntity>>,
   agentId: string,
-): ConsoleEntity | undefined {
-  let addressed: ConsoleEntity | undefined;
+): StoredEntity | undefined {
+  let addressed: StoredEntity | undefined;
   for (const run of Object.values(runs)) {
     // The binding is read off the run's own body, wire-verbatim and compared as
     // received — the store holds the daemon's string and this module normalises

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { RefusalError, type Refusal } from "@renderer/lib/refusal.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { readMountInventory, type MountInventoryCalls } from "./mount-inventory.js";
 import {
@@ -91,11 +91,11 @@ describe("mount inventory read — the line is abandoned between its own calls",
    * The negative control is built in: a read that composed an inventory settles here
    * rather than rejecting, and this says so instead of passing quietly.
    */
-  async function abandonedRefusalOf(reading: Promise<unknown>): Promise<ConsoleRefusal> {
+  async function abandonedRefusalOf(reading: Promise<unknown>): Promise<Refusal> {
     try {
       await reading;
     } catch (rejection) {
-      if (rejection instanceof ConsoleRefusalError) {
+      if (rejection instanceof RefusalError) {
         return rejection.refusal;
       }
       throw rejection;

@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   transcriptFixtureEventId,
   transcriptFixtureStampAt,
@@ -30,7 +30,7 @@ const SESSION_ID = "session-ledger-row-retention";
 function logEntry(
   sequence: number,
   payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     id: transcriptFixtureEventId(sequence),
     sessionId: SESSION_ID,
@@ -42,7 +42,7 @@ function logEntry(
 }
 
 /** A log of `count` entries, each carrying its own payload object. */
-function log(count: number): ConsoleSessionEvent[] {
+function log(count: number): ProjectedSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => logEntry(index, { index }));
 }
 
@@ -82,7 +82,7 @@ describe("the ledger window's row retention", () => {
     const before = deriveLedgerWindow(first, false, retention);
     const movedEntry = { ...logEntry(1, { index: 1 }), occurredAt: "2026-06-01T00:00:00.000Z" };
     const after = deriveLedgerWindow(
-      [first[0] as ConsoleSessionEvent, movedEntry],
+      [first[0] as ProjectedSessionEvent, movedEntry],
       false,
       retention,
     );

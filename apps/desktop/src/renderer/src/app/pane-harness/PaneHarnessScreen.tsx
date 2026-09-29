@@ -54,7 +54,7 @@ import { useState } from "react";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
 import { paneHarnessInstances } from "./pane-harness-instances.js";
-import { parseConsolePaneAddress, type PaneRegistry } from "@renderer/console/seats/index.js";
+import { parsePaneAddress, type PaneRegistry } from "@renderer/console/seats/index.js";
 import { type ScreenContext } from "@renderer/console/seats/index.js";
 
 /** The harness screen's inputs: the route's context and the pane board it resolves from. */
@@ -95,7 +95,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
   // same predicate a layout snapshot read off disk is held to. A hash anyone can
   // type is exactly the second boundary that function names, so the harness holds
   // its segment to it rather than deciding for itself which kinds exist.
-  const address = parseConsolePaneAddress(route.paneKind, undefined);
+  const address = parsePaneAddress(route.paneKind, undefined);
   if ("code" in address) {
     return (
       <PaneHarnessFrame instanceCount={0} paneKindLabel={route.paneKind}>

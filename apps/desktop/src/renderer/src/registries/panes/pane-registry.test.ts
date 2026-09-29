@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
-  type ConsolePaneAddress,
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
+  type PaneAddress,
+  type PaneLink,
+  type PaneOpener,
 } from "@renderer/routing/panes/pane-address.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 import {
@@ -142,15 +142,15 @@ describe("pane opener — a pane that opens another can name itself", () => {
    * until the first consumer gets it wrong.
    */
   function recordingOpener(): {
-    readonly openPane: ConsolePaneOpener;
+    readonly openPane: PaneOpener;
     readonly opens: {
-      readonly address: ConsolePaneAddress;
-      readonly link: ConsolePaneLink | undefined;
+      readonly address: PaneAddress;
+      readonly link: PaneLink | undefined;
     }[];
   } {
     const opens: {
-      readonly address: ConsolePaneAddress;
-      readonly link: ConsolePaneLink | undefined;
+      readonly address: PaneAddress;
+      readonly link: PaneLink | undefined;
     }[] = [];
     return {
       openPane: (address, link) => {
@@ -163,7 +163,7 @@ describe("pane opener — a pane that opens another can name itself", () => {
   // A worktree, because the address union types `entity` PER KIND and a `diff`
   // pane is a view of a worktree or a workspace. An artifact reference here is
   // not a fixture detail the compiler now lets pass.
-  const diffAddress: ConsolePaneAddress = {
+  const diffAddress: PaneAddress = {
     kind: "diff",
     entity: { kind: "worktree", id: "worktree-7" },
   };

@@ -16,11 +16,11 @@ import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
@@ -44,7 +44,7 @@ function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
 }
 
 /** One wire event, shaped as the apply chokepoint consumes it. */
-function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
+function deliveredEvent(sessionId: string, sequence: number): ProjectedSessionEvent {
   return {
     id: `event-${String(sequence)}`,
     sessionId,
@@ -55,7 +55,7 @@ function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEven
 }
 
 /** One run beat, payload-shaped as the run-lifecycle taxonomy spells it. */
-function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
+function queuedRunEvent(sessionId: string, sequence: number, runId: string): ProjectedSessionEvent {
   return {
     id: `event-${String(sequence)}`,
     sessionId,
@@ -147,7 +147,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     expect(store).toBeDefined();
     // The same base state the fixture's own session read establishes, so a read
     // landing later answers at this cursor and changes nothing.
-    store?.initialise({ cursor: 0, entities: [] });
+    store?.initialize({ cursor: 0, entities: [] });
 
     act(() => {
       registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
@@ -166,7 +166,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
     const sessionId = "session-unprojected";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
     registry.flush(sessionId);
@@ -182,7 +182,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
   const FAMILY_EVENT_KIND = "approval.probe_raised";
 
   /** One beat of that kind, in the shape the apply chokepoint consumes. */
-  function familyEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
+  function familyEvent(sessionId: string, sequence: number): ProjectedSessionEvent {
     return {
       id: `event-${String(sequence)}`,
       sessionId,
@@ -231,7 +231,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     );
     const { registry } = lastObservation(observed);
     const store = registry.peek(sessionId);
-    store?.initialise({ cursor: 0, entities: [] });
+    store?.initialize({ cursor: 0, entities: [] });
 
     act(() => {
       registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
@@ -254,7 +254,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     });
     const sessionId = "session-unclaimed-kind";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
     registry.flush(sessionId);
@@ -289,6 +289,6 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
 
     await expect(
       sessionReadThroughDaemon(bridge)(FLAGSHIP_SCENARIO.sessionId, [], undefined),
-    ).rejects.toBeInstanceOf(ConsoleRefusalError);
+    ).rejects.toBeInstanceOf(RefusalError);
   });
 });

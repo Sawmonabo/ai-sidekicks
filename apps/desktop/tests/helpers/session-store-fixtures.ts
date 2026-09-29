@@ -14,12 +14,12 @@
 // at the bottom of this file. Three families had written that builder — the run
 // console, the workspace mounts page, and this directory's own event-signal suite —
 // byte for byte, in three trees whose authors do not read each other's diffs. They
-// agreed only because none of them had been touched: `SessionStore.initialise` growing
+// agreed only because none of them had been touched: `SessionStore.initialize` growing
 // a required member would have had to move in three places, and the one left behind
 // would have gone green over a store its siblings no longer build.
 
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
 import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
@@ -29,7 +29,7 @@ import { SessionStore, type SessionSnapshot } from "@renderer/store/session/sess
 /** A reader that establishes nothing. The honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
-function runIdOf(event: ConsoleSessionEvent): string {
+function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];
   return typeof raw === "string" ? raw : "unknown-run";
 }
@@ -45,7 +45,7 @@ export const projectors: EntityProjectorTable = {
 };
 
 /** One event at `sequence`, carrying the run id the projector reads. */
-export function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
+export function eventAt(sequence: number, runId: string): ProjectedSessionEvent {
   return eventOfKind("session-1", "run.starting", sequence, { runId });
 }
 
@@ -69,6 +69,6 @@ export async function settleMicrotasks(): Promise<void> {
  */
 export function initialisedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise(emptySnapshot(0));
+  sessionStore.initialize(emptySnapshot(0));
   return sessionStore;
 }

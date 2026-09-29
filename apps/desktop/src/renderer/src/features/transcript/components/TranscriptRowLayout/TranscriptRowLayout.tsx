@@ -26,8 +26,8 @@
 import { useId, useMemo } from "react";
 
 import "./TranscriptRowLayout.css";
-import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
-import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
+import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
@@ -75,10 +75,10 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   const isAttributed =
     Number.isInteger(props.agentHueStep) &&
     props.agentHueStep >= 0 &&
-    props.agentHueStep < ACTOR_HUE_STEPS;
+    props.agentHueStep < HUE_WHEEL_STEPS;
   const edgeStyle: AttributionEdgeStyle = {
     "--meridian-row-hue": isAttributed
-      ? tokenReference(actorHueTokenName(props.agentHueStep))
+      ? tokenReference(formatHueWheelTokenName(props.agentHueStep))
       : tokenReference("edge-strong"),
   };
 

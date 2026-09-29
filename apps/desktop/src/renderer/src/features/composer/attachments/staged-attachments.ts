@@ -33,7 +33,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { earliestFutureDeadline } from "@renderer/lib/deadlines.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { AttachmentIngestClient } from "./attachment-ingest-client.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
@@ -60,13 +60,13 @@ export interface StagedAttachmentsOptions {
    * fixture's frozen time, and a surface showing an age would disagree with the ledger
    * it was reading. There is no default, so every call site says which clock it means.
    */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** One ingest client, its subscription, and the stamped snapshot a surface renders. */
 export class StagedAttachments {
   readonly #client: AttachmentIngestClient;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #changes = new Emitter<StagedAttachmentsSnapshot>("attachment carrier publish");
 
   #snapshot: StagedAttachmentsSnapshot;

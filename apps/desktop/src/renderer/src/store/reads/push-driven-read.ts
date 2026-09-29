@@ -63,21 +63,21 @@
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { Emitter } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
-import { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 
 /** What a push-driven read has to show. Total; every arm renders something. */
 export type PushDrivenReadState<TValue> =
   | { readonly kind: "not-loaded" }
   | { readonly kind: "loaded"; readonly value: TValue }
-  | { readonly kind: "failed"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "failed"; readonly refusal: Refusal };
 
 export interface PushDrivenReadOptions<TValue> {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * Performs the read. Rejections become the `failed` arm, never a silent empty.
    *
@@ -236,7 +236,7 @@ export class PushDrivenRead<TValue> {
       this.#opening = false;
       this.#settle({
         kind: "failed",
-        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
+        refusal: coerceToRefusal(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
       });
       return;
     } finally {
@@ -284,7 +284,7 @@ export class PushDrivenRead<TValue> {
     this.#changes.emit();
   }
 
-  #refusalFor(error: unknown): ConsoleRefusal {
-    return consoleRefusalFrom(error, this.#options.origin);
+  #refusalFor(error: unknown): Refusal {
+    return coerceToRefusal(error, this.#options.origin);
   }
 }

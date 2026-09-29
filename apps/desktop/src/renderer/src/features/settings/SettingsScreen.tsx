@@ -21,8 +21,8 @@
 // already said the page is missing.
 
 import { useCallback, useMemo, useState } from "react";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { useShellState } from "@renderer/store/window/hooks/useMainProcessState.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { useMainProcessState } from "@renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ScreenContext } from "@renderer/console/seats/index.js";
@@ -69,7 +69,10 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // opened in another destination would reach these pages only on the next
   // unrelated render. The frame's own readers subscribe through this hook and so
   // does this one, which is also why the settings family holds no copy of the id.
-  const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
+  const retainedSessionId = useWindowStore(
+    context.frameStore,
+    (state) => state.lastOpenedSessionId,
+  );
 
   const openSection = useCallback(
     (section: SettingsPageId): void => {
@@ -104,7 +107,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
 
   // The window's shell condition, read from the store the frame keeps live. One
   // subscription per window, and this is a reader of it rather than a second one.
-  const shellState = useShellState(context.frameStore);
+  const shellState = useMainProcessState(context.frameStore);
 
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,

@@ -39,10 +39,7 @@
 import { useState } from "react";
 import { Chip, Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import {
-  asRememberedScopeKind,
-  rememberedScopeKindPhrase,
-} from "@renderer/lib/approval-vocabulary.js";
+import { asRememberedScopeKind, describeRuleScope } from "@renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
 import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
@@ -101,7 +98,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
             <div className="meridian-grants__line">
               <Chip mono label={rule.category} />
               <Chip
-                label={rememberedScopeKindPhrase(rule.scope.kind)}
+                label={describeRuleScope(rule.scope.kind)}
                 tone={asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"}
               />
               <span className="meridian-grants__grantor">

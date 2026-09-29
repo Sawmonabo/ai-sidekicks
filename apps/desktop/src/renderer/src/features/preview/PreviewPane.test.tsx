@@ -24,7 +24,7 @@ const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } 
 
 describe("browser pane chrome", () => {
   it("is named by the trail it sits on rather than by its kind alone", async () => {
-    // Through `aria-labelledby` and never `aria-label`: `seats/ConsolePaneChrome` names
+    // Through `aria-labelledby` and never `aria-label`: `seats/PaneFrame` names
     // every pane by its whole address — the session it belongs to, then what the pane is
     // — so two browser panes in one deck are told apart. This mount addresses no session,
     // so the trail opens on the chrome's own no-address crumb.

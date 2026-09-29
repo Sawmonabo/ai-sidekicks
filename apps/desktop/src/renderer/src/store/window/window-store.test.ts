@@ -40,14 +40,14 @@ import {
   UNFOCUSED_DOCUMENT,
   underDocumentFocus,
 } from "@test/helpers/document-focus.js";
-import { FrameStore } from "./window-store.js";
+import { WindowStore } from "./window-store.js";
 
 const SESSION_ROUTE_HASH = "#/session/session-alpha";
 const SETTINGS_ROUTE_HASH = "#/settings";
 
-describe("FrameStore — the session a window has in hand outlives the route", () => {
+describe("WindowStore — the session a window has in hand outlives the route", () => {
   it("is seeded from the route the window opened at", () => {
-    const store = new FrameStore({
+    const store = new WindowStore({
       initialRoute: { kind: "workspace", sessionId: "session-alpha" },
     });
 
@@ -55,11 +55,11 @@ describe("FrameStore — the session a window has in hand outlives the route", (
   });
 
   it("is empty in a window that opened on no session", () => {
-    expect(new FrameStore().lastOpenedSessionId).toBeUndefined();
+    expect(new WindowStore().lastOpenedSessionId).toBeUndefined();
   });
 
   it("survives a navigation to a route that names no session", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.navigate({ kind: "workspace", sessionId: "session-alpha" });
     store.navigate({ kind: "settings", page: undefined });
@@ -70,7 +70,7 @@ describe("FrameStore — the session a window has in hand outlives the route", (
   it("survives a hash adoption that names no session", () => {
     // The second writer. A rule enforced on one of the two route paths is a rule
     // the other one silently opts out of.
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.adoptHash(SESSION_ROUTE_HASH);
     store.adoptHash(SETTINGS_ROUTE_HASH);
@@ -79,7 +79,7 @@ describe("FrameStore — the session a window has in hand outlives the route", (
   });
 
   it("moves to the newer session when one is opened", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.navigate({ kind: "workspace", sessionId: "session-alpha" });
     store.navigate({ kind: "workspace", sessionId: "session-beta" });
@@ -91,7 +91,7 @@ describe("FrameStore — the session a window has in hand outlives the route", (
     // `RouteSurface` renders "this session is opening" whenever the projection
     // names a session and its store is absent. A projection that retained the
     // session would put that message over Settings for as long as the window lived.
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.navigate({ kind: "workspace", sessionId: "session-alpha" });
     expect(store.activeSessionId).toBe("session-alpha");
@@ -102,26 +102,26 @@ describe("FrameStore — the session a window has in hand outlives the route", (
   });
 });
 
-describe("FrameStore — a family-owned modal surface publishes whether it is up", () => {
+describe("WindowStore — a family-owned modal surface publishes whether it is up", () => {
   it("reports no modal surface in a window that has just opened", () => {
-    expect(new FrameStore().getState().isModalSurfaceOpen).toBe(false);
+    expect(new WindowStore().getState().isModalDialogOpen).toBe(false);
   });
 
   it("publishes the open surface and clears it again, through the readable", () => {
     // Read through `readable` rather than through `getState`, because that is the
     // face the frame actually holds: a cell the class could set and the read-only
     // face never reported would leave the background reachable with the card up.
-    const store = new FrameStore();
+    const store = new WindowStore();
     const published: boolean[] = [];
     const unsubscribe = store.readable.subscribe((state) => {
-      published.push(state.isModalSurfaceOpen);
+      published.push(state.isModalDialogOpen);
     });
 
     store.modalDialogClaims.hold("the-sign-in-card");
-    expect(store.readable.getState().isModalSurfaceOpen).toBe(true);
+    expect(store.readable.getState().isModalDialogOpen).toBe(true);
 
     store.modalDialogClaims.release("the-sign-in-card");
-    expect(store.readable.getState().isModalSurfaceOpen).toBe(false);
+    expect(store.readable.getState().isModalDialogOpen).toBe(false);
 
     unsubscribe();
     expect(published).toStrictEqual([true, false]);
@@ -133,7 +133,7 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
     // every move it makes, which for a card closing while another is still up is the
     // same `true` again. Without the guard each of those would re-render the rail,
     // the banner stack, and the whole route surface for a fact that did not move.
-    const store = new FrameStore();
+    const store = new WindowStore();
     let publishCount = 0;
     const unsubscribe = store.readable.subscribe(() => {
       publishCount += 1;
@@ -155,9 +155,9 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
   });
 });
 
-describe("FrameStore — a refusal banner is keyed by its author and its code", () => {
+describe("WindowStore — a refusal banner is keyed by its author and its code", () => {
   it("replaces its own banner when the same act fails twice", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.raiseRefusalBanner(refuse("persistence", "quota-exceeded", "the first sentence"));
     store.raiseRefusalBanner(refuse("persistence", "quota-exceeded", "the second sentence"));
@@ -169,7 +169,7 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
   it("keeps two subsystems' banners apart when they share a code word", () => {
     // The defect the key exists to prevent: one producer's refusal silently
     // overwriting another's because both happened to say `unavailable`.
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.raiseRefusalBanner(refuse("persistence", "unavailable", "storage is gone"));
     store.raiseRefusalBanner(refuse("sessions", "unavailable", "the daemon is not answering"));
@@ -181,7 +181,7 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
   });
 
   it("renders the refusal's code and detail and no third string", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.raiseRefusalBanner(refuse("persistence", "quota-exceeded", "the disk is full"));
 
@@ -192,7 +192,7 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
   });
 
   it("dismisses by the id it was raised under", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
 
     store.raiseRefusalBanner(refuse("persistence", "quota-exceeded", "the disk is full"));
     const raised = store.getState().banners[0];
@@ -203,7 +203,7 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
   });
 
   it("publishes nothing when asked to dismiss a banner it does not hold", () => {
-    const store = new FrameStore();
+    const store = new WindowStore();
     let notifications = 0;
     const unsubscribe = store.readable.subscribe(() => {
       notifications += 1;
@@ -222,11 +222,11 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
   });
 });
 
-describe("FrameStore — window focus is seeded from the window's own document", () => {
+describe("WindowStore — window focus is seeded from the window's own document", () => {
   it("opens unfocused where the document does not hold the keyboard", () => {
     // The defect: seeded `true`, this window never received a `blur` — it was never
     // focused to lose it — so every consumer read an audience that was not there.
-    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
 
     expect(store.getState().isWindowFocused).toBe(false);
   });
@@ -235,13 +235,13 @@ describe("FrameStore — window focus is seeded from the window's own document",
     // The second reading, and it is not the first one twice: a minimised window that
     // had focus when it went down reports hidden, and a shell that creates a window
     // without showing it reports hidden before anything is ever focused.
-    const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new FrameStore());
+    const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new WindowStore());
 
     expect(store.getState().isWindowFocused).toBe(false);
   });
 
   it("opens focused where the document is visible and holds the keyboard — the control", () => {
-    const store = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+    const store = underDocumentFocus(FOCUSED_DOCUMENT, () => new WindowStore());
 
     expect(store.getState().isWindowFocused).toBe(true);
   });
@@ -250,7 +250,7 @@ describe("FrameStore — window focus is seeded from the window's own document",
     // What makes this a SEED rather than a subscription: the frame's focus and blur
     // listeners are what move the cell afterwards, and a store that re-read the
     // document on every access would be a second answer free to disagree with them.
-    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
 
     store.setWindowFocused(true);
 
@@ -260,8 +260,8 @@ describe("FrameStore — window focus is seeded from the window's own document",
   it("gives two windows built under different documents different answers", () => {
     // An auxiliary window shares no store with the main one, and each one's
     // document is the only thing that says whether anybody is looking at IT.
-    const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
-    const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+    const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
+    const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new WindowStore());
 
     expect(background.getState().isWindowFocused).toBe(false);
     expect(foreground.getState().isWindowFocused).toBe(true);

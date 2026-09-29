@@ -3,8 +3,8 @@
 import { callDaemon } from "./daemon-reply.js";
 import { readSessionId } from "./wire-identifiers.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
-import { servedValueOrRaise } from "@renderer/console/seats/index.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
+import { unwrapDaemonReply } from "@renderer/console/seats/index.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 
@@ -22,7 +22,7 @@ export function sessionReadThroughDaemon(bridge: ConsoleBridge): SessionSnapshot
   return async (sessionId): Promise<SessionSnapshot> => {
     const wireSessionId = readSessionId(sessionId);
     if (wireSessionId === undefined) {
-      throw new ConsoleRefusalError(
+      throw new RefusalError(
         refuse(
           SESSION_READ_ORIGIN,
           "session-unreadable",
@@ -30,7 +30,7 @@ export function sessionReadThroughDaemon(bridge: ConsoleBridge): SessionSnapshot
         ),
       );
     }
-    const { timelineCursors } = servedValueOrRaise(
+    const { timelineCursors } = unwrapDaemonReply(
       await callDaemon(bridge, "session.read", { sessionId: wireSessionId }),
     );
     return { cursor: BASE_STATE_CURSOR, entities: [], timelineCursors };

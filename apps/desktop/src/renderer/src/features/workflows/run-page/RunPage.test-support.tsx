@@ -3,18 +3,18 @@
 import { render } from "@testing-library/react";
 
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { PARKED_RUN, PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { RunPage } from "./RunPage.js";
 
 /** The address the run pane is meant to open. */
-export const ADDRESSED_RUN: ConsoleEntityRef = {
+export const ADDRESSED_RUN: EntityRef = {
   kind: "workflow-run",
   id: PARKED_RUN.workflowRunId,
 };
 
 /** An address of another kind, which the pane must refuse. */
-export const MISADDRESSED: ConsoleEntityRef = {
+export const MISADDRESSED: EntityRef = {
   kind: "workflow-definition",
   id: "definition-01",
 };
@@ -26,7 +26,7 @@ export const MISADDRESSED: ConsoleEntityRef = {
  * the cases drive addresses the pane's type makes unconstructible and its guards still
  * refuse, as a parsed layout row produces.
  */
-export function paneContext(entity: ConsoleEntityRef | undefined): PaneContextOf<"workflow-run"> {
+export function paneContext(entity: EntityRef | undefined): PaneContextOf<"workflow-run"> {
   return {
     kind: "workflow-run",
     entity,

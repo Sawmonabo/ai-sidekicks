@@ -9,7 +9,7 @@
 //
 // IT DRAWS NO HEADING AND NO FRAME, AND THAT IS THE WHOLE OF WHAT CHANGED. This was
 // the family's own pane chrome — a `<section>`, a kind glyph, an `<h2>` and a body
-// box — drawn once per surface. `seats/ConsolePaneChrome` now draws every pane's
+// box — drawn once per surface. `seats/PaneFrame` now draws every pane's
 // frame in the console, and a pane whose body also drew a heading would be named
 // twice: the chrome's crumb trail IS the pane's accessible name, so a second `<h*>`
 // inside it is a heading with no region of its own and a second answer to what the

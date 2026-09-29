@@ -63,14 +63,14 @@ export interface ShellNegotiation {
  * one does not, and a shape carrying `attempt?: number` would let a surface render
  * "attempt 3 of 5" beside "connected".
  */
-export type ShellConnection =
+export type DaemonConnection =
   /** Nobody has reported. Renders as _not checked_; never as connected, never as down. */
   | { readonly kind: "unreported" }
   | { readonly kind: "probing" }
   | { readonly kind: "starting" }
   | { readonly kind: "connected" }
   | { readonly kind: "reconnecting"; readonly attempt: number; readonly attemptLimit: number }
-  /** The handshake was refused. The facts are on `ShellState.negotiation`. */
+  /** The handshake was refused. The facts are on `MainProcessState.negotiation`. */
   | { readonly kind: "version-incompatible" }
   | {
       readonly kind: "offline";
@@ -93,8 +93,8 @@ export type ShellKeystoreState = "available" | "unavailable";
  * "unreported" rather than a default: a console that rendered `os-local` because
  * nothing had said would be claiming a transport posture it never read.
  */
-export interface ShellState {
-  readonly connection: ShellConnection;
+export interface MainProcessState {
+  readonly connection: DaemonConnection;
   /**
    * What the handshake settled, on every arm it settled on.
    *
@@ -111,7 +111,7 @@ export interface ShellState {
 }
 
 /** What a window holds before anything has reported. The store is born on it. */
-export const UNREPORTED_SHELL_STATE: ShellState = {
+export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
   connection: { kind: "unreported" },
   negotiation: undefined,
   lastHeartbeatAt: undefined,
@@ -129,7 +129,10 @@ export const UNREPORTED_SHELL_STATE: ShellState = {
  * Written over the union rather than as a deep equality, so a new arm is a compile error
  * here rather than a silent "always different".
  */
-export function mainProcessReportsAreEqual(left: ShellState, right: ShellState): boolean {
+export function mainProcessReportsAreEqual(
+  left: MainProcessState,
+  right: MainProcessState,
+): boolean {
   return (
     left.lastHeartbeatAt === right.lastHeartbeatAt &&
     left.transport === right.transport &&
@@ -146,7 +149,7 @@ export function mainProcessReportsAreEqual(left: ShellState, right: ShellState):
  * and the console's family DAG runs one way, so a sentence declared in `frame/` is one
  * a view family cannot reach without a second spelling of it.
  */
-export function describeShellConnection(connection: ShellConnection): string {
+export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {
     case "unreported":
       return "Local runtime";
@@ -167,7 +170,7 @@ export function describeShellConnection(connection: ShellConnection): string {
   }
 }
 
-function shellConnectionsAreEqual(left: ShellConnection, right: ShellConnection): boolean {
+function shellConnectionsAreEqual(left: DaemonConnection, right: DaemonConnection): boolean {
   if (left.kind !== right.kind) {
     return false;
   }
@@ -221,7 +224,7 @@ function shellNegotiationsAreEqual(
  * The settings page's state row renders this absence, and it is one fact, so it has one
  * spelling.
  */
-export const UNREPORTED_SHELL_NOTICE: { readonly title: string; readonly detail: string } = {
+export const UNREPORTED_DAEMON_NOTICE: { readonly title: string; readonly detail: string } = {
   title: "Local runtime",
   detail:
     "This build has no channel carrying the supervisor's state, so this window has not been told whether the local runtime is running.",

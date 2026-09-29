@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
 import { projectFixtureShellRows } from "./transcript-row-projection.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
@@ -14,7 +14,7 @@ function event(
   sequence: number,
   kind: string,
   payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     id: `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
@@ -29,7 +29,7 @@ function event(
 function childBirth(
   sequence: number,
   linkage: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event(sequence, "run.queued", {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,
@@ -39,7 +39,7 @@ function childBirth(
   });
 }
 
-function childTransition(sequence: number, newState: string): ConsoleSessionEvent {
+function childTransition(sequence: number, newState: string): ProjectedSessionEvent {
   return event(sequence, `run.${newState}`, {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,

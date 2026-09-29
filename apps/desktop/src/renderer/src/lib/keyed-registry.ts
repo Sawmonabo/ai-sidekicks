@@ -20,7 +20,7 @@
 // Insertion order is preserved (`Map` semantics) and several callers depend on it,
 // so nothing here sorts.
 
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "./refusal.js";
+import { RefusalError, refuse, type Refusal } from "./refusal.js";
 
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";
@@ -64,7 +64,7 @@ export interface KeyedRegistryOptions<Value> {
 /**
  * Raised when a registration is refused.
  *
- * A `ConsoleRefusalError` rather than a bare `Error` carrying its own message
+ * A `RefusalError` rather than a bare `Error` carrying its own message
  * vocabulary: a registration conflict surfaces at a seam that already renders
  * refusals — the surface registry mounting a family, the palette registering a
  * command — and `code` / `detail` / `origin` is what those three renderings consume.
@@ -73,10 +73,10 @@ export interface KeyedRegistryOptions<Value> {
  * `key` stays on the class beside the refusal because `detail` is prose a person
  * reads, and a caller reporting the conflict needs the value it collided on.
  */
-export class DuplicateRegistrationError extends ConsoleRefusalError {
+export class DuplicateRegistrationError extends RefusalError {
   public readonly key: string;
 
-  public constructor(refusal: ConsoleRefusal, key: string) {
+  public constructor(refusal: Refusal, key: string) {
     super(refusal);
     this.name = "DuplicateRegistrationError";
     this.key = key;
@@ -95,7 +95,7 @@ export class KeyedRegistry<Key, Value> {
       // Thrown at construction rather than at the first duplicate, because a
       // registry that discovers it cannot honour its own policy only when a
       // conflict arrives has already admitted the conflicting registration.
-      throw new ConsoleRefusalError(
+      throw new RefusalError(
         refuse(
           REGISTRY_ORIGIN,
           "owner-reader-missing",
@@ -245,7 +245,7 @@ export class KeyedRegistry<Key, Value> {
  * its own message wording, so the same missing-key defect read differently
  * depending on which table you hit. One function, one wording.
  *
- * A `RangeError` and deliberately NOT a `ConsoleRefusal`, unlike the duplicate
+ * A `RangeError` and deliberately NOT a `Refusal`, unlike the duplicate
  * registrations above. A refusal is a value with three renderings and an author a
  * person can read; a key missing from a table the caller itself populated has
  * nowhere to render and nobody to name. It is a defect, and the platform error is

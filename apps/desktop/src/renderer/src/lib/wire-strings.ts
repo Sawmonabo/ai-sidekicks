@@ -1,6 +1,6 @@
 // Reading one wire-supplied member as a string, or as a finite number.
 //
-// A `ConsoleEntity.body` is wire-verbatim: the store holds what the daemon sent and
+// A `StoredEntity.body` is wire-verbatim: the store holds what the daemon sent and
 // narrows nothing, so every member arrives `unknown` and every surface that reads one
 // has to decide what counts as present. Surfaces across three view families and the
 // shell had each decided, identically and separately, under spellings that shared

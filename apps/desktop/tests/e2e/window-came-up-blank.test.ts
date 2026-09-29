@@ -97,7 +97,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       //
       // What replaces it is an absence a family can never claim away, because it does
       // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
-      // to `parseConsolePaneAddress`, the console's one admission point for an address
+      // to `parsePaneAddress`, the console's one admission point for an address
       // that arrived untyped, and a segment that names no kind is refused there. That
       // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
       // a shipped build can only reach through its own composition mistake, while a
@@ -114,7 +114,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
         window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
       // `--block` is the composed placement, and asserting it is the other half of
-      // "not a bare line": the surface layer proved that with `SurfaceAbsence`, and
+      // "not a bare line": the surface layer proved that with `ScreenNotice`, and
       // this arm renders its `Nothing` inside the harness region instead, where the
       // placement modifier is what carries the same claim.
       await consoleWindow

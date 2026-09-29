@@ -14,14 +14,14 @@
 // so a copy that fell behind would walk a shorter set than the one under test and
 // report a pass over the kinds it still knew about.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { type ReadingState, type ReadingStateKind } from "@renderer/lib/partial-read.js";
 
 /** What the notices under test are notices ABOUT. */
 export const READING_SUBJECT = "the queue";
 
 /** The refusal a delivery failed with, and the one every suite here quotes. */
-export const PARSE_REFUSAL: ConsoleRefusal = refuse(
+export const PARSE_REFUSAL: Refusal = refuse(
   "session-queue",
   "delivery-unreadable",
   "A queue delivery did not match the registered row shape.",

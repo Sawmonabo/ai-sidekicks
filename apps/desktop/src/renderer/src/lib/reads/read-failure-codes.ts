@@ -25,7 +25,7 @@ export type PushDrivenReadFailureCode = (typeof PUSH_DRIVEN_READ_FAILURE_CODES)[
 /**
  * The two, typed against that set rather than spelled at the call.
  *
- * `consoleRefusalFrom` takes any code, because its callers include mutations whose
+ * `coerceToRefusal` takes any code, because its callers include mutations whose
  * failure is neither of these — so without these two bindings the set above would be
  * declared and consumed by nothing, which is a closed set that has stopped closing
  * anything. A typo in either one is a compile error here instead of a code no

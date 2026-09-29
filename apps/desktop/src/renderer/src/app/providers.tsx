@@ -15,8 +15,8 @@
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { RealClock } from "@renderer/lib/clock.js";
-import { routeConsoleTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
-import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
+import { routeWindowTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
+import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { inlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
@@ -34,10 +34,10 @@ import { registerFeatureContributions } from "./registrations.js";
  * Nothing restores wall time on unmount: a breach during teardown belongs to that
  * window's timeline.
  */
-const consoleTripwireRouteClock = new ForwardingConsoleClock(new RealClock());
+const consoleTripwireRouteClock = new ForwardingClock(new RealClock());
 
 // The route lives as long as the renderer process, so its detach is dropped.
-routeConsoleTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
+routeWindowTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
 
 registerFeatureContributions({
   commands: commandContributionRegistry,

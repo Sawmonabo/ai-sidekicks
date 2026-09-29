@@ -16,7 +16,7 @@
 // controller that awaits an outcome and the command family that produces one name
 // the same shapes rather than two copies that drift.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The line an executor is handed.
@@ -46,7 +46,7 @@ export interface ComposerCommandLine {
 export type CommandOutcome =
   | { readonly status: "applied" }
   | { readonly status: "not-run" }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** Run one recognised client command. Returns a settlement; never throws to report one. */
 export type CommandExecutor = (line: ComposerCommandLine) => Promise<CommandOutcome>;

@@ -39,7 +39,7 @@
 // control's own press.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   contributedKeybindings,
   subscribeToCommandContributions,
@@ -223,13 +223,13 @@ export class KeybindingOverrideStore {
   }
 
   /** Forget one override, restoring whatever the console ships for that command. */
-  public async reset(commandId: string): Promise<ConsoleRefusal | undefined> {
+  public async reset(commandId: string): Promise<Refusal | undefined> {
     const { [commandId]: _dropped, ...remaining } = this.#overrides;
     return await this.#apply(commandId, remaining);
   }
 
   /** Forget every override. The keyboard is the one the console ships. */
-  public async resetAll(): Promise<ConsoleRefusal | undefined> {
+  public async resetAll(): Promise<Refusal | undefined> {
     return await this.#apply(undefined, {});
   }
 
@@ -264,7 +264,7 @@ export class KeybindingOverrideStore {
   async #apply(
     commandId: string | undefined,
     overrides: KeybindingOverrideMap,
-  ): Promise<ConsoleRefusal | undefined> {
+  ): Promise<Refusal | undefined> {
     this.#overrides = overrides;
     this.#overrideRounds.supersedeAll();
     // A hydration refusal names a row this window declined. The row it named has
@@ -284,7 +284,7 @@ export class KeybindingOverrideStore {
    * cannot name: the frame attaches before it renders a surface that can rebind, so
    * the only callers reaching that arm drive the model directly.
    */
-  async #persist(): Promise<ConsoleRefusal | undefined> {
+  async #persist(): Promise<Refusal | undefined> {
     const uiStateStore = this.#uiStateStore;
     if (uiStateStore === undefined) {
       return undefined;

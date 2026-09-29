@@ -33,7 +33,7 @@ function fixtureBridge(): ConsoleBridge {
 async function renderBody(agentId: string | undefined): Promise<HTMLElement> {
   const bridge = fixtureBridge();
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   const { container } = render(
     <AgentsPane
       agentId={agentId}

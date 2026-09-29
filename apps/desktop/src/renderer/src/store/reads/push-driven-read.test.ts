@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PushDrivenRead } from "./push-driven-read.js";
 import { PUSH_DRIVEN_READ_FAILURE_CODES } from "@renderer/lib/reads/read-failure-codes.js";
@@ -149,7 +149,7 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
       clock,
       read: () =>
         Promise.reject(
-          new ConsoleRefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
         ),
     });
     harness.model.start();
@@ -175,7 +175,7 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
 
   it("keeps a daemon envelope's own code rather than flattening it", async () => {
     // Most rejections reach this console as a wire envelope rather than as a
-    // `ConsoleRefusalError`. Rendered as `read-failed`, a permission denial, a
+    // `RefusalError`. Rendered as `read-failed`, a permission denial, a
     // missing session and a dead transport all read identically — and the code is
     // the one part of a refusal a person pastes into a search.
     const clock = new ManualClock();
@@ -312,7 +312,7 @@ describe("push-driven read — a subscription that cannot be opened", () => {
       origin: "presence-roster",
       read: async () => "value",
       subscribe: () => {
-        throw new ConsoleRefusalError(
+        throw new RefusalError(
           refuse("daemon", "session.not_found", "That session is not open here."),
         );
       },

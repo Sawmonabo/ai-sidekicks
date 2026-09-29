@@ -13,8 +13,8 @@
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { consoleDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 
 /** What the stand-in registrar reports, and what the captured record must carry. */
 const COMPOSITION_DETAIL = "a registrar reported while the features were being registered";
@@ -25,11 +25,11 @@ const WHOLE_CONSOLE_IMPORT_TIMEOUT_MS = 30_000;
 
 // The real registrations replaced by one that reports. `vi.mock`'s factory is invoked
 // lazily — when `providers.js` first imports this specifier, which is inside the
-// `beforeAll` below — so it reads a `consoleTripwires` binding that has long since
+// `beforeAll` below — so it reads a `windowTripwires` binding that has long since
 // initialised, the shape `test/helpers/electron-mock.ts` documents for the same reason.
 vi.mock("./registrations.js", () => ({
   registerFeatureContributions: () => {
-    consoleTripwires.report({
+    windowTripwires.report({
       kind: "bridge-shape-drift",
       site: "registrations.test-registrar",
       detail: COMPOSITION_DETAIL,
@@ -43,17 +43,17 @@ describe("providers — the tripwire route is armed before the features register
   beforeAll(async () => {
     // Set before the import, because the report happens during module evaluation and
     // a throwing registry would abort the composition rather than exercise the route.
-    consoleTripwires.setThrowOnReport(false);
-    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+    windowTripwires.setThrowOnReport(false);
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
     try {
       await import("./providers.js");
-      consoleDiagnosticCapture.flush();
+      windowDiagnosticCapture.flush();
     } finally {
       detachForwarder();
-      consoleTripwires.setThrowOnReport(true);
-      consoleTripwires.reset();
+      windowTripwires.setThrowOnReport(true);
+      windowTripwires.reset();
     }
   }, WHOLE_CONSOLE_IMPORT_TIMEOUT_MS);
 

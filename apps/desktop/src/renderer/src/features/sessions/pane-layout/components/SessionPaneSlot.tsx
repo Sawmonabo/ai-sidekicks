@@ -13,7 +13,7 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   PaneControlsContext,
   type PaneContext,
@@ -42,7 +42,7 @@ export interface SessionPaneSlotProps {
    * take the whole deck down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
-  readonly paneContextFor: (pane: SessionPane) => PaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
   readonly dragCoordinator: PaneLayoutDragCoordinator;
   /** The edge a drop would land on, when a drag is currently over this pane. */
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;

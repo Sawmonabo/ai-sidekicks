@@ -13,7 +13,7 @@
 // front of the person. Exporting submits nothing: it serializes the version body on screen
 // into the file form and hands the bytes to the host. Importing puts the create call.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The acts a detail draws, and exactly two.
@@ -74,7 +74,7 @@ export type WorkflowDetailActOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "dispatching"; readonly detail: string }
   | { readonly kind: "settled"; readonly detail: string }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** The two acts, each with where it stands, and the bytes an export produced. */
 export interface WorkflowDefinitionAuthoring {
@@ -101,6 +101,6 @@ export interface WorkflowDefinitionAuthoring {
  * through this one door, and a code the tuple above does not declare is a compile error
  * rather than a string nobody notices.
  */
-export function detailRefusal(code: WorkflowDetailRefusalCode, sentence: string): ConsoleRefusal {
+export function detailRefusal(code: WorkflowDetailRefusalCode, sentence: string): Refusal {
   return refuse(WORKFLOW_DETAIL_ORIGIN, code, sentence);
 }

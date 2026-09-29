@@ -31,7 +31,7 @@
 import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type PaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
@@ -90,13 +90,13 @@ export class PaneRegistry {
    * body it is about to render arrived as a chunk. Keeping the two apart is what lets
    * both registration forms produce one resolved descriptor shape.
    */
-  readonly #loadedBodiesByKind = new Map<PaneKind, LoadedLazyBody<PaneContext>>();
+  readonly #loadedBodiesByKind = new Map<PaneKind, LoaderBackedBody<PaneContext>>();
 
   /**
    * Claim a pane kind. A second claim by a different owner is an error, not a swap.
    *
    * A loader-form registration is normalised here: the registry builds the one
-   * `LoadedLazyBody` for it — one memoised promise and one stable lazy component — and
+   * `LoaderBackedBody` for it — one memoised promise and one stable lazy component — and
    * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
    * shape for both forms, and nothing downstream branches on how a body was registered.
    */
@@ -118,7 +118,7 @@ export class PaneRegistry {
     }
     // The fallback is the pane's own empty chrome, supplied here rather than by the
     // generic machinery: what a pane reserves while it loads is a pane-shaped question.
-    const loadedBody = new LoadedLazyBody(registration.body, (context: PaneContext) =>
+    const loadedBody = new LoaderBackedBody(registration.body, (context: PaneContext) =>
       createElement(PendingPaneBody, { context }),
     );
     // Registered BEFORE the descriptor, so a `register` the keyed registry refuses —

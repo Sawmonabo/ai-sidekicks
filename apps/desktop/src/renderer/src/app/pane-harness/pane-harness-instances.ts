@@ -13,11 +13,7 @@
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
 
-import type {
-  ConsolePaneAddress,
-  PaneContext,
-  PaneDescriptor,
-} from "@renderer/console/seats/index.js";
+import type { PaneAddress, PaneContext, PaneDescriptor } from "@renderer/console/seats/index.js";
 import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
@@ -43,7 +39,7 @@ export interface PaneHarnessInstance {
  * rebuilding them and a pane bound to one session went on running against another.
  */
 export function paneInstanceId(
-  address: ConsolePaneAddress,
+  address: PaneAddress,
   sessionId: string,
   instanceIndex: number,
 ): string {
@@ -63,7 +59,7 @@ export function paneInstanceId(
  */
 export function paneContextFor(
   context: ScreenContext,
-  address: ConsolePaneAddress,
+  address: PaneAddress,
   sessionId: string,
   instanceIndex: number,
 ): PaneContext {
@@ -91,7 +87,7 @@ export function paneContextFor(
 export function paneHarnessInstances(
   descriptor: PaneDescriptor,
   context: ScreenContext,
-  address: ConsolePaneAddress,
+  address: PaneAddress,
   sessionId: string,
   openInstanceCount: number,
 ): readonly PaneHarnessInstance[] {

@@ -6,21 +6,21 @@
 // copies of `refusalFrom` is two answers to "the parse admitted something it should have
 // refused", and the one that is not looked at is the one that stops saying which.
 
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
-import { parseConsolePaneAddress } from "./parse-pane-address.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
+import { parsePaneAddress } from "./parse-pane-address.js";
 
 /**
- * A `ConsoleEntityRef` whose kind is pinned to one literal.
+ * A `EntityRef` whose kind is pinned to one literal.
  *
  * An annotation rather than `as const satisfies`, because `isolatedDeclarations` needs
  * an explicit type on an exported binding — and an intersection rather than `Extract`,
- * because `ConsoleEntityRef` is one interface over the kind vocabulary rather than a
+ * because `EntityRef` is one interface over the kind vocabulary rather than a
  * union of per-kind members, so extracting from it yields `never`. Pinned rather than
  * left at the bare union because a case hands these to an address arm that admits one
  * kind and nothing else.
  */
-type EntityRefOf<TKind extends ConsoleEntityRef["kind"]> = ConsoleEntityRef & {
+type EntityRefOf<TKind extends EntityRef["kind"]> = EntityRef & {
   readonly kind: TKind;
 };
 
@@ -31,12 +31,12 @@ export const ARTIFACT: EntityRefOf<"artifact"> = { kind: "artifact", id: "artifa
 export const BROWSER_PAGE: EntityRefOf<"browser-page"> = { kind: "browser-page", id: "page-1" };
 
 /** The refusal a parse answered with, or a failure naming what it admitted instead. */
-export function refusalFrom(outcome: ReturnType<typeof parseConsolePaneAddress>): {
+export function refusalFrom(outcome: ReturnType<typeof parsePaneAddress>): {
   readonly code: string;
   readonly detail: string;
   readonly origin: string;
 } {
-  if (!isConsoleRefusal(outcome)) {
+  if (!isRefusal(outcome)) {
     throw new Error(`the parse admitted a "${outcome.kind}" address it should have refused`);
   }
   return outcome;

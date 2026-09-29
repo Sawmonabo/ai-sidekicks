@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
 import { useBridgeCommands } from "../hooks/useBridgeCommands.js";
@@ -36,7 +36,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // `update.requestCheck` has no fixture stand-in and rejects. The palette drops
     // the promise `invoke` hands back, so a `run` that let this reject would raise
     // an unhandled rejection and show the person nothing at all.
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
     await commandById(commands, "bridge.checkForUpdates").run();
@@ -67,7 +67,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
         },
       },
     };
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(throwing, (refusal) => refusals.push(refusal));
 
     await expect(commandById(commands, "bridge.checkForUpdates").run()).resolves.toBeUndefined();
@@ -86,7 +86,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // Without this, a sink that was called on every path — or an assertion that
     // never checked emptiness — would make the case above pass for the wrong
     // reason. The fixture's clipboard write resolves, so this arm must stay silent.
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
     await commandById(commands, "bridge.copyBuildDetails").run();

@@ -20,7 +20,7 @@
 
 import { Glyph } from "@renderer/console/primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * What a diff can be opened over from a repo row.
@@ -30,7 +30,7 @@ import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
  * spelling of them. These are exactly the two rows that carry a checkout: a repository
  * holds several and the user row holds none.
  */
-export type OpenDiffSubject = ConsoleEntityRef & { readonly kind: "workspace" | "worktree" };
+export type OpenDiffSubject = EntityRef & { readonly kind: "workspace" | "worktree" };
 
 export interface OpenDiffControlProps {
   readonly subject: OpenDiffSubject;

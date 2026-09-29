@@ -1,7 +1,7 @@
 // The deck's mount wears the console's one chrome, and the body adds no name of its own.
 //
 // THIS IS THE CLAIM THE SPLIT WAS MADE FOR. While one component drew its own section and
-// head, the deck never wrapped it in `seats/ConsolePaneChrome`. Nothing failed: the
+// head, the deck never wrapped it in `seats/PaneFrame`. Nothing failed: the
 // chrome's own suite proves what it renders, and it was right, because the chrome was
 // never reached. The gap was in the REGISTRAR, so every case below drives the registrar
 // rather than the component.
@@ -14,7 +14,7 @@
 // session at all. What IS cast is the frame store, the UI-state store, the draft store
 // and the session-store registry, which the registrar does not read: standing them up
 // would be a fixture built to satisfy a type nothing under test looks at, which is the
-// line `ConsolePaneChrome.test.tsx` draws for the same reason.
+// line `PaneFrame.test.tsx` draws for the same reason.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -57,7 +57,7 @@ function fixtureBridge(): ConsoleBridge {
  */
 function playedSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PLAYED_SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 

@@ -1,6 +1,6 @@
 // One authored beat, composed into the wire envelope the daemon would have sent.
 //
-// A scenario is authored in `ConsoleSessionEvent`s, which is the console's own
+// A scenario is authored in `ProjectedSessionEvent`s, which is the console's own
 // projection shape and the readable way to write a script. It is NOT what the wire
 // carries: `session.subscribe` is registered as a long-lived consumer of the
 // canonical `EventEnvelope` (`packages/contracts/src/event.ts#EventEnvelope`), whose
@@ -31,7 +31,7 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * The envelope version every composed beat carries.
@@ -81,7 +81,7 @@ export interface ScenarioEventEnvelopeCandidate {
  * claim as one that names the system.
  */
 export function composeScenarioEventEnvelope(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): ScenarioEventEnvelopeCandidate {
   const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(event.kind as SessionEventType);
   return {

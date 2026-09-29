@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { usePreviewPaneActs, type PreviewPaneActs } from "./usePreviewPaneActs.js";
 
@@ -24,20 +24,20 @@ const FALLBACK = {
 
 /** One act the test settles by hand, in whichever order the case needs. */
 function deferredAct(): {
-  readonly run: () => Promise<ConsoleRefusal | undefined>;
+  readonly run: () => Promise<Refusal | undefined>;
   readonly serve: () => void;
-  readonly refuseWith: (refusal: ConsoleRefusal) => void;
+  readonly refuseWith: (refusal: Refusal) => void;
   readonly reject: (failure: unknown) => void;
 } {
   let settle:
     | {
-        readonly resolve: (value: ConsoleRefusal | undefined) => void;
+        readonly resolve: (value: Refusal | undefined) => void;
         readonly reject: (failure: unknown) => void;
       }
     | undefined;
   return {
     run: async () =>
-      new Promise<ConsoleRefusal | undefined>((resolve, reject) => {
+      new Promise<Refusal | undefined>((resolve, reject) => {
         settle = { resolve, reject };
       }),
     serve: () => {

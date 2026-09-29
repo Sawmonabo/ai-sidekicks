@@ -37,7 +37,7 @@
 import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { encodeBase64 } from "../base64.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
   readChunkAcknowledgement,
@@ -51,14 +51,14 @@ export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";
 
 export interface AttachmentChunkStreamOptions {
   readonly port: Pick<AttachmentIngestPort, "writeChunk">;
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly ledger: AttachmentIngestEntries;
 }
 
 /** One open stream's bytes, sent cap-sized slice by cap-sized slice. */
 export class AttachmentChunkStream {
   readonly #port: Pick<AttachmentIngestPort, "writeChunk">;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #ledger: AttachmentIngestEntries;
 
   public constructor(options: AttachmentChunkStreamOptions) {

@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
-import { devPerfMeters } from "@renderer/lib/performance-meters/performance-meters.js";
+import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import { REVEAL_CATCH_UP_MULTIPLIER } from "../viewport/viewport-constants.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
@@ -29,7 +29,7 @@ function engineOn(clock: ManualClock): RevealEngine {
 
 describe("the reveal engine — the frame budget", () => {
   beforeEach(() => {
-    devPerfMeters?.reset();
+    developmentPerformanceMeters?.reset();
   });
 
   it("records what each drain revealed, keyed so two engines are two series", () => {
@@ -37,13 +37,18 @@ describe("the reveal engine — the frame budget", () => {
     const frameCoordinator = new AnimationFrameCoordinator({ clock });
     const first = new RevealEngine({ frameCoordinator });
     const second = new RevealEngine({ frameCoordinator });
-    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+    expect(
+      developmentPerformanceMeters,
+      "this project is not compiling the fixture define",
+    ).not.toBe(null);
 
     first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
     second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
     clock.runFrame();
 
-    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    const drains =
+      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ??
+      [];
     // TWO series, not one: both engines drained inside the same coordinator frame, and
     // a producer keying by anything the two share would fold their samples together.
     expect(drains).toHaveLength(2);
@@ -67,7 +72,9 @@ describe("the reveal engine — the frame budget", () => {
     second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
     clock.runFrame();
 
-    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    const drains =
+      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ??
+      [];
     expect(drains).toHaveLength(2);
     expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
   });
@@ -83,18 +90,18 @@ describe("the reveal engine — the frame budget", () => {
 
     engine.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
     clock.runFrame();
-    expect(devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain")).toHaveLength(
-      1,
-    );
+    expect(
+      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
+    ).toHaveLength(1);
 
     frameCoordinator.dispose();
 
     expect(
-      devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
+      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
     ).toStrictEqual([]);
     // And the coordinator's own reading goes with it, so nothing is left holding the
     // bound for a feed that has been torn down.
-    expect(devPerfMeters?.seriesCount).toBe(0);
+    expect(developmentPerformanceMeters?.seriesCount).toBe(0);
   });
 
   it("arms nothing until there is work, and nothing again once settled", () => {

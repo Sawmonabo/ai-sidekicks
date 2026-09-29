@@ -74,7 +74,7 @@
 // for `chord-claim.ts`' reason: the claim is the difference between a symbol waiting
 // for a named consumer and one nothing will ever import.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   chordMatchesEvent,
   parseChord,
@@ -116,7 +116,7 @@ export type HandbackDecision =
 /** What a replay did. A refusal is rendered; it is never swallowed. */
 export type ChordReplayOutcome =
   | { readonly status: "replayed" }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 export interface KeyboardHandbackOptions {
   /**

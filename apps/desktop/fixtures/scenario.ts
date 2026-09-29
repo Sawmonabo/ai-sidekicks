@@ -21,13 +21,13 @@
 // about and what it plays.
 import type { UpdateState } from "@shared/preload-api.js";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
   readonly atMs: number;
-  readonly event: ConsoleSessionEvent;
+  readonly event: ProjectedSessionEvent;
 }
 
 export interface ConsoleScenario {

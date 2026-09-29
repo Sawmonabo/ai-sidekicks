@@ -12,7 +12,7 @@
 // the candidate back, because a candidate's second property read is free to throw
 // into a renderer that has already left every `catch`. That rebuild is correct and it
 // dropped everything it did not know about — so a refusal that travelled as a thrown
-// `ConsoleRefusalError` reached a surface with its extensions gone, and the one answer
+// `RefusalError` reached a surface with its extensions gone, and the one answer
 // available was for the caller to skip the normalizer for that case and hand
 // the value back verbatim. Verbatim is the thing the rebuild exists to prevent. So
 // the rebuild learns the set instead, and there is no arm anywhere that returns a
@@ -39,7 +39,7 @@
 import { readGuardedProperty } from "./wire-errors.js";
 
 import { parseInstant } from "./instant.js";
-import type { ConsoleRefusal } from "./refusal.js";
+import type { Refusal } from "./refusal.js";
 import { readWireString } from "./wire-strings.js";
 
 /**
@@ -86,7 +86,7 @@ export interface RefusalExtensions {
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
-export type ExtendedConsoleRefusal = ConsoleRefusal & RefusalExtensions;
+export type ExtendedRefusal = Refusal & RefusalExtensions;
 
 /**
  * The two positions a retry bound is registered at on the WIRE, as an extension.
@@ -201,7 +201,7 @@ export const REFUSAL_EXTENSION_MEMBERS: readonly (keyof RefusalExtensions)[] = O
 /**
  * Read every registered extension a candidate carries, and nothing else.
  *
- * TOTAL, for the same reason `isConsoleRefusal` is: every caller is on a failure path
+ * TOTAL, for the same reason `isRefusal` is: every caller is on a failure path
  * and the value is whatever a producer threw. A member that is absent, unreadable, or
  * not the type it is registered as is simply not on the answer — and a member NOT on
  * the registry is not on the answer whatever the candidate carries, which is the whole
@@ -231,8 +231,8 @@ export function readRefusalExtensions(candidate: unknown): RefusalExtensions {
  * member answers that question wrongly.
  */
 export function withRefusalExtensions(
-  refusal: ConsoleRefusal,
+  refusal: Refusal,
   extensions: RefusalExtensions,
-): ExtendedConsoleRefusal {
+): ExtendedRefusal {
   return { ...refusal, ...extensions };
 }

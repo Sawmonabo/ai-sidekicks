@@ -33,9 +33,9 @@
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
-import { consoleDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { parseInstant } from "@renderer/lib/instant.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
@@ -222,19 +222,19 @@ describe("AppProviders — every tripwire this process reports reaches the captu
     // The route is armed at module scope, so importing `AppProviders` is what arms it —
     // no mount is needed and none is performed. What is asserted is the JOIN: a report
     // made against the process registry arrives at the process capture.
-    consoleTripwires.setThrowOnReport(false);
+    windowTripwires.setThrowOnReport(false);
 
     const batches: string[] = [];
-    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
     try {
-      consoleTripwires.report({
+      windowTripwires.report({
         kind: "bridge-shape-drift",
         site: "AppProviders.test",
         detail: "a report made to prove the route is armed",
       });
-      consoleDiagnosticCapture.flush();
+      windowDiagnosticCapture.flush();
 
       expect(
         batches.join("\n"),
@@ -242,8 +242,8 @@ describe("AppProviders — every tripwire this process reports reaches the captu
       ).toContain("a report made to prove the route is armed");
     } finally {
       detachForwarder();
-      consoleTripwires.setThrowOnReport(true);
-      consoleTripwires.reset();
+      windowTripwires.setThrowOnReport(true);
+      windowTripwires.reset();
     }
   });
 
@@ -253,18 +253,18 @@ describe("AppProviders — every tripwire this process reports reaches the captu
     // engine's FROZEN clock, and a record stamped off wall time lands hours from the
     // frame it describes — unpinnable by a reference capture and disagreeing with
     // every other timestamp the same window produced.
-    consoleTripwires.setThrowOnReport(false);
+    windowTripwires.setThrowOnReport(false);
 
     const batches: string[] = [];
-    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
     try {
       await mountConsole();
 
       const detail = "a report made to prove the route reads the window's clock";
-      consoleTripwires.report({ kind: "bridge-shape-drift", site: "AppProviders.test", detail });
-      consoleDiagnosticCapture.flush();
+      windowTripwires.report({ kind: "bridge-shape-drift", site: "AppProviders.test", detail });
+      windowDiagnosticCapture.flush();
 
       const routed = batches
         .flatMap((batch) => batch.split("\n"))
@@ -279,8 +279,8 @@ describe("AppProviders — every tripwire this process reports reaches the captu
       ).toBeGreaterThan(ONE_DAY_IN_MILLISECONDS);
     } finally {
       detachForwarder();
-      consoleTripwires.setThrowOnReport(true);
-      consoleTripwires.reset();
+      windowTripwires.setThrowOnReport(true);
+      windowTripwires.reset();
     }
   });
 });

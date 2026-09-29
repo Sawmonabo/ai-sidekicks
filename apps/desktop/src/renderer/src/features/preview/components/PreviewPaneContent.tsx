@@ -4,7 +4,7 @@
 // history state and the tabs are drawn from the page list, both handed in as readings,
 // and every control dispatches through the acts it is handed, so the component holds no
 // subscription and no second copy of either. `PreviewPane.tsx` is what the deck mounts;
-// this is the body that goes inside `seats/ConsolePaneChrome`, which draws the section,
+// this is the body that goes inside `seats/PaneFrame`, which draws the section,
 // its accessible name and the actor's hue.
 //
 // The close-tab chord is claimed here: left alone, the platform chord closes the window.
@@ -35,7 +35,7 @@ import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */
@@ -148,7 +148,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   return (
     // The chord claim rides the frame's own section, so it covers the head the frame
     // draws above the body as well as everything inside it.
-    <ConsolePaneChrome
+    <PaneFrame
       kind="browser"
       sessionId={sessionId}
       focusHue={focusHue}
@@ -222,6 +222,6 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
           ) : null}
         </div>
       </div>
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

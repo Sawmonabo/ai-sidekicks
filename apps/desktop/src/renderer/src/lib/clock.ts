@@ -18,7 +18,7 @@
 export type ScheduledHandle = number;
 
 /** The clock and scheduler every console subsystem takes as a dependency. */
-export interface ConsoleClock {
+export interface Clock {
   /** Milliseconds since an arbitrary epoch. Monotonic within one clock. */
   now(): number;
   /** Run on the next paint opportunity. */
@@ -50,7 +50,7 @@ const frameScheduling = globalThis as unknown as FrameScheduling;
  * animation frames, and a substrate that threw there would be untestable outside
  * a browser.
  */
-export class RealClock implements ConsoleClock {
+export class RealClock implements Clock {
   /**
    * Armed work, keyed by the handle this clock issued.
    *
@@ -129,7 +129,7 @@ export class RealClock implements ConsoleClock {
  * have a timer armed?", which is how the idle-CPU budget's "no timer fires" claim
  * is checked rather than asserted.
  */
-export class ManualClock implements ConsoleClock {
+export class ManualClock implements Clock {
   #currentTime: number;
   #nextHandle = 1;
   #entries: ScheduledEntry[] = [];

@@ -7,7 +7,7 @@ import { render } from "@testing-library/react";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   TimelinePane,
@@ -20,7 +20,7 @@ export const TRANSCRIPT_PANE_SESSION_ID = "session-ledger";
 /**
  * The pane context, with the members this component reads real and the rest cast.
  *
- * `FrameStore` is real because the pane subscribes to it for the address its
+ * `WindowStore` is real because the pane subscribes to it for the address its
  * breadcrumb renders — a cast one would make that subscription untested. The three
  * stores it does not read are cast rather than constructed: one of them opens a
  * database, and building it to satisfy a field nothing reads would make the setup
@@ -40,7 +40,7 @@ export function paneContext(
   return {
     kind: "timeline",
     paneId: "ledger-timeline",
-    frameStore: new FrameStore({
+    frameStore: new WindowStore({
       initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "workspace", sessionId },
     }),
     focusHue: undefined,
@@ -51,7 +51,7 @@ export function paneContext(
 /**
  * Render one mount of the pane under a bridge, and answer the pane element.
  *
- * NO CHROME ARGUMENT ANY MORE. The frame is `seats/ConsolePaneChrome`, which the pane
+ * NO CHROME ARGUMENT ANY MORE. The frame is `seats/PaneFrame`, which the pane
  * imports downward through the seat door, so there is nothing left for a suite to
  * compose it with and the factory that existed to bind one is gone.
  *
@@ -82,7 +82,7 @@ export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: "event-0",

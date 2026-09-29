@@ -15,9 +15,9 @@
 // only where its own caller owns the pane's lifetime.
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import {
-  ConsolePaneChrome,
+  PaneFrame,
   timelineRowRenderer,
   type PaneContextOf,
 } from "@renderer/console/seats/index.js";
@@ -45,10 +45,10 @@ export function TimelinePane(props: TranscriptPaneProps): React.JSX.Element {
   // Read through the store's own selector rather than off a snapshot: the pane has
   // to follow a navigation that changes which session it is a log of, and a
   // render-time snapshot read would leave it showing the session before last.
-  const route = useFrameStore(context.frameStore, (state) => state.route);
+  const route = useWindowStore(context.frameStore, (state) => state.route);
 
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="timeline"
       sessionId={routeSessionId(route)}
       // Straight through, including the absent arm: an unattributed pane sets no hue
@@ -62,6 +62,6 @@ export function TimelinePane(props: TranscriptPaneProps): React.JSX.Element {
         paneId={context.paneId}
         sessionStore={context.sessionStore}
       />
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

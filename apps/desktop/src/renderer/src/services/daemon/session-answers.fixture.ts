@@ -8,7 +8,7 @@
 //
 // WHY THE SNAPSHOT IS NOT `SessionReadResponse` FROM `@ai-sidekicks/contracts`. That is
 // the registered reply, and it is the wrong shape for this seam: it carries `{ session,
-// timelineCursors }`, while `SessionStore.initialise` takes the console's own
+// timelineCursors }`, while `SessionStore.initialize` takes the console's own
 // `SessionSnapshot` from `store/session/session-state.ts` (a numeric `cursor`, the
 // `entities` the read carried). The reply
 // carries neither, and its cursor is an opaque branded string nothing

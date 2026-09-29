@@ -26,7 +26,7 @@ import "./keyboard.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { auditKeybindings } from "@renderer/registries/keybindings/keybinding-audit.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
@@ -291,14 +291,14 @@ export function KeyboardPage(): ReactNode {
 /** What the last rebinding said, if it said anything. One act, one answer. */
 interface KeyboardActReport {
   readonly commandId: string;
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 /** What a settled rebinding says, and never more than it knows. */
 function describeBinding(
   title: string,
   chord: string | null,
-  unsaved: ConsoleRefusal | undefined,
+  unsaved: Refusal | undefined,
 ): string {
   const act =
     chord === null

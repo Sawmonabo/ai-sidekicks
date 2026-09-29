@@ -12,7 +12,7 @@
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
@@ -270,7 +270,7 @@ export function unscriptedScenario(id: string): ConsoleScenario {
  * clock, so the engine member is replaced by hand. The scenario id is the caller's for the
  * reason `unscriptedScenario` gives.
  */
-export function bridgeOnClock(scenarioId: string, clock?: ConsoleClock): ConsoleBridge {
+export function bridgeOnClock(scenarioId: string, clock?: Clock): ConsoleBridge {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario(scenarioId) });
   if (clock === undefined) {
     return bridge;

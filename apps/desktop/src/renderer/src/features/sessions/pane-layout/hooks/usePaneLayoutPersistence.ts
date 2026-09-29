@@ -29,7 +29,7 @@
 
 import { useEffect } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -53,14 +53,14 @@ import {
  * One frozen array rather than a fresh one per seed and per settled restore, so a
  * subscriber comparing by identity is told nothing changed when nothing did.
  */
-const NO_RESTORE_REFUSALS: readonly ConsoleRefusal[] = Object.freeze([]);
+const NO_RESTORE_REFUSALS: readonly Refusal[] = Object.freeze([]);
 
 /** What the persistence hook binds: the layout, its store, the session, the refusal sink. */
 export interface PaneLayoutPersistenceOptions {
   readonly layout: PaneLayoutStore;
   readonly uiStateStore: UiStateStore;
   readonly sessionId: string | undefined;
-  readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
+  readonly onSaveRefused: (refusal: Refusal) => void;
 }
 
 /**
@@ -72,7 +72,7 @@ export interface PaneLayoutPersistenceOptions {
  */
 export function usePaneLayoutPersistence(
   options: PaneLayoutPersistenceOptions,
-): readonly ConsoleRefusal[] {
+): readonly Refusal[] {
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   // WHAT A RESTORE REFUSED, ADDRESSED BY THE RESTORE THAT REFUSED IT. Held on the same
   // `(arrangement, session)` pair as the gate below, through the same holder, because
@@ -81,7 +81,7 @@ export function usePaneLayoutPersistence(
   // nothing on screen tying them to the session they belong to. The seed is what a
   // session whose restore has not landed shows, which is nothing — an unsettled restore
   // makes no claim, and the previous session's is not a stand-in for one.
-  const restoreRefusals = useSubjectScopedState<readonly ConsoleRefusal[]>(
+  const restoreRefusals = useSubjectScopedState<readonly Refusal[]>(
     layout,
     sessionId,
     () => NO_RESTORE_REFUSALS,

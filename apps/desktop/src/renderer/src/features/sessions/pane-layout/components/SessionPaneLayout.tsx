@@ -51,7 +51,7 @@ import "./pane-layout.css";
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import {
   InlineRefusal,
@@ -86,9 +86,9 @@ export interface SessionPaneLayoutProps {
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
   readonly registry: PaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
-  readonly paneContextFor: (pane: SessionPane) => PaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
   /** What the layout restore refused, rendered rather than swallowed. */
-  readonly restoreRefusals?: readonly ConsoleRefusal[];
+  readonly restoreRefusals?: readonly Refusal[];
   /** Where measured pane rects go, for a body that hosts a native view.
    * `deck/rect/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;

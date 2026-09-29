@@ -14,7 +14,7 @@
 // is on the page or it is not.
 //
 // THE PRODUCER AND THE READER SHARE THIS MODULE, which is the package's rule for two
-// sides of one seam: `PendingPaneBody.tsx` stamps the attribute and `pendingPaneBodiesIn`
+// sides of one seam: `PendingPaneBody.tsx` stamps the attribute and `findPendingBodies`
 // finds it, and a second spelling of the string in a test would drift the first time the
 // attribute was renamed and the gate would go green over a fallback.
 //
@@ -34,10 +34,10 @@ import { createElement } from "react";
  * invite a rule that made the pending state LOOK like something, and the whole point of
  * this state is that it looks like the pane's own empty frame. Nothing styles it.
  */
-export const PENDING_PANE_BODY_ATTRIBUTE = "data-meridian-pane-body-pending";
+export const PENDING_BODY_ATTRIBUTE = "data-meridian-pane-body-pending";
 
 /** The selector form, so no caller composes the brackets itself. */
-export const PENDING_BODY_SELECTOR: string = `[${PENDING_PANE_BODY_ATTRIBUTE}]`;
+export const PENDING_BODY_SELECTOR: string = `[${PENDING_BODY_ATTRIBUTE}]`;
 
 /**
  * Every pending pane body inside a tree, in document order.
@@ -50,7 +50,7 @@ export const PENDING_BODY_SELECTOR: string = `[${PENDING_PANE_BODY_ATTRIBUTE}]`;
  * the pane's own element, and `querySelectorAll` alone would look only at descendants
  * and report a pending pane as settled.
  */
-export function pendingPaneBodiesIn(root: Element): readonly Element[] {
+export function findPendingBodies(root: Element): readonly Element[] {
   const withinRoot = [...root.querySelectorAll(PENDING_BODY_SELECTOR)];
   return root.matches(PENDING_BODY_SELECTOR) ? [root, ...withinRoot] : withinRoot;
 }
@@ -61,9 +61,9 @@ export function pendingPaneBodiesIn(root: Element): readonly Element[] {
  * Reads the attribute's own value, which the fallback sets to the pane kind, so the
  * message names the pane rather than the number of them.
  */
-export function pendingPaneKindsIn(root: Element): readonly string[] {
-  return pendingPaneBodiesIn(root).map(
-    (element) => element.getAttribute(PENDING_PANE_BODY_ATTRIBUTE) ?? "unknown",
+export function listPendingBodyNames(root: Element): readonly string[] {
+  return findPendingBodies(root).map(
+    (element) => element.getAttribute(PENDING_BODY_ATTRIBUTE) ?? "unknown",
   );
 }
 
@@ -75,9 +75,9 @@ export function pendingPaneKindsIn(root: Element): readonly string[] {
  * the surface around it is drawn exactly as it will be drawn once the chunk lands.
  *
  * The marker's VALUE is the body's own name, which is what makes a refused capture
- * actionable — `pendingPaneKindsIn` prints it, and "sign-in-card" names the thing that
+ * actionable — `listPendingBodyNames` prints it, and "sign-in-card" names the thing that
  * had not arrived where a count would start a second debugging session.
  */
 export function reservedBodyRegion(bodyName: string): React.ReactNode {
-  return createElement("span", { hidden: true, [PENDING_PANE_BODY_ATTRIBUTE]: bodyName });
+  return createElement("span", { hidden: true, [PENDING_BODY_ATTRIBUTE]: bodyName });
 }

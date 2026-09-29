@@ -25,7 +25,7 @@
 // a refresh: a control that vanished and came back on every window focus would be a worse
 // reading than a slightly stale one.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
@@ -166,7 +166,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
 }
 
 /** A reading that declares nothing, carrying the reason it declares nothing. */
-function refusedReadout(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
+function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
   return {
     flagsByDriverName: NO_DECLARATIONS,
     driverNameByRunId: NO_RUN_BINDINGS,

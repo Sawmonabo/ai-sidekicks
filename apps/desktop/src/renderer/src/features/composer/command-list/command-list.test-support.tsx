@@ -23,10 +23,10 @@ import { commandRegistry } from "@renderer/registries/commands/window-command-re
 import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { MessageComposer } from "../Composer.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";
 import { settleEnumeration } from "./provider-command-read.js";
@@ -88,7 +88,7 @@ export const registeredIds: string[] = [];
 export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
-  readonly rerenderAt: (pane: ConsolePaneAddress) => Promise<void>;
+  readonly rerenderAt: (pane: PaneAddress) => Promise<void>;
   /** Write the session-addressed draft through the store, as a surface elsewhere would. */
   readonly writeDraft: (text: string) => Promise<void>;
   /** Take the composer down, for the cases about what its teardown releases. */
@@ -208,22 +208,22 @@ export function composerSessionStore(): SessionStore {
     sessionId: COMPOSER_SCENARIO.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
-  store.applyBatch(COMPOSER_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
+  store.initialize({ cursor: 0, entities: [] });
+  store.applyBatch(COMPOSER_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent));
   return store;
 }
 
-export function agentPane(agentId: string): ConsolePaneAddress {
+export function agentPane(agentId: string): PaneAddress {
   return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
 }
 
 export async function mountComposer(options: {
   readonly bridge: ConsoleBridge;
-  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedComposer> {
   const sessionStore = composerSessionStore();
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   const route = { kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId } as const;
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {

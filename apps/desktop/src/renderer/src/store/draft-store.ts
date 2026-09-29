@@ -35,7 +35,7 @@ export interface DraftEntry {
 export interface DraftStoreOptions {
   /**
    * The reading the eviction order uses. A bare callback and NOT the console's
-   * `ConsoleClock` seam, which every other class in this family now takes: taking
+   * `Clock` seam, which every other class in this family now takes: taking
    * the seam would mean importing it, and this module is the one place in the
    * console that must import nothing at all — the drafts tripwire asserts exactly
    * that, because acquiring anything here is the first move of persisting a draft.

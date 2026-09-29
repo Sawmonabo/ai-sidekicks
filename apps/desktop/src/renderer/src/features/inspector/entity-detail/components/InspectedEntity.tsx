@@ -11,16 +11,16 @@
 
 import {
   useSessionDegradedCause,
-  useSessionInitialised,
+  useSessionInitialized,
 } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "../entity-detail-by-kind.js";
 
 export interface InspectedEntityProps {
   /** What the deck addressed this pane with. */
-  readonly entityRef: ConsoleEntityRef & { readonly kind: EntityDetailKind };
+  readonly entityRef: EntityRef & { readonly kind: EntityDetailKind };
   readonly sessionStore: SessionStore;
   /**
    * The pane this inspector was opened from, when the deck linked the two.
@@ -35,7 +35,7 @@ export interface InspectedEntityProps {
 
 export function InspectedEntity(props: InspectedEntityProps): React.JSX.Element {
   const partition = useSessionPartition(props.sessionStore, props.entityRef.kind);
-  const isInitialised = useSessionInitialised(props.sessionStore);
+  const isInitialised = useSessionInitialized(props.sessionStore);
   const degradedCause = useSessionDegradedCause(props.sessionStore);
   const EntityDetail = ENTITY_DETAIL_BY_KIND[props.entityRef.kind];
   return (

@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
+  StoredEntity,
+  ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
 
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
@@ -23,7 +23,7 @@ function agentAttached(
   agentId: string,
   driverName: string,
   sessionId = SESSION_ID,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     id: `event-${String(sequence)}`,
     sessionId,
@@ -41,7 +41,7 @@ function agentAttached(
 }
 
 /** One run row as the run partition holds it, with the agent its creation named. */
-function runBoundTo(runId: string, agentId: string | undefined): ConsoleEntity {
+function runBoundTo(runId: string, agentId: string | undefined): StoredEntity {
   return {
     kind: "run",
     id: runId,
@@ -50,7 +50,7 @@ function runBoundTo(runId: string, agentId: string | undefined): ConsoleEntity {
   };
 }
 
-function partitionOf(...runs: readonly ConsoleEntity[]): Readonly<Record<string, ConsoleEntity>> {
+function partitionOf(...runs: readonly StoredEntity[]): Readonly<Record<string, StoredEntity>> {
   return Object.fromEntries(runs.map((run) => [run.id, run]));
 }
 
@@ -90,7 +90,7 @@ describe("the run-to-driver join", () => {
   it("negative control: an attach beat naming another session binds nothing", () => {
     // A payload naming another session is a claim about another store. Reading it
     // here would bind this session's run to a driver named somewhere else.
-    const strayBeat: ConsoleSessionEvent = {
+    const strayBeat: ProjectedSessionEvent = {
       ...agentAttached(1, "agent-one", "codex", OTHER_SESSION_ID),
       sessionId: SESSION_ID,
     };

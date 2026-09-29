@@ -23,7 +23,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
@@ -117,13 +117,13 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
     // in a development build — inside React's own error handling, which is not
     // what these cases are about.
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("renders the newly selected surface instead of the previous route's failure card", () => {

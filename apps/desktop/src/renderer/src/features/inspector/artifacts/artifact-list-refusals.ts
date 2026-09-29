@@ -12,7 +12,7 @@
 // it: a count in a sentence is not something a fifth code can fail against.
 
 import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * Which subsystem refused, when the refusal is the pane's own and not the port's.
@@ -65,7 +65,7 @@ export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[numbe
  * A DELEGATION, NOT A NORMALIZER. Flattening everything to one code and one sentence would
  * lose what a rejection carries: a JSON-RPC envelope carrying `data.type` would arrive as
  * `read-threw` with the daemon's dotted code and its own words discarded, a rate-limit
- * envelope would lose its retry hint, a `ConsoleRefusal` thrown across the bridge would
+ * envelope would lose its retry hint, a `Refusal` thrown across the bridge would
  * lose the origin its author named, and `error instanceof Error` answers false for an
  * `Error` minted in the preload realm — which is the realm every bridge rejection
  * crosses — so that value would take the not-an-error arm and its message would go with
@@ -77,10 +77,10 @@ export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[numbe
  * there — a rejection off the wire can carry user content as readily as a
  * schema failure can, so interpolating the message would put that content on screen.
  *
- * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
+ * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `Refusal`
  * widened by the optional retry hint a rate-limit envelope registers, so every
  * consumer that takes a refusal takes this unchanged — and narrowing it back to
- * `ConsoleRefusal` here would hide the one member this delegation exists to stop
+ * `Refusal` here would hide the one member this delegation exists to stop
  * dropping from the only reader that could offer the retry.
  */
 export function readFailureRefusal(error: unknown): WireRefusal {
@@ -99,7 +99,7 @@ export function readFailureRefusal(error: unknown): WireRefusal {
  * pending, so this is structurally unreachable from the pane — and recorded anyway,
  * because a press that produced nothing at all is the silent no-op rule 8 forbids.
  */
-export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
+export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal {
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "payload-fetch-in-flight" satisfies ArtifactListRefusalCode,
@@ -117,7 +117,7 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleR
  * unreachable from the panel — and recorded anyway, because a press that produced
  * nothing at all is the silent no-op rule 8 forbids.
  */
-export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal {
+export function manifestReadInFlightRefusal(artifactId: string): Refusal {
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "manifest-read-in-flight" satisfies ArtifactListRefusalCode,

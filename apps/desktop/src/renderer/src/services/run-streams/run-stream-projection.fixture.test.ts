@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "@test/helpers/fixture-bridge.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -57,7 +57,9 @@ function transitionPayload(
  * Built off the shared transition beat and then re-kinded, so the envelope members are
  * the ones the fixture's own beats carry and the cases below are about the payload.
  */
-function rollbackBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+function rollbackBeatEvent(
+  overrides: Readonly<Record<string, unknown>> = {},
+): ProjectedSessionEvent {
   const beat = runTransitionBeat({
     sessionId: FLAGSHIP_SCENARIO.sessionId,
     runId: PROBE_RUN_ID,
@@ -265,7 +267,7 @@ const PROBE_QUEUE_ROW: Readonly<Record<string, unknown>> = {
 };
 
 /** One `queue_item.created` beat, whose kind announces the `queued` state. */
-function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ProjectedSessionEvent {
   const beat = runTransitionBeat({
     sessionId: FLAGSHIP_SCENARIO.sessionId,
     queueItemId: PROBE_QUEUE_ITEM_ID,

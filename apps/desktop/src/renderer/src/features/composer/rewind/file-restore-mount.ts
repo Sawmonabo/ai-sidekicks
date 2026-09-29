@@ -7,7 +7,7 @@
 // A static import of the component would put it on the initial graph, because a symbol
 // reachable both statically and dynamically is assigned to the STATIC chunk.
 //
-// A `LoadedLazyBody` RATHER THAN A `lazy()` OF THIS MODULE'S OWN, because that class is
+// A `LoaderBackedBody` RATHER THAN A `lazy()` OF THIS MODULE'S OWN, because that class is
 // already the console's one answer to a loader-backed body: one in-flight promise however
 // many rows ask, one component identity so a re-render of the intervention history does
 // not remount a disclosure a person has expanded, a fresh payload only where a load
@@ -19,7 +19,7 @@
 // which is what the package's state-and-views rule asks for, and every row of
 // every run's history draws the same disclosure, so there is nothing to key it on.
 
-import { LoadedLazyBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
 import type { FileRestoreDisclosureProps } from "../components/FileRestoreDisclosure/FileRestoreDisclosure.js";
 
 /**
@@ -35,8 +35,8 @@ const FILE_RESTORE_DISCLOSURE_PENDING_BODY = "file-restore-disclosure";
  *
  * @consumedBy the composer's undo readout
  */
-export const fileRestoreDisclosureMount: LoadedLazyBody<FileRestoreDisclosureProps> =
-  new LoadedLazyBody(
+export const fileRestoreDisclosureMount: LoaderBackedBody<FileRestoreDisclosureProps> =
+  new LoaderBackedBody(
     () => import("../components/FileRestoreDisclosure/file-restore-disclosure-body.js"),
     () => reservedBodyRegion(FILE_RESTORE_DISCLOSURE_PENDING_BODY),
   );

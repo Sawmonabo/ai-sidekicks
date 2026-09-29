@@ -20,7 +20,7 @@ import { AppProviders } from "@renderer/app/providers.js";
 import { applyColorScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { ATTRIBUTION_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
+import { LEADING_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
 import { MOTION_DURATIONS_MS } from "@renderer/styles/motion.js";
 import { tokenVariableName } from "@renderer/styles/tokens.js";
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -81,7 +81,7 @@ describe("browser — the token sheet reaches the cascade", () => {
   });
 
   it("carries the attribution edge and the motion durations as real values", () => {
-    expect(tokenValue("attribution-edge")).toBe(`${String(ATTRIBUTION_EDGE_WIDTH_PX)}px`);
+    expect(tokenValue("attribution-edge")).toBe(`${String(LEADING_EDGE_WIDTH_PX)}px`);
     expect(tokenValue("motion-settle")).toBe(`${String(MOTION_DURATIONS_MS["motion-settle"])}ms`);
   });
 

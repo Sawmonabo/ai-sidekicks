@@ -36,7 +36,7 @@ import { SCENARIO_TICK_MS, ScenarioEngine } from "./engine.fixture.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
@@ -148,8 +148,8 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   }
 
   /** Collect what one replay-then-tail subscriber receives, in delivery order. */
-  function collectWithReplay(engine: ScenarioEngine): readonly ConsoleSessionEvent[] {
-    const received: ConsoleSessionEvent[] = [];
+  function collectWithReplay(engine: ScenarioEngine): readonly ProjectedSessionEvent[] {
+    const received: ProjectedSessionEvent[] = [];
     engine.subscribe(
       (events) => {
         received.push(...events);
@@ -169,7 +169,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
    */
   function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
-    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [] });
+    store.initialize({ cursor: BASE_STATE_CURSOR, entities: [] });
     return store;
   }
 

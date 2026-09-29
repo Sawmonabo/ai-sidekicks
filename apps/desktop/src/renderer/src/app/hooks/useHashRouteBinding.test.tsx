@@ -1,6 +1,6 @@
 // What keeps a two-way binding from oscillating.
 //
-// Every case here drives the REAL hook against a real `FrameStore` and the real
+// Every case here drives the REAL hook against a real `WindowStore` and the real
 // `window.location.hash`. Nothing is stubbed: the whole subject is how the browser's
 // own `hashchange` interleaves with a navigation, and a stand-in for the hash would
 // be a stand-in for the thing under test.
@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { useHashRouteBinding } from "./useHashRouteBinding.js";
 
@@ -26,15 +26,15 @@ const SESSIONS_HASH = "#/sessions";
 const SETTINGS_HASH = "#/settings";
 const WORKSPACE_HASH = "#/session/session-alpha";
 
-function BoundFrame(props: { readonly frameStore: FrameStore }): React.JSX.Element {
+function BoundFrame(props: { readonly frameStore: WindowStore }): React.JSX.Element {
   const hash = useLocationHash();
   useHashRouteBinding(props.frameStore, hash);
   return <div data-testid="bound" />;
 }
 
 /** Mount the binding on the hash the window is currently at. */
-async function bind(): Promise<FrameStore> {
-  const frameStore = new FrameStore({ initialRoute: { kind: "sessions" } });
+async function bind(): Promise<WindowStore> {
+  const frameStore = new WindowStore({ initialRoute: { kind: "sessions" } });
   await act(async () => {
     render(<BoundFrame frameStore={frameStore} />);
     await crossMacrotaskBoundary();
@@ -98,7 +98,7 @@ describe("useHashRouteBinding", () => {
 
   it("does not let the echo of its own write undo a later navigation", async () => {
     window.location.hash = WORKSPACE_HASH;
-    const frameStore = new FrameStore({
+    const frameStore = new WindowStore({
       initialRoute: { kind: "workspace", sessionId: "session-alpha" },
     });
     await act(async () => {

@@ -5,7 +5,7 @@
 // this decides what stands in the body while the seat, the session, or the rows are
 // not there.
 //
-// NOTHING HERE DRAWS THE BODY BOX. `seats/ConsolePaneChrome` renders
+// NOTHING HERE DRAWS THE BODY BOX. `seats/PaneFrame` renders
 // `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
 // a second box inside the first — and the flex chain the feed's scroll container
 // depends on would run through two elements only one of which is sized.

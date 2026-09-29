@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import type { ConsolePaneOpener } from "@renderer/console/seats/index.js";
+import type { PaneOpener } from "@renderer/console/seats/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
@@ -37,7 +37,7 @@ export interface SectionUnderTest {
 /** The section, open, over scripted calls, inside the window's announcer. */
 export function renderSection(
   operations: RepoOperations,
-  openPane: ConsolePaneOpener = () => {},
+  openPane: PaneOpener = () => {},
 ): SectionUnderTest {
   const bridge = bridgeOnClock("repos");
   const { container } = render(

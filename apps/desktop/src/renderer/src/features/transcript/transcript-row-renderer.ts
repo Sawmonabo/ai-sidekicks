@@ -36,8 +36,8 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
+import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
+import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
 /**
  * A row's collapse state, under the timeline's density rule: tool rows render as one
@@ -67,7 +67,7 @@ export interface TimelineRowSlotProps {
    * could not render that, and `undefined` is the fail-closed answer rather than step
    * zero, which belongs to somebody.
    */
-  readonly actorHue: ActorHueAssignment | undefined;
+  readonly actorHue: AgentHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
   readonly density: TimelineRowDensity;
@@ -76,7 +76,7 @@ export interface TimelineRowSlotProps {
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
 export type TranscriptRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
 
-const timelineRowSeat = new SingleSlotSeat<TranscriptRowRenderer>(
+const timelineRowSeat = new SingleEntryRegistry<TranscriptRowRenderer>(
   "timeline row",
   "the fixture shell is REPLACED by the timeline subtree, not registered beside it — delete the shell in the PR that registers the real row",
 );

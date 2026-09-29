@@ -10,7 +10,7 @@
 // The dependency runs one way and only one way: `deck-model` → `deck-snapshot` →
 // `deck-layout`. Nothing here imports either of the other two.
 
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneKind } from "@renderer/console/seats/index.js";
 import type { PaneLayoutDensity } from "./pane-layout-measures.js";
 
@@ -30,7 +30,7 @@ export interface SessionPane {
   readonly paneId: string;
   readonly kind: PaneKind;
   /** The entity this pane is a view of, or `undefined` for a session-scoped pane. */
-  readonly entity: ConsoleEntityRef | undefined;
+  readonly entity: EntityRef | undefined;
   /** This pane's share of the deck, in permille. */
   readonly sizePermille: number;
   /** True for a pane that is never persisted and cascades closed with its source. */
@@ -51,7 +51,7 @@ export interface PaneLayoutState {
 /** Which pane, over which entity — the address `open` resolves. */
 export interface DeckPaneAddress {
   readonly kind: PaneKind;
-  readonly entity: ConsoleEntityRef | undefined;
+  readonly entity: EntityRef | undefined;
   /** Open beside this pane rather than at the end. The `browser` pane's rule. */
   readonly sourcePaneId?: string;
 }
@@ -87,7 +87,7 @@ const ADDRESS_KEY_SEPARATOR = "\u001f";
  */
 export function paneAddressKey(address: {
   readonly kind: PaneKind;
-  readonly entity: ConsoleEntityRef | undefined;
+  readonly entity: EntityRef | undefined;
 }): string {
   const { entity } = address;
   return entity === undefined

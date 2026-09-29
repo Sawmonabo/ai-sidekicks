@@ -28,7 +28,7 @@
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { WorkflowRunState } from "../runs/run-list-rows.js";
 // The console's one byte measurement, through the family door that publishes it.
 // This surface bounds a cancellation reason exactly as the durable path bounds a
@@ -114,7 +114,7 @@ export type WorkflowRunControlOutcome =
       /** What that state means for the operator, in this console's own words. */
       readonly detail: string;
     }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** The outcome a control stands at before anything has been pressed on this run. */
 export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle" };
@@ -153,7 +153,7 @@ export function cancelReasonBudget(reason: string): CancelReasonBudget {
  * `core/refusal.ts` fixes `detail` as one actionable sentence that is never the
  * refused value itself.
  */
-export function reasonPastBoundRefusal(budget: CancelReasonBudget): ConsoleRefusal {
+export function reasonPastBoundRefusal(budget: CancelReasonBudget): Refusal {
   // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
   // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
   // without importing every producer and inverting the DAG. The annotation is what
@@ -242,7 +242,7 @@ export interface WorkflowResumeControl extends WorkflowResumeDispatch {
  * all, so a console that rendered it as an adjudication would be asserting one that
  * never happened.
  */
-export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): ConsoleRefusal {
+export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): Refusal {
   const code: WorkflowRunControlRefusalCode = "act-already-in-flight";
   return refuse(
     WORKFLOW_RUN_CONTROL_ORIGIN,

@@ -34,7 +34,7 @@
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
@@ -67,7 +67,7 @@ export interface SignInFlowTrackerSnapshot {
   /** The flow this window is running, where it is running one. */
   readonly flow: SignInFlowState;
   /** The last refused start per account, dropped when that account is tried again. */
-  readonly refusalByAccountId: ReadonlyMap<ProviderAccountId, ConsoleRefusal>;
+  readonly refusalByAccountId: ReadonlyMap<ProviderAccountId, Refusal>;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
 }
@@ -263,12 +263,12 @@ export class SignInFlowTracker {
 
   #refusalsWith(
     accountId: ProviderAccountId,
-    refusal: ConsoleRefusal,
-  ): ReadonlyMap<ProviderAccountId, ConsoleRefusal> {
+    refusal: Refusal,
+  ): ReadonlyMap<ProviderAccountId, Refusal> {
     return new Map(this.#snapshot.refusalByAccountId).set(accountId, refusal);
   }
 
-  #refusalsWithout(accountId: ProviderAccountId): ReadonlyMap<ProviderAccountId, ConsoleRefusal> {
+  #refusalsWithout(accountId: ProviderAccountId): ReadonlyMap<ProviderAccountId, Refusal> {
     const remaining = new Map(this.#snapshot.refusalByAccountId);
     remaining.delete(accountId);
     return remaining;
@@ -329,7 +329,7 @@ export function describeRunningSignIn(options: {
  * a daemon refusal that never happened. The detail is the sentence above without a
  * label, because a refusal reaches the row from here and the registry is the surface's.
  */
-function startAlreadyRunning(isTheSameAccount: boolean): ConsoleRefusal {
+function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
   return refuse(
     SIGN_IN_REFUSAL_ORIGIN,
     START_ALREADY_RUNNING_CODE,

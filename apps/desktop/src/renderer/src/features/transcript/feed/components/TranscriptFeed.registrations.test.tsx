@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
@@ -68,7 +68,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // window's whole life and the feed is not, so the press has to say so rather
     // than doing nothing.
     contributeTranscriptCommands();
-    const raised: ConsoleRefusal[] = [];
+    const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => {
       raised.push(refusal);
     });
@@ -84,7 +84,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // at all, which is exactly the state this lane found the ledger in.
     withLaidOutViewport();
     contributeTranscriptCommands();
-    const raisedWhileMounted: ConsoleRefusal[] = [];
+    const raisedWhileMounted: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => {
       raisedWhileMounted.push(refusal);
     });

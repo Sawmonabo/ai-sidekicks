@@ -9,8 +9,8 @@ import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-per
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  UNREPORTED_SHELL_STATE,
-  type ShellState,
+  UNREPORTED_MAIN_PROCESS_STATE,
+  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 
@@ -25,7 +25,7 @@ import type { SettingsPageContext } from "@renderer/features/settings/types.js";
  */
 export interface SettingsPageContextOverrides {
   readonly retainedSessionStore?: SessionStore | undefined;
-  readonly shellState?: ShellState | undefined;
+  readonly shellState?: MainProcessState | undefined;
   readonly selection?: string | undefined;
   readonly uiStateStore?: UiStateStore | undefined;
 }
@@ -61,7 +61,7 @@ export function settingsPageContextWith(
     selection: overrides.selection,
     retainedSessionId,
     retainedSessionStore: overrides.retainedSessionStore,
-    shellState: overrides.shellState ?? UNREPORTED_SHELL_STATE,
+    shellState: overrides.shellState ?? UNREPORTED_MAIN_PROCESS_STATE,
     uiStateStore: overrides.uiStateStore ?? consoleTestUiStateStore(),
     chooseScheme: () => undefined,
   } satisfies SettingsPageContext;

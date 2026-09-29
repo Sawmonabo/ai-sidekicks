@@ -36,11 +36,11 @@ import "./SessionScreen.css";
 
 import { useCallback } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -56,7 +56,7 @@ import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersi
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import {
   findComposerRenderer,
-  parseConsolePaneAddress,
+  parsePaneAddress,
   useSessionScopedState,
   type PaneContext,
   type PaneRegistry,
@@ -72,7 +72,7 @@ import {
 /** What the workspace is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
   readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
   /** `undefined` on a route that names no session, or before its store opens. */
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;
@@ -111,7 +111,7 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
   // the moment of the call instead, so the column stays writable for the life of the
   // mount and the refusal lands on the session a person is actually reading.
   const raise = useCallback(
-    (refusal: ConsoleRefusal) => {
+    (refusal: Refusal) => {
       const publishIntoTheVisitOnScreen = settleBanners();
       publishIntoTheVisitOnScreen((current) => raiseSessionBanner(current, refusal));
     },
@@ -134,12 +134,12 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
   });
 
   const paneContextFor = useCallback(
-    (pane: SessionPane): PaneContext | ConsoleRefusal => {
+    (pane: SessionPane): PaneContext | Refusal => {
       // The kind and the entity arrived as a loose pair — off a restored snapshot, or
       // off a route somebody typed — so they become an ADDRESS here or they become a
       // refusal here. The seat owns that rule and this surface applies it; deciding it
       // again would be a second answer to which entities a pane kind is a view of.
-      const address = parseConsolePaneAddress(pane.kind, pane.entity);
+      const address = parsePaneAddress(pane.kind, pane.entity);
       if ("code" in address) {
         return address;
       }

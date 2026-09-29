@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
 import {
   PERSISTED_VALUE_CLASSES,
   isPersistedValueClass,
@@ -106,7 +106,7 @@ describe("a persistence refusal IS a console refusal", () => {
 
     // The point of the fold: a surface that renders console refusals renders this
     // one without knowing the persistence subtree exists.
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
     expect(refusal.origin).toBe(PERSISTENCE_REFUSAL_ORIGIN);
     expect(refusal.code).toBe("quota-exceeded");
     expect(refusal.detail).toBe("there is no room left");
@@ -119,15 +119,15 @@ describe("a persistence refusal IS a console refusal", () => {
 
     expect(fromValidation?.code).toBe("value-not-identifier-shaped");
     expect(fromValidation?.origin).toBe(PERSISTENCE_REFUSAL_ORIGIN);
-    expect(isConsoleRefusal(fromValidation)).toBe(true);
+    expect(isRefusal(fromValidation)).toBe(true);
   });
 
   it("negative control: a bare object is not mistaken for a console refusal", () => {
-    // `isConsoleRefusal` is what the fold above rests on, so it has to be able to
+    // `isRefusal` is what the fold above rests on, so it has to be able to
     // say no — a guard that returned true for anything would make every assertion
     // in this block vacuous.
-    expect(isConsoleRefusal({ code: "quota-exceeded", detail: "no room" })).toBe(false);
-    expect(isConsoleRefusal(undefined)).toBe(false);
+    expect(isRefusal({ code: "quota-exceeded", detail: "no room" })).toBe(false);
+    expect(isRefusal(undefined)).toBe(false);
   });
 
   it("declares each refusal code exactly once", () => {

@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 
 import { RunRolledBackEventSchema, RunStateChangeEventSchema } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import {
   PROBE_RUN_ID,
   createFixture,
@@ -258,7 +258,7 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
 
     expect(() => {
       fixture.engine.advance(PAST_EVERY_BEAT_MS);
-    }).toThrow(ConsoleRefusalError);
+    }).toThrow(RefusalError);
   });
 
   it("refuses a queue beat that names no state rather than deriving one from its kind", () => {

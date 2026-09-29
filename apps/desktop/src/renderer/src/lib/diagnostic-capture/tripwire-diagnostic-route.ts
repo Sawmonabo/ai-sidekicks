@@ -15,10 +15,10 @@
 // EVERY RECORD IS AN ERROR. Every tripwire kind is a console invariant breach, so none
 // reaches the band at a lower severity.
 
-import type { ConsoleClock } from "../clock.js";
-import { consoleDiagnosticCapture } from "./diagnostic-capture.js";
+import type { Clock } from "../clock.js";
+import { windowDiagnosticCapture } from "./diagnostic-capture.js";
 import type { DiagnosticCapture } from "./diagnostic-capture.js";
-import { consoleTripwires } from "../tripwires.js";
+import { windowTripwires } from "../tripwires.js";
 import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
 
 /** The subsystem name every routed record carries. */
@@ -52,7 +52,7 @@ export function routeTripwiresToDiagnosticCapture(
  * Arm the route between this renderer process's own registry and its own capture.
  *
  * The composition site names THIS rather than the two singletons, and that is what
- * keeps them where they are: `consoleTripwires` is deliberately held off the `core/`
+ * keeps them where they are: `windowTripwires` is deliberately held off the `core/`
  * door because its installer is its own module, and publishing the capture beside it
  * would hand every family above a second way to record. One function crossing the
  * door arms both and publishes neither.
@@ -61,8 +61,8 @@ export function routeTripwiresToDiagnosticCapture(
  * driven by a frozen clock stamps its records at the instant the rest of the window
  * agrees it is.
  */
-export function routeConsoleTripwiresToDiagnosticCapture(clock: ConsoleClock): () => void {
-  return routeTripwiresToDiagnosticCapture(consoleTripwires, consoleDiagnosticCapture, () =>
+export function routeWindowTripwiresToDiagnosticCapture(clock: Clock): () => void {
+  return routeTripwiresToDiagnosticCapture(windowTripwires, windowDiagnosticCapture, () =>
     new Date(clock.now()).toISOString(),
   );
 }

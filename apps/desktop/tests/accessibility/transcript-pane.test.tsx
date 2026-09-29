@@ -49,9 +49,9 @@ import {
   TimelinePane,
   type TimelinePaneContext,
 } from "@renderer/features/transcript/TranscriptPane.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTimelineRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
 import { TranscriptSurface } from "@renderer/features/transcript/TranscriptSurface.js";
 
@@ -80,7 +80,7 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Timel
   return {
     kind: "timeline",
     paneId: "ledger-timeline",
-    frameStore: new FrameStore({ initialRoute: { kind: "workspace", sessionId } }),
+    frameStore: new WindowStore({ initialRoute: { kind: "workspace", sessionId } }),
     sessionStore,
     focusHue: undefined,
   } as unknown as TimelinePaneContext;
@@ -97,7 +97,7 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Timel
  */
 function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
   const sessionStore = new SessionStore({ sessionId: scenario.sessionId });
-  sessionStore.initialise({
+  sessionStore.initialize({
     cursor: SCENARIO_BASE_CURSOR,
     entities: [],
   });
@@ -141,7 +141,7 @@ afterEach(async () => {
 });
 
 describe("accessibility — the ledger", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`has no axe violation over a loaded ledger in the ${scheme} scheme`, async () => {
       // Through the system preference rather than a stamped attribute, on the frame
       // case's reasoning: the scheme attribute has an owner, and a test that wrote

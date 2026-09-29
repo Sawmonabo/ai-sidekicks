@@ -22,10 +22,10 @@ import {
   RUNNING_RUN,
 } from "./composer-toolbar.test-support.js";
 import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
+  StoredEntity,
+  ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
 describe("ComposerToolbar — absence before assertion", () => {
@@ -118,14 +118,14 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   const SECOND_AGENT_ID = "agent-reviewer";
   const SECOND_RUN_ID = "3c2b1a09-8f7e-4d6c-9b5a-4938271605fe";
 
-  const SECOND_AGENT: ConsoleEntity = {
+  const SECOND_AGENT: StoredEntity = {
     kind: "agent",
     id: SECOND_AGENT_ID,
     state: "running",
     body: { name: "Priya", driverName: "claude" },
   };
 
-  const SECOND_RUN: ConsoleEntity = {
+  const SECOND_RUN: StoredEntity = {
     kind: "run",
     id: SECOND_RUN_ID,
     state: "running",
@@ -134,7 +134,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   };
 
   /** Two conversations metered in one session, the SECOND run's row the newer. */
-  const BOTH_METERED: readonly ConsoleSessionEvent[] = [
+  const BOTH_METERED: readonly ProjectedSessionEvent[] = [
     {
       ...contextWindowEvent(3),
       payload: {
@@ -159,7 +159,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
 
   const BOTH_AGENTS = [AGENT, RUNNING_RUN, SECOND_AGENT, SECOND_RUN];
 
-  function paneOn(agentId: string): ConsolePaneAddress {
+  function paneOn(agentId: string): PaneAddress {
     return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
   }
 
@@ -206,7 +206,7 @@ describe("ComposerToolbar — a compaction moves the meter off its stale figure"
   function compactionRow(
     sequence: number,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleSessionEvent {
+  ): ProjectedSessionEvent {
     return {
       id: `event-${String(sequence)}`,
       sessionId: SESSION_ID,

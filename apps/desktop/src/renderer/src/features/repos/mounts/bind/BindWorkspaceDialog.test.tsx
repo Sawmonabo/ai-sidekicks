@@ -86,7 +86,7 @@ class CapabilitiesUnderTest {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initializedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 

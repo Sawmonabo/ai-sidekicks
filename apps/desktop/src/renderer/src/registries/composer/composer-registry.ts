@@ -14,12 +14,12 @@
 // body agreed on that shape by convention rather than by type, the two branches
 // would agree until one of them shipped.
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
-import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
 /** What the workspace hands the composer on every render. */
 export interface ComposerProps {
@@ -38,7 +38,7 @@ export interface ComposerProps {
    * forgot it and a mount that meant no escalation read identically as an optional
    * member, and only one of those is a decision.
    */
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
   /**
    * Where the unsent message body lives. Drafts are the draft store's and never
    * the persistence chokepoint's: drafts stay out of durable storage, so the
@@ -57,13 +57,13 @@ export interface ComposerProps {
    * bridge and stores, and handing it a second set through another pane's context
    * would be two paths to one wire.
    */
-  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPane: PaneAddress | undefined;
 }
 
 /** The composer body. Returns `React.ReactNode` so the mount can render it directly. */
 export type ComposerRenderer = (props: ComposerProps) => React.ReactNode;
 
-const composerSeat = new SingleSlotSeat<ComposerRenderer>(
+const composerSeat = new SingleEntryRegistry<ComposerRenderer>(
   "composer",
   "the session view mounts one composer; a second owner would make which one renders depend on import order",
 );

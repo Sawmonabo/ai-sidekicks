@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { settle } from "@test/helpers/settle.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { registerSettingsSurface } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
@@ -23,7 +23,7 @@ import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/inde
 // The pending marker's reader by its own leaf specifier: the seats door publishes the
 // ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
 // directory are tests.
-import { pendingPaneBodiesIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { findPendingBodies } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 afterEach(() => {
   cleanup();
@@ -45,7 +45,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   if (descriptor === undefined) {
     throw new Error("the settings registrar claimed no surface slot");
   }
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   frameStore.navigate({ kind: "settings", page: "browser" });
   const context = {
     route: frameStore.getState().route,
@@ -79,7 +79,7 @@ describe("the browser settings section", () => {
     // claims `browser`. What stands in its place is the page's own reservation, which is
     // the loader form working rather than a page that failed to render.
     expect(container.textContent ?? "").not.toContain("has not been built yet");
-    expect(pendingPaneBodiesIn(container).length).toBe(1);
+    expect(findPendingBodies(container).length).toBe(1);
   });
 
   it("negative control: the table's entry is what puts the page on a board", () => {

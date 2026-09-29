@@ -22,7 +22,7 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
@@ -91,7 +91,7 @@ export interface ArtifactReadScheduleOptions {
    * Required, and the binding reads it off the bridge with `consoleClockFor`, the one
    * answer to which clock a window runs on.
    */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 export abstract class ArtifactReadSchedule implements ReadTriggerTarget {

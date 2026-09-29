@@ -5,7 +5,7 @@
 // its chord and its warm-up with it.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import type { FrameStore } from "@renderer/store/window/window-store.js";
+import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type {
   FrameCommand,
@@ -75,7 +75,7 @@ export function registerNavigationKeybindings(contributions: CommandContribution
  * warms it again while its palette row is highlighted.
  */
 export function buildNavigationCommands(
-  frameStore: FrameStore,
+  frameStore: WindowStore,
   surfaceRegistry: ScreenRegistry,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({

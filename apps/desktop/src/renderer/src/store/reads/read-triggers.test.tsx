@@ -17,7 +17,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
 import { useSessionReadTriggers } from "./hooks/useSessionReadTriggers.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
@@ -31,7 +31,7 @@ const SUBJECT_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
 const SUBJECT_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
 
 /** One frame of the declared kind, naming whichever subject the case is about. */
-function frameNaming(subjectId: string | undefined, sequence: number): ConsoleSessionEvent {
+function frameNaming(subjectId: string | undefined, sequence: number): ProjectedSessionEvent {
   return eventOfKind(
     SESSION_ID,
     DECLARED_KIND,
@@ -47,7 +47,7 @@ class RecordingReadTarget implements ReadTriggerTarget {
 
   public constructor(private readonly subjectOnScreen: string | undefined) {}
 
-  public admitsTriggeringEvent(event: ConsoleSessionEvent): boolean {
+  public admitsTriggeringEvent(event: ProjectedSessionEvent): boolean {
     const named = event.payload?.["subjectId"];
     return typeof named !== "string" || named === this.subjectOnScreen;
   }
@@ -101,14 +101,14 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
   /** A store the wiring reads transitions off — initialised, as the trigger set requires. */
   function initialisedStore(): SessionStore {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     return sessionStore;
   }
 
   /** Mount the wiring over one store, then let the frames land on it. */
   function wireAndApply(
     target: ReadTriggerTarget,
-    frames: readonly ConsoleSessionEvent[],
+    frames: readonly ProjectedSessionEvent[],
   ): SessionStore {
     const sessionStore = initialisedStore();
     function Wiring(): null {

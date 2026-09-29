@@ -12,7 +12,7 @@
 //
 // `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
 // `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
-// kinds. Both halves come off it: the static `ConsolePaneAddress` union that
+// kinds. Both halves come off it: the static `PaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
 // `pane-address-parse.ts` applies at the boundaries where an address arrives
 // untyped — a persisted layout snapshot read back off disk, and a route a person
@@ -57,7 +57,7 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS, type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
 
 /**
@@ -65,12 +65,12 @@ import { type PaneKind } from "./pane-kinds.js";
  *
  * Derived rather than imported because `store/index.ts` publishes the REFERENCE
  * and not the kind vocabulary, and derived rather than restated because a second
- * union beside `CONSOLE_ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
+ * union beside `ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
  */
-type ConsoleEntityKind = ConsoleEntityRef["kind"];
+type EntityKind = EntityRef["kind"];
 
-/** A `ConsoleEntityRef` narrowed to the kinds one pane kind admits. */
-type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef & {
+/** A `EntityRef` narrowed to the kinds one pane kind admits. */
+type ScopedEntityRef<TEntityKind extends EntityKind> = EntityRef & {
   readonly kind: TEntityKind;
 };
 
@@ -83,8 +83,8 @@ type CheckoutEntityKind = "workspace" | "worktree";
 /**
  * Every entity kind, decided. The exhaustiveness check, and the union's proof.
  *
- * A TOTAL map rather than a list of the admitted kinds: `Record<ConsoleEntityKind,
- * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
+ * A TOTAL map rather than a list of the admitted kinds: `Record<EntityKind,
+ * boolean>` means a kind added to `ENTITY_KINDS` fails to compile here until
  * the checkout question is answered for it, and the two intersected records hold this
  * map and the union above to the SAME set — every union member `true`, every other
  * kind `false` — so the union cannot quietly become narrower or wider than the table
@@ -104,12 +104,12 @@ const CHECKOUT_ADMITS_ENTITY_KIND = {
   "workflow-run": false,
   "browser-page": false,
   repo: false,
-} as const satisfies Record<ConsoleEntityKind, boolean> &
+} as const satisfies Record<EntityKind, boolean> &
   Record<CheckoutEntityKind, true> &
-  Record<Exclude<ConsoleEntityKind, CheckoutEntityKind>, false>;
+  Record<Exclude<EntityKind, CheckoutEntityKind>, false>;
 
 /** The same set as data, filtered from the map so the two halves cannot drift. */
-const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
+const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter(
   (kind): kind is CheckoutEntityKind => CHECKOUT_ADMITS_ENTITY_KIND[kind],
 );
 
@@ -122,7 +122,7 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = CONSOLE_ENTITY_KIND
  * first refuses the wrong entity, the second refuses a caller that forgot to
  * resolve one.
  */
-export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
+export type PaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
 
 /**
  * What each pane kind is a view of. THE declaration.
@@ -156,7 +156,7 @@ interface PaneEntityScopeByKind {
    * flags and no page identifier at all. Nothing in this build produces such an
    * entity, so requiring one would make every caller mint an identifier the seam
    * never issues, and would refuse
-   * `parseConsolePaneAddress("browser", undefined)` — which is the shape both
+   * `parsePaneAddress("browser", undefined)` — which is the shape both
    * untyped boundaries actually supply for a pane opened bare.
    */
   readonly browser: never;
@@ -174,7 +174,7 @@ interface PaneEntityScopeByKind {
  * takes an OPTIONAL one. The third arm used to be written as a required member whose
  * value may be undefined, which is not the same claim: a typed caller could not write
  * the documented bare `{ kind: "workflow-builder" }` at all, while
- * {@link parseConsolePaneAddress} returned exactly that object through a cast — so the
+ * {@link parsePaneAddress} returned exactly that object through a cast — so the
  * static contract and the runtime contract disagreed, and the cast is what hid it.
  *
  * The optional arm keeps `| undefined` in its member type rather than stripping it to
@@ -238,7 +238,7 @@ const PANE_ENTITY_SCOPES: {
 /** One pane kind's entity scope, as a caller deciding at runtime reads it. */
 export interface PaneEntityScopeDeclaration {
   /** The entity kinds this pane may be opened over. Empty means session-scoped. */
-  readonly entityKinds: readonly ConsoleEntityKind[];
+  readonly entityKinds: readonly EntityKind[];
   /** Whether the pane must be opened over one of them. */
   readonly entityRequired: boolean;
 }
@@ -263,7 +263,7 @@ export type EntityOptionalPaneKind = {
  * opener, so an absent link is an absent argument rather than a present object
  * carrying `undefined`, and there is exactly one way to say "no link".
  */
-export interface ConsolePaneLink {
+export interface PaneLink {
   readonly linkedSourcePaneId: string;
 }
 
@@ -279,7 +279,7 @@ export interface ConsolePaneLink {
  * palette open from a list, not from a pane — and a required member would have both
  * of those inventing a value to pass.
  */
-export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
+export type PaneOpener = (address: PaneAddress, link?: PaneLink) => void;
 
 // THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
 // `pane-registry.ts`. The type is about an ADDRESS, this is the module that declares

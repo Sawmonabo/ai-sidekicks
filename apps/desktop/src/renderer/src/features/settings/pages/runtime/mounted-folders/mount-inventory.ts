@@ -22,9 +22,9 @@ import type {
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
 import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
@@ -109,7 +109,7 @@ export function distinctMountIds(response: WorkspaceListResponse): readonly stri
 export function createMountInventoryRead(options: {
   readonly calls: MountInventoryCalls;
   readonly sessionId: string;
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * The retained session's store, where this window has one open.
    *
@@ -173,7 +173,7 @@ export async function readMountInventory(
  * and reports nothing, where an empty inventory would be a reading never taken.
  */
 function raiseAbandonedInventoryRead(): never {
-  throw new ConsoleRefusalError(abandonedReadRefusal("mount inventory"));
+  throw new RefusalError(abandonedReadRefusal("mount inventory"));
 }
 
 /** The subscribe for a window with no session store open: nothing to bind, nothing to release. */

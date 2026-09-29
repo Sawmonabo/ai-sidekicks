@@ -43,7 +43,7 @@ function registryAcknowledging(acknowledged: string | undefined): SessionStoreRe
  * An open session whose first read has landed, so both facts this surface reads exist.
  *
  * The read is what settles the resume decision, which is why it goes through the
- * registry rather than through `SessionStore.initialise`: a store initialised by hand
+ * registry rather than through `SessionStore.initialize`: a store initialised by hand
  * holds a base state and no record of what the daemon acknowledged, which is exactly
  * the half this surface asks about.
  */

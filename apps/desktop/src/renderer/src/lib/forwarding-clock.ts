@@ -30,10 +30,10 @@
 // strands that work — which is the retired engine's own end, and a fact about
 // disposing an engine rather than about this seam.
 
-import type { ConsoleClock, ScheduledHandle } from "./clock.js";
+import type { Clock, ScheduledHandle } from "./clock.js";
 
 /**
- * A stable `ConsoleClock` over a clock the caller may replace.
+ * A stable `Clock` over a clock the caller may replace.
  *
  * Constructed once per mount and handed the window's CURRENT clock through
  * {@link holdClock} whenever that changes, rather than closing over a resolver: the
@@ -42,12 +42,12 @@ import type { ConsoleClock, ScheduledHandle } from "./clock.js";
  * runs before any passive effect for it, so the clock this holds when a consumer's
  * effect reads it is the one that commit resolved.
  */
-export class ForwardingConsoleClock implements ConsoleClock {
-  #clock: ConsoleClock;
+export class ForwardingClock implements Clock {
+  #clock: Clock;
   readonly #armed = new Map<ScheduledHandle, ArmedElsewhere>();
   #nextHandle: ScheduledHandle = 1;
 
-  public constructor(clock: ConsoleClock) {
+  public constructor(clock: Clock) {
     this.#clock = clock;
   }
 
@@ -57,7 +57,7 @@ export class ForwardingConsoleClock implements ConsoleClock {
    * Work armed on the previous clock keeps its route home, because the map holds the
    * clock rather than a lookup performed at cancel time.
    */
-  public holdClock(clock: ConsoleClock): void {
+  public holdClock(clock: Clock): void {
     this.#clock = clock;
   }
 
@@ -102,7 +102,7 @@ export class ForwardingConsoleClock implements ConsoleClock {
    * and a fired handle leaves nothing behind to grow the map.
    */
   #arm(
-    clock: ConsoleClock,
+    clock: Clock,
     armOn: (settle: () => void) => ScheduledHandle,
     callback: () => void,
   ): ScheduledHandle {
@@ -119,6 +119,6 @@ export class ForwardingConsoleClock implements ConsoleClock {
 
 /** Which clock is behind one handed-out handle, and what that clock called the work. */
 interface ArmedElsewhere {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly handle: ScheduledHandle;
 }

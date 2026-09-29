@@ -13,7 +13,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { RunGroupFoldState } from "../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
 import {
@@ -37,7 +37,7 @@ const ROWS_PAST_THE_CAP = 5;
  * session-scoped row beside it would be counted by the fold's top-level arm and the
  * cap's arithmetic would stop being readable from the totals.
  */
-function oneRunLog(memberCount: number): readonly ConsoleSessionEvent[] {
+function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
   const payload = { sessionId: SESSION_ID, runId: RUN_ID };
   return Array.from({ length: memberCount }, (_unused, index) => ({
     id: `event-${String(index)}`,

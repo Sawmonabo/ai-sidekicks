@@ -1,5 +1,5 @@
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsolePaneAddress, PaneContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress, PaneContext } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -12,7 +12,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
  * anyway would put every pane suite on stores it never reads. A surface tier that
  * DOES mount the real deck composes `paneBinding` instead.
  */
-export function paneContext<TAddress extends ConsolePaneAddress>(reached: {
+export function paneContext<TAddress extends PaneAddress>(reached: {
   readonly address: TAddress;
   readonly paneId: string;
   readonly bridge?: ConsoleBridge | undefined;

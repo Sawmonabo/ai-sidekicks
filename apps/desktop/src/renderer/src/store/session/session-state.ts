@@ -8,8 +8,8 @@
 import type { SessionDegradedCause } from "../session-degradation.js";
 import {
   emptyPartitions,
-  type ConsoleEntity,
-  type ConsoleSessionEvent,
+  type StoredEntity,
+  type ProjectedSessionEvent,
 } from "./entities/entities.js";
 import { mergeUpsert, type SessionPartitions } from "./entities/entity-partitions.js";
 import type { SequenceGap } from "./sequence-reconciler.js";
@@ -17,7 +17,7 @@ import type { SequenceGap } from "./sequence-reconciler.js";
 /** The immutable state one session store holds. */
 export interface SessionStoreState {
   readonly sessionId: string;
-  /** `false` until `initialise()` supplies a read response. */
+  /** `false` until `initialize()` supplies a read response. */
   readonly initialised: boolean;
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
@@ -29,7 +29,7 @@ export interface SessionStoreState {
    * stream is replayed from the position this user was last acknowledged at, so
    * the log below that position exists and this window has never been sent it.
    */
-  readonly timeline: readonly ConsoleSessionEvent[];
+  readonly timeline: readonly ProjectedSessionEvent[];
   /** The highest sequence this store has admitted. */
   readonly cursor: number;
   /**
@@ -73,9 +73,9 @@ export interface SessionSnapshot {
   /** The sequence the snapshot is current as of. */
   readonly cursor: number;
   /** Entities the read response carried. */
-  readonly entities: readonly ConsoleEntity[];
+  readonly entities: readonly StoredEntity[];
   /** Events the read response carried, ordered by sequence. */
-  readonly timeline?: readonly ConsoleSessionEvent[];
+  readonly timeline?: readonly ProjectedSessionEvent[];
   /**
    * The cursor block the read answered with, carried UNREAD.
    *
@@ -179,7 +179,7 @@ export function uninitializedState(input: {
 export function establishedState(input: {
   readonly sessionId: string;
   readonly snapshot: SessionSnapshot;
-  readonly orderedTimeline: readonly ConsoleSessionEvent[];
+  readonly orderedTimeline: readonly ProjectedSessionEvent[];
   readonly timelineCap: number | undefined;
   readonly revision: number;
 }): SessionStoreState {
@@ -218,10 +218,10 @@ export function establishedState(input: {
  * NOT been sent are reported by the window's own absences.
  */
 export function capTimeline(
-  timeline: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
   cap: number | undefined,
   retainedEnd: TimelineRetainedEnd,
-): readonly ConsoleSessionEvent[] {
+): readonly ProjectedSessionEvent[] {
   if (cap === undefined || timeline.length <= cap) {
     return timeline;
   }

@@ -17,17 +17,13 @@
 //
 // A REFUSAL RATHER THAN A THROW, per `core/refusal.ts`: a restored layout with one bad
 // row drops that row and keeps the rest, and a caller that needs the exception shape
-// wraps it in `ConsoleRefusalError` at its own seam.
+// wraps it in `RefusalError` at its own seam.
 
 import { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isSingleNameIdentifierShaped } from "@renderer/lib/identifier-grammar.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
-import {
-  isEntityOptionalPaneKind,
-  paneEntityScopeFor,
-  type ConsolePaneAddress,
-} from "./pane-address.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
+import { isEntityOptionalPaneKind, paneEntityScopeFor, type PaneAddress } from "./pane-address.js";
 import { PANE_KINDS, isPaneKind } from "./pane-kinds.js";
 
 /** The subsystem a pane-address refusal names as its author. */
@@ -53,12 +49,12 @@ const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
  *
  * A refusal rather than a throw, per `core/refusal.ts`: a restored layout with
  * one bad row drops that row and keeps the rest, and a caller that needs the
- * exception shape wraps it in `ConsoleRefusalError` at its own seam.
+ * exception shape wraps it in `RefusalError` at its own seam.
  */
-export function parseConsolePaneAddress(
+export function parsePaneAddress(
   candidateKind: unknown,
   candidateEntity: unknown,
-): ConsolePaneAddress | ConsoleRefusal {
+): PaneAddress | Refusal {
   if (!isPaneKind(candidateKind)) {
     return refuse(
       PANE_ADDRESS_ORIGIN,
@@ -115,7 +111,7 @@ export function parseConsolePaneAddress(
   // Sound on the same terms as the arm above, plus the admission just made:
   // `entity.kind` is now known to be one this pane kind's row lists, which is
   // exactly the union the arm's `entity` member is narrowed to.
-  return { kind: candidateKind, entity } as ConsolePaneAddress;
+  return { kind: candidateKind, entity } as PaneAddress;
 }
 
 /**
@@ -134,16 +130,16 @@ export function parseConsolePaneAddress(
  * path refuses, which is one value with two answers.
  *
  * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
- * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
+ * branded UUIDs (`SessionIdSchema` and its siblings), and `EntityRef.id` is
  * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
  * value this boundary holds — and none disagrees with the grammar that does.
  */
-function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
+function readEntityRefCandidate(candidate: unknown): EntityRef | undefined {
   if (typeof candidate !== "object" || candidate === null) {
     return undefined;
   }
   const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
   return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
-    ? ({ kind, id } as ConsoleEntityRef)
+    ? ({ kind, id } as EntityRef)
     : undefined;
 }

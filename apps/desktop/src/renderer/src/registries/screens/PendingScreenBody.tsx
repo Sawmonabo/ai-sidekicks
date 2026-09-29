@@ -1,6 +1,6 @@
 // What a route renders while its surface's module is still arriving.
 //
-// THE SURFACE'S OWN ABSENCE FRAME, EMPTY. `primitives/SurfaceAbsence` is the console's
+// THE SURFACE'S OWN ABSENCE FRAME, EMPTY. `primitives/ScreenNotice` is the console's
 // one answer to "the whole surface has nothing in it": a centred measure at the scale of
 // the window, which is what keeps a quiet line from reading as a page that failed to
 // finish painting. A route waiting on a chunk is exactly that scale of nothing, so it
@@ -16,9 +16,9 @@
 // reason: `display: none` contributes no box, so what the reserved region costs the
 // layout is nothing.
 
-import { SurfaceAbsence } from "@renderer/console/primitives/index.js";
+import { ScreenNotice } from "@renderer/console/primitives/index.js";
 import type { ScreenContext } from "./screen-context.js";
-import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingScreenBodyProps {
   /** The route and bindings this surface was mounted at. */
@@ -36,8 +36,8 @@ export interface PendingScreenBodyProps {
  */
 export function PendingScreenBody(props: PendingScreenBodyProps): React.JSX.Element {
   return (
-    <SurfaceAbsence>
-      <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: props.context.route.kind }} />
-    </SurfaceAbsence>
+    <ScreenNotice>
+      <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: props.context.route.kind }} />
+    </ScreenNotice>
   );
 }

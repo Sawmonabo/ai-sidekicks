@@ -78,9 +78,9 @@
 // class's own state and one from the floor's registry, and handed out as `diagnostics`; the
 // window's registry hook gives them to the fixture composition, which alone writes the page.
 
-import type { LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
-import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
+import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
@@ -364,8 +364,8 @@ export class SessionEventBinder {
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
-      ledgerWindowFor: (sessionId: string): LedgerWindowReading | null =>
-        consoleLedgerWindows.readingFor(sessionId),
+      ledgerWindowFor: (sessionId: string): TranscriptWindowReading | null =>
+        transcriptWindowDiagnostics.readingFor(sessionId),
     });
   }
 }

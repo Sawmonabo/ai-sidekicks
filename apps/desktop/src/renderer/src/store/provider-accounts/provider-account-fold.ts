@@ -164,13 +164,13 @@ const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
  * handed out by a caller could be reused, and a reused ordinal makes an exact-tie
  * comparison answer differently depending on who asked.
  */
-export class ProviderQuotaFold {
+export class ProviderAccountFold {
   readonly #accountsById = new Map<string, ProviderAccount>();
   readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
   #nextArrivalOrdinal = 0;
 
   /** Record an account whole. The registry sends state, not deltas. */
-  public seatAccount(account: ProviderAccount): void {
+  public putAccount(account: ProviderAccount): void {
     this.#accountsById.set(account.accountId, account);
   }
 
@@ -192,7 +192,7 @@ export class ProviderQuotaFold {
   }
 
   /** Merge one reading under its `(accountId, limitId)` key, and say what that did. */
-  public mergeWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
+  public mergeUsageWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
     const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
     const held = this.#windowsByKey.get(key);
     const arrivalOrdinal = this.#nextArrivalOrdinal;

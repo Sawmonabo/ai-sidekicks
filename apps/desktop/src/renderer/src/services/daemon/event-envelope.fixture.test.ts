@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { EventEnvelopeSchema } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   SCENARIO_ENVELOPE_VERSION,
   composeScenarioEventEnvelope,
@@ -24,7 +24,7 @@ const EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 const USER_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 
 /** One beat in the shape a scenario author writes. */
-function authoredBeat(overrides: Partial<ConsoleSessionEvent> = {}): ConsoleSessionEvent {
+function authoredBeat(overrides: Partial<ProjectedSessionEvent> = {}): ProjectedSessionEvent {
   return {
     id: EVENT_ID,
     sessionId: SESSION_ID,

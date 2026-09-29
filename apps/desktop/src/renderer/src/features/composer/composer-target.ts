@@ -11,9 +11,9 @@
 // nobody established.
 
 import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
 /**
@@ -74,11 +74,11 @@ export type ComposerTarget = ComposerSessionTarget | ComposerRunTarget;
 export interface ComposerTargetInput {
   readonly sessionId: string;
   /** The deck pane a person is looking at, or `undefined` when focus is elsewhere. */
-  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPane: PaneAddress | undefined;
   /** The session store's `agent` partition, read through its selector. */
-  readonly agents: Readonly<Record<string, ConsoleEntity>>;
+  readonly agents: Readonly<Record<string, StoredEntity>>;
   /** The session store's `run` partition, read through its selector. */
-  readonly runs: Readonly<Record<string, ConsoleEntity>>;
+  readonly runs: Readonly<Record<string, StoredEntity>>;
 }
 
 /**
@@ -113,16 +113,16 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
 /**
  * The entity of one kind a focused pane names, or `undefined` when it names another.
  *
- * The `in` check is the narrowing and not a defensive guard: `ConsolePaneAddress` is
+ * The `in` check is the narrowing and not a defensive guard: `PaneAddress` is
  * a union over pane kind, and a session-scoped arm carries no `entity` MEMBER at all
  * rather than one holding `undefined`. So a pane addressed at `runs`, `approvals`,
  * `browser`, or `terminal` names no entity by construction, and this reads that fact
  * off the address rather than dereferencing a member three arms do not have.
  */
 function focusedRefOfKind(
-  pane: ConsolePaneAddress | undefined,
-  kind: ConsoleEntityRef["kind"],
-): ConsoleEntityRef | undefined {
+  pane: PaneAddress | undefined,
+  kind: EntityRef["kind"],
+): EntityRef | undefined {
   if (pane === undefined || !("entity" in pane)) {
     return undefined;
   }

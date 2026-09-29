@@ -26,7 +26,7 @@
 // five.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The event a lease transition arrives on. Wire-verbatim, rendered as received. */
 export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
@@ -136,7 +136,7 @@ export function asTerminalLeaseTransitionReason(
  * `released` carrying this device became `held-by-this-device`.
  */
 export function readTerminalLeaseTransition(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): TerminalLeaseTransition | undefined {
   const payload = event.payload;
   if (payload === undefined) {
@@ -171,7 +171,7 @@ export function readTerminalLeaseTransition(
  * and a stringified object would be the surface inventing a vocabulary.
  */
 export function readTerminalLeaseUnreadTransition(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): TerminalLeaseUnreadTransition {
   const reason = event.payload?.["reason"];
   return {

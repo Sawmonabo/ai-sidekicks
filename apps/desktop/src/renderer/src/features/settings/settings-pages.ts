@@ -13,7 +13,7 @@ import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
 import { PendingSettingsPage } from "./components/PendingSettingsPage.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
 import { GeneralPage } from "./pages/general/GeneralPage.js";
@@ -47,7 +47,7 @@ export interface SettingsPageDescriptor {
  * One entry of the page table, in one of exactly two forms.
  *
  * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalized by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
+ * product fact and normalized by the same `LoaderBackedBody`. `seats/pane/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
  * inside it is a second act after that.
@@ -106,13 +106,16 @@ export class SettingsPageRegistry {
    * reason: the descriptor is what every mount site reads and none of them has business
    * knowing whether the page it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySection = new Map<SettingsPageId, LoadedLazyBody<SettingsPageContext>>();
+  readonly #loadedBodiesBySection = new Map<
+    SettingsPageId,
+    LoaderBackedBody<SettingsPageContext>
+  >();
 
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
    * A loader-form registration is normalized here exactly as the deck's and the frame's
-   * boards normalize theirs: one `LoadedLazyBody` per registration — one memoised promise
+   * boards normalize theirs: one `LoaderBackedBody` per registration — one memoised promise
    * and one stable lazy component — and a descriptor whose `render` mounts it. So
    * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
    * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
@@ -140,7 +143,7 @@ export class SettingsPageRegistry {
     // The fallback is the page region's own empty reservation, supplied here rather than
     // by the generic machinery: what a settings page reserves while it loads is a
     // settings-shaped question, and the pane above it has already drawn the heading.
-    const loadedBody = new LoadedLazyBody(registration.body, () =>
+    const loadedBody = new LoaderBackedBody(registration.body, () =>
       createElement(PendingSettingsPage, { section: registration.section }),
     );
     this.#descriptorsBySection.register(registration.section, {

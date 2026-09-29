@@ -15,8 +15,8 @@
 // its own.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { clippingAncestorsOf, observeElementResize } from "@renderer/console/primitives/index.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import { observeElementPosition } from "./element-motion.js";
@@ -35,11 +35,11 @@ import type { AttachedPaneViewHost } from "./view-host.js";
 export type PaneGeometryOutcome =
   | { readonly status: "published"; readonly sample: PaneGeometrySample }
   | { readonly status: "deduped"; readonly sample: PaneGeometrySample }
-  | { readonly status: "suppressed"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "suppressed"; readonly refusal: Refusal };
 
 export interface PaneGeometryPublisherOptions {
   readonly host: AttachedPaneViewHost;
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly occlusion: PaneOverlaySource;
 }
 
@@ -50,7 +50,7 @@ export interface PaneGeometryPublisherOptions {
  */
 export class PaneGeometryPublisher {
   readonly #host: AttachedPaneViewHost;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #occlusion: PaneOverlaySource;
   readonly #outcomeEmitter = new Emitter<void>("pane geometry outcome");
   #hostElement: HTMLElement | undefined;

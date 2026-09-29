@@ -55,7 +55,7 @@
 import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /**
@@ -90,7 +90,7 @@ const CONTEXT_COMPACTED_TYPE = "usage.context_compacted";
  * is projected — the property the caller's memo depends on.
  */
 export function deriveChildRunSummaries(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, ChildRunSummary> {
   const readingsByRunId = new Map<string, ChildRunReading>();
   for (const event of events) {
@@ -142,7 +142,7 @@ interface ChildRunReading {
  */
 function admitChildRun(
   readingsByRunId: Map<string, ChildRunReading>,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   runId: string,
 ): void {
   const payload = event.payload;

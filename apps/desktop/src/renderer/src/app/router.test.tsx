@@ -3,7 +3,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { AppRouter } from "./router.js";
 import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
@@ -25,7 +25,7 @@ const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
 function contextFor(route: ConsoleRoute): ScreenContext {
   return {
     route,
-    frameStore: new FrameStore({ initialRoute: route }),
+    frameStore: new WindowStore({ initialRoute: route }),
     sessionStore: undefined,
   } as unknown as ScreenContext;
 }

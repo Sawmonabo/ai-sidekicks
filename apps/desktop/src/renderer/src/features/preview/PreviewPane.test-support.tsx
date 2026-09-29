@@ -171,7 +171,7 @@ export async function mountPreviewPaneForSubject(
 }
 
 /**
- * What the pane's region is CALLED once `seats/ConsolePaneChrome` names it.
+ * What the pane's region is CALLED once `seats/PaneFrame` names it.
  *
  * The chrome names a pane by its whole address trail rather than by its kind — "the
  * session, then Browser" — and every mount in this family's suites is unbound, so the

@@ -3,7 +3,7 @@
 // The publisher consumes this file's host type; this file consumes the sample type from
 // `pane-geometry.ts`.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PaneGeometrySample } from "./pane-geometry.js";
 
 /** The subsystem name every refusal a view host raises carries. */
@@ -15,7 +15,7 @@ export const PANE_VIEW_HOST_REFUSAL_ORIGIN = "browser-view-host";
  */
 export type PaneRectOutcome =
   | { readonly status: "accepted" }
-  | { readonly status: "rejected"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "rejected"; readonly refusal: Refusal };
 
 /** A host that carries a view. */
 export interface AttachedPaneViewHost {

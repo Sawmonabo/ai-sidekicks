@@ -3,7 +3,7 @@
 // A timing helper rather than a fixture one, so it sits on its own: the store, frame and
 // bridge suites all wait on it.
 //
-// It arms a platform timer directly rather than through `ConsoleClock`, which shipped code
+// It arms a platform timer directly rather than through `Clock`, which shipped code
 // may not do: a suite that has to let a real turn elapse cannot do it on a clock it also
 // controls.
 //

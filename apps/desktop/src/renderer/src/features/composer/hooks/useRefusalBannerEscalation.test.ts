@@ -15,8 +15,8 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { useRefusalBannerEscalation } from "./useRefusalBannerEscalation.js";
 
 const GONE_SESSION = refuse("runs", "session.not_found", "That session is not on this node.");
@@ -24,7 +24,7 @@ const PANE_REFUSAL = refuse("runs", "run.version_conflict", "The run moved on.")
 
 describe("which refusals reach the frame", () => {
   it("raises a banner for a code the table renders as one", () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     renderHook(() => {
       useRefusalBannerEscalation(frameStore, GONE_SESSION);
@@ -43,7 +43,7 @@ describe("which refusals reach the frame", () => {
   it("leaves a pane's own refusal in the pane", () => {
     // Escalating everything would put one pane's read failure across a workspace
     // where every other pane is fine.
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     renderHook(() => {
       useRefusalBannerEscalation(frameStore, PANE_REFUSAL);
@@ -53,7 +53,7 @@ describe("which refusals reach the frame", () => {
   });
 
   it("raises nothing for a code the table does not answer for", () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     renderHook(() => {
       useRefusalBannerEscalation(
@@ -66,7 +66,7 @@ describe("which refusals reach the frame", () => {
   });
 
   it("raises nothing while the surface has no refusal to hand over", () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
 
     renderHook(() => {
       useRefusalBannerEscalation(frameStore, undefined);
@@ -80,7 +80,7 @@ describe("how often it escalates", () => {
   it("does not raise the banner again while the refusal is unchanged", () => {
     // The behaviour that matters: dismiss stays dismissed under a pane that keeps
     // re-rendering with the same failed read.
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const rendered = renderHook(() => {
       useRefusalBannerEscalation(frameStore, GONE_SESSION);
     });
@@ -97,7 +97,7 @@ describe("how often it escalates", () => {
   });
 
   it("raises again once the refusal itself is a different one", () => {
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const secondRefusal = refuse("repos", "session.not_found", "Gone from this node.");
     const rendered = renderHook(
       ({ refusal }: { refusal: typeof GONE_SESSION }) => {
@@ -121,9 +121,9 @@ describe("how often it escalates", () => {
     // lasted until the next retry. The condition has not changed, so nothing new is
     // being told to anybody, and a banner that keeps coming back is one people stop
     // reading.
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const rendered = renderHook(
-      ({ refusal }: { refusal: ConsoleRefusal }) => {
+      ({ refusal }: { refusal: Refusal }) => {
         useRefusalBannerEscalation(frameStore, refusal);
       },
       {
@@ -145,9 +145,9 @@ describe("how often it escalates", () => {
     // The other arm of the same rule, and the negative control on the one above: a
     // hook that suppressed on the CODE alone would swallow this, and the person
     // would never be told the sentence had changed.
-    const frameStore = new FrameStore();
+    const frameStore = new WindowStore();
     const rendered = renderHook(
-      ({ refusal }: { refusal: ConsoleRefusal }) => {
+      ({ refusal }: { refusal: Refusal }) => {
         useRefusalBannerEscalation(frameStore, refusal);
       },
       {

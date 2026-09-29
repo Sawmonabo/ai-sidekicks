@@ -27,8 +27,8 @@
 
 import { useEffect } from "react";
 
-import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
 import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
@@ -54,7 +54,7 @@ import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
   /** The frame coordinator's clock, minted once by the mount that holds this chain. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /**
@@ -125,7 +125,7 @@ export function useTranscriptFeedWindows(
   const readWindowDiagnostics = viewport.readWindowDiagnostics;
   const diagnosticsSessionId = inputs.sessionStore.sessionId;
   useEffect(
-    () => consoleLedgerWindows.register(diagnosticsSessionId, readWindowDiagnostics),
+    () => transcriptWindowDiagnostics.register(diagnosticsSessionId, readWindowDiagnostics),
     [diagnosticsSessionId, readWindowDiagnostics],
   );
 

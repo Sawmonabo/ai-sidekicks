@@ -48,15 +48,15 @@
 import { useEffect, useMemo } from "react";
 import type { Unsubscribe } from "@shared/preload-api.js";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
 import { subscribeToOpenSessions } from "../../session/open-session-signal.js";
 import { type SessionStoreRegistry } from "../../session/session-store-registry.js";
 import {
-  AttentionPlane,
+  AttentionSummary,
   type AttentionReading,
   type RefusedAttentionSession,
 } from "../attention-summary.js";
@@ -112,7 +112,7 @@ const ATTENTION_READ_ORIGIN = "attention-plane";
 export function useAttentionProjection(
   read: AttentionProjectionReadCall,
   sessionStoreRegistry: SessionStoreRegistry,
-  clock: ConsoleClock,
+  clock: Clock,
   subscribeToAttention: AttentionSubscribeCall,
 ): AttentionReading {
   const projectionRead = useMemo(
@@ -174,11 +174,11 @@ function attentionReadingFrom(
     return { phase: "reading" };
   }
   if (state.kind === "failed") {
-    throw new ConsoleRefusalError(state.refusal);
+    throw new RefusalError(state.refusal);
   }
   return {
     phase: "read",
-    plane: new AttentionPlane(state.value.items),
+    plane: new AttentionSummary(state.value.items),
     droppedCount: state.value.droppedCount,
     // Both halves of coverage carried through untouched: which sessions were asked
     // and which of them went unanswered are the reader's facts, and re-deriving

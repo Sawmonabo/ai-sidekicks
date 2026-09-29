@@ -31,10 +31,10 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { type PaneContext } from "./pane-context.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -62,7 +62,7 @@ export interface PaneBindings {
    * makes those two different types: a caller that forwards its own optional member
    * passes the property PRESENT and undefined, which the bare `?` rejects.
    */
-  readonly frameStore?: FrameStore | undefined;
+  readonly frameStore?: WindowStore | undefined;
   /**
    * This pane's identity in the deck, where a case is about WHICH pane it is.
    *
@@ -109,7 +109,7 @@ export function paneContext<TKind extends PaneKind>(
     paneId: bindings.paneId ?? `pane-${address.kind}`,
     linkedSourcePaneId: bindings.linkedSourcePaneId,
     bridge: bindings.bridge,
-    frameStore: bindings.frameStore ?? new FrameStore(),
+    frameStore: bindings.frameStore ?? new WindowStore(),
     sessionStore: bindings.sessionStore,
     // An adapter that never settles: no pane mounted through this builder performs a
     // UI-state read, so one that grew one hangs here rather than passing against a
@@ -122,7 +122,7 @@ export function paneContext<TKind extends PaneKind>(
 }
 
 /** One pane kind's address arm, as the caller writes it. */
-type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { readonly kind: TKind }>;
+type PaneAddressOf<TKind extends PaneKind> = Extract<PaneAddress, { readonly kind: TKind }>;
 
 /**
  * The binding half of a pane context — everything that is not the address.

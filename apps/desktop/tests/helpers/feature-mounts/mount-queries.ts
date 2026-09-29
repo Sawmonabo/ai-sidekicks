@@ -23,7 +23,7 @@ export interface MountedView {
  * heading it points at.
  *
  * A PATTERN AS WELL AS A STRING, because a pane's name is its whole address trail:
- * `seats/pane/ConsolePaneChrome` names a pane "session-1 workspace-01 Diff" so two panes of
+ * `seats/pane/PaneFrame` names a pane "session-1 workspace-01 Diff" so two panes of
  * one kind are told apart by what they are views of. A caller that wants to say "the diff
  * pane, whichever subject it is over" anchors a pattern at the kind; a caller naming a
  * surface whose name is fixed still passes the string.

@@ -48,17 +48,17 @@ import {
 } from "@renderer/console/primitives/index.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
-  DriverAskDelivery,
-  DriverAskReading,
+  AnswerDelivery,
+  QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 
 import "./question-card.css";
 
 /** What the row hands a supplied body. */
 export interface QuestionCardBodyProps {
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /** Where the answer this card last dispatched has got to. */
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   readonly onAnswer: (response: string) => void;
 }
 
@@ -72,7 +72,7 @@ export interface QuestionCardProps {
    * identically to a deliberate "none".
    */
   readonly body: ((props: QuestionCardBodyProps) => React.ReactNode) | undefined;
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /**
    * The mount's reading of now, in epoch milliseconds.
    *
@@ -87,7 +87,7 @@ export interface QuestionCardProps {
    * Held by the row rather than here, because the dispatch is a wire call and this
    * card constructs none — the same split the countdown makes with the clock.
    */
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   /** Deliver an answer on the registered driver answer method. */
   readonly onAnswer: (response: string) => void;
 }
@@ -193,8 +193,8 @@ function renderCountdown(
  * sentence in the same place. Two renderings would be two vocabularies for one wire.
  */
 function renderAnswerArms(
-  ask: DriverAskReading,
-  delivery: DriverAskDelivery,
+  ask: QuestionReading,
+  delivery: AnswerDelivery,
   onAnswer: (response: string) => void,
 ): React.ReactNode {
   // The two statuses in which no further answer may be dispatched: one is on the wire,
@@ -243,7 +243,7 @@ function renderAnswerArms(
  * the row's own event type. The refusal renders inline, which is rule 9's shape for
  * "nothing changed" — the arms above it stay exactly where they were.
  */
-function renderDelivery(delivery: DriverAskDelivery): React.ReactNode {
+function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
   switch (delivery.status) {
     case "unsent":
       return null;
@@ -278,7 +278,7 @@ function renderDelivery(delivery: DriverAskDelivery): React.ReactNode {
  * which of the two things happened, because "expired" and "canceled" are different
  * events with different causes and a card that said only "closed" would collapse them.
  */
-function renderTerminal(ask: DriverAskReading): React.ReactNode {
+function renderTerminal(ask: QuestionReading): React.ReactNode {
   if (ask.state === "responded") {
     return (
       <Nothing

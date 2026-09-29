@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { DEFINITION_ID } from "../definitions/detail/hooks/useWorkflowDefinitionAuthoring.test-support.js";
 import { PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
@@ -19,10 +19,10 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
  * What a cast pane context may be addressed at.
  *
  * Any console entity or none — the set the pane's own two guards project, rather than
- * `ConsolePaneAddress`'s own arm for this kind, because the cases below drive exactly
+ * `PaneAddress`'s own arm for this kind, because the cases below drive exactly
  * the addresses the arm makes unconstructible and the guards still refuse.
  */
-type AddressedEntity = ConsoleEntityRef | undefined;
+type AddressedEntity = EntityRef | undefined;
 
 /**
  * The fields the pane and its chrome read, and nothing else.
@@ -61,7 +61,7 @@ function renderPane(context: PaneContextOf<"workflow-builder">): HTMLElement {
   return section;
 }
 
-// The kind this pane authors, and the kind it does not: `CONSOLE_ENTITY_KINDS` registers
+// The kind this pane authors, and the kind it does not: `ENTITY_KINDS` registers
 // both `workflow-definition` and `workflow-run`, and the misaddress is the subject of its
 // own cases.
 const ADDRESSED = { kind: "workflow-definition", id: DEFINITION_ID } as const;

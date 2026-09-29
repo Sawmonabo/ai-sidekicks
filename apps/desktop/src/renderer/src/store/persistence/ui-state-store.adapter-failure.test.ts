@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
 import { PersistenceAdapterError, type PartitionSummary } from "./persistence-adapter.js";
 import {
   MemoryPersistenceAdapter,
@@ -59,7 +59,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     expect(result.outcome).toBe("refused");
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("adapter-unavailable");
-      expect(isConsoleRefusal(result.refusal)).toBe(true);
+      expect(isRefusal(result.refusal)).toBe(true);
     }
     // Counted, so the diagnostics surface shows a store that has begun to fail
     // rather than a write that quietly went nowhere.

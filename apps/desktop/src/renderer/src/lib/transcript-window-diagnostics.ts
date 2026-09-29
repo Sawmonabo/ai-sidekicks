@@ -38,7 +38,7 @@ import { type Unsubscribe } from "./emitter.js";
  * the frozen-clock starvation `scroll-chokepoint.ts`' `publishOnResize` closes was
  * found: every other figure agreed while the window ranged against a box from mount.
  */
-export interface LedgerWindowReading {
+export interface TranscriptWindowReading {
   /** Rows the virtualizer INTENDS on screen: `getVirtualItems().length`. */
   readonly virtualItemCount: number;
   /**
@@ -93,7 +93,7 @@ export interface LedgerWindowReading {
 }
 
 /** One mounted viewport's live answer. Called by a reader, never by the ledger. */
-export type TranscriptWindowReader = () => LedgerWindowReading;
+export type TranscriptWindowReader = () => TranscriptWindowReading;
 
 /**
  * Which session's ledger can be read right now.
@@ -122,14 +122,14 @@ export class TranscriptWindowDiagnosticsRegistry {
   }
 
   /** This session's ledger window, or `null` where no viewport is mounted for it. */
-  public readingFor(sessionId: string): LedgerWindowReading | null {
+  public readingFor(sessionId: string): TranscriptWindowReading | null {
     return this.#readerBySessionId.get(sessionId)?.() ?? null;
   }
 }
 
 /**
- * The console's registry. One per renderer process, for `consoleTripwires`' reason:
+ * The console's registry. One per renderer process, for `windowTripwires`' reason:
  * an auxiliary window is its own renderer process and therefore its own registry.
  */
-export const consoleLedgerWindows: TranscriptWindowDiagnosticsRegistry =
+export const transcriptWindowDiagnostics: TranscriptWindowDiagnosticsRegistry =
   new TranscriptWindowDiagnosticsRegistry();

@@ -18,8 +18,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { PERSISTENCE_GLOBAL_PARTITION } from "./persistence-adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
@@ -28,12 +28,12 @@ import { UiStateStore } from "./ui-state-store.js";
 // are RECORDED, because these cases assert that the breach was detected and
 // described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
+  windowTripwires.reset();
 });
 
 describe("the write chokepoint refuses what the durable store may not hold", () => {
@@ -50,9 +50,9 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
     expect(result.outcome).toBe("refused");
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("value-class-unknown");
-      expect(isConsoleRefusal(result.refusal)).toBe(true);
+      expect(isRefusal(result.refusal)).toBe(true);
     }
-    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    expect(windowTripwires.firingCount("persistence-value-class")).toBe(1);
 
     const health = await store.health();
     expect(health.refusalCounts["value-class-unknown"]).toBe(1);
@@ -75,7 +75,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("value-not-identifier-shaped");
     }
-    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    expect(windowTripwires.firingCount("persistence-value-class")).toBe(1);
     await store.close();
   });
 
@@ -94,11 +94,11 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
     expect(result.outcome).toBe("refused");
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("address-not-identifier-shaped");
-      expect(isConsoleRefusal(result.refusal)).toBe(true);
+      expect(isRefusal(result.refusal)).toBe(true);
     }
-    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    expect(windowTripwires.firingCount("persistence-value-class")).toBe(1);
     // The site a tripwire reports must not carry the prose the store refused.
-    expect(consoleTripwires.reports().at(-1)?.site).not.toContain(proseKey);
+    expect(windowTripwires.reports().at(-1)?.site).not.toContain(proseKey);
 
     expect(await store.read("session-1", proseKey)).toBeUndefined();
     expect(await store.readPartition("session-1")).toStrictEqual([]);
@@ -162,7 +162,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
       outcome: "written",
     });
 
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
     const record = await store.readGlobal("scheme");
     expect(record?.value).toBe("dark");
     expect(record?.partition).toBe(PERSISTENCE_GLOBAL_PARTITION);

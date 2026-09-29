@@ -55,7 +55,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
 import { deriveLedgerWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
@@ -131,7 +131,7 @@ function resolveForcedCollection(): () => void {
 }
 
 /** One generated session's log, as the events a store would have admitted. */
-function enduranceTimeline(rowCount: number): readonly ConsoleSessionEvent[] {
+function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
   return createTranscriptEnduranceFixture({ rowCount }).beats.map((beat) => beat.event);
 }
 
@@ -161,7 +161,7 @@ function settledHeapBytes(): number {
  * be eliminated as dead code — and read as a length rather than discarded, because a
  * fold whose output nobody touches is a fold the compiler is free to shorten.
  */
-function fastestFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): number {
+function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
@@ -191,7 +191,7 @@ function fastestFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): numb
  * that way, and the control failed for a reason that had nothing to do with the
  * shape it was planted to prove.
  */
-function quadraticFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): number {
+function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
@@ -338,7 +338,7 @@ describe("endurance — the ledger's fold over a long session", () => {
  * measuring the test rather than the ledger. The length is read so the fold cannot
  * be eliminated as dead.
  */
-function dropFoldOf(timeline: readonly ConsoleSessionEvent[]): void {
+function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
   const rowCount = deriveLedgerWindow(timeline, false).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");

@@ -10,7 +10,7 @@
 // padding added outside it, the body overhung the slot by twice the pane padding, and
 // what fell off the bottom was the emulator's last rows.
 //
-// THE SLOT IS NOW TWO BOXES DEEP, because the frame is `seats/ConsolePaneChrome`'s.
+// THE SLOT IS NOW TWO BOXES DEEP, because the frame is `seats/PaneFrame`'s.
 // The deck sizes the chrome's `<section>`; the chrome gives its body a flex slot
 // under the head; this family's box grows into that. So the measurement is the same
 // one against a taller stack: the section fits the deck slot, and the body's own box

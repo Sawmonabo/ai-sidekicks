@@ -49,7 +49,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
@@ -71,7 +71,7 @@ export interface EarlierHistoryState {
   /** A backward page is in flight. */
   readonly isReading: boolean;
   /** Why the last attempt did not land, until the next one is made. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /** Rows this walk has admitted at the head, across every page it has read. */
   readonly admittedRowCount: number;
 }
@@ -120,7 +120,7 @@ export class EarlierHistoryReader {
   #nextBeforeCursor: string | undefined;
   #exhausted = true;
   #isReading = false;
-  #refusal: ConsoleRefusal | undefined;
+  #refusal: Refusal | undefined;
   #admittedRowCount = 0;
 
   /** Whether this walk's read line is over. True once and never false again. */

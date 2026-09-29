@@ -32,7 +32,7 @@
 // cannot be abandoned is not a thing this class can produce. What a round is, and
 // which reads ignore theirs, is `read-cancellation.ts`'s to say.
 
-import { type ConsoleClock, type ScheduledHandle } from "../clock.js";
+import { type Clock, type ScheduledHandle } from "../clock.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
 import { ReadScope, type ReadRound } from "./read-scope.js";
 
@@ -70,7 +70,7 @@ export type RefreshPerformer = (
 ) => Promise<void>;
 
 export interface RefreshSchedulerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly perform: RefreshPerformer;
   readonly debounceMs?: number;
   readonly maxWaitMs?: number;
@@ -79,7 +79,7 @@ export interface RefreshSchedulerOptions {
 }
 
 export class RefreshScheduler {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   /**
    * The read line every read this scheduler fires is on.
    *

@@ -44,7 +44,7 @@
 // every issued snapshot in the order it was issued, ending on the newest.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 
@@ -102,7 +102,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   #value: TValue;
   #hydrated = false;
   #disposed = false;
-  #lastRefusal: ConsoleRefusal | undefined;
+  #lastRefusal: Refusal | undefined;
   /**
    * The round local acts are on, so a hydration or a write that started before one
    * of them can tell that it is answering an older question. Here the read is what
@@ -173,7 +173,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   }
 
   /** The last refusal this state saw, or `undefined`. Rendered, never swallowed. */
-  public get lastRefusal(): ConsoleRefusal | undefined {
+  public get lastRefusal(): Refusal | undefined {
     return this.#lastRefusal;
   }
 

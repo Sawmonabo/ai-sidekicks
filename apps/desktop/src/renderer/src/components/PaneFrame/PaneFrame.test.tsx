@@ -11,13 +11,13 @@
 // fail here, and a test carrying its own copy of eleven names would pass.
 //
 // What the HOST hands a pane — the two controls and the drag registration — is
-// `ConsolePaneChrome.host-seams.test.tsx`', and the registry-address adapter beside this
-// component is `ConsolePaneChrome.pane-body.test.tsx`'.
+// `PaneFrame.host-seams.test.tsx`', and the registry-address adapter beside this
+// component is `PaneFrame.pane-body.test.tsx`'.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneChrome, GLYPH_BY_PANE_KIND, TITLE_BY_PANE_KIND } from "./PaneFrame.js";
+import { PaneFrame, GLYPH_BY_PANE_KIND, TITLE_BY_PANE_KIND } from "./PaneFrame.js";
 import { renderPaneFrame } from "./PaneFrame.test-support.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 
@@ -34,7 +34,7 @@ function accessibleName(pane: HTMLElement): string {
   return naming.textContent ?? "";
 }
 
-describe("ConsolePaneChrome — every declared kind has a frame", () => {
+describe("PaneFrame — every declared kind has a frame", () => {
   it("names a glyph and a title for every pane kind, so no kind falls back", () => {
     expect(Object.keys(GLYPH_BY_PANE_KIND).sort()).toStrictEqual([...PANE_KINDS].sort());
     expect(Object.keys(TITLE_BY_PANE_KIND).sort()).toStrictEqual([...PANE_KINDS].sort());
@@ -43,14 +43,9 @@ describe("ConsolePaneChrome — every declared kind has a frame", () => {
   it("names and draws every pane kind", () => {
     for (const kind of PANE_KINDS) {
       const pane = renderPaneFrame(
-        <ConsolePaneChrome
-          kind={kind}
-          sessionId="session-1"
-          entity={undefined}
-          focusHue={undefined}
-        >
+        <PaneFrame kind={kind} sessionId="session-1" entity={undefined} focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>,
+        </PaneFrame>,
       );
       const crumbs = [...pane.querySelectorAll("li")].map((crumb) => crumb.textContent);
       // Two crumbs: the session it was addressed at, then the pane's own name — which
@@ -71,12 +66,12 @@ describe("ConsolePaneChrome — every declared kind has a frame", () => {
   });
 });
 
-describe("ConsolePaneChrome — how the pane names itself", () => {
+describe("PaneFrame — how the pane names itself", () => {
   it("is named by its whole trail, so two panes of one kind differ", () => {
     const runsPane = renderPaneFrame(
-      <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
+      <PaneFrame kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(accessibleName(runsPane)).toContain("session-1");
     expect(accessibleName(runsPane)).toContain("run-01");
@@ -87,23 +82,23 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
     // Without this the case above would pass over a chrome named by its title alone,
     // which is the state a deck full of `runs` panes is unnavigable in.
     const first = renderPaneFrame(
-      <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
+      <PaneFrame kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     const second = renderPaneFrame(
-      <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-02" focusHue={undefined}>
+      <PaneFrame kind="runs" sessionId="session-1" runId="run-02" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(accessibleName(first)).not.toBe(accessibleName(second));
   });
 
   it("mints its own id when the caller has none to give", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="diff" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="diff" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(pane.getAttribute("aria-labelledby")).not.toBe("");
     expect(accessibleName(pane)).toContain("Diff");
@@ -111,14 +106,14 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
 
   it("takes the caller's id where the caller owns one", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome
+      <PaneFrame
         kind="diff"
         headingId="host-owned-heading"
         sessionId="session-1"
         focusHue={undefined}
       >
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(pane.getAttribute("aria-labelledby")).toBe("host-owned-heading");
   });
@@ -128,12 +123,12 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
     // point both `aria-labelledby` references at whichever element rendered first.
     const { container } = render(
       <>
-        <ConsolePaneChrome kind="runs" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="runs" sessionId="session-1" focusHue={undefined}>
           <p>one</p>
-        </ConsolePaneChrome>
-        <ConsolePaneChrome kind="runs" sessionId="session-2" focusHue={undefined}>
+        </PaneFrame>
+        <PaneFrame kind="runs" sessionId="session-2" focusHue={undefined}>
           <p>two</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </>,
     );
     const ids = [...container.querySelectorAll(".meridian-pane")].map((pane) =>
@@ -144,16 +139,12 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
   });
 });
 
-describe("ConsolePaneChrome — the focus treatments are attributed or neutral, never guessed", () => {
+describe("PaneFrame — the focus treatments are attributed or neutral, never guessed", () => {
   it("carries an attributed pane's hue", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome
-        kind="inspector"
-        sessionId="session-1"
-        focusHue="var(--meridian-actor-hue-3)"
-      >
+      <PaneFrame kind="inspector" sessionId="session-1" focusHue="var(--meridian-actor-hue-3)">
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("var(--meridian-actor-hue-3)");
   });
@@ -163,18 +154,18 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
     // boundary, and an unattributed pane must reach them by carrying NO custom property
     // rather than by carrying someone else's.
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="inspector" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="inspector" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("");
   });
 
   it("is reachable programmatically without spending a tab stop", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="approvals" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="approvals" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(pane.tabIndex).toBe(-1);
     pane.focus();
@@ -182,11 +173,11 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
   });
 });
 
-describe("ConsolePaneChrome — the pane-level key claim", () => {
+describe("PaneFrame — the pane-level key claim", () => {
   /** A chrome whose key claim records every key it heard, in order. */
   function renderClaiming(heard: string[], children: React.ReactNode): HTMLElement {
     return renderPaneFrame(
-      <ConsolePaneChrome
+      <PaneFrame
         kind="browser"
         sessionId="session-1"
         focusHue={undefined}
@@ -195,7 +186,7 @@ describe("ConsolePaneChrome — the pane-level key claim", () => {
         }}
       >
         {children}
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
   }
 
@@ -233,9 +224,9 @@ describe("ConsolePaneChrome — the pane-level key claim", () => {
     // Without this, a chrome that always attached a listener of its own would satisfy
     // both cases above while claiming keys from a pane that asked for none.
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="browser" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="browser" sessionId="session-1" focusHue={undefined}>
         <input aria-label="address" />
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     const field = pane.querySelector("input");
     if (field === null) {

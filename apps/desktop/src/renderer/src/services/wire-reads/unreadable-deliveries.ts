@@ -25,7 +25,7 @@
 // `count > 0` is a second reading of one fact, and the surfaces compose their notice
 // from the count and the refusal together through the partial-read primitive.
 
-import { refuse, refusedMemberPaths, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
 
 /** What a reading carries about the deliveries its stream made unreadably. */
 export interface UnreadableDeliveryReading {
@@ -42,7 +42,7 @@ export interface UnreadableDeliveryReading {
    * failed. Bounded by keeping only the newest — the refusals do not accumulate —
    * and by naming member paths rather than carrying the payload that failed.
    */
-  readonly unreadableRefusal: ConsoleRefusal | undefined;
+  readonly unreadableRefusal: Refusal | undefined;
 }
 
 /**
@@ -63,9 +63,7 @@ export type UnreadableDeliveryIssues = readonly { readonly path: readonly Proper
  * constructor, and each family's own bound composer — and a signature spelled out at
  * each of them is three places for one contract to drift.
  */
-export type UnreadableDeliveryRefusalComposer = (
-  issues: UnreadableDeliveryIssues,
-) => ConsoleRefusal;
+export type UnreadableDeliveryRefusalComposer = (issues: UnreadableDeliveryIssues) => Refusal;
 
 /** The one code every stream raises for a delivery it could not read. */
 const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
@@ -87,7 +85,7 @@ const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
 export class UnreadableDeliveryCounter {
   readonly #refusalFor: UnreadableDeliveryRefusalComposer;
   #unreadableDeliveryCount = 0;
-  #unreadableRefusal: ConsoleRefusal | undefined = undefined;
+  #unreadableRefusal: Refusal | undefined = undefined;
 
   public constructor(refusalFor: UnreadableDeliveryRefusalComposer) {
     this.#refusalFor = refusalFor;

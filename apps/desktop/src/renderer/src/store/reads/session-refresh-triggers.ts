@@ -38,7 +38,7 @@
 // session's projection is whole again after having not been — which is what the
 // refresh policy means by reconnect, observed rather than assumed.
 //
-// A BASE STATE IS NOT A FRAME. `initialise()` establishes a session's history in one
+// A BASE STATE IS NOT A FRAME. `initialize()` establishes a session's history in one
 // transition, and a named kind sitting inside that backfill describes something the
 // reader's own first read already reflects. Re-reading on it would put a second burst
 // behind every session open for no new information, so the scan runs only over

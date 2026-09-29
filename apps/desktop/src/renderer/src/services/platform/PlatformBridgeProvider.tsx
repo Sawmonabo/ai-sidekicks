@@ -13,7 +13,7 @@
 // an engine it built, never one a caller handed it.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
+import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
 import {
   BridgeCompositionContext,
@@ -34,9 +34,9 @@ export interface PlatformBridgeProviderProps {
   /**
    * A clock identity minted outside the tree, rebound onto the resolved bridge's clock.
    * The composition root arms the tripwire route at module scope, before any bridge exists,
-   * so its clock is a `ForwardingConsoleClock` passed in rather than reached for.
+   * so its clock is a `ForwardingClock` passed in rather than reached for.
    */
-  readonly clockToRebind?: ForwardingConsoleClock;
+  readonly clockToRebind?: ForwardingClock;
 }
 
 /**

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // scenario's own moved.
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
 import { isContractTimelineRow } from "@renderer/services/daemon/timeline-row-contract.test-support.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
 // that directory and it is a test, so a door line for it would be a door widened for
 // testing, which this package rejects.
@@ -18,8 +18,8 @@ const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
 const USER = "019b793b-7b60-79a4-8110-cca0117a0410";
 
 function event(
-  overrides: Partial<ConsoleSessionEvent> & { readonly sequence: number },
-): ConsoleSessionEvent {
+  overrides: Partial<ProjectedSessionEvent> & { readonly sequence: number },
+): ProjectedSessionEvent {
   return {
     id: `${EVENT_ID_STEM}${String(overrides.sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
@@ -29,7 +29,7 @@ function event(
   };
 }
 
-function runEvent(sequence: number, runId: string, kind = "run.running"): ConsoleSessionEvent {
+function runEvent(sequence: number, runId: string, kind = "run.running"): ProjectedSessionEvent {
   return event({ sequence, kind, payload: { sessionId: SESSION_ID, runId } });
 }
 
@@ -37,7 +37,7 @@ function rollbackEvent(
   sequence: number,
   runId: string,
   targetPosition: number,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event({
     sequence,
     kind: "run.rolled_back",
@@ -140,7 +140,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
-    // THE ID IS CARRIED, NOT COMPOSED. `ConsoleSessionEvent.id` is the daemon's
+    // THE ID IS CARRIED, NOT COMPOSED. `ProjectedSessionEvent.id` is the daemon's
     // opaque identifier and the hydrated-event read is keyed `{sessionId, eventId}`,
     // so a row keyed `session:sequence` names the same row to a person and resolves
     // for no caller: the jump-by-id field compares what a person pasted against
@@ -250,7 +250,7 @@ describe("counting through a rewind", () => {
 
 describe("which payload member names a row's run", () => {
   /** An intervention as the wire spells it: the run is `targetRunId`, never `runId`. */
-  function interventionEvent(sequence: number, targetRunId: string): ConsoleSessionEvent {
+  function interventionEvent(sequence: number, targetRunId: string): ProjectedSessionEvent {
     return event({
       sequence,
       kind: "intervention.applied",

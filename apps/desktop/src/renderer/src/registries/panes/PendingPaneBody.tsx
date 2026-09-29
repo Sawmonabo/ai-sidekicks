@@ -23,9 +23,9 @@
 // The one thing it adds beyond the chrome is the marker `PendingPaneBody.tsx` owns, so
 // the screenshot tier can refuse to photograph this frame.
 
-import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import type { PaneContext } from "./pane-context.js";
-import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingPaneBodyProps {
   /** The address and bindings the deck opened this pane at. */
@@ -50,13 +50,13 @@ export interface PendingPaneBodyProps {
 export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element {
   const { context } = props;
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind={context.kind}
       sessionId={context.sessionStore?.sessionId}
       entity={"entity" in context ? context.entity : undefined}
       focusHue={context.focusHue}
     >
-      <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: context.kind }} />
-    </ConsolePaneChrome>
+      <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: context.kind }} />
+    </PaneFrame>
   );
 }

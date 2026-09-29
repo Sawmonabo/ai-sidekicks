@@ -9,7 +9,7 @@ import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import {
   SMALL_SOURCE,
   ScriptedIngestPort,
@@ -19,13 +19,13 @@ import {
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
+  windowTripwires.reset();
+  windowTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
 describe("ingest client — retry resumes what the file made unreadable", () => {

@@ -37,7 +37,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
@@ -50,7 +50,7 @@ export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-s
 export interface AttachmentIngestStreamDriverOptions {
   readonly port: IngestLegs;
   readonly sessionId: SessionId;
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** The carrier's own record. Written here, owned next door. */
   readonly ledger: AttachmentIngestEntries;
   /** Where a spool this driver opened and could not reach the ledger with is given back. */
@@ -71,7 +71,7 @@ export interface AttachmentIngestStreamDriverOptions {
 export class AttachmentIngestStreamDriver {
   readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
   readonly #sessionId: SessionId;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #ledger: AttachmentIngestEntries;
   readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #chunks: AttachmentChunkStream;

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import {
   SESSION_ID,
@@ -34,14 +34,14 @@ afterEach(disposeTrackedReaders);
  * Payload-free, because the trigger keys on the kind and on nothing else, and a frame
  * carrying members would suggest the section reads one.
  */
-function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
+function staleFrame(sessionId: string, sequence: number): ProjectedSessionEvent {
   return eventOfKind(sessionId, "workspace.stale", sequence);
 }
 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -92,7 +92,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -170,7 +170,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     reader.start();
     await settle(clock, reader);
 
-    sessionStore.initialise({
+    sessionStore.initialize({
       cursor: 1,
       entities: [],
       // A stale frame inside the BACKFILL is history the section's own live read already

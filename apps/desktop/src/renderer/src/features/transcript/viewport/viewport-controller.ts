@@ -32,7 +32,7 @@
 // the glide-in-flight refusal that guards them — is `viewport-anchor-capture.ts`'.
 // This file holds the objects and the order they are asked in.
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
@@ -53,7 +53,7 @@ import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer
 import { TranscriptWindow } from "./window-cap.js";
 
 export interface ViewportControllerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 export class ViewportController {

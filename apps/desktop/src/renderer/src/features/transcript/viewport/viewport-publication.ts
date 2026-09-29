@@ -26,17 +26,17 @@
 // property of the producer, and it belongs beside the producer's publication point.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type ViewportSnapshot } from "./viewport-snapshot.js";
 
 export interface ViewportPublicationOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Rebuild the snapshot from the frame's objects. Called once per publication. */
   readonly build: () => ViewportSnapshot;
 }
 
 export class ViewportPublication {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #build: () => ViewportSnapshot;
   readonly #changeEmitter = new Emitter<void>("ledger viewport snapshot");
 

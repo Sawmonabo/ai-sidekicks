@@ -35,7 +35,7 @@ export function transcriptFixtureStampAt(index: number): string {
 /**
  * The daemon's opaque row id for the event at one log position.
  *
- * Every `ConsoleSessionEvent` carries one — the hydrated-event read is keyed by it —
+ * Every `ProjectedSessionEvent` carries one — the hydrated-event read is keyed by it —
  * so a store seeded without one holds rows nothing could ever ask about. Positional
  * here because these logs are generated, and distinct from `SESSION_ID` because the
  * two identify different things.
@@ -50,7 +50,7 @@ export function transcriptFixtureEventId(sequence: number): string {
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),
@@ -75,7 +75,7 @@ export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
  *
  * THE SAME VALUE THE EVENT CARRIES, because the projection copies it. It used to
  * delegate to a composition the shell minted from `(sessionId, sequence)`; the shell
- * now carries `ConsoleSessionEvent.id` verbatim, so the row id a case asks for is the
+ * now carries `ProjectedSessionEvent.id` verbatim, so the row id a case asks for is the
  * id the fixture stamped and the session is no longer part of it. The name stays
  * because every case in this family reads in that vocabulary.
  */
@@ -92,7 +92,7 @@ export function projectedRowId(sequence: number): string {
  */
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),
@@ -114,7 +114,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
 /** A log of general rows, so no chapter is open and the cap may actually apply. */
 export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),

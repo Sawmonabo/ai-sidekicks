@@ -33,7 +33,7 @@ describe("failure matrix — the router is handed an empty hash", () => {
 describe("failure matrix — the router is handed a malformed percent-escape", () => {
   it("resolves a malformed session id to not-found rather than throwing", () => {
     // `decodeURIComponent("%zz")` raises `URIError`. Thrown from here it escapes
-    // `FrameStore.adoptHash` and the routing effect that calls it, so the window
+    // `WindowStore.adoptHash` and the routing effect that calls it, so the window
     // that was asked to render a bad link renders nothing and says nothing.
     expect(() => parseRoute("#/session/%zz")).not.toThrow();
     expect(parseRoute("#/session/%zz")).toStrictEqual({

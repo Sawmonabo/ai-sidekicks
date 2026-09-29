@@ -9,7 +9,7 @@
 // fold and holds no lifetime at all.
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   unreadableDeliveryReading,
   type ReadingState,
@@ -19,7 +19,7 @@ import type { AttentionItem, AttentionSeverity } from "@ai-sidekicks/contracts";
 /** One session the projection read could not cover, with the refusal it answered with. */
 export interface RefusedAttentionSession {
   readonly sessionId: string;
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 /** One session's live attention, split on the axis suppression keys on. */
@@ -43,7 +43,7 @@ export type AttentionReading =
   | { readonly phase: "reading" }
   | {
       readonly phase: "read";
-      readonly plane: AttentionPlane;
+      readonly plane: AttentionSummary;
       /** Members the boundary refused. A fact about the reader, not about attention. */
       readonly droppedCount: number;
       /** Sessions that never answered. Non-empty means the coverage is incomplete. */
@@ -81,7 +81,7 @@ export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phas
  * that the item has cleared, and a center that kept it would be offering a person
  * work that is already done.
  */
-export class AttentionPlane {
+export class AttentionSummary {
   readonly #liveItems: readonly AttentionItem[];
   readonly #groups: readonly AttentionSessionGroup[];
   readonly #severityBySessionId: ReadonlyMap<string, AttentionSeverity>;

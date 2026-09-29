@@ -45,11 +45,11 @@
 
 import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type TranscriptWindow } from "./window-cap.js";
 
 export interface IdleMemoryTrimOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;
   /** Overridden by tests only; `frame-bounds.ts` owns the shipped value. */
@@ -67,7 +67,7 @@ export interface IdleTrimPass {
 }
 
 export class IdleMemoryTrim {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #dwellMs: number;

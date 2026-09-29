@@ -9,7 +9,7 @@ import type { FunctionComponent } from "react";
 
 import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
 import { type PaneContext } from "@renderer/console/seats/index.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -38,8 +38,8 @@ function terminalSessionStore(): SessionStore {
     sessionId: TERMINAL_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, TERMINAL_SCENARIO.sessionId));
-  store.applyBatch(TERMINAL_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
+  store.initialize(fixtureSessionSnapshot(TERMINAL_SCENARIO, TERMINAL_SCENARIO.sessionId));
+  store.applyBatch(TERMINAL_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent));
   return store;
 }
 

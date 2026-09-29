@@ -26,7 +26,7 @@
 // knows no method name.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { ActController, PrerequisiteReader } from "./act-controller.js";
 import {
   ACT_NOT_STARTED,
@@ -44,7 +44,7 @@ export interface ActControllerBaseOptions {
   /** What this controller's emitters report under when a sink throws. */
   readonly label: string;
   /** The window's one clock, so this refresh coalesces on its surface's time base. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the prerequisite. */
   readonly sessionStore: SessionStore;
   /** The frames that owe the prerequisite a fresh answer. A property of the QUESTION. */

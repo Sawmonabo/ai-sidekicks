@@ -27,7 +27,7 @@
 // The discovery popover lists the ids, so the exact string is something a person
 // reads rather than guesses.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal this zone raises carries. */
 export const CLIENT_COMMAND_REFUSAL_ORIGIN = "composer-commands";
@@ -81,13 +81,10 @@ export interface ClientCommandRecognitionInput {
 /** The recognizer's answer. Recognised means "this console will run it". */
 export type ClientCommandRecognition =
   | { readonly status: "recognized"; readonly commandId: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** Mint one refusal in this zone's vocabulary. */
-export function clientCommandRefusal(
-  code: ClientCommandRefusalCode,
-  detail: string,
-): ConsoleRefusal {
+export function clientCommandRefusal(code: ClientCommandRefusalCode, detail: string): Refusal {
   return refuse(CLIENT_COMMAND_REFUSAL_ORIGIN, code, detail);
 }
 

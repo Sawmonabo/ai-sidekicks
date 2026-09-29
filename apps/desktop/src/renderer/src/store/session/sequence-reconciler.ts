@@ -26,7 +26,7 @@
 //     ascending delivery, which `orderBatchBySequence` is what supplies.
 
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /**
  * A contiguous run of sequences the store never saw, inclusive at both ends.
@@ -176,12 +176,12 @@ export function isReconcilableSequence(sequence: number): boolean {
  * together, and the caller refuses each of them.
  */
 export function orderBatchBySequence(
-  events: readonly ConsoleSessionEvent[],
-): ConsoleSessionEvent[] {
+  events: readonly ProjectedSessionEvent[],
+): ProjectedSessionEvent[] {
   return [...events].sort(compareBySequence);
 }
 
-function compareBySequence(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
+function compareBySequence(left: ProjectedSessionEvent, right: ProjectedSessionEvent): number {
   const leftKey = sortKeyFor(left.sequence);
   const rightKey = sortKeyFor(right.sequence);
   if (leftKey < rightKey) {

@@ -38,7 +38,7 @@ import {
   SCHEME_PREFERENCE_KEY,
 } from "@renderer/store/persistence/persistence-adapter.js";
 import {
-  CONSOLE_DATABASE_NAME,
+  UI_STATE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
@@ -100,7 +100,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", (
               };
             }),
           [
-            CONSOLE_DATABASE_NAME,
+            UI_STATE_DATABASE_NAME,
             UI_STATE_STORE_NAME,
             PERSISTENCE_GLOBAL_PARTITION,
             SCHEME_PREFERENCE_KEY,

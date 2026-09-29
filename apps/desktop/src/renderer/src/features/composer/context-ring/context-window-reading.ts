@@ -50,7 +50,7 @@
 // state the whole contract with three literals.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The registered event type the context meter reads. Verbatim, never composed. */
 export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
@@ -114,7 +114,7 @@ export interface ContextWindowReading {
  * addressed to: with two agents running at once, each reports its own fullness.
  */
 export function newestContextWindowReading(
-  timeline: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
   targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
   const addressedRunId = readWireString(targetRunId);
@@ -187,7 +187,7 @@ interface CompactionBoundary {
  * boundary".
  */
 function newestCompactionBoundary(
-  timeline: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
   addressedRunId: string | undefined,
 ): CompactionBoundary | undefined {
   if (addressedRunId === undefined) {
@@ -211,7 +211,7 @@ function newestCompactionBoundary(
   return newest;
 }
 
-function readContextWindow(event: ConsoleSessionEvent): ContextWindowReading | undefined {
+function readContextWindow(event: ProjectedSessionEvent): ContextWindowReading | undefined {
   const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
   const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
   // A zero denominator joins the absent ones: it is not a full window and it is not

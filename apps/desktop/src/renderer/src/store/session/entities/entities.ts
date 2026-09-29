@@ -15,19 +15,15 @@
 //   • **Projections never persist.** Nothing here is durable. `persistence/` holds
 //     UI state only, and every entity in this module is re-derived from the
 //     daemon on reconnect.
-import {
-  CONSOLE_ENTITY_KINDS,
-  type ConsoleEntityKind,
-  type ConsoleEntityRef,
-} from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The base every stored entity carries. Bodies are added per kind by the view
  * families; the substrate only needs identity and the wire-verbatim fields every
  * surface reads.
  */
-export interface ConsoleEntity {
-  readonly kind: ConsoleEntityKind;
+export interface StoredEntity {
+  readonly kind: EntityKind;
   readonly id: string;
   /**
    * Wire-verbatim state string. Rendered as received, never re-parsed.
@@ -38,7 +34,7 @@ export interface ConsoleEntity {
   /**
    * Who this entity is attributed to, when the wire names anyone.
    *
-   * The projector carries `ConsoleSessionEvent.actorId` here unchanged, so it holds the
+   * The projector carries `ProjectedSessionEvent.actorId` here unchanged, so it holds the
    * same three-state fact that member does — a user id, an agent id, or nobody
    * — and a renderer that read it as a user's would mislabel every agent-driven
    * run. Naming a KIND here would be the guess the decode boundary refuses to make.
@@ -51,7 +47,7 @@ export interface ConsoleEntity {
 /** Upsert one entity. The projector's normal output. */
 export interface EntityUpsert {
   readonly operation: "upsert";
-  readonly entity: ConsoleEntity;
+  readonly entity: StoredEntity;
 }
 
 /**
@@ -61,7 +57,7 @@ export interface EntityUpsert {
  */
 export interface EntityRemoval {
   readonly operation: "remove";
-  readonly ref: ConsoleEntityRef;
+  readonly ref: EntityRef;
 }
 
 /** A single change the apply chokepoint will merge. */
@@ -76,7 +72,7 @@ export type EntityMutation = EntityUpsert | EntityRemoval;
  * bridge adapter narrows a payload into this shape at the boundary, so exactly one module
  * knows the wire and everything above it reads this.
  */
-export interface ConsoleSessionEvent {
+export interface ProjectedSessionEvent {
   /**
    * The canonical event's own opaque identifier, wire-verbatim.
    *
@@ -128,18 +124,15 @@ export interface ConsoleSessionEvent {
  * not the clock, not the bridge. That is what makes replaying a log deterministic
  * and what lets the gap-healing path re-run a prefix without side effects.
  */
-export type EntityProjector = (event: ConsoleSessionEvent) => readonly EntityMutation[];
+export type EntityProjector = (event: ProjectedSessionEvent) => readonly EntityMutation[];
 
 /** The projector registry: event kind to the projector that claims it. */
 export type EntityProjectorTable = Readonly<Record<string, EntityProjector>>;
 
 /** An empty partition set, one map per kind. */
-export function emptyPartitions(): Record<
-  ConsoleEntityKind,
-  Readonly<Record<string, ConsoleEntity>>
-> {
-  const partitions = {} as Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>>;
-  for (const kind of CONSOLE_ENTITY_KINDS) {
+export function emptyPartitions(): Record<EntityKind, Readonly<Record<string, StoredEntity>>> {
+  const partitions = {} as Record<EntityKind, Readonly<Record<string, StoredEntity>>>;
+  for (const kind of ENTITY_KINDS) {
     partitions[kind] = {};
   }
   return partitions;

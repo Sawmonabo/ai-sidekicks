@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_ENTITY_KINDS } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS } from "@renderer/lib/entity-kinds.js";
 import { emptyPartitions } from "./entities.js";
 
 describe("the console entity vocabulary", () => {
@@ -24,12 +24,12 @@ describe("the console entity vocabulary", () => {
     // between them the builder had to file a definition under `workflow-run`, where
     // a run transition and a definition edit invalidate each other's selectors and
     // nothing can tell the two apart by kind.
-    expect(CONSOLE_ENTITY_KINDS).toContain("workflow-definition");
-    expect(CONSOLE_ENTITY_KINDS).toContain("workflow-run");
+    expect(ENTITY_KINDS).toContain("workflow-definition");
+    expect(ENTITY_KINDS).toContain("workflow-run");
   });
 
   it("declares each kind exactly once, so no partition is built twice", () => {
-    expect(new Set(CONSOLE_ENTITY_KINDS).size).toBe(CONSOLE_ENTITY_KINDS.length);
+    expect(new Set(ENTITY_KINDS).size).toBe(ENTITY_KINDS.length);
   });
 });
 
@@ -37,13 +37,13 @@ describe("the partition set", () => {
   it("builds one partition per declared kind and none besides", () => {
     const partitions = emptyPartitions();
 
-    expect(Object.keys(partitions).sort()).toStrictEqual([...CONSOLE_ENTITY_KINDS].sort());
+    expect(Object.keys(partitions).sort()).toStrictEqual([...ENTITY_KINDS].sort());
   });
 
   it("starts every partition empty", () => {
     const partitions = emptyPartitions();
 
-    for (const kind of CONSOLE_ENTITY_KINDS) {
+    for (const kind of ENTITY_KINDS) {
       expect(Object.keys(partitions[kind]), kind).toStrictEqual([]);
     }
   });

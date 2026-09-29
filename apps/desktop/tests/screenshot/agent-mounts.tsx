@@ -38,7 +38,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type PaneContext } from "@renderer/console/seats/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
 
@@ -83,7 +83,7 @@ function paneContext(
     kind: "agent-console",
     paneId: "pane-agent-console-surface",
     entity: { kind: "agent", id: agentId },
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened this pane from another: every tier mounts one body directly.
@@ -100,7 +100,7 @@ function agentsSessionStore(): SessionStore {
     sessionId: SESSION_ID,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 

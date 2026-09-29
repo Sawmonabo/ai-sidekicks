@@ -12,7 +12,7 @@
 // unpinning DELETES its entry, so the record is proportional to the decisions a person
 // made and not to the number of sessions they have ever opened.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { DurableViewState } from "../durable-view/durable-view-state.js";
 
@@ -31,7 +31,7 @@ export const NO_PINS: SessionPins = {};
 /** What a surface holds: the map, the refusal, and the one act that changes it. */
 export interface SessionPinBinding {
   readonly pinned: SessionPins;
-  readonly lastRefusal: ConsoleRefusal | undefined;
+  readonly lastRefusal: Refusal | undefined;
   readonly setPinned: (sessionId: string, isPinned: boolean) => void;
 }
 
@@ -54,7 +54,7 @@ export class SessionPinStore {
   }
 
   /** The last refused write, so the list renders it instead of hiding it. */
-  public get lastRefusal(): ConsoleRefusal | undefined {
+  public get lastRefusal(): Refusal | undefined {
     return this.#state.lastRefusal;
   }
 

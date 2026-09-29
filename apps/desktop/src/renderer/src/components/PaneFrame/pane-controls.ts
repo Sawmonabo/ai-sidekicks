@@ -1,6 +1,6 @@
 // What a pane may ask its host to do — and the reason it is a context.
 //
-// `ConsolePaneChrome.tsx` puts close on the pane's head, and it is the HOST's act: the
+// `PaneFrame.tsx` puts close on the pane's head, and it is the HOST's act: the
 // deck owns which panes exist. But a pane body is mounted through `pane-registry.ts`,
 // whose `render(context)` takes a `PaneContext` and nothing else — that contract
 // is shared by six view families and widening it to carry callbacks would be six
@@ -29,7 +29,7 @@
 
 import { createContext } from "react";
 
-import { type ConsolePaneOpener } from "@renderer/routing/panes/pane-address.js";
+import { type PaneOpener } from "@renderer/routing/panes/pane-address.js";
 // NO GLYPH SIZE IS DECLARED HERE. The head's controls and the breadcrumb's
 // separators are one chrome at one size, and that size is `GLYPH_SIZE_CHROME` in
 // `tokens/glyphs.ts` — a console-wide token rather than a per-family constant,
@@ -47,14 +47,14 @@ export interface PaneControls {
    * Not a control on the head — no pane's chrome draws a button for it — but a host
    * act like the close above, and here for the same reason it is: the deck owns
    * which panes exist, and a body reaching for a process-wide opener would open its
-   * route in whichever deck was composed last. `ConsolePaneChrome` forwards it to the
+   * route in whichever deck was composed last. `PaneFrame` forwards it to the
    * pinned region it draws, which is the surface that has a route to offer and no way
    * of its own to take it.
    *
    * Absent where the host opens no panes, which leaves the region stating where its
    * subject lives rather than drawing a control that could not act.
    */
-  readonly openPane?: ConsolePaneOpener;
+  readonly openPane?: PaneOpener;
   /**
    * Make the pane's head the handle that drags it to a new position.
    *

@@ -35,7 +35,7 @@
 // {@link WaitingOnPersonRecords.isWindowHeadUnread} is that fact, and a surface that
 // printed an all-clear line over it would be reporting something it never read.
 
-import type { ConsoleEntity, ConsoleSessionEvent } from "../entities/entities.js";
+import type { StoredEntity, ProjectedSessionEvent } from "../entities/entities.js";
 import {
   ATTENTION_RUN_STATE_KINDS,
   RUN_STATE_KINDS,
@@ -85,7 +85,7 @@ export interface WaitingOnPersonRecords {
 
 /** What one read establishes about what is outstanding. */
 export interface WaitingOnPersonSeed {
-  readonly entities: readonly ConsoleEntity[];
+  readonly entities: readonly StoredEntity[];
   /**
    * The sequence the base state is current as of, which is the position every entity it
    * carries is seeded AT.
@@ -139,7 +139,7 @@ export class WaitingOnPersonRegister {
   }
 
   /** Fold rows into the ledger. Safe in any order, at either end of the log. */
-  public admit(events: readonly ConsoleSessionEvent[]): void {
+  public admit(events: readonly ProjectedSessionEvent[]): void {
     for (const event of events) {
       this.#admitOne(event);
     }
@@ -167,7 +167,7 @@ export class WaitingOnPersonRegister {
     return fresh;
   }
 
-  #admitOne(event: ConsoleSessionEvent): void {
+  #admitOne(event: ProjectedSessionEvent): void {
     if (RUN_STATE_KINDS.includes(event.kind)) {
       this.#recordRunState({
         runId: runIdOf(event) ?? uncorrelatedKey(event),
@@ -205,7 +205,7 @@ export class WaitingOnPersonRegister {
     this.#revision += 1;
   }
 
-  #recordRequestOpened(requestKey: string, event: ConsoleSessionEvent): void {
+  #recordRequestOpened(requestKey: string, event: ProjectedSessionEvent): void {
     const held = this.#requestsByKey.get(requestKey);
     if (held !== undefined && held.openedAtSequence !== undefined) {
       return;

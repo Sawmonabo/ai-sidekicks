@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { RefusalError, isRefusal } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import {
   emptySnapshot,
@@ -86,7 +86,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
     const refusal = registry.enqueue("session-gone", [eventAt(1, "run-1")]);
 
     expect(refusal).toBeDefined();
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
     expect(refusal?.origin).toBe(SESSION_REGISTRY_ORIGIN);
     expect(refusal?.code).toBe("session-not-open");
     expect(registry.requestRefresh("session-gone", "reconnect")?.code).toBe("session-not-open");
@@ -202,12 +202,12 @@ describe("SessionStoreRegistry — one store per open session", () => {
     registry.disposeAll();
 
     expect(registry.isDisposed).toBe(true);
-    expect(() => registry.open("session-1")).toThrow(ConsoleRefusalError);
+    expect(() => registry.open("session-1")).toThrow(RefusalError);
     try {
       registry.open("session-1");
     } catch (error) {
-      expect(error).toBeInstanceOf(ConsoleRefusalError);
-      if (error instanceof ConsoleRefusalError) {
+      expect(error).toBeInstanceOf(RefusalError);
+      if (error instanceof RefusalError) {
         expect(error.refusal.code).toBe("registry-disposed");
         expect(error.refusal.origin).toBe(SESSION_REGISTRY_ORIGIN);
       }

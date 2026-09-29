@@ -20,11 +20,11 @@
 // room can no longer do. A cap would decide, silently, which of those a person does
 // not get to read.
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 
 /** One banner on screen, and how many raises it stands for. */
 export interface SessionBanner {
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
   /** 1 for a refusal raised once. Rendered only above 1: a count of one is noise. */
   readonly repeatCount: number;
 }
@@ -46,7 +46,7 @@ export const NO_SESSION_BANNERS: readonly SessionBanner[] = Object.freeze([]);
  * compose the same string as a different pair, and two unrelated refusals would
  * coalesce into one banner carrying a count of both.
  */
-export function sessionBannerKey(refusal: ConsoleRefusal): string {
+export function sessionBannerKey(refusal: Refusal): string {
   return [refusal.origin, refusal.code, refusal.detail].join("\u0000");
 }
 
@@ -60,7 +60,7 @@ export function sessionBannerKey(refusal: ConsoleRefusal): string {
  */
 export function raiseSessionBanner(
   current: readonly SessionBanner[],
-  refusal: ConsoleRefusal,
+  refusal: Refusal,
 ): readonly SessionBanner[] {
   const key = sessionBannerKey(refusal);
   const standing = current.find((banner) => sessionBannerKey(banner.refusal) === key);

@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 
-import type { FrameStore, WindowStoreState } from "../window-store.js";
-import type { ShellState } from "../main-process-state.js";
+import type { WindowStore, WindowStoreState } from "../window-store.js";
+import type { MainProcessState } from "../main-process-state.js";
 
 /**
  * What the main process says about itself, subscribed rather than sampled.
@@ -9,10 +9,10 @@ import type { ShellState } from "../main-process-state.js";
  * The store publishes a new `mainProcessState` only when the report or the recovery fold
  * moved, so a subscriber re-renders exactly when the fact does.
  */
-export function useShellState(store: FrameStore): ShellState {
+export function useMainProcessState(store: WindowStore): MainProcessState {
   return useStore(store.readable, readShellState);
 }
 
-function readShellState(state: WindowStoreState): ShellState {
+function readShellState(state: WindowStoreState): MainProcessState {
   return state.mainProcessState;
 }

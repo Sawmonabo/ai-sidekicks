@@ -29,7 +29,7 @@
 // not resurrect it. A refusal that reappears minutes later, attached to nothing the
 // person just did, is a worse answer than no refusal at all.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The acts whose settlements share the send bar's refusal surface.
@@ -62,7 +62,7 @@ export interface ComposerSettlementIdentity {
 /** A refusal held under the identity of the act that produced it. */
 export interface HeldComposerRefusal {
   readonly identity: ComposerSettlementIdentity;
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 /**
@@ -182,7 +182,7 @@ export function isSettlementCurrent(
 export function withSettledRefusal(
   slots: ComposerRefusalsByOperation,
   identity: ComposerSettlementIdentity,
-  refusal: ConsoleRefusal | undefined,
+  refusal: Refusal | undefined,
 ): ComposerRefusalsByOperation {
   return {
     ...slots,
@@ -198,6 +198,6 @@ export function withSettledRefusal(
  * status is, which re-seeds on the render that first sees a new subject: the holder is
  * the guard, and a guard beside it would be a second answer to the same question.
  */
-export function renderableRefusal(slots: ComposerRefusalsByOperation): ConsoleRefusal | undefined {
+export function renderableRefusal(slots: ComposerRefusalsByOperation): Refusal | undefined {
   return slots.send?.refusal;
 }

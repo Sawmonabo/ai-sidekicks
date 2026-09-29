@@ -1,10 +1,10 @@
 // The two readouts the capability suites use to stand for "nothing was read".
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { DriverCapabilityReadout } from "./driver-capability-readout.js";
 
 /** The refusal a settled reading carries, or a failure naming what was found instead. */
-export function settledRefusalOf(readout: DriverCapabilityReadout | undefined): ConsoleRefusal {
+export function settledRefusalOf(readout: DriverCapabilityReadout | undefined): Refusal {
   if (readout?.readRefusal === undefined) {
     throw new Error("the capability read settled without the refusal the case is about");
   }

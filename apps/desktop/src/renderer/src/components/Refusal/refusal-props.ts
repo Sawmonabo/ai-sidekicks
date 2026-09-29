@@ -33,7 +33,7 @@
 //      derivation. The renderer never computes eligibility, so it never computes a
 //      remedy either.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * What every refusal shape renders, PICKED from the one refusal value rather than
@@ -43,7 +43,7 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
  * `core/refusal.ts`'s shape written a second time — so a rename there would have
  * left this file compiling against a field the console no longer produces. Picking
  * makes the three renderers move with the value: a producer holding a
- * `ConsoleRefusal` spreads it (`<RefusalCard {...refusal} />`) and a producer
+ * `Refusal` spreads it (`<RefusalCard {...refusal} />`) and a producer
  * holding loose strings still passes them.
  *
  * `origin` is deliberately NOT picked. It exists so a refusal that surfaces three
@@ -52,7 +52,7 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
  * screen at the code and the daemon's message. Rendering a third string here would
  * be the console adding a sentence of its own, which the same rule forbids.
  */
-export interface RefusalProps extends Pick<ConsoleRefusal, "code" | "detail"> {
+export interface RefusalProps extends Pick<Refusal, "code" | "detail"> {
   /** The operator's next move, when one exists. */
   readonly action?: React.ReactNode;
 }

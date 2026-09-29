@@ -32,9 +32,9 @@
 
 import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
 import { RunGroupBody } from "./RunGroupBody.js";
-import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
-import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
+import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
+import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { type RunGroup } from "../run-groups.js";
 
 export interface RunGroupHeaderProps {
@@ -42,7 +42,7 @@ export interface RunGroupHeaderProps {
   /** Whether the chapter's rows are on screen beneath this header. */
   readonly isOpen: boolean;
   /** The actor's allocated hue, or `undefined` where the wheel never admitted them. */
-  readonly actorHue?: ActorHueAssignment | undefined;
+  readonly actorHue?: AgentHueAssignment | undefined;
   readonly onToggle: (chapter: RunGroup) => void;
 }
 
@@ -54,13 +54,13 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
     <div
       className="meridian-run-group-header"
       style={
-        hueStep < 0 || hueStep >= ACTOR_HUE_STEPS
+        hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
           ? undefined
           : {
               // The same 2 px attribution edge every ledger row wears, so a chapter
               // and the rows inside it are attributed the same way and by the same
               // wheel. Rule 3 keeps the hue off text, so it is an edge and not a tint.
-              borderInlineStartColor: tokenReference(actorHueTokenName(hueStep)),
+              borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),
             }
       }
     >

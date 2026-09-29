@@ -1,7 +1,7 @@
 // What a rejected body load leaves behind, and what is able to ask for it again.
 //
 // THE MEMO OUTLIVES EVERY MOUNT, which is what makes this a claim about the registration
-// rather than about a render. A `LoadedLazyBody` belongs to the board, and the board
+// rather than about a render. A `LoaderBackedBody` belongs to the board, and the board
 // belongs to the window — so a promise kept after it rejected is kept for the life of the
 // window, and every later ask is answered from it: the surface error boundary's "Try
 // again" remounts a subtree onto the same dead promise, and navigating away and back
@@ -25,8 +25,8 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { SurfaceErrorBoundary } from "@renderer/console/primitives/index.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { ErrorBoundary } from "@renderer/console/primitives/index.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { type PaneContext } from "./pane-context.js";
@@ -148,13 +148,13 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     // development build, and a boundary reporting from `componentDidCatch` would turn
     // that into a second failure inside React's own error handling.
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("mounts the body the retry's own load lands", async () => {
@@ -163,9 +163,9 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
     const { container } = render(
-      <SurfaceErrorBoundary surfaceName="The diff pane">
+      <ErrorBoundary regionName="The diff pane">
         <MountedDiffPane registry={registry} />
-      </SurfaceErrorBoundary>,
+      </ErrorBoundary>,
     );
     await settle();
     expect(container.textContent).toContain(CHUNK_FETCH_FAILURE);
@@ -186,9 +186,9 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
     const { container } = render(
-      <SurfaceErrorBoundary surfaceName="The diff pane">
+      <ErrorBoundary regionName="The diff pane">
         <MountedDiffPane registry={registry} />
-      </SurfaceErrorBoundary>,
+      </ErrorBoundary>,
     );
     await settle();
 

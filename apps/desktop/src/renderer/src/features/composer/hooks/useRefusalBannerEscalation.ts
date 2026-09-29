@@ -28,20 +28,20 @@
 
 import { useEffect, useRef } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { isBannerClass } from "../refusal-banner-selection.js";
 
 /** Hand a whole-workspace refusal to the frame, and leave every other one alone. */
 export function useRefusalBannerEscalation(
-  frameStore: FrameStore,
-  refusal: ConsoleRefusal | undefined,
+  frameStore: WindowStore,
+  refusal: Refusal | undefined,
 ): void {
   // What this mount has already handed over, and to which store. Held rather than
   // derived because the question is about the PAST — a condition already raised — and
   // the frame's banner stack is not the answer to it: a dismissed banner is gone from
   // there, which is exactly the state this must not re-raise into.
-  const handedOver = useRef<{ frameStore: FrameStore; identity: string } | undefined>(undefined);
+  const handedOver = useRef<{ frameStore: WindowStore; identity: string } | undefined>(undefined);
   useEffect(() => {
     if (refusal === undefined || !isBannerClass(refusal)) {
       return;
@@ -62,6 +62,6 @@ export function useRefusalBannerEscalation(
  * The three fields a banner is built from, joined by a separator no wire string
  * carries, so a code ending where a detail begins cannot collide with its neighbour.
  */
-function escalationIdentityOf(refusal: ConsoleRefusal): string {
+function escalationIdentityOf(refusal: Refusal): string {
   return `${refusal.origin}\u0000${refusal.code}\u0000${refusal.detail}`;
 }

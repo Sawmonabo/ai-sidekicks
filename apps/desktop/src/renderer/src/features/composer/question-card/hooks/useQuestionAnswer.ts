@@ -25,8 +25,8 @@ import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import {
-  ASK_ANSWER_UNSENT,
-  type DriverAskDelivery,
+  UNSENT_ANSWER_DELIVERY,
+  type AnswerDelivery,
 } from "@renderer/store/session-events/question-reading.js";
 
 /** The wire method an answer travels, named once. */
@@ -34,7 +34,7 @@ const ASK_ANSWER_METHOD = "driver.respondToRequest";
 
 /** Where one ask's answer has got to, and the call that dispatches one. */
 export interface QuestionAnswerHandle {
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   /** Deliver an answer, or do nothing where this row has none to deliver. */
   readonly answer: (response: string) => void;
 }
@@ -60,7 +60,7 @@ export interface QuestionAnswerHandle {
  */
 export function useQuestionAnswer(runId: RunId | undefined, askId: string): QuestionAnswerHandle {
   const bridge = useConsoleBridge();
-  const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
+  const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   const answer = useCallback(
     (response: string) => {
       // BOTH GUARDS ARE FAIL-CLOSED AND NEITHER IS A CONVENIENCE. A row with no run

@@ -14,8 +14,8 @@ import { z } from "zod";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import {
-  type ConsoleEntity,
-  type ConsoleSessionEvent,
+  type StoredEntity,
+  type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
 
 /**
@@ -44,7 +44,7 @@ const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
  * different driver is read as its current binding rather than its first.
  */
 export function readAgentDriverNames(
-  timeline: readonly ConsoleSessionEvent[],
+  timeline: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, string> {
   const driverNameByAgentId = new Map<string, string>();
   for (const entry of timeline) {
@@ -61,7 +61,7 @@ export function readAgentDriverNames(
 }
 
 /** The agent a run was created for, or `undefined` where its body names none. */
-export function readRunAgentId(run: ConsoleEntity): string | undefined {
+export function readRunAgentId(run: StoredEntity): string | undefined {
   const binding = runAgentBindingSchema.safeParse(run.body);
   return binding.success ? binding.data.agentId : undefined;
 }

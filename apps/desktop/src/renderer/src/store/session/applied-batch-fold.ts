@@ -16,7 +16,7 @@
 
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../session-degradation.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
@@ -64,7 +64,7 @@ export interface AppliedBatch {
  */
 export function foldAppliedBatch(
   current: SessionStoreState,
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   collaborators: AppliedBatchDependencies,
 ): AppliedBatch {
   let admitted = 0;
@@ -77,7 +77,7 @@ export function foldAppliedBatch(
   let projectionFailures = 0;
 
   let partitions = current.partitions;
-  let appended: ConsoleSessionEvent[] | undefined;
+  let appended: ProjectedSessionEvent[] | undefined;
 
   for (const event of orderBatchBySequence(events)) {
     if (event.sessionId !== collaborators.sessionId) {

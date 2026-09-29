@@ -20,12 +20,12 @@ import { useLayoutEffect, useRef } from "react";
 
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { parseRoute } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
@@ -55,8 +55,8 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   // hash-to-route direction live for every later navigation.
   const hash = useLocationHash();
 
-  const frameStoreRef = useRef<FrameStore>(undefined);
-  frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
+  const frameStoreRef = useRef<WindowStore>(undefined);
+  frameStoreRef.current ??= new WindowStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
   // A hook, because this store owns a database connection; its opening returns at once,
@@ -71,8 +71,8 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   // The stores fold with what the composition claimed, handed in rather than reached for.
   const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
 
-  const route = useFrameStore(frameStore, (state) => state.route);
-  const lastOpenedSessionId = useFrameStore(frameStore, (state) => state.lastOpenedSessionId);
+  const route = useWindowStore(frameStore, (state) => state.route);
+  const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
   const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
 
   // The token sheet is already on the document; the scheme attribute follows a setting

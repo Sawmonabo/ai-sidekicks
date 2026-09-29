@@ -26,7 +26,7 @@
 // scenario tick says it does — which is only true because no factory reaches for a
 // clock of its own.
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import {
   type AgentRosterReading,
@@ -34,7 +34,7 @@ import {
 } from "@renderer/services/wire-shapes/agents.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
-import { PushDrivenRead, servedValueOrRaise } from "@renderer/console/seats/index.js";
+import { PushDrivenRead, unwrapDaemonReply } from "@renderer/console/seats/index.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -82,7 +82,7 @@ export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReading>;
 /** The roster read, refreshed by the three registered lifecycle events. */
 export function createAgentList(
   sessionStore: SessionStore,
-  clock: ConsoleClock,
+  clock: Clock,
   listAgents: ListSessionAgents,
 ): AgentListRead {
   return new PushDrivenRead<AgentRosterReading>({
@@ -95,10 +95,7 @@ export function createAgentList(
 }
 
 /** Both driver catalogs, read together and never separately. */
-export function createDriverCatalogRead(
-  bridge: ConsoleBridge,
-  clock: ConsoleClock,
-): DriverCatalogRead {
+export function createDriverCatalogRead(bridge: ConsoleBridge, clock: Clock): DriverCatalogRead {
   return new PushDrivenRead<DriverCatalogReading>({
     clock,
     origin: DRIVER_CATALOG_ORIGIN,
@@ -108,8 +105,8 @@ export function createDriverCatalogRead(
         callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}, { signal }),
       ]);
       return {
-        models: servedValueOrRaise(modelsReply),
-        capabilities: servedValueOrRaise(capabilitiesReply),
+        models: unwrapDaemonReply(modelsReply),
+        capabilities: unwrapDaemonReply(capabilitiesReply),
       };
     },
     // Nothing on the wire announces that a provider's catalog moved, so this read
@@ -132,7 +129,7 @@ export function createDriverCatalogRead(
 export function createChildRunLinks(
   sessionStore: SessionStore,
   parentRunId: string,
-  clock: ConsoleClock,
+  clock: Clock,
   readChildRunLinks: ReadChildRunLinks,
 ): ChildRunLinksRead {
   return new PushDrivenRead<ChildRunLinkReading>({

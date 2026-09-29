@@ -12,8 +12,8 @@ import {
   readRunAgentId,
 } from "@renderer/services/driver-capabilities/agent-driver-reads.js";
 import {
-  type ConsoleEntity,
-  type ConsoleSessionEvent,
+  type StoredEntity,
+  type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
 
 /**
@@ -23,8 +23,8 @@ import {
  * fact as a read that has not landed and is rendered the same way.
  */
 export function foldRunDriverBindings(
-  runs: Readonly<Record<string, ConsoleEntity>>,
-  timeline: readonly ConsoleSessionEvent[],
+  runs: Readonly<Record<string, StoredEntity>>,
+  timeline: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, string> {
   const driverNameByAgentId = readAgentDriverNames(timeline);
   const driverNameByRunId = new Map<string, string>();

@@ -21,7 +21,7 @@ import type { ReactNode } from "react";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 
 import {
   PaneRegistry,
@@ -102,7 +102,7 @@ export function paneBinding(
   overrides: Pick<PaneContext, "paneId" | "bridge" | "sessionStore">,
 ): Omit<PaneContext, "kind"> {
   return {
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,

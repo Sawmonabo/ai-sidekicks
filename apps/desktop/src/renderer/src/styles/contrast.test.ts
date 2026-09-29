@@ -24,10 +24,10 @@ import {
   srgbContrastRatio,
   type SrgbColor,
 } from "./color.js";
-import { ACTOR_HUE_STEPS } from "./palette.js";
+import { HUE_WHEEL_STEPS } from "./palette.js";
 import {
   ACCENT_FILL_PAIRS,
-  CONSOLE_SCHEMES,
+  COLOR_SCHEMES,
   GROUND_TOKEN_NAMES,
   NON_TEXT_CONTRAST_FLOOR,
   NON_TEXT_FLOOR_TOKEN_NAMES,
@@ -45,7 +45,7 @@ import {
 describe("Meridian palette — every colour is inside the sRGB gamut as authored", () => {
   it("fits every scheme colour, so the browser maps nothing", () => {
     const outsideGamut: string[] = [];
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       for (const [tokenName] of SCHEME_COLOR_TOKENS) {
         if (!isOklchInsideSrgbGamut(schemeColor(tokenName, scheme))) {
           outsideGamut.push(`${scheme}/${tokenName}`);
@@ -66,7 +66,7 @@ describe("Meridian palette — every colour is inside the sRGB gamut as authored
 });
 
 describe("Meridian palette — text clears WCAG 2.2 AA (4.5:1) on every ground", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
       for (const textToken of TEXT_FLOOR_TOKEN_NAMES) {
         it(`${scheme}: ${textToken} on ${groundToken}`, () => {
@@ -82,7 +82,7 @@ describe("Meridian palette — text clears WCAG 2.2 AA (4.5:1) on every ground",
 });
 
 describe("Meridian palette — tinted grounds hold the text floor for their own text", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const [textToken, groundToken] of TINTED_GROUND_PAIRS) {
       it(`${scheme}: ${textToken} on ${groundToken}`, () => {
         // The amber and red grounds are the only tinted surfaces in the console,
@@ -100,7 +100,7 @@ describe("Meridian palette — tinted grounds hold the text floor for their own 
 });
 
 describe("Meridian palette — a filled accent control holds the text floor for its label", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const [inkToken, fillToken] of ACCENT_FILL_PAIRS) {
       it(`${scheme}: ${inkToken} on ${fillToken}`, () => {
         // A primary action's whole face is the accent, so its label is text on
@@ -119,7 +119,7 @@ describe("Meridian palette — a filled accent control holds the text floor for 
     // reason `accent-ink` exists at all. Without this case, `ACCENT_FILL_PAIRS`
     // would pass over any ink whatsoever — including the one that is wrong — and
     // the assertion above would prove only that some number was computed.
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       const ratio = contrastRatio(
         schemeColor("accent-text", scheme),
         schemeColor("accent", scheme),
@@ -157,7 +157,7 @@ describe("Meridian palette — a filled accent control holds the text floor for 
     // the pair apart. Asserted rather than assumed, because the claim is about the
     // same mechanism the case above rejects and the difference is only its
     // direction.
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       const ink = oklchToSrgb(schemeColor("accent-ink", scheme));
       const resting = oklchToSrgb(schemeColor("accent", scheme));
       const hovered = scaleBrightness(resting, HOVER_FILTER_BRIGHTNESS);
@@ -168,7 +168,7 @@ describe("Meridian palette — a filled accent control holds the text floor for 
 });
 
 describe("Meridian palette — non-text boundaries clear WCAG 2.2 AA (3:1)", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
       for (const markToken of NON_TEXT_FLOOR_TOKEN_NAMES) {
         it(`${scheme}: ${markToken} on ${groundToken}`, () => {
@@ -184,15 +184,15 @@ describe("Meridian palette — non-text boundaries clear WCAG 2.2 AA (3:1)", () 
 });
 
 describe("Meridian palette — every user hue is findable on every ground", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
-      it(`${scheme}: all ${String(ACTOR_HUE_STEPS)} hues on ${groundToken}`, () => {
+      it(`${scheme}: all ${String(HUE_WHEEL_STEPS)} hues on ${groundToken}`, () => {
         // The attribution edge is a non-text boundary a person must be able to
         // find, so the whole wheel is held to 3:1 — including the yellow-greens
         // around step 4, which is the constraint that sets the wheel's lightness.
         const ground = schemeColor(groundToken, scheme);
         const failures: string[] = [];
-        for (let step = 0; step < ACTOR_HUE_STEPS; step += 1) {
+        for (let step = 0; step < HUE_WHEEL_STEPS; step += 1) {
           const ratio = contrastRatio(readHueWheelColor(step), ground);
           if (ratio < NON_TEXT_CONTRAST_FLOOR) {
             failures.push(`step ${String(step)} at ${ratio.toFixed(2)}:1`);
@@ -215,7 +215,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
   // the light scheme's six bright ANSI names sat between 3.8:1 and 4.5:1 — a WCAG
   // 1.4.3 failure that no test could have caught while the colours lived somewhere
   // nothing measured.
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     for (const tokenName of SUNKEN_WELL_TEXT_TOKEN_NAMES) {
       it(`${scheme}: ${tokenName} on ${SUNKEN_WELL_GROUND_TOKEN_NAME}`, () => {
         const ratio = contrastRatio(
@@ -236,7 +236,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
     // fails on this ground: `edge` is the decorative hairline the palette states
     // carries no floor at all, so a measurement reporting it as passing would be
     // reporting a constant.
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       const ratio = contrastRatio(
         schemeColor("edge", scheme),
         schemeColor(SUNKEN_WELL_GROUND_TOKEN_NAME, scheme),
@@ -250,7 +250,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
     // move that could have collapsed eight pairs into eight colours. Asserted over
     // the resolved values rather than the requests, because chroma fitting is what
     // would close the last of the gap if it did.
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       const collapsed = SUNKEN_WELL_TEXT_TOKEN_NAMES.filter((tokenName) =>
         tokenName.startsWith("ansi-bright-"),
       ).filter((brightName) => {
@@ -310,7 +310,7 @@ describe("Meridian palette — the measurement itself is not vacuous", () => {
   });
 
   it("refuses a step outside the wheel rather than wrapping silently", () => {
-    expect(() => readHueWheelColor(ACTOR_HUE_STEPS)).toThrow(RangeError);
+    expect(() => readHueWheelColor(HUE_WHEEL_STEPS)).toThrow(RangeError);
     expect(() => readHueWheelColor(-1)).toThrow(RangeError);
   });
 });

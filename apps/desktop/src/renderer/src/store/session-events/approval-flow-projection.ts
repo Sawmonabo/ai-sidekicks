@@ -70,7 +70,7 @@ import { z } from "zod";
 
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityMutation,
   EntityProjector,
   EntityProjectorTable,
@@ -236,7 +236,7 @@ const NO_KIND_MEMBERS: Readonly<Record<string, WireMemberSchema>> = Object.freez
  * on each answer with none.
  */
 export const projectApprovalFlowEvent: EntityProjector = (
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
   // First, and for every kind at once: the beat is folded into the store it was

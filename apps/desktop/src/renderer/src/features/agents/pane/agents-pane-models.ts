@@ -26,7 +26,7 @@
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionSubject } from "@renderer/console/seats/index.js";
@@ -80,7 +80,7 @@ export class AgentsPaneModels {
   public readonly subject: SessionSubject;
   public readonly roster: AgentListRead;
 
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #calls: AgentConsoleCalls;
   #linkage: HeldChildRunLinkage | undefined;
   #outstandingLinkageLeaseCount = 0;

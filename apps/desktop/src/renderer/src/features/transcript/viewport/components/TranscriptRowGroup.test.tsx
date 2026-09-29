@@ -7,7 +7,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { TranscriptRowGroup } from "./TranscriptRowGroup.js";
 
 describe("a row group that fails to project", () => {
@@ -17,13 +17,13 @@ describe("a row group that fails to project", () => {
     // The registry throws in a development build, and the boundary reports from
     // `componentDidCatch` — a second failure inside React's own error handling.
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("renders red, names the failure, and offers the one move there is", () => {

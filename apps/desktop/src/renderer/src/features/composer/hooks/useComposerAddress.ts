@@ -15,7 +15,7 @@ import { useMemo } from "react";
 
 import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { resolveComposerTarget, type ComposerTarget } from "../composer-target.js";
 
 /** Everything the composer's zones read off one address. */
@@ -26,7 +26,7 @@ export interface ComposerAddress {
 /** Resolve the composer's address within one session. */
 export function useComposerAddress(
   sessionStore: SessionStore,
-  focusedPane: ConsolePaneAddress | undefined,
+  focusedPane: PaneAddress | undefined,
 ): ComposerAddress {
   const agents = useSessionPartition(sessionStore, "agent");
   const runs = useSessionPartition(sessionStore, "run");

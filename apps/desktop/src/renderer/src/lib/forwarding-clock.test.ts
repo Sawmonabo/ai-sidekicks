@@ -9,13 +9,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "./clock.js";
-import { ForwardingConsoleClock } from "./forwarding-clock.js";
+import { ForwardingClock } from "./forwarding-clock.js";
 
-describe("ForwardingConsoleClock — the reading is the window's, the identity is the mount's", () => {
+describe("ForwardingClock — the reading is the window's, the identity is the mount's", () => {
   it("answers from the clock held now, not the one it was constructed with", () => {
     const first = new ManualClock(1_000);
     const second = new ManualClock(50);
-    const forwarding = new ForwardingConsoleClock(first);
+    const forwarding = new ForwardingClock(first);
 
     expect(forwarding.now()).toBe(1_000);
     forwarding.holdClock(second);
@@ -26,7 +26,7 @@ describe("ForwardingConsoleClock — the reading is the window's, the identity i
   });
 
   it("keeps one identity across every replacement", () => {
-    const forwarding = new ForwardingConsoleClock(new ManualClock());
+    const forwarding = new ForwardingClock(new ManualClock());
     const before = forwarding;
     forwarding.holdClock(new ManualClock());
 
@@ -37,11 +37,11 @@ describe("ForwardingConsoleClock — the reading is the window's, the identity i
   });
 });
 
-describe("ForwardingConsoleClock — armed work stays with the clock that armed it", () => {
+describe("ForwardingClock — armed work stays with the clock that armed it", () => {
   it("cancels through the arming clock after the window's clock has moved", () => {
     const arming = new ManualClock();
     const current = new ManualClock();
-    const forwarding = new ForwardingConsoleClock(arming);
+    const forwarding = new ForwardingClock(arming);
     let fired = false;
     const handle = forwarding.scheduleTimeout(() => {
       fired = true;
@@ -75,7 +75,7 @@ describe("ForwardingConsoleClock — armed work stays with the clock that armed 
   it("fires through the current clock for work armed after the replacement", () => {
     const retired = new ManualClock();
     const live = new ManualClock();
-    const forwarding = new ForwardingConsoleClock(retired);
+    const forwarding = new ForwardingClock(retired);
     forwarding.holdClock(live);
     let fired = false;
 
@@ -94,7 +94,7 @@ describe("ForwardingConsoleClock — armed work stays with the clock that armed 
     // to grow the map, and a handle this never minted cancels nothing rather than
     // throwing — which is what makes a double cancel and a late cancel both safe.
     const clock = new ManualClock();
-    const forwarding = new ForwardingConsoleClock(clock);
+    const forwarding = new ForwardingClock(clock);
     const handle = forwarding.scheduleTimeout(() => undefined, 10);
     clock.advance(10);
 
@@ -108,7 +108,7 @@ describe("ForwardingConsoleClock — armed work stays with the clock that armed 
 
   it("routes a frame the same way a timeout is routed", () => {
     const arming = new ManualClock();
-    const forwarding = new ForwardingConsoleClock(arming);
+    const forwarding = new ForwardingClock(arming);
     let fired = false;
     const handle = forwarding.scheduleFrame(() => {
       fired = true;

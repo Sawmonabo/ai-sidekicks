@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   CONTEXT_COMPACTED_EVENT_KIND,
   CONTEXT_WINDOW_EVENT_KIND,
@@ -25,7 +25,7 @@ function event(
   sequence: number,
   kind: string,
   payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     // The event's own identifier, composed from the position so two rows of one
     // session never share one.
@@ -43,7 +43,7 @@ describe("newestContextWindowReading — the registered members, and a pair or n
   function windowRow(
     sequence: number,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleSessionEvent {
+  ): ProjectedSessionEvent {
     return event(sequence, CONTEXT_WINDOW_EVENT_KIND, { runId: FIRST_RUN, ...payload });
   }
 
@@ -139,7 +139,7 @@ describe("newestContextWindowReading — the registered members, and a pair or n
 
 describe("newestContextWindowReading — one run's fullness and never the session's", () => {
   /** Two runs metered in one session, the SECOND run's row the newer of the two. */
-  const TWO_METERED_RUNS: readonly ConsoleSessionEvent[] = [
+  const TWO_METERED_RUNS: readonly ProjectedSessionEvent[] = [
     event(3, CONTEXT_WINDOW_EVENT_KIND, {
       runId: FIRST_RUN,
       windowUsedTokens: 20,
@@ -198,7 +198,7 @@ describe("newestContextWindowReading — one run's fullness and never the sessio
 
 describe("newestContextWindowReading — a compaction supersedes the last update", () => {
   /** A full window measured at 90%, which is what a stale reading looks like. */
-  function nearlyFull(sequence: number): ConsoleSessionEvent {
+  function nearlyFull(sequence: number): ProjectedSessionEvent {
     return event(sequence, CONTEXT_WINDOW_EVENT_KIND, {
       runId: FIRST_RUN,
       windowUsedTokens: 180_000,
@@ -211,7 +211,7 @@ describe("newestContextWindowReading — a compaction supersedes the last update
   function compacted(
     sequence: number,
     payload: Readonly<Record<string, unknown>> = {},
-  ): ConsoleSessionEvent {
+  ): ProjectedSessionEvent {
     return event(sequence, CONTEXT_COMPACTED_EVENT_KIND, { runId: FIRST_RUN, ...payload });
   }
 

@@ -2,7 +2,7 @@
 //
 // HOISTED OUT OF `pane-registry.ts`, and the reason is a cycle rather than tidiness. The
 // deck's board mounts a reserved frame while a loader-backed body is in flight, so the
-// registry reaches `PendingPaneBody.tsx`, which draws `ConsolePaneChrome.tsx` — and both
+// registry reaches `PendingPaneBody.tsx`, which draws `PaneFrame.tsx` — and both
 // of those name the context a pane is mounted with, which the registry used to declare.
 // That is a back-edge from a module the registry imports to the registry itself, and the
 // layering gate counts type edges (`tsPreCompilationDeps`) precisely so a cycle cannot
@@ -15,9 +15,9 @@
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
@@ -29,14 +29,14 @@ import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js
  * context on its `kind` narrows its `entity` with it — the property the union
  * exists for, carried through to every registered body.
  */
-export type PaneContext = ConsolePaneAddress & PaneBinding;
+export type PaneContext = PaneAddress & PaneBinding;
 
 /** What a pane is bound to, beside the address it was opened at. */
 interface PaneBinding {
   /** This pane's identity in the deck, stable across a layout restore. */
   readonly paneId: string;
   readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
   /** The session store for the pane's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;

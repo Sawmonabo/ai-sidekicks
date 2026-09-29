@@ -21,7 +21,7 @@
 
 import { callDaemon, type DaemonReplyRefusalCode } from "@renderer/services/daemon/daemon-reply.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { consoleRefusalFrom, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import { coerceToRefusal, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,
@@ -212,7 +212,7 @@ async function queueFirstTurn(
   } catch (error: unknown) {
     // The session exists whatever happened here, so the failure is reported as a
     // partial send that a second press resumes, and never as a send that made nothing.
-    const { detail } = consoleRefusalFrom(
+    const { detail } = coerceToRefusal(
       error,
       NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
       "first-turn-failed",

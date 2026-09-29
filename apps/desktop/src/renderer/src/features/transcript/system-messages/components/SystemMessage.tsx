@@ -34,7 +34,7 @@
 // the newest kind of loss.
 
 import { Glyph, LedgerRow, Nothing } from "@renderer/console/primitives/index.js";
-import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
+import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import { type SystemMessageReading } from "../system-message-classifier.js";
 
@@ -43,7 +43,7 @@ import "./system-messages.css";
 export interface SystemMessageProps {
   readonly seam: SystemMessageReading;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
-  readonly actorHue?: ActorHueAssignment | undefined;
+  readonly actorHue?: AgentHueAssignment | undefined;
   /** Whether a rollback later in the log put this seam behind it. */
   readonly isSuperseded?: boolean | undefined;
 }

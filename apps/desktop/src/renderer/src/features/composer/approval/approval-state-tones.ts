@@ -9,7 +9,7 @@ import type { ApprovalState } from "@renderer/lib/approval-vocabulary.js";
  * console working correctly, and spending red on it would leave nothing louder for
  * the case where something actually failed.
  */
-export const STATE_TONE: Readonly<Record<ApprovalState, ChipTone>> = {
+export const APPROVAL_STATE_TONES: Readonly<Record<ApprovalState, ChipTone>> = {
   pending: "attention",
   approved: "accent",
   rejected: "neutral",

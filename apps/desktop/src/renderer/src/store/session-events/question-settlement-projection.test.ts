@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore, selectPartition } from "../session/session-store.js";
-import type { ConsoleSessionEvent } from "../session/entities/entities.js";
-import type { DriverAskReading } from "./question-reading.js";
+import type { ProjectedSessionEvent } from "../session/entities/entities.js";
+import type { QuestionReading } from "./question-reading.js";
 import {
   QUESTION_SETTLEMENT_PROJECTORS,
   findQuestionSettlement,
@@ -21,26 +21,26 @@ function askEvent(
   kind: string,
   sequence: number,
   payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return eventOfKind(SYNTHETIC_SESSION_ID, kind, sequence, { kind: "input", ...payload });
 }
 
 /** A store with the fold registered, after the events are applied from sequence 1. */
-function storeApplying(events: readonly ConsoleSessionEvent[]): SessionStore {
+function storeApplying(events: readonly ProjectedSessionEvent[]): SessionStore {
   const store = new SessionStore({
     sessionId: SYNTHETIC_SESSION_ID,
     projectors: QUESTION_SETTLEMENT_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   store.applyBatch([...events]);
   return store;
 }
 
 /** An open question on `runId`, as the card holds it. */
-function openQuestion(runId: string | undefined, askId: string): DriverAskReading {
+function openQuestion(runId: string | undefined, askId: string): QuestionReading {
   return {
     askId,
-    runId: runId as DriverAskReading["runId"],
+    runId: runId as QuestionReading["runId"],
     state: "requested",
     prompt: undefined,
     options: [],
@@ -50,7 +50,7 @@ function openQuestion(runId: string | undefined, askId: string): DriverAskReadin
 }
 
 /** What the store holds that settled the question. */
-function settlementIn(store: SessionStore, question: DriverAskReading): unknown {
+function settlementIn(store: SessionStore, question: QuestionReading): unknown {
   return findQuestionSettlement(selectPartition(store.snapshot(), "question"), question);
 }
 

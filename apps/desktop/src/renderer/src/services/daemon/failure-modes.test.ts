@@ -13,8 +13,8 @@
 // than merely on the absence of a crash.
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { ScenarioEngine, SCENARIO_TICK_MS } from "./engine.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 
@@ -22,14 +22,14 @@ import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.
 // they are RECORDED instead, because the point of these cases is to assert that the
 // breach was detected and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 describe("failure matrix — a scenario tick arrives after teardown", () => {
   it("drops the tick, counts it, and reports rather than delivering into a dead store", () => {
     const engine = new ScenarioEngine({ scenario: FIRST_RUN_SCENARIO });
-    const delivered: ConsoleSessionEvent[][] = [];
+    const delivered: ProjectedSessionEvent[][] = [];
     engine.subscribe((events) => {
       delivered.push([...events]);
     });
@@ -56,12 +56,12 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     expect(delivered).toHaveLength(0);
     expect(advanceTicks).toStrictEqual([]);
     expect(engine.droppedTickCount).toBe(2);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(2);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(2);
   });
 
   it("delivers normally before teardown, so the drop is not vacuous", () => {
     const engine = new ScenarioEngine({ scenario: FIRST_RUN_SCENARIO });
-    const delivered: ConsoleSessionEvent[][] = [];
+    const delivered: ProjectedSessionEvent[][] = [];
     engine.subscribe((events) => {
       delivered.push([...events]);
     });

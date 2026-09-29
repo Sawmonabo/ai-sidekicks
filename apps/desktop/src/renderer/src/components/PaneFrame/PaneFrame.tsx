@@ -36,7 +36,7 @@ import "./PaneFrame.css";
 import { useId } from "react";
 
 import { Glyph } from "@renderer/console/primitives/index.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./usePaneControls.js";
@@ -117,7 +117,7 @@ export interface PaneFrameProps {
   readonly headingId?: string;
   readonly sessionId: string | undefined;
   readonly runId?: string | undefined;
-  readonly entity?: ConsoleEntityRef | undefined;
+  readonly entity?: EntityRef | undefined;
   /**
    * The focus treatments' color as a `var()` reference, or `undefined` where the deck
    * has no actor to attribute the pane to. Undefined takes the neutral ring, which is
@@ -135,7 +135,7 @@ export interface PaneFrameProps {
    * exists. What a pane-level chord protects is the WINDOW, so the claim has to cover
    * every element the chord can be pressed on while this pane has focus — and the head
    * this chrome draws is not a descendant of the body a family supplies. A family that
-   * wraps `<ConsolePaneChrome>` from the outside to get the capture is drawing a second
+   * wraps `<PaneFrame>` from the outside to get the capture is drawing a second
    * element around a laid-out pane; the one that shipped had to declare
    * `display: contents` to stop the deck seeing a box, which is an adapter that exists
    * only because this prop did not.
@@ -164,7 +164,7 @@ export interface PaneFrameProps {
  * points at the crumb list, whose last crumb is this pane's own name — so the name is
  * "session-1 run-01 Runs" rather than "Runs" for every runs pane in the deck.
  */
-export function ConsolePaneChrome(props: PaneFrameProps): React.JSX.Element {
+export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();
   const headingId = props.headingId ?? mintedHeadingId;
   const hostControls = usePaneControls();

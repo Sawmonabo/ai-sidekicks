@@ -58,7 +58,7 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import {
@@ -111,7 +111,7 @@ export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number]
  */
 export type DaemonReply<TValue> =
   | { readonly status: "served"; readonly value: TValue }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
  * How a caller says this call has an owner who may walk away from it.
@@ -142,11 +142,11 @@ export interface DaemonCallOptions {
  * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
  * A read that calls the door, folds the answer, and calls it again has to stop
  * between its own calls, and it already stops this way on the first one:
- * `seats/read/push-driven-read.ts`'s `servedValueOrRaise` raises exactly this refusal the
+ * `seats/read/push-driven-read.ts`'s `unwrapDaemonReply` raises exactly this refusal the
  * moment the door answers with it. A caller settling its later boundaries under a
  * code of its own would give one settlement two names, so it raises this one instead.
  */
-export function abandonedReadRefusal(method: string): ConsoleRefusal {
+export function abandonedReadRefusal(method: string): Refusal {
   return refuse(
     DAEMON_REPLY_REFUSAL_ORIGIN,
     "read-abandoned" satisfies DaemonReplyRefusalCode,

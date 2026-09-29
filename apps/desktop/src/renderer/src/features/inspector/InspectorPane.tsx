@@ -1,6 +1,6 @@
 // The inspector pane: one entity's own record, whichever kind of entity it is.
 //
-// The pane is addressed by `ConsolePaneAddress.entity`, and a deck may open it with
+// The pane is addressed by `PaneAddress.entity`, and a deck may open it with
 // no entity at all, so the frame answers two boundary questions before any read
 // happens and the body answers the rest.
 //
@@ -21,12 +21,12 @@
 // would be a second place eligibility is decided, which is exactly the kind of
 // renderer-held truth this console must never keep.
 
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import { InspectorPaneBody } from "./components/InspectorPaneBody.js";
 
 export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="inspector"
       // The pane's own binding rather than the route, on the runs pane's reason.
       sessionId={context.sessionStore?.sessionId}
@@ -34,6 +34,6 @@ export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.El
       focusHue={context.focusHue}
     >
       <InspectorPaneBody context={context} />
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

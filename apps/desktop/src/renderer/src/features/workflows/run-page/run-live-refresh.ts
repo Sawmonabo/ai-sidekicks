@@ -54,17 +54,17 @@ import {
   workflowRunIdOfEventPayload,
 } from "@renderer/services/wire-shapes/workflow-events.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What one live-round reading is opened against. */
 export interface WorkflowRunLiveRefreshOptions {
   /** The window's clock, which the coalescing window is measured on. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * The session whose frames say this run moved.
    *
@@ -194,7 +194,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
    * falls out of the same comparison rather than being a second rule: such a pane has
    * put no read, so there is no answer for a frame to make stale.
    */
-  public admitsTriggeringEvent(event: ConsoleSessionEvent): boolean {
+  public admitsTriggeringEvent(event: ProjectedSessionEvent): boolean {
     const namedRunId = workflowRunIdOfEventPayload(event.payload);
     return namedRunId === undefined || namedRunId === this.#workflowRunId;
   }

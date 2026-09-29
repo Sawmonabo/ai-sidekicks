@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 // The unit factors come from the module that declares them rather than through the
 // family door: their door specifiers are claimed for the families that will read them
 // in production, and a claim a test retires is a claim nothing came to collect.
@@ -55,7 +55,7 @@ const SIXTY_DAYS_MILLISECONDS = 60 * MILLISECONDS_PER_DAY;
  * hook would arm for, which is the whole of what the held instant decides.
  */
 function MountLifetimeInstantSurface(props: {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
   const [wokeAtMilliseconds] = useState(() => props.clock.now());

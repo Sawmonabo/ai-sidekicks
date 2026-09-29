@@ -40,7 +40,7 @@
 // owner passes in, which is what keeps this module below `bridge/` in the console's DAG.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   ACT_IDLE,
   PREREQUISITE_NOT_READ,
@@ -68,7 +68,7 @@ export interface PrerequisiteReaderOptions<TValue> {
   /** What this reader's emitter reports under when a sink throws. */
   readonly label: string;
   /** The window's one clock, so this refresh coalesces on its surface's time base. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the question. */
   readonly sessionStore: SessionStore;
   /**

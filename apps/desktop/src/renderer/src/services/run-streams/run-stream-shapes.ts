@@ -22,7 +22,7 @@ import type {
 import type { ZodType } from "zod";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** One registered payload a narrowed run stream delivers. */
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
@@ -65,7 +65,7 @@ export type RunStreamProjection =
  * guard shape a caller reads as "nothing to say" without a second status vocabulary.
  */
 export function refuseSessionDisagreement(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   payload: Readonly<Record<string, unknown>>,
 ): RunStreamProjection | undefined {
   const statedSessionId = readWireString(payload["sessionId"]);
@@ -94,7 +94,7 @@ export function refuseSessionDisagreement(
  */
 export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery>(
   registeredShape: ZodType<Delivery>,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   candidate: Readonly<Record<string, unknown>>,
 ): RunStreamProjection {
   const parsed = registeredShape.safeParse(candidate);
@@ -123,7 +123,7 @@ export function carriedOptionalMembers(
 }
 
 /** A refusal naming the beat it is about, so a scenario author can find it. */
-export function unprojectableFor(event: ConsoleSessionEvent, fault: string): RunStreamProjection {
+export function unprojectableFor(event: ProjectedSessionEvent, fault: string): RunStreamProjection {
   return unprojectable(
     `the "${event.kind}" beat at sequence ${String(event.sequence)} ${fault}. ` +
       "Script what the registered projection reads — the beat's own registered payload, and the " +

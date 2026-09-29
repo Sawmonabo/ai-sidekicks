@@ -10,7 +10,7 @@
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
@@ -28,7 +28,7 @@ import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming
 export const SESSION_ID: SessionId = FLAGSHIP_SCENARIO.sessionId as SessionId;
 
 /** The refusal a reply carries, or a failure naming what it carried instead. */
-export function refusalOf(reply: DaemonReply<unknown>): ConsoleRefusal {
+export function refusalOf(reply: DaemonReply<unknown>): Refusal {
   if (reply.status !== "refused") {
     throw new Error(`expected a refusal and the call was served with ${JSON.stringify(reply)}`);
   }

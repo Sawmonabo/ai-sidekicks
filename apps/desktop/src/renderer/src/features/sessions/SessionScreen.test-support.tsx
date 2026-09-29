@@ -19,7 +19,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
@@ -66,7 +66,7 @@ export function testRegistry(): PaneRegistry {
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 
@@ -168,7 +168,7 @@ export function memoryStore(): UiStateStore {
 /** A second session, with a store of its own — never the first one's. */
 export function otherSession(): WorkspaceSession {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return { sessionId: SESSION_B_ID, store };
 }
 
@@ -192,7 +192,7 @@ export function workspaceFor(
           {...(isKeyed ? { key: session.sessionId } : {})}
           bridge={bridge}
           frameStore={
-            new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+            new WindowStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
           }
           sessionStore={session.store}
           uiStateStore={uiStateStore}

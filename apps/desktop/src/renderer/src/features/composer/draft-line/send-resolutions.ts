@@ -8,7 +8,7 @@
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ComposerSendPath } from "../composer-target.js";
 import type { ProviderCommandEntry } from "../command-list/command-list-entries.js";
 
@@ -39,7 +39,7 @@ export interface ComposerClientCommandResolution {
 
 export interface ComposerRefusedResolution {
   readonly outcome: "refused";
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 export type ComposerSendResolution =
@@ -52,7 +52,7 @@ export type ComposerSendResolution =
 export type ComposerSendOutcome =
   | { readonly status: "sent"; readonly path: ComposerSendPath }
   | { readonly status: "intercepted"; readonly commandName: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
  * Whether a name is a registered client command.

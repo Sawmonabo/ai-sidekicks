@@ -20,7 +20,7 @@
 // no automatic re-drive.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
@@ -32,7 +32,7 @@ export interface AttachmentIngestClientOptions {
   readonly port: AttachmentIngestPort;
   readonly sessionId: SessionId;
   /** Injected so a test drives every stream on frozen time with no real clock. */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
 }
 
 /** Every attachment a user has handed this carrier, in the order they chose. */

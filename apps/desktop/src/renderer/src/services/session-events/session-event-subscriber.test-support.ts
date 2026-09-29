@@ -45,7 +45,7 @@ export interface SubscriberHarness {
  * The registry's read is a REGISTERED one that happens to find nothing — the transient
  * miss, which is what a session whose wire exists looks like between reads. It has to
  * be registered for the binder to bind at all, and it has to resolve `undefined` rather
- * than a snapshot, because a snapshot would initialise the stores and change what
+ * than a snapshot, because a snapshot would initialize the stores and change what
  * `applyBatch` does with every event a case delivers.
  */
 export function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): SubscriberHarness {

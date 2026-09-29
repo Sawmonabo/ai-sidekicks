@@ -9,7 +9,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
@@ -19,7 +19,7 @@ import type { PaneRegistry } from "../panes/pane-registry.js";
 export interface ScreenContext {
   readonly route: ConsoleRoute;
   readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
   /** The session store for the route's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;
   /**

@@ -6,8 +6,8 @@
 // per-group boundary answer to different failures and neither can stand in for the
 // other.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { RefusalCard, SurfaceErrorBoundary } from "@renderer/console/primitives/index.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { RefusalCard, ErrorBoundary } from "@renderer/console/primitives/index.js";
 
 export interface LedgerRowGroupProps {
   /** What failed, in the person's words: "a run chapter", "the streaming message". */
@@ -28,8 +28,8 @@ export interface LedgerRowGroupProps {
  */
 export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
   return (
-    <SurfaceErrorBoundary
-      surfaceName={props.groupLabel}
+    <ErrorBoundary
+      regionName={props.groupLabel}
       fallback={(error, retry) => (
         <div className="meridian-transcript-row-failure" role="alert">
           <RefusalCard
@@ -44,7 +44,7 @@ export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Elemen
       )}
     >
       {props.children}
-    </SurfaceErrorBoundary>
+    </ErrorBoundary>
   );
 }
 
@@ -57,7 +57,7 @@ export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Elemen
  * wire, and dressing it as a wire code would make a console defect look like the
  * daemon's answer.
  */
-function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal {
+function rowProjectionRefusal(groupLabel: string, error: Error): Refusal {
   return refuse(
     "ledger",
     "renderer.row_projection_failed",

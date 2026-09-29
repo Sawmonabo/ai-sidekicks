@@ -18,13 +18,13 @@
 // are open", which stays the registry's alone.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import {
-  UNREPORTED_SHELL_STATE,
+  UNREPORTED_MAIN_PROCESS_STATE,
   mainProcessReportsAreEqual,
-  type ShellState,
+  type MainProcessState,
 } from "./main-process-state.js";
 import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
@@ -35,7 +35,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/style
  * changes what the whole room can do goes across the workspace rather than inline on a
  * control.
  *
- * The two rendered fields are taken from `ConsoleRefusal` rather than re-declared
+ * The two rendered fields are taken from `Refusal` rather than re-declared
  * beside it, so a producer spreads a refusal straight into a banner
  * (`{ id, dismissible, ...refusal }`) and the three renderings cannot drift into
  * three shapes. `origin` is deliberately NOT picked up: rule 9 fixes on-screen
@@ -44,7 +44,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/style
  *
  * A type-only import, so this adds no runtime edge from `store/` into `core/`.
  */
-export interface FrameBanner extends Pick<ConsoleRefusal, "code" | "detail"> {
+export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly id: string;
   readonly dismissible: boolean;
 }
@@ -91,11 +91,11 @@ export interface WindowStoreState {
    *
    * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped surfaces can be
    * up at once, and while each published this cell directly the first to close cleared
-   * it under the one still open. {@link FrameStore.modalDialogClaims} holds the
+   * it under the one still open. {@link WindowStore.modalDialogClaims} holds the
    * claimants and owns the only write; this cell is `size > 0` and nothing else.
    */
-  readonly isModalSurfaceOpen: boolean;
-  readonly banners: readonly FrameBanner[];
+  readonly isModalDialogOpen: boolean;
+  readonly banners: readonly WindowBanner[];
   /**
    * True while the window has focus; the refresh scheduler's `window-focus` reason.
    *
@@ -119,7 +119,7 @@ export interface WindowStoreState {
    * frame, the settings pages and the sessions list above it — and a value declared
    * in `frame/` is one none of them may import.
    */
-  readonly mainProcessState: ShellState;
+  readonly mainProcessState: MainProcessState;
 }
 
 export interface WindowStoreOptions {
@@ -127,7 +127,7 @@ export interface WindowStoreOptions {
   readonly initialSchemePreference?: SchemePreference;
 }
 
-export class FrameStore {
+export class WindowStore {
   readonly #store: StoreApi<WindowStoreState>;
   /**
    * The open modal surfaces this window holds, and the one writer of the cell above.
@@ -149,13 +149,13 @@ export class FrameStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isPaletteOpen: false,
-      isModalSurfaceOpen: false,
+      isModalDialogOpen: false,
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
-      mainProcessState: UNREPORTED_SHELL_STATE,
+      mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     }));
     this.#modalDialogClaims = new ModalDialogClaims((isAnyHeld) => {
-      this.#setModalSurfaceOpen(isAnyHeld);
+      this.#setModalDialogOpen(isAnyHeld);
     });
   }
 
@@ -223,7 +223,7 @@ export class FrameStore {
    * over the connection union in `shell-state.ts`, so a new arm fails to compile there
    * rather than comparing false forever.
    */
-  public publishMainProcessReport(report: ShellState): void {
+  public publishMainProcessReport(report: MainProcessState): void {
     const { mainProcessState } = this.#store.getState();
     if (mainProcessReportsAreEqual(mainProcessState, report)) {
       return;
@@ -239,7 +239,7 @@ export class FrameStore {
   }
 
   /** Raise a banner. A second banner with the same id replaces the first. */
-  public raiseBanner(banner: FrameBanner): void {
+  public raiseBanner(banner: WindowBanner): void {
     const banners = this.#store.getState().banners.filter((existing) => existing.id !== banner.id);
     this.#store.setState({ banners: [...banners, banner] });
   }
@@ -254,7 +254,7 @@ export class FrameStore {
    * overwrite each other. The code alone was enough while one producer existed;
    * it stopped being enough the moment a second one did.
    */
-  public raiseRefusalBanner(refusal: ConsoleRefusal): void {
+  public raiseRefusalBanner(refusal: Refusal): void {
     this.raiseBanner({
       id: `${refusal.origin}:${refusal.code}`,
       dismissible: true,
@@ -285,11 +285,11 @@ export class FrameStore {
    * unguarded write on an unchanged value would re-render the rail, the surface, and
    * every banner for a fact that did not move.
    */
-  #setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
-    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
+  #setModalDialogOpen(isModalDialogOpen: boolean): void {
+    if (this.#store.getState().isModalDialogOpen === isModalDialogOpen) {
       return;
     }
-    this.#store.setState({ isModalSurfaceOpen });
+    this.#store.setState({ isModalDialogOpen });
   }
 
   /**

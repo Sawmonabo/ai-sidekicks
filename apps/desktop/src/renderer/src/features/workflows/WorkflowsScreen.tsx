@@ -19,7 +19,7 @@ import "./WorkflowsScreen.css";
 
 import { useCallback } from "react";
 
-import type { ConsolePaneAddress, ScreenContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress, ScreenContext } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { OpenPaneBody } from "./components/OpenPaneBody.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
@@ -51,10 +51,10 @@ export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element 
   const { paneRegistry } = context;
   // Addressed by the bridge and by nothing else: opening a pane is answering one daemon.
   const { value: openAddress, publish: setOpenAddress } = useSubjectScopedState<
-    ConsolePaneAddress | undefined
+    PaneAddress | undefined
   >(context.bridge, undefined, () => undefined);
   const openPane = useCallback(
-    (address: ConsolePaneAddress) => {
+    (address: PaneAddress) => {
       // Warmed BEFORE the address is published, which is what makes this a preload rather
       // than a second load: publishing re-renders this screen and mounts the pane, and a
       // loader-backed body reached at that mount would show its fallback first. The mount

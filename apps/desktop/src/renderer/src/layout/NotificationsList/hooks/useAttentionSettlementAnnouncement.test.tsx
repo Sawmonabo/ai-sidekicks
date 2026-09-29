@@ -19,7 +19,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import {
-  AttentionPlane,
+  AttentionSummary,
   type AttentionReading,
 } from "@renderer/store/attention/attention-summary.js";
 import { useAttentionSettlementAnnouncement } from "./useAttentionSettlementAnnouncement.js";
@@ -46,7 +46,7 @@ function answered(options: {
 }): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionPlane(options.items ?? []),
+    plane: new AttentionSummary(options.items ?? []),
     droppedCount: 0,
     refusedSessions: (options.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,

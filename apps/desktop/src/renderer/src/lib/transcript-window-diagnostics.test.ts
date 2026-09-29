@@ -11,12 +11,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   TranscriptWindowDiagnosticsRegistry,
-  type LedgerWindowReading,
+  type TranscriptWindowReading,
 } from "./transcript-window-diagnostics.js";
 
 const SESSION_ID = "session-under-test";
 
-function reading(mountedRowCount: number): LedgerWindowReading {
+function reading(mountedRowCount: number): TranscriptWindowReading {
   return {
     virtualItemCount: mountedRowCount,
     mountedRowCount,

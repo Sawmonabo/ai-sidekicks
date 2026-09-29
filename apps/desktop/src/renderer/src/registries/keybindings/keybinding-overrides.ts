@@ -19,7 +19,7 @@
 // kept, and what a window does while one is being recorded is
 // `keybinding-override-store.ts`.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { Keybinding } from "../commands/command-types.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
@@ -56,7 +56,7 @@ export const KEYBINDING_OVERRIDE_REFUSAL_ORIGIN = "keybinding-overrides";
  * union and widens at its boundary, so this renders through the same three refusal
  * renderings as a persistence refusal, with no translation where both are shown.
  */
-export interface KeybindingOverrideRefusal extends ConsoleRefusal {
+export interface KeybindingOverrideRefusal extends Refusal {
   readonly code: KeybindingOverrideRefusalCode;
 }
 

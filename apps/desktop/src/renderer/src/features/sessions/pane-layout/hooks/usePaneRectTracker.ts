@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { PaneRectTracker } from "../pane-rect-tracker.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
 
@@ -14,7 +14,7 @@ import { type TrackedRect } from "../pane-rect-geometry.js";
  * write, the exact opposite of what it is for.
  */
 export function usePaneRectTracker(options: {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly onRects?: (rects: readonly TrackedRect[]) => void;
 }): PaneRectTracker {
   const sink = useRef(options.onRects);

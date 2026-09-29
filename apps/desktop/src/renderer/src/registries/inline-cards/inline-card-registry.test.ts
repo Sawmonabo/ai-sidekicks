@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
   INLINE_CARD_KINDS,
@@ -85,7 +85,7 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
     });
     const diffBody = registry.bodyFor("diff");
     expect(diffBody).toBeDefined();
-    expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(ConsoleRefusalError);
+    expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(RefusalError);
     expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(/"diff"[\s\S]*"attachment"/u);
   });
 
@@ -173,7 +173,7 @@ describe("inline card seats — an artifact card names an artifact", () => {
   });
 
   it("negative control: a reference from another partition does not compile", () => {
-    // The defect this closes: the member took an unnarrowed `ConsoleEntityRef`, so
+    // The defect this closes: the member took an unnarrowed `EntityRef`, so
     // a `run` reference was a legal artifact card. The body would then look the row
     // up in a partition that has never held it and render as permanently missing —
     // which reads exactly like an artifact whose fetch has not answered yet.

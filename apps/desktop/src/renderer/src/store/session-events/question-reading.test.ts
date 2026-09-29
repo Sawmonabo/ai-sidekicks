@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { sampleGeneralRow, sampleRunRow } from "@test/helpers/timeline-row-samples.js";
-import { askSettledBy, readQuestion, type DriverAskReading } from "./question-reading.js";
+import { applyQuestionSettlement, readQuestion, type QuestionReading } from "./question-reading.js";
 
 /** The run every sample row carries, restated so a case can assert it. */
 const SAMPLE_RUN_ID = "01J0000000000000000000000B";
@@ -23,7 +23,7 @@ function askRow(
  * defect in the case rather than the thing under test — and an optional chain would
  * quietly assert `undefined` against `undefined` and pass.
  */
-function readAsk(row: ReturnType<typeof sampleRunRow>): DriverAskReading {
+function readAsk(row: ReturnType<typeof sampleRunRow>): QuestionReading {
   const reading = readQuestion(row);
   if (reading === undefined) {
     throw new Error(`the sample row ${row.type} produced no ask reading`);
@@ -128,7 +128,7 @@ describe("readQuestion", () => {
   });
 });
 
-describe("askSettledBy", () => {
+describe("applyQuestionSettlement", () => {
   it("takes the disposition from the terminal and the question from the request", () => {
     const request = readAsk(
       askRow("driver_ask.requested", {
@@ -138,7 +138,7 @@ describe("askSettledBy", () => {
       }),
     );
     const terminal = readAsk(askRow("driver_ask.responded", { response: "develop" }));
-    expect(askSettledBy(request, terminal)).toStrictEqual({
+    expect(applyQuestionSettlement(request, terminal)).toStrictEqual({
       askId: "ask-01",
       runId: SAMPLE_RUN_ID,
       state: "responded",
@@ -153,7 +153,7 @@ describe("askSettledBy", () => {
     // Without the member-wise merge, taking the terminal reading whole would replace a
     // prompt the reader is looking at with the card's "this ask carried no question".
     const request = readAsk(askRow("driver_ask.requested", { prompt: "Which branch?" }));
-    const settled = askSettledBy(request, readAsk(askRow("driver_ask.expired", {})));
+    const settled = applyQuestionSettlement(request, readAsk(askRow("driver_ask.expired", {})));
     expect(settled.prompt).toBe("Which branch?");
     expect(settled.state).toBe("expired");
     expect(settled.deliveredAnswer).toBeUndefined();
@@ -161,8 +161,8 @@ describe("askSettledBy", () => {
 
   it("returns the reading unchanged with no terminal, and on a terminal row's own", () => {
     const request = readAsk(askRow("driver_ask.requested", { prompt: "Which branch?" }));
-    expect(askSettledBy(request, undefined)).toBe(request);
+    expect(applyQuestionSettlement(request, undefined)).toBe(request);
     const terminal = readAsk(askRow("driver_ask.responded", { response: "develop" }));
-    expect(askSettledBy(terminal, terminal)).toBe(terminal);
+    expect(applyQuestionSettlement(terminal, terminal)).toBe(terminal);
   });
 });

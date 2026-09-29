@@ -14,7 +14,7 @@
 // stamp exists to prevent.
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   LIVE_RUN_ID,
   SESSION_ID,
@@ -33,7 +33,7 @@ import {
  */
 export function openSessionStoreWithTerminalRunGroup(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),
@@ -100,7 +100,7 @@ export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
  * empties that chapter entirely. A single-family log would pass over a narrowing
  * that never looked inside a fold at all.
  */
-export function foldedMessageRunGroupLog(): readonly ConsoleSessionEvent[] {
+export function foldedMessageRunGroupLog(): readonly ProjectedSessionEvent[] {
   const messageRows = Array.from(
     { length: FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT },
     (_unused, index) => ({
@@ -157,7 +157,7 @@ export function foldedMessageRunGroupLog(): readonly ConsoleSessionEvent[] {
  */
 export function openSessionStoreWithSystemMessage(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),

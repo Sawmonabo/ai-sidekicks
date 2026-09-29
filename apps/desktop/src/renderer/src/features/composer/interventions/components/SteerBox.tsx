@@ -35,7 +35,7 @@ import { useCallback, useEffect, useId, useMemo } from "react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,
@@ -88,7 +88,7 @@ interface PendingDispatch {
  */
 interface ComposedForm {
   readonly body: string;
-  readonly localRefusal: ConsoleRefusal | undefined;
+  readonly localRefusal: Refusal | undefined;
   readonly pendingDispatch: PendingDispatch | undefined;
   /**
    * Whether this form has already asked to be closed.

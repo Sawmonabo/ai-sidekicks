@@ -14,7 +14,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent, EntityProjectorTable } from "../entities/entities.js";
+import type { ProjectedSessionEvent, EntityProjectorTable } from "../entities/entities.js";
 import { useSessionEntity, useSessionPartition } from "./useOpenSessionStore.js";
 import { type SessionSnapshotReader } from "../open-session-entry.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
@@ -23,7 +23,7 @@ import type { SessionStore } from "../session-store.js";
 
 const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
-function runIdOf(event: ConsoleSessionEvent): string {
+function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];
   return typeof raw === "string" ? raw : "unknown-run";
 }
@@ -44,7 +44,7 @@ const projectors: EntityProjectorTable = {
 };
 
 /** One event at `sequence`, carrying the entity id both projectors key on. */
-function eventAt(sequence: number, kind: string, entityId: string): ConsoleSessionEvent {
+function eventAt(sequence: number, kind: string, entityId: string): ProjectedSessionEvent {
   return eventOfKind("session-1", kind, sequence, { runId: entityId });
 }
 
@@ -96,7 +96,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise({
+    store.initialize({
       cursor: 0,
       entities: [
         { kind: "run", id: "run-1", state: "queued" },
@@ -141,7 +141,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise({
+    store.initialize({
       cursor: 0,
       entities: [{ kind: "run", id: "run-1", state: "queued" }],
     });
@@ -181,7 +181,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     const tally = new RenderTally();
 
     const view = render(<RunRow store={store} runId="run-1" tally={tally} />);

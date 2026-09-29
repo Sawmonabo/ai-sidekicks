@@ -17,7 +17,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { PaneControlsContext } from "@renderer/components/PaneFrame/pane-controls.js";
 import { type PaneContext } from "./pane-context.js";
@@ -29,7 +29,7 @@ const CLOSE_CONTROL_LABEL = "Close this pane";
 /** A pane body of the shape every converted family ships: its own chrome around content. */
 function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
   return (context: PaneContext): React.ReactNode =>
-    createElement(ConsolePaneChrome, {
+    createElement(PaneFrame, {
       kind: "diff",
       sessionId: undefined,
       focusHue: context.focusHue,

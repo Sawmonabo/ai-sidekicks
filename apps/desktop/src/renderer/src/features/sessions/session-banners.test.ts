@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   dismissSessionBanner,
   raiseSessionBanner,
@@ -28,7 +28,7 @@ const STORE_FULL = refuse(
 
 // Any console refusal, not one code's: the builder narrows its `code` to the literal
 // it was handed, and every case below deliberately mixes codes.
-function raiseAll(...refusals: readonly ConsoleRefusal[]): readonly SessionBanner[] {
+function raiseAll(...refusals: readonly Refusal[]): readonly SessionBanner[] {
   return refusals.reduce<readonly SessionBanner[]>(
     (current, refusal) => raiseSessionBanner(current, refusal),
     [],

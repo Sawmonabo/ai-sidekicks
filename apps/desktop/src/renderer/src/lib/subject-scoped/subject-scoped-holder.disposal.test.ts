@@ -18,7 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../tripwires.js";
+import { windowTripwires } from "../tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
@@ -27,13 +27,13 @@ let restoreThrowOnReport = false;
 
 beforeEach(() => {
   restoreThrowOnReport = import.meta.env.DEV;
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(restoreThrowOnReport);
+  windowTripwires.reset();
 });
 
 describe("SubjectScopedHolder — a disposal that throws does not take the render with it", () => {
@@ -60,13 +60,13 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     }).not.toThrow();
 
     expect(holder.value).toBe("the proposal that superseded it");
-    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
+    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
     // And the pass that superseded it can still settle into what it addressed, which
     // is what "the render was not taken with it" means from the caller's side.
     holder.publisherFor(SUBJECT_TWO, "beta")("what the new pass read");
     expect(holder.value).toBe("what the new pass read");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
   });
 
   it("reports a thrown value that has no message, rather than throwing describing it", () => {
@@ -85,7 +85,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     }).not.toThrow();
 
     expect(holder.value).toBe("second");
-    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
   });
 
   it("negative control: a disposal that returns records nothing", () => {
@@ -103,7 +103,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     holder.address(SUBJECT_TWO, "beta", () => "second");
 
     expect(disposals).toBe(1);
-    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(0);
+    expect(windowTripwires.firingCount("surface-render-failure")).toBe(0);
   });
 });
 
@@ -132,8 +132,8 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
     expect(closed).toStrictEqual(["the connection that opened too late"]);
     expect(holder.value).toBe("the connection the second visit opened");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("had already ended");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("had already ended");
   });
 
   it("closes a resource offered to a capture taken before any subject", () => {
@@ -146,7 +146,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     holder.settle()("the connection opened before there was a subject");
 
     expect(closed).toStrictEqual(["the connection opened before there was a subject"]);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
   });
 
   it("refuses a function form without running it, so there is nothing to close", () => {
@@ -167,7 +167,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
     expect(updates).toBe(0);
     expect(closed).toStrictEqual([]);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
   });
 
   it("hands a resource a later publish replaced to the same disposal", () => {
@@ -191,7 +191,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // Ordinary, so nothing is reported: replacing a held value by publishing is how a
     // window replaces a store that closed itself, and a report per publish would put
     // a defect on the operator's diagnostics for the substrate working.
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 
   it("hands over the value a FUNCTION-form publish replaced, once it has run", () => {
@@ -234,9 +234,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     }).not.toThrow();
 
     expect(holder.value).toBe("the connection that replaced it");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("held by nothing");
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to close");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("held by nothing");
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("refused to close");
   });
 
   it("negative control: a plain holder disposes nothing a publish replaced", () => {
@@ -250,7 +250,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     holder.publisherFor(SUBJECT_ONE, "alpha")("published again");
 
     expect(holder.value).toBe("published again");
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 
   it("records the resource as held by nothing where its disposal throws", () => {
@@ -271,9 +271,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     }).not.toThrow();
 
     expect(holder.value).toBe("the second visit");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("held by nothing");
-    expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to close");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("held by nothing");
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("refused to close");
   });
 
   it("negative control: a publish that lands is installed rather than closed", () => {
@@ -291,7 +291,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
     expect(holder.value).toBe("the connection that replaced it");
     expect(closed).not.toContain("the connection that replaced it");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
   });
 
   it("negative control: a holder built with no disposal drops what it refuses", () => {
@@ -306,6 +306,6 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     settlementFromTheVisitThatEnded("the answer to a question nobody is asking");
 
     expect(holder.value).toBe("seed");
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 });

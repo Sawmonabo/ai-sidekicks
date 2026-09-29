@@ -9,7 +9,7 @@ import { GeneralPage } from "./GeneralPage.js";
 import { composeSettingsPages } from "../../settings-pages.js";
 import type { SettingsPageContext } from "../../types.js";
 import { consoleTestUiStateStore } from "@test/helpers/settings-page-mount.js";
-import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
+import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 
 const SCENARIO = unscriptedScenario("application-page-test");
 
@@ -34,7 +34,7 @@ function contextFor(): SettingsPageContext {
     openSection: () => undefined,
     retainedSessionId: undefined,
     retainedSessionStore: undefined,
-    shellState: UNREPORTED_SHELL_STATE,
+    shellState: UNREPORTED_MAIN_PROCESS_STATE,
     selection: undefined,
     uiStateStore: consoleTestUiStateStore(),
     chooseScheme: () => undefined,

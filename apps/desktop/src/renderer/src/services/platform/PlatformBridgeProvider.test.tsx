@@ -23,7 +23,7 @@ import { render } from "@testing-library/react";
 import { StrictMode, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { DesktopBridgeProvider } from "./PlatformBridgeProvider.js";
 import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
 import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
@@ -200,7 +200,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
 });
 
 /** A component that does what a console surface does with time: read the clock. */
-function ClockProbe(props: { readonly onObserve: (clock: ConsoleClock) => void }): null {
+function ClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
   props.onObserve(useConsoleClock());
   return null;
 }
@@ -213,14 +213,14 @@ function ClockProbe(props: { readonly onObserve: (clock: ConsoleClock) => void }
  * here so the replacement's claim is measured against the thing it replaced instead
  * of being asserted.
  */
-function MountPinnedClockProbe(props: { readonly onObserve: (clock: ConsoleClock) => void }): null {
+function MountPinnedClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
   const bridge = useConsoleBridge();
-  const [clock] = useState<ConsoleClock>(() => consoleClockFor(bridge));
+  const [clock] = useState<Clock>(() => consoleClockFor(bridge));
   props.onObserve(clock);
   return null;
 }
 
-function lastClock(observed: readonly ConsoleClock[]): ConsoleClock {
+function lastClock(observed: readonly Clock[]): Clock {
   const clock = observed.at(-1);
   if (clock === undefined) {
     throw new Error("the probe never saw a clock");
@@ -235,14 +235,14 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {
-    // The READING is what moves, not the identity. One `ForwardingConsoleClock` per
+    // The READING is what moves, not the identity. One `ForwardingClock` per
     // mount is the whole point — every `[clock]` re-mint arm downstream would fire on
     // a scenario switch if the hook handed back a new object — so what the case has
     // to show is that the one object it does hand back stops reading the retired
     // bridge's time the moment the replacement is committed.
     const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
-    const observed: ConsoleClock[] = [];
+    const observed: Clock[] = [];
     const { rerender } = render(
       <DesktopBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
@@ -269,7 +269,7 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     // reading a clock the scenario switch stopped advancing.
     const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
-    const observed: ConsoleClock[] = [];
+    const observed: Clock[] = [];
     const { rerender } = render(
       <DesktopBridgeProvider bridge={bridgeA}>
         <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
@@ -293,7 +293,7 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     const bridgeB = firstRunBridge();
     expect(engineOf(bridgeA).clock).not.toBe(engineOf(bridgeB).clock);
 
-    const observed: ConsoleClock[] = [];
+    const observed: Clock[] = [];
     const { rerender } = render(
       <DesktopBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />

@@ -39,7 +39,7 @@ import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import {
   LEDGER_QUIET_SCENARIO,
   EMPTY_SESSION_SCENARIO_ID,
@@ -114,7 +114,7 @@ afterEach(async () => {
 });
 
 describe("screenshot — the app under the concurrent-streaming scenario", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async () => {
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(

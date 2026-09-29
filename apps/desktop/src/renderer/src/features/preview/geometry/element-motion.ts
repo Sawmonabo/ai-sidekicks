@@ -34,7 +34,7 @@
 // Five sources cover those ways, they share the one motion sampler in
 // `motion-sampling.ts`, and none of them samples at rest.
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { observeElementResize } from "@renderer/console/primitives/index.js";
 import { couldAnimationMove } from "./animation-motion.js";
@@ -61,7 +61,7 @@ const MOTION_START_EVENT_NAMES = ["transitionrun", "animationstart"] as const;
 export interface ElementPositionObserverOptions {
   readonly element: Element;
   /** The frame source the transition arm samples on. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly onMove: () => void;
 }
 

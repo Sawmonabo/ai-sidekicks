@@ -19,8 +19,8 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "../viewport-constants.js";
 import { ViewportController } from "../viewport-controller.js";
@@ -87,7 +87,7 @@ export interface TranscriptViewportBinding {
    * findings that one row count answers identically. Stable across renders, so a
    * registration keyed on it registers once.
    */
-  readonly readWindowDiagnostics: () => LedgerWindowReading;
+  readonly readWindowDiagnostics: () => TranscriptWindowReading;
 }
 
 export interface UseTranscriptViewportOptions extends ViewportConditions {
@@ -96,7 +96,7 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
    * a viewport that swapped clocks mid-life would have work armed on one and
    * cancelled on another.
    */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /**
@@ -288,7 +288,7 @@ export function useTranscriptViewport(
       },
       [controller],
     ),
-    readWindowDiagnostics: useCallback((): LedgerWindowReading => {
+    readWindowDiagnostics: useCallback((): TranscriptWindowReading => {
       // `getVirtualItems()` FIRST, because it is the call that recomputes the range:
       // reading `virtualizer.range` before it would report the window as it was at
       // the last render rather than as it is now, and the two disagree exactly when

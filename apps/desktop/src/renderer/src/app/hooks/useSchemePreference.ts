@@ -24,11 +24,11 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { isSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** The scheme the frame renders, and the one act that changes it. */
@@ -39,10 +39,10 @@ export interface SchemePreferenceSurface {
 
 /** This window's color scheme, read back at mount and written when it is chosen. */
 export function useSchemePreference(
-  frameStore: FrameStore,
+  frameStore: WindowStore,
   uiStateStore: UiStateStore,
 ): SchemePreferenceSurface {
-  const schemePreference = useFrameStore(frameStore, (state) => state.schemePreference);
+  const schemePreference = useWindowStore(frameStore, (state) => state.schemePreference);
 
   const schemeWasChosenRef = useRef(false);
   const chooseScheme = useCallback(
@@ -92,7 +92,7 @@ export function useSchemePreference(
  * banner still names the subsystem that refused and the string a person would paste
  * into a search.
  */
-function describeUnsavedScheme(refusal: ConsoleRefusal): ConsoleRefusal {
+function describeUnsavedScheme(refusal: Refusal): Refusal {
   return refuse(
     refusal.origin,
     refusal.code,

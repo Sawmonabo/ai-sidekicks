@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import type { ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import type { ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
@@ -85,7 +85,7 @@ describe("createFixtureComposition — the handles a driver reads", () => {
     // The control drives THIS bridge's engine, not one of its own.
     control?.advance(1);
     expect(bridge.scenarioEngine?.progress.deliveredBeatCount).toBeGreaterThan(0);
-    expect(page[TRIPWIRE_FIXTURE_GLOBAL]).toBe(consoleTripwires);
+    expect(page[TRIPWIRE_FIXTURE_GLOBAL]).toBe(windowTripwires);
 
     remove();
     expect(scenarioControlOnPage()).toBeUndefined();

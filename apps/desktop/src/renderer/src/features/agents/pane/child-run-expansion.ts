@@ -28,7 +28,7 @@ import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-s
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 
 /**
@@ -48,7 +48,7 @@ export interface ChildRunExpansion {
   /** Whether the daemon has more entries than this expansion read. */
   readonly hasUnreadEntries: boolean;
   /** Why the expansion failed, on the `expand-failed` arm only. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
 }
 
 /** The state a child run starts in: summarized, with nothing read and nothing wrong. */

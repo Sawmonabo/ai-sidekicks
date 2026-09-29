@@ -7,7 +7,7 @@
 // calls may only run when there IS a store and a hook behind a condition is the one
 // React rule a surface cannot bend.
 //
-// THE FRAME AROUND IT IS `seats/ConsolePaneChrome`, which draws the section, the kind
+// THE FRAME AROUND IT IS `seats/PaneFrame`, which draws the section, the kind
 // glyph, the address trail, the control strip, and the body box for every pane kind in
 // the console. So this module names no region and sets no tab stop: the pane is named
 // by its whole trail — the session it holds the shell of, then "Terminal" — and the
@@ -20,14 +20,14 @@
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { SessionTerminalPane } from "./SessionTerminalPane.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 
 /** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
   // The shell this pane shows is keyed by the SESSION, so the pane's own id is not read.
   const { sessionStore, focusHue } = context;
   return (
-    <ConsolePaneChrome kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
+    <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
       <div className="meridian-terminal-pane">
         {sessionStore === undefined ? (
           <Nothing
@@ -40,6 +40,6 @@ export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Elem
           <SessionTerminalPane sessionStore={sessionStore} />
         )}
       </div>
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

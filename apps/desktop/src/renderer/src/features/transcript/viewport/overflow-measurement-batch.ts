@@ -22,10 +22,10 @@
 // The frame comes from the clock seam rather than from a microtask, so the pass
 // reads a layout the browser has settled rather than one it is still computing.
 
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 export interface OverflowMeasurementBatchOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Run once per batched frame. Composed by the caller, opaque here. */
   readonly runPass: () => void;
   /**
@@ -57,7 +57,7 @@ export interface OverflowMeasurementBatchOptions {
 }
 
 export class OverflowMeasurementBatch {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #runPass: () => void;
   readonly #publishOnResize: () => void;
 

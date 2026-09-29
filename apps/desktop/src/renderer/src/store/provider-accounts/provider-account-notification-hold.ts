@@ -67,7 +67,7 @@ export type NotificationHoldOutcome = "held" | "overflowed";
  * strand them, and one able to take them without lowering it would hand the same
  * frames over twice. {@link release} is that transition and is the only one.
  */
-export class ProviderQuotaNotificationHold {
+export class ProviderAccountNotificationHold {
   #held: ProviderAccountNotification[] = [];
   #isHolding = false;
 

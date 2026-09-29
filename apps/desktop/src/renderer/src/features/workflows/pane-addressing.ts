@@ -1,7 +1,7 @@
 // The question both workflows panes answer before they answer their own: is this
 // pane pointed at a subject it opens?
 //
-// TWO PANES, ONE MISTAKE. The deck hands a pane a `ConsoleEntityRef`, and the entity
+// TWO PANES, ONE MISTAKE. The deck hands a pane a `EntityRef`, and the entity
 // set registers `workflow-definition` and `workflow-run` as two kinds deliberately —
 // a definition is authored, versioned and scoped and outlives every run of it. The
 // builder opens the first and the run view the second, and neither may read an id off
@@ -20,12 +20,12 @@
 //
 // REFUSED, NEVER THROWN, AND NEVER QUIETLY READ. Both of the other dispositions are
 // worse: a throw takes the whole deck down over one mis-addressed pane, and reading
-// the id anyway is the defect this replaces. The refusal is a `ConsoleRefusal` rather
+// the id anyway is the defect this replaces. The refusal is a `Refusal` rather
 // than a boolean so the two panes render one grammar — rule 9's code in mono and the
 // sentence verbatim — instead of each writing its own words for the same state.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The code a pane raises when its address names a kind it does not open.
@@ -47,9 +47,9 @@ export const PANE_ADDRESS_INVALID_CODE = "pane-address-invalid" as const;
  */
 export function misaddressedPane(
   origin: string,
-  subjectKind: ConsoleEntityRef["kind"],
-  addressedKind: ConsoleEntityRef["kind"],
-): ConsoleRefusal {
+  subjectKind: EntityRef["kind"],
+  addressedKind: EntityRef["kind"],
+): Refusal {
   return refuse(
     origin,
     PANE_ADDRESS_INVALID_CODE,

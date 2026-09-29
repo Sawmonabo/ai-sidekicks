@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settle } from "@test/helpers/settle.js";
-import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
+import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
 import { getButton, renderRuntimePage } from "./runtime-page.test-support.js";
@@ -30,7 +30,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
   it("shows the attempt count while the ladder is running", () => {
     const { container } = renderRuntimePage({
       shellState: {
-        ...UNREPORTED_SHELL_STATE,
+        ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "reconnecting", attempt: 3, attemptLimit: 5 },
       },
     });
@@ -42,7 +42,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
     // A row reading "attempt — of 5" on a healthy window would be a field with
     // nothing in it pretending to be a measurement.
     const { container } = renderRuntimePage({
-      shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
+      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     expect(container.textContent).not.toContain("Attempt");
   });
@@ -50,7 +50,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
   it("shows the last heartbeat where one was reported, and its absence where none was", () => {
     const withBeat = renderRuntimePage({
       shellState: {
-        ...UNREPORTED_SHELL_STATE,
+        ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "connected" },
         lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
       },
@@ -58,7 +58,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
     expect(withBeat.container.textContent).toContain("2026-01-01T10:00:00.000Z");
 
     const withoutBeat = renderRuntimePage({
-      shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
+      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     expect(withoutBeat.container.textContent).toContain("No heartbeat reported");
   });
@@ -92,13 +92,13 @@ describe("DaemonPage — the reported status", () => {
 
   it("asks the runtime again when the supervisor moves under the window", async () => {
     const { container, ledger, showShellState } = renderRuntimePage({
-      shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
+      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     await waitFor(() => {
       expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
     });
 
-    showShellState({ ...UNREPORTED_SHELL_STATE, connection: { kind: "stopped" } });
+    showShellState({ ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } });
 
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-2");
@@ -112,7 +112,7 @@ describe("DaemonPage — the reported status", () => {
     // ladder, which is interval polling arriving by the back door.
     const { ledger, showShellState } = renderRuntimePage({
       shellState: {
-        ...UNREPORTED_SHELL_STATE,
+        ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
       },
     });
@@ -121,7 +121,7 @@ describe("DaemonPage — the reported status", () => {
     });
 
     showShellState({
-      ...UNREPORTED_SHELL_STATE,
+      ...UNREPORTED_MAIN_PROCESS_STATE,
       connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
       lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
     });
@@ -253,7 +253,7 @@ describe("DaemonPage — the two controls", () => {
 
   it("offers no start control — starting is a shell act and not a call", () => {
     const { container } = renderRuntimePage({
-      shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "stopped" } },
+      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } },
     });
     const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);
     expect(labels).not.toContain("Start");

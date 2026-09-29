@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 
 import { settle } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 import { registerSettingsSurface } from "./contributions/screens.js";
@@ -97,7 +97,7 @@ export const CHUNK_WARM_TIMEOUT_MS = 120_000;
 /** A window parked on a settings address, plus the store that remembers where it has been. */
 export interface SettingsWindow {
   readonly context: ScreenContext;
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
 }
 
 /**
@@ -112,7 +112,7 @@ export function windowAt(
   page: string | undefined,
   openedSessionIds: readonly string[] = [],
 ): SettingsWindow {
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   for (const sessionId of openedSessionIds) {
     frameStore.navigate({ kind: "workspace", sessionId });
   }

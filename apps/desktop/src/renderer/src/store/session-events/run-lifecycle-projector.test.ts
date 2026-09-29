@@ -24,7 +24,7 @@ import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { SessionStore } from "../session/session-store.js";
-import { type ConsoleSessionEvent } from "../session/entities/entities.js";
+import { type ProjectedSessionEvent } from "../session/entities/entities.js";
 import { type SessionSnapshot } from "../session/session-state.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,
@@ -54,7 +54,7 @@ function storeDrivenBy(scenario: ConsoleScenario): SessionStore {
     sessionId: scenario.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise(baseStateFor(scenario));
+  store.initialize(baseStateFor(scenario));
   store.applyBatch(scenario.beats.map((beat) => beat.event));
   return store;
 }
@@ -75,7 +75,7 @@ function runIdsNamedBy(scenario: ConsoleScenario): readonly string[] {
 }
 
 /** The first beat of one kind, or a failure naming what the scenario was missing. */
-function firstBeatOfKind(scenario: ConsoleScenario, kind: string): ConsoleSessionEvent {
+function firstBeatOfKind(scenario: ConsoleScenario, kind: string): ProjectedSessionEvent {
   const beat = scenario.beats.find((candidate) => candidate.event.kind === kind);
   if (beat === undefined) {
     throw new Error(`scenario "${scenario.id}" scripts no ${kind} beat`);
@@ -228,7 +228,7 @@ describe("the concurrent-streaming scenario's run, folded", () => {
  * because half the cases below are about a member the beat does not carry and a
  * builder that always wrote one could not express them.
  */
-function runBeat(kind: string, payload: Readonly<Record<string, unknown>>): ConsoleSessionEvent {
+function runBeat(kind: string, payload: Readonly<Record<string, unknown>>): ProjectedSessionEvent {
   return {
     id: "019b79ee-0280-7ea1-8110-e5e0d1150804",
     sessionId: SYNTHETIC_SESSION_ID,
@@ -246,7 +246,7 @@ function runBeat(kind: string, payload: Readonly<Record<string, unknown>>): Cons
  * Sequence 1 against a cursor of 0, so the store reads the first beat as the next
  * event rather than as a gap it would degrade for.
  */
-function storeApplying(events: readonly ConsoleSessionEvent[]): {
+function storeApplying(events: readonly ProjectedSessionEvent[]): {
   readonly store: SessionStore;
   readonly outcome: ReturnType<SessionStore["applyBatch"]>;
 } {
@@ -254,7 +254,7 @@ function storeApplying(events: readonly ConsoleSessionEvent[]): {
     sessionId: SYNTHETIC_SESSION_ID,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return { store, outcome: store.applyBatch([...events]) };
 }
 
@@ -331,7 +331,7 @@ describe("the projector on a payload that does not carry its kind's state", () =
     // touched, under a kind the timeline renders as running, still holding the
     // state it left. Now the second beat contributes nothing at all.
     const starting = runBeat("run.starting", payloadNaming("starting"));
-    const statelessRunning: ConsoleSessionEvent = {
+    const statelessRunning: ProjectedSessionEvent = {
       ...runBeat("run.running", {
         sessionId: SYNTHETIC_SESSION_ID,
         runId: "run-1",
@@ -469,7 +469,7 @@ describe("the projector on a payload that names another session", () => {
 });
 
 describe("the projector on a payload it cannot key on", () => {
-  const eventWithoutRunIdentity: ConsoleSessionEvent = {
+  const eventWithoutRunIdentity: ProjectedSessionEvent = {
     id: "019b79ee-0280-7ea1-8110-e5e0d1150801",
     sessionId: SYNTHETIC_SESSION_ID,
     sequence: 1,

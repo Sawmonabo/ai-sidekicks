@@ -34,7 +34,7 @@
 //      after the clear is a real second announcement and is spoken again.
 //
 //   4. **One armed timer, ever.** The console's idle-CPU budget is checked by
-//      counting armed work on the `ConsoleClock` seam, so the announcer arms at
+//      counting armed work on the `Clock` seam, so the announcer arms at
 //      most one timeout at a time — for the earliest lane deadline — and re-arms
 //      from inside its own tick. Nothing polls, and an idle announcer holds no
 //      handle at all.
@@ -44,7 +44,7 @@ import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
 } from "./live-announcement-caps.js";
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 /**
  * The two speech channels, declared once.
@@ -70,7 +70,7 @@ export interface LiveAnnouncementState {
 
 export interface LiveAnnouncerOptions {
   /** Defaults to `RealClock`. The clear deadline is the only timer this class arms. */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
   /** Defaults to `LIVE_ANNOUNCEMENT_QUEUE_CAP`, per lane. */
   readonly queueCap?: number;
   /** Defaults to `LIVE_ANNOUNCEMENT_HOLD_MS`. */
@@ -80,7 +80,7 @@ export interface LiveAnnouncerOptions {
 const SILENT: LiveAnnouncementState = { polite: "", assertive: "" };
 
 export class LiveAnnouncer {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #queueCap: number;
   readonly #holdMs: number;
   readonly #changes = new Emitter<LiveAnnouncementState>("live announcement");

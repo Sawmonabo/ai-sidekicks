@@ -260,7 +260,7 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /** Steps on the user wheel. Twelve, per design-language rule 2. */
-export const ACTOR_HUE_STEPS = 12;
+export const HUE_WHEEL_STEPS = 12;
 
 /**
  * Fixed lightness for every user hue — one value for both schemes, because
@@ -292,7 +292,7 @@ export const HUE_WHEEL_CHROMA = 0.135;
 export const HUE_WHEEL_ORIGIN_DEGREES = 20;
 
 /** Degrees between adjacent wheel steps. */
-export const HUE_WHEEL_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
+export const HUE_WHEEL_STEP_DEGREES: number = 360 / HUE_WHEEL_STEPS;
 
 /** The hue angle of a wheel step, in degrees. */
 export function computeHueWheelAngle(step: number): number {
@@ -325,7 +325,7 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  * carry a hue at a glance, narrow enough that a screen of rows reads as a log
  * rather than as a striped table.
  */
-export const ATTRIBUTION_EDGE_WIDTH_PX = 2;
+export const LEADING_EDGE_WIDTH_PX = 2;
 
 /**
  * One step of a rem scale, by name. Throws rather than resolving `undefined`.

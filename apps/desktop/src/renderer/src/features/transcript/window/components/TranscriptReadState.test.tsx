@@ -57,13 +57,13 @@ describe("when the first read itself failed", () => {
 describe("once the window has been read", () => {
   it("draws nothing at all while the projection is keeping up", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     expect(readStateOf(sessionStore).textContent).toBe("");
   });
 
   it("carries the catching-up mark while the store is behind, naming the cause", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.markDegraded("sequence-gap");
     const container = readStateOf(sessionStore);
     expect(container.textContent).toContain("Catching up.");
@@ -74,7 +74,7 @@ describe("once the window has been read", () => {
 
   it("negative control: the shells are gone, so the two arms are never both drawn", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.markDegraded("stream-diverged");
     expect(
       readStateOf(sessionStore).querySelectorAll(".meridian-transcript-window-skeleton__row"),

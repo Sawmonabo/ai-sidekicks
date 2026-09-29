@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { emptyFindResult } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
@@ -80,10 +80,10 @@ function actInputs(
 
 /** Every refusal raised on the frame's channel for the length of one case. */
 function collectRaisedRefusals(): {
-  readonly raised: ConsoleRefusal[];
+  readonly raised: Refusal[];
   readonly withdraw: () => void;
 } {
-  const raised: ConsoleRefusal[] = [];
+  const raised: Refusal[] = [];
   const withdraw = publishCommandRefusalSink((refusal) => {
     raised.push(refusal);
   });

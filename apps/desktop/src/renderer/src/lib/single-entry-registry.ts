@@ -39,7 +39,7 @@ export interface SingleEntryDescriptor<TRenderer> {
   readonly render: TRenderer;
 }
 
-export class SingleSlotSeat<TRenderer> {
+export class SingleEntryRegistry<TRenderer> {
   readonly #seatName: string;
   readonly #descriptorsBySeatName: KeyedRegistry<string, SingleEntryDescriptor<TRenderer>>;
 

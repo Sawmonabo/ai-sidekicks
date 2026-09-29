@@ -34,9 +34,9 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import {
-  UNREPORTED_SHELL_NOTICE,
-  describeShellConnection,
-  type ShellState,
+  UNREPORTED_DAEMON_NOTICE,
+  describeDaemonConnection,
+  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "../../types.js";
 import {
@@ -190,7 +190,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
  * reason the connection is a union: a row reading "attempt — of 5" on a connected
  * window would be a field with nothing in it pretending to be a measurement.
  */
-function renderSupervisorFacts(state: ShellState): ReactNode {
+function renderSupervisorFacts(state: MainProcessState): ReactNode {
   const { connection, lastHeartbeatAt, negotiation } = state;
   return (
     <>
@@ -200,11 +200,11 @@ function renderSupervisorFacts(state: ShellState): ReactNode {
           <Nothing
             kind="not-checked"
             placement="inline"
-            title={UNREPORTED_SHELL_NOTICE.title}
-            detail={UNREPORTED_SHELL_NOTICE.detail}
+            title={UNREPORTED_DAEMON_NOTICE.title}
+            detail={UNREPORTED_DAEMON_NOTICE.detail}
           />
         ) : (
-          <span>{describeShellConnection(connection)}</span>
+          <span>{describeDaemonConnection(connection)}</span>
         ),
       )}
       {connection.kind === "reconnecting"

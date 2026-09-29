@@ -26,8 +26,8 @@
 // this; the prop contract is declared here, beside the body that reads every member
 // of it, and re-exported there under the name callers type against.
 
-import { RefusalBanner, SurfaceErrorBoundary } from "@renderer/console/primitives/index.js";
-import { type FrameBanner } from "@renderer/store/window/window-store.js";
+import { RefusalBanner, ErrorBoundary } from "@renderer/console/primitives/index.js";
+import { type WindowBanner } from "@renderer/store/window/window-store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
 import { formatRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
@@ -38,7 +38,7 @@ export interface FrameChromeProps {
   readonly railEntries: readonly RailEntry[];
   readonly railDestination: RailDestination | undefined;
   readonly onSelectDestination: (destination: RailDestination) => void;
-  readonly banners: readonly FrameBanner[];
+  readonly banners: readonly WindowBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
   /** The surface the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
@@ -98,12 +98,9 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
               rendering of a route, so two routes are one boundary exactly when they
               are one address.
             */}
-            <SurfaceErrorBoundary
-              key={formatRoute(props.route)}
-              surfaceName={surfaceNameFor(props.route)}
-            >
+            <ErrorBoundary key={formatRoute(props.route)} regionName={surfaceNameFor(props.route)}>
               {props.children}
-            </SurfaceErrorBoundary>
+            </ErrorBoundary>
           </main>
         </div>
       </div>

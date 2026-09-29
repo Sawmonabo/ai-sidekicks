@@ -31,7 +31,7 @@
 
 import { useCallback } from "react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SubjectScopedPublish } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
@@ -50,7 +50,7 @@ export interface ComposerActState {
   /** What the bar renders while a send is travelling from THIS address. */
   readonly status: SendControllerStatus;
   /** The one refusal the bar renders, or `undefined`. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /** Publish what the send path is doing. Dropped once the address has moved. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
   /**
@@ -63,7 +63,7 @@ export interface ComposerActState {
   /** Write one act's settlement, or discard it because its identity has moved on. */
   readonly settle: (
     identity: ComposerSettlementIdentity,
-    settledRefusal: ConsoleRefusal | undefined,
+    settledRefusal: Refusal | undefined,
   ) => void;
   /**
    * Clear the line the act was issued on, but only while that act is still current.
@@ -109,7 +109,7 @@ export function useComposerActState(
   );
 
   const settle = useCallback(
-    (identity: ComposerSettlementIdentity, settledRefusal: ConsoleRefusal | undefined): void => {
+    (identity: ComposerSettlementIdentity, settledRefusal: Refusal | undefined): void => {
       if (!isCurrent(identity)) {
         return;
       }

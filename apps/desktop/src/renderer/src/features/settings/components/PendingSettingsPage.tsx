@@ -21,7 +21,7 @@
 // The marker rides a `hidden` element for that module's reason: `display: none`
 // contributes no box, so what the reserved region costs the layout is nothing.
 
-import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/console/seats/index.js";
+import { PENDING_BODY_ATTRIBUTE } from "@renderer/console/seats/index.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 export interface PendingSettingsPageProps {
@@ -31,5 +31,5 @@ export interface PendingSettingsPageProps {
 
 /** The settings page's region, before its body. */
 export function PendingSettingsPage(props: PendingSettingsPageProps): React.JSX.Element {
-  return <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: props.section }} />;
+  return <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: props.section }} />;
 }

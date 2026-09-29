@@ -24,7 +24,7 @@ import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
  * The surfaces this tier captures, each with the name its image is written under.
@@ -55,7 +55,7 @@ afterEach(async () => {
 
 describe("screenshot — the workflows surfaces", () => {
   for (const surface of PINNED_SURFACES) {
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       it(`renders ${surface.captureName} in the ${scheme} scheme`, async () => {
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is

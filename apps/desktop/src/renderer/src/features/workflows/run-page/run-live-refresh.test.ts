@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { WorkflowRunLiveRefresh } from "./run-live-refresh.js";
 
@@ -26,7 +26,7 @@ const RUN_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
 const RUN_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
 
 /** One workflow frame, carrying the run its payload names. */
-function frameForRun(kind: string, sequence: number, workflowRunId: string): ConsoleSessionEvent {
+function frameForRun(kind: string, sequence: number, workflowRunId: string): ProjectedSessionEvent {
   return eventOfKind(SESSION_ID, kind, sequence, { workflowRunId });
 }
 
@@ -42,7 +42,7 @@ afterEach(() => {
 /** A store the trigger set will read transitions off — initialised, as it requires. */
 function initialisedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -133,7 +133,7 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
     await settle(clock);
     expect(reading.round).toBe(0);
 
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     await settle(clock);
 
     expect(reading.round).toBe(1);
@@ -318,7 +318,7 @@ describe("WorkflowRunLiveRefresh — teardown", () => {
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "workflow.completed", 2)]);
     window.dispatchEvent(new Event("focus"));
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     await settle(clock);
 
     expect(reading.round).toBe(roundBeforeDispose);

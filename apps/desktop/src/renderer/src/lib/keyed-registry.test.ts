@@ -17,7 +17,7 @@ import {
   KeyedRegistry,
   lookupOrThrow,
 } from "./keyed-registry.js";
-import { ConsoleRefusalError, isConsoleRefusal, type ConsoleRefusal } from "./refusal.js";
+import { RefusalError, isRefusal, type Refusal } from "./refusal.js";
 
 interface OwnedCommand {
   readonly owner: string;
@@ -54,7 +54,7 @@ function ownerScopedSlotRegistry(): KeyedRegistry<string, OwnedCommand> {
   });
 }
 
-interface RefusedRegistration extends ConsoleRefusal {
+interface RefusedRegistration extends Refusal {
   readonly key: string;
 }
 
@@ -153,10 +153,10 @@ describe("KeyedRegistry — the throw policy", () => {
       raised = registrationFailure;
     }
 
-    expect(raised).toBeInstanceOf(ConsoleRefusalError);
+    expect(raised).toBeInstanceOf(RefusalError);
     expect(raised).toBeInstanceOf(Error);
     expect((raised as DuplicateRegistrationError).name).toBe("DuplicateRegistrationError");
-    expect(isConsoleRefusal((raised as DuplicateRegistrationError).refusal)).toBe(true);
+    expect(isRefusal((raised as DuplicateRegistrationError).refusal)).toBe(true);
   });
 });
 
@@ -237,8 +237,8 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
       raised = constructionFailure;
     }
 
-    expect(raised).toBeInstanceOf(ConsoleRefusalError);
-    expect((raised as ConsoleRefusalError).refusal.code).toBe("owner-reader-missing");
+    expect(raised).toBeInstanceOf(RefusalError);
+    expect((raised as RefusalError).refusal.code).toBe("owner-reader-missing");
   });
 
   it("negative control: the same registry WITH an owner reader constructs", () => {

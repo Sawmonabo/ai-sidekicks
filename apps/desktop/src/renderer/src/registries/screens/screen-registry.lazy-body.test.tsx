@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { countingLoader, syntheticSurfaceContext } from "@test/helpers/lazy-body-contexts.js";
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { type ScreenContext } from "./screen-context.js";
 import { ScreenRegistry } from "./screen-registry.js";
 
@@ -60,7 +60,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
 
     // Read at the FIRST commit, with no settle in between: that is the frame a person
     // would have seen the reserved region in.
-    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(listPendingBodyNames(container)).toStrictEqual([]);
     expect(container.textContent).toContain("the workflows destination");
   });
 

@@ -123,7 +123,7 @@ function heldRead(): {
 
 function openStore(options: { readonly readFromCursor?: string } = {}): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
+  store.initialize({
     cursor: 41,
     entities: [],
     timeline: [40, 41].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
@@ -219,7 +219,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     // position it answered at. The cursor is ahead of the store's, because a read
     // behind it is refused as stale and would leave the log, and this walk's place in
     // it, exactly as they were.
-    store.initialise({
+    store.initialize({
       cursor: 45,
       entities: [],
       timeline: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
@@ -234,7 +234,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
 
 /** The refresh a live session performs: a later completed read re-opens the window. */
 function refreshWindowHigherUp(store: SessionStore): void {
-  store.initialise({
+  store.initialize({
     cursor: 61,
     entities: [],
     timeline: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),

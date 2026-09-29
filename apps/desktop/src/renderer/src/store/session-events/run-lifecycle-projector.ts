@@ -10,7 +10,7 @@
 //
 // Two constraints meet, and only one home satisfies both. It reads WIRE member
 // names off an event payload, which `store/` deliberately does not do —
-// `store/entities/entities.ts` frames `ConsoleSessionEvent` as a renderer-local projection
+// `store/entities/entities.ts` frames `ProjectedSessionEvent` as a renderer-local projection
 // contract precisely so the store family holds no wire knowledge, the same reason
 // `frame/session/session-event-binder.ts` states for living here. And it is REGISTERED by the
 // composition root, which puts it at or below `frame/` in the family DAG: a view
@@ -117,7 +117,7 @@ import { runStateForTransitionKind } from "@renderer/store/session-events/run-st
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityMutation,
   EntityProjector,
   EntityProjectorTable,
@@ -143,7 +143,7 @@ export const RUN_LIFECYCLE_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CA
  * with none.
  */
 export const projectRunLifecycleEvent: EntityProjector = (
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
   // First, and for every kind at once: the beat is folded into the store it was

@@ -1,6 +1,6 @@
 // The builder pane's body: the canvas's slots, or the refusal or absence an address earns.
 //
-// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip and the body box for every pane
 // kind in the console; what this file returns is what stands inside it. So the pane is
 // named by its whole address trail rather than by the words "Workflow builder".
@@ -26,7 +26,7 @@
 // children, so a pane that handed it any other state would have its two slots dropped
 // silently.
 //
-// AN ADDRESS IS CHECKED BEFORE IT IS USED. A pane carries a `ConsoleEntityRef`, and
+// AN ADDRESS IS CHECKED BEFORE IT IS USED. A pane carries a `EntityRef`, and
 // the store registers `workflow-definition` and `workflow-run` as two kinds
 // deliberately — a definition is authored, versioned and scoped and outlives every
 // run of it. This pane authors the first, so a run id addressed here must not be
@@ -42,8 +42,8 @@
 
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import {
   WORKFLOW_BUILDER_SUBJECT_KIND,
   misaddressedBuilderPane,
@@ -69,7 +69,7 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
   // PARSED, out of a persisted layout an older build wrote and out of a route. A
   // parsed value is data rather than a proof, so the two guards below stay live and
   // this annotation is what keeps the compiler from calling them dead.
-  const entity: ConsoleEntityRef | undefined = props.context.entity;
+  const entity: EntityRef | undefined = props.context.entity;
   // The definition the trail reads, and the one the slots are composed for: an entity
   // of another kind names neither, so both are absent on exactly the arm that refuses.
   const definition = entity?.kind === WORKFLOW_BUILDER_SUBJECT_KIND ? entity : undefined;
@@ -112,7 +112,7 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
   }
 
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="workflow-builder"
       sessionId={sessionStore?.sessionId}
       entity={definition}
@@ -122,6 +122,6 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
       focusHue={focusHue}
     >
       {renderBody()}
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

@@ -47,7 +47,7 @@ export interface LazyBodyProps<TContext extends object> {
  * Mount a loader-backed body, showing the board's reserved region until it lands.
  *
  * There is no error arm here on purpose. A chunk that cannot be fetched is a damaged
- * install rather than a body-level condition, and `primitives/SurfaceErrorBoundary` is
+ * install rather than a body-level condition, and `primitives/ErrorBoundary` is
  * the console's one answer to a subtree that threw — a second, narrower boundary here
  * would catch the body's own render failures too and report them as a load that failed,
  * which is a different sentence and usually the wrong one.
@@ -74,7 +74,7 @@ export function LazyBody<TContext extends object>(
   // so that component's identity is the identity of the load it stands for, and exactly
   // two things replace it: a board re-registering the same kind under the same owner — a
   // hot reload, a suite recomposing a family, a window swapping a fixture — which
-  // replaces the whole `LoadedLazyBody`, and a load that REJECTED, which rebuilds the
+  // replaces the whole `LoaderBackedBody`, and a load that REJECTED, which rebuilds the
   // `lazy()` over a fresh memo because React never re-runs a rejected one's initializer
   // (`lazy-body.ts` states that at the field). The element type and its position do not
   // change through either, so React keeps this instance and the initializer never runs

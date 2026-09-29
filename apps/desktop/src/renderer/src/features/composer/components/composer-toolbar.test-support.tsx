@@ -10,13 +10,13 @@ import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  type ConsoleEntity,
-  type ConsoleSessionEvent,
+  type StoredEntity,
+  type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
@@ -37,14 +37,14 @@ const TOOLBAR_SCENARIO: ConsoleScenario = {
 export const AGENT_ID = "agent-implementer";
 export const RUN_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
 
-export const AGENT: ConsoleEntity = {
+export const AGENT: StoredEntity = {
   kind: "agent",
   id: AGENT_ID,
   state: "running",
   body: { name: "Ada", driverName: "claude" },
 };
 
-export const RUNNING_RUN: ConsoleEntity = {
+export const RUNNING_RUN: StoredEntity = {
   kind: "run",
   id: RUN_ID,
   state: "running",
@@ -52,15 +52,15 @@ export const RUNNING_RUN: ConsoleEntity = {
   body: { agentId: AGENT_ID, runVersion: 4 },
 };
 
-const ON_THE_AGENT: ConsolePaneAddress = {
+const ON_THE_AGENT: PaneAddress = {
   kind: "agent-console",
   entity: { kind: "agent", id: AGENT_ID },
 };
 
 /** What a rail case seeds: the session's entities, the pane the composer is addressed to. */
 export interface ToolbarAddressing {
-  readonly entities?: readonly ConsoleEntity[];
-  readonly focusedPane?: ConsolePaneAddress | undefined;
+  readonly entities?: readonly StoredEntity[];
+  readonly focusedPane?: PaneAddress | undefined;
   readonly sessionId?: string;
 }
 
@@ -78,11 +78,11 @@ export const ADDRESSED: ToolbarAddressing = {
 
 /** Mount the rail over a real session store with `events` applied; returns the container. */
 export function mountToolbar(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   addressing: ToolbarAddressing = {},
 ): HTMLElement {
   const sessionStore = new SessionStore({ sessionId: addressing.sessionId ?? SESSION_ID });
-  sessionStore.initialise({
+  sessionStore.initialize({
     cursor: 0,
     entities: [...(addressing.entities ?? [])],
   });
@@ -92,7 +92,7 @@ export function mountToolbar(
       sessionStore={sessionStore}
       bridge={createFixtureBridge({ scenario: TOOLBAR_SCENARIO })}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      frameStore={new FrameStore()}
+      frameStore={new WindowStore()}
       route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
     />,
@@ -101,7 +101,7 @@ export function mountToolbar(
 }
 
 /** One context-window reading, positioned so two rows of one session never collide. */
-export function contextWindowEvent(sequence: number): ConsoleSessionEvent {
+export function contextWindowEvent(sequence: number): ProjectedSessionEvent {
   return {
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,

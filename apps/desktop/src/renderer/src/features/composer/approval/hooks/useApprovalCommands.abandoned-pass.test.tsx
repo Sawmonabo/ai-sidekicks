@@ -20,7 +20,7 @@ import {
   type ApprovalRecord,
   type ApprovalResolveRequest,
 } from "@renderer/services/approvals/approval-records.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
 import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
@@ -50,7 +50,7 @@ function inputResolvingThrough(
   return {
     pending: [pendingRecord()],
     resolvingApprovalIds: new Set<string>(),
-    resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
+    resolveRefusalByApprovalId: new Map<string, Refusal>(),
     resolve,
   };
 }

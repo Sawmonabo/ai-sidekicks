@@ -10,7 +10,7 @@ import { TERMINAL_SCENARIO } from "../../../../../../../fixtures/scenarios/termi
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 /** The terminal scenario's session id. */
@@ -49,9 +49,9 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
     );
   }
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
+  store.initialize(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
   const events = TERMINAL_SCENARIO.beats
-    .map((beat) => beat.event as ConsoleSessionEvent)
+    .map((beat) => beat.event as ProjectedSessionEvent)
     .filter((event) => event.sequence <= lastLeaseBeat.event.sequence);
   store.applyBatch(events);
   return store;
@@ -60,7 +60,7 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
 /**
  * The pane's region, or a raise. One reader, because three suites reach for it.
  *
- * The section is `seats/ConsolePaneChrome`'s now, so the query stays on the element
+ * The section is `seats/PaneFrame`'s now, so the query stays on the element
  * rather than moving to an accessible name: the chrome names a pane by its whole
  * address trail, and a suite mounting the pane with no session and one with a session
  * would then be looking the region up under two different names for the same reason

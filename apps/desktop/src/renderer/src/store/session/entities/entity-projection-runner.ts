@@ -6,7 +6,7 @@
 // entity contribution and nothing else — never the batch, never the process, and
 // never half a partition.
 
-import type { ConsoleSessionEvent, EntityProjectorTable } from "./entities.js";
+import type { ProjectedSessionEvent, EntityProjectorTable } from "./entities.js";
 import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
 
 /**
@@ -39,7 +39,7 @@ export class EntityProjectionRunner {
    */
   public run(
     partitions: SessionPartitions,
-    event: ConsoleSessionEvent,
+    event: ProjectedSessionEvent,
   ): SessionPartitions | undefined {
     const projector = Object.hasOwn(this.#projectors, event.kind)
       ? this.#projectors[event.kind]

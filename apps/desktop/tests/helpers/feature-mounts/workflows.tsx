@@ -39,7 +39,7 @@
 // member directly would pin a frame the shipped store could no longer produce.
 //
 // WHY EACH SURFACE IS FOUND A DIFFERENT WAY. Each pane IS one region, and
-// `seats/ConsolePaneChrome` names it with `aria-labelledby` pointing at the crumb
+// `seats/PaneFrame` names it with `aria-labelledby` pointing at the crumb
 // TRAIL rather than at a heading — so a pane's accessible name is its whole address
 // ("session-1 run-01 Workflow run") and two panes of one kind in one deck are told
 // apart by what they are scoped to. That is why the lookup below reads the trail's
@@ -66,7 +66,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {
@@ -75,7 +75,7 @@ import {
 } from "@renderer/features/workflows/index.js";
 import {
   PaneRegistry,
-  type ConsolePaneAddress,
+  type PaneAddress,
   type PaneContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
@@ -119,12 +119,12 @@ async function paneBodyComponent(
  * a tier cannot mount a workflow pane over an entity kind the seat refuses.
  */
 function paneContext(
-  address: ConsolePaneAddress & { readonly paneId: string },
+  address: PaneAddress & { readonly paneId: string },
   bridge: ConsoleBridge,
 ): PaneContext {
   return {
     ...address,
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened these panes from another: each tier mounts one body directly.
@@ -191,7 +191,7 @@ async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: Scre
  * reached the rail from a session the route has since left.
  */
 function surfaceContext(bridge: ConsoleBridge): ScreenContext {
-  const frameStore = new FrameStore({
+  const frameStore = new WindowStore({
     initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
   });
   frameStore.navigate({ kind: "workflows" });

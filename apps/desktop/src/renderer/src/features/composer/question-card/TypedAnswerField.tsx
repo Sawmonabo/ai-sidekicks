@@ -26,11 +26,11 @@
 
 import { useEffect, useId, useState } from "react";
 
-import { type DriverAskDelivery } from "@renderer/store/session-events/question-reading.js";
+import { type AnswerDelivery } from "@renderer/store/session-events/question-reading.js";
 
 export interface TypedAnswerFieldProps {
   /** Where the answer this card last dispatched has got to. */
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   /**
    * Whether the card has closed both arms — a delivery in flight or already taken, or
    * a supervisor that is not serving.

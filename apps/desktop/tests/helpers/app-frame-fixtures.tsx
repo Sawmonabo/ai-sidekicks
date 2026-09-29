@@ -12,7 +12,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import type { FrameBanner } from "@renderer/store/window/window-store.js";
+import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
@@ -31,13 +31,13 @@ export function CalmSurface(): React.JSX.Element {
 /** Everything `AppFrame` needs that a case is not making a claim about. */
 export function frameProps(
   route: ConsoleRoute,
-  banners: readonly FrameBanner[] = [],
+  banners: readonly WindowBanner[] = [],
 ): {
   route: ConsoleRoute;
   railEntries: readonly RailEntry[];
   railDestination: undefined;
   onSelectDestination: () => void;
-  banners: readonly FrameBanner[];
+  banners: readonly WindowBanner[];
   onDismissBanner: () => void;
 } {
   return {

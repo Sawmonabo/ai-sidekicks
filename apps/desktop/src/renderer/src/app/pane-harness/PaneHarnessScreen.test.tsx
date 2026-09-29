@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { PaneRegistry, type PaneContext, type PaneKind } from "@renderer/console/seats/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 import { AppRouter } from "../router.js";
 import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
@@ -121,7 +121,7 @@ function surfaceContextFor(route: ConsoleRoute): ScreenContext {
   return {
     route,
     bridge: {},
-    frameStore: new FrameStore({ initialRoute: route }),
+    frameStore: new WindowStore({ initialRoute: route }),
     // Present, so a case can tell "the harness passed the window's store through"
     // from "the harness passed nothing" — which is the difference between a pane
     // that holds session state and one that renders its not-bound absence.

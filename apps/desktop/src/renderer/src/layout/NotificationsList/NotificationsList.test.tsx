@@ -20,7 +20,7 @@ import { formatClockTime, formatDateTime } from "@renderer/console/primitives/in
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {
-  AttentionPlane,
+  AttentionSummary,
   type AttentionReading,
   type RefusedAttentionSession,
 } from "@renderer/store/attention/attention-summary.js";
@@ -48,7 +48,7 @@ function readingOf(
 ): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionPlane(items),
+    plane: new AttentionSummary(items),
     droppedCount: 0,
     refusedSessions,
     addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -158,7 +158,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([item()]),
+          plane: new AttentionSummary([item()]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -183,7 +183,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([]),
+          plane: new AttentionSummary([]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -238,7 +238,7 @@ describe("a read that did not cover every session", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([]),
+          plane: new AttentionSummary([]),
           droppedCount: 1,
           refusedSessions: [refusedSession("session-b")],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -334,7 +334,7 @@ describe("what makes the attention read run again", () => {
 
   /** Open one session whose store has a base state, so a settled event projects. */
   function openInitializedSession(registry: SessionStoreRegistry): string {
-    registry.open("session-a").initialise({ cursor: 0, entities: [] });
+    registry.open("session-a").initialize({ cursor: 0, entities: [] });
     return "session-a";
   }
 

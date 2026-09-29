@@ -14,7 +14,7 @@
 // WHAT THE BUILDER GUARANTEES, AND WHY EACH GUARANTEE IS WORTH A FUNCTION CALL
 //
 //   • **The row id is positional too, and minted from the scenario's own stem.**
-//     `ConsoleSessionEvent.id` is the daemon's opaque row id, and the hydrated-event
+//     `ProjectedSessionEvent.id` is the daemon's opaque row id, and the hydrated-event
 //     read is keyed by it — so a beat without one is a row nothing can ask about. It
 //     is minted from a stem the scenario owns rather than from its session id,
 //     because a caller that composed the id back out of `{sessionId, sequence}` would

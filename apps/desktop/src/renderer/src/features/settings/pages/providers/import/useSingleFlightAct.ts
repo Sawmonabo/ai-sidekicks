@@ -12,7 +12,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const IMPORT_REFUSAL_ORIGIN = "session-act";
@@ -100,7 +100,7 @@ export class SingleFlightAct<TRequest, TAnswer> {
    *
    * @returns the duplicate-press refusal, or `undefined` where the act was put.
    */
-  public async run(request: TRequest): Promise<ConsoleRefusal | undefined> {
+  public async run(request: TRequest): Promise<Refusal | undefined> {
     if (this.#settlement.status === "running") {
       return refuse(
         IMPORT_REFUSAL_ORIGIN,

@@ -25,7 +25,7 @@
 // separates two names cannot be read out as a name.
 
 import { Glyph, WireFigure } from "@renderer/console/primitives/index.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
 /**
@@ -38,7 +38,7 @@ import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 export interface PaneScopeAddress {
   readonly sessionId: string | undefined;
   readonly runId: string | undefined;
-  readonly entity: ConsoleEntityRef | undefined;
+  readonly entity: EntityRef | undefined;
 }
 
 /**

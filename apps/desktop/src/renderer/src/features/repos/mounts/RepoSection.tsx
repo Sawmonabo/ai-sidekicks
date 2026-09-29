@@ -4,7 +4,7 @@ import "./mount-controls.css";
 
 import { useCallback } from "react";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type ConsolePaneOpener } from "@renderer/console/seats/index.js";
+import { type PaneOpener } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";
@@ -20,7 +20,7 @@ export interface RepoSectionProps {
   /** Whether the section is expanded; collapsed, it shows only the summary line. */
   readonly isOpen: boolean;
   /** How the section opens a pane in its own window's deck. */
-  readonly openPane: ConsolePaneOpener;
+  readonly openPane: PaneOpener;
   /** The calls the section makes. Must be the same object between renders. */
   readonly operations: RepoOperations;
 }

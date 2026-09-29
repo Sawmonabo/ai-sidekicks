@@ -16,7 +16,7 @@
 // ever recorded and the pane sat on "Loading the terminal emulator" for the life of
 // the mount, with no refusal anywhere. `core/wire-rejection.ts` is total by
 // construction and is what every other rejection tail in this family already
-// reaches for, so the answer is a `ConsoleRefusal` for every input and a throw for
+// reaches for, so the answer is a `Refusal` for every input and a throw for
 // none.
 //
 // NO CALLER FALLBACK IS SUPPLIED, and that is a choice rather than an omission. The
@@ -30,7 +30,7 @@
 import { useEffect, useState } from "react";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { TerminalEmulatorLoader, TerminalEmulatorModule } from "../emulator-loader.js";
 
 /**
@@ -47,7 +47,7 @@ const EMULATOR_REFUSAL_ORIGIN = "terminal-emulator";
 export type TerminalEmulatorState =
   | { readonly status: "loading" }
   | { readonly status: "loaded"; readonly module: TerminalEmulatorModule }
-  | { readonly status: "failed"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "failed"; readonly refusal: Refusal };
 
 /**
  * The state before the fetch has answered.

@@ -9,7 +9,7 @@
 //
 // `TimelineRow` is a READ PROJECTION the daemon builds. The console reaches it only
 // through the backward page read (`services/daemon/timeline-page.ts`), and that reader
-// decodes every row into a `ConsoleSessionEvent` before the store sees it, which is
+// decodes every row into a `ProjectedSessionEvent` before the store sees it, which is
 // also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
 // the raw log and not the projection. So the surface has two honest options: render
 // nothing until a projection reaches it, or state what the log itself supports and
@@ -89,7 +89,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
@@ -104,7 +104,7 @@ export interface TranscriptRowProjection {
 /**
  * The registered census, read by a free-form wire type.
  *
- * The census is keyed by the registered union, and `ConsoleSessionEvent.kind` is a
+ * The census is keyed by the registered union, and `ProjectedSessionEvent.kind` is a
  * wire-verbatim `string` by contract — an event whose type this build does not know
  * is exactly the case this lookup exists to answer, so narrowing the key first
  * would be assuming the answer. The widening is on a READ-ONLY map, so nothing can
@@ -124,7 +124,7 @@ const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
  * same window byte-identical between runs.
  */
 export function projectFixtureShellRows(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
 ): TranscriptRowProjection {
   if (events.length === 0) {
     return EMPTY_PROJECTION;
@@ -216,7 +216,7 @@ type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_bound
 
 /** The members every arm spreads, all of them wire-verbatim but `summary`. */
 function commonRowFields(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   category: EventCategory,
 ): {
   readonly id: string;
@@ -251,7 +251,7 @@ function commonRowFields(
  * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
  */
 function projectRollbackBoundary(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   progression: RunProgression,
 ): RollbackBoundaryRow | undefined {
   const boundary = readRollbackBoundaryPayload(event.payload);

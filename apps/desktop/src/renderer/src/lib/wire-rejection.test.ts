@@ -21,7 +21,7 @@ import {
   readableOnce,
   revokedProxy,
 } from "./wire-errors.test-support.js";
-import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
+import { RefusalError, isRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
 /**
@@ -67,9 +67,7 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
 
   it("unwraps a carried refusal structurally, not by prototype", () => {
     const carried = refuse("persistence", "quota-exceeded", "The store is full.");
-    expect(normalizeWireRejection("repos", new ConsoleRefusalError(carried))).toStrictEqual(
-      carried,
-    );
+    expect(normalizeWireRejection("repos", new RefusalError(carried))).toStrictEqual(carried);
     // The control that makes "structurally" mean something: a plain object carrying
     // the same member is unwrapped identically. A value that crossed a realm or a
     // structured clone has no prototype chain left, and an `instanceof` check would
@@ -149,7 +147,7 @@ describe("normalizeWireRejection — total against a value that fights back", ()
     ["a function", () => undefined],
   ])("answers a refusal for %s", (_label, thrown) => {
     const refusal = normalizeWireRejection("browser", thrown);
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
     expect(refusal.code).toBe("browser-call-failed");
     expect(refusal.origin).toBe("browser");
   });
@@ -166,14 +164,14 @@ describe("normalizeWireRejection — total against a value that fights back", ()
     const value = throwingGetProxy();
     expect(() => (value as { code: unknown }).code).toThrow();
     const refusal = normalizeWireRejection("browser", value);
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
     expect(refusal.code).toBe("browser-call-failed");
   });
 
   it("answers a refusal for a circular object", () => {
     const circular: Record<string, unknown> = {};
     circular["self"] = circular;
-    expect(isConsoleRefusal(normalizeWireRejection("browser", circular))).toBe(true);
+    expect(isRefusal(normalizeWireRejection("browser", circular))).toBe(true);
   });
 
   it("answers a refusal for an Error whose message getter throws", () => {
@@ -205,7 +203,7 @@ describe("normalizeWireRejection — total against a value that fights back", ()
     const revoked = revokedProxy();
     expect(() => revoked instanceof Error).toThrow();
     const refusal = normalizeWireRejection("browser", revoked);
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
     expect(refusal.code).toBe("browser-call-failed");
     expect(refusal.detail).toBe("[unrepresentable value]");
   });
@@ -257,7 +255,7 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
   });
 
   it("rebuilds a CARRIED refusal too, not only one the rejection is", () => {
-    // The `ConsoleRefusalError` arm. Reading the answer twice is the identity claim
+    // The `RefusalError` arm. Reading the answer twice is the identity claim
     // spelled the only way it can be here: the candidate is unreadable a second time,
     // so an answer that reads twice is provably not the candidate.
     const refusal = normalizeWireRejection("repos", { refusal: readableOnceRefusal() });

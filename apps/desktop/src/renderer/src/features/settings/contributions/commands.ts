@@ -3,12 +3,12 @@
 //
 // Every bridge act settles. The palette drops the promise a command returns, so a `run`
 // that rejected would show the person nothing; each act catches its own failure and hands
-// it to the caller's sink as a `ConsoleRefusal`. The refusal detail is a constant sentence,
+// it to the caller's sink as a `Refusal`. The refusal detail is a constant sentence,
 // never the caught error's message: that text comes from the main process across IPC, may
 // be a stack, and names a subsystem the person cannot act on.
 
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
@@ -25,7 +25,7 @@ export type BridgeCommandRefusalCode = (typeof BRIDGE_COMMAND_REFUSAL_CODES)[num
 export const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
 
 /** Where a refused act is rendered. Supplied by the surface that owns the copy. */
-export type BridgeCommandRefusalSink = (refusal: ConsoleRefusal) => void;
+export type BridgeCommandRefusalSink = (refusal: Refusal) => void;
 
 /**
  * The bridge-backed commands, for a bridge the caller already holds.

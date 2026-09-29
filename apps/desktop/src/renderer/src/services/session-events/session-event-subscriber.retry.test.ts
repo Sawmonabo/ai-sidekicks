@@ -25,7 +25,7 @@ import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventBinder } from "./session-event-subscriber.js";
 import { PAST_EVERY_BEAT_MS, SESSION_ID } from "./session-event-subscriber.test-support.js";
@@ -115,8 +115,8 @@ function createOutageHarness(refusalCount: number): OutageHarness {
 // they are RECORDED instead, because these cases assert that a breach was detected
 // and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 describe("SessionEventBinder — the opens that failed, and what one returning edge is worth", () => {
@@ -139,7 +139,7 @@ describe("SessionEventBinder — the opens that failed, and what one returning e
     // No stream and no read: the second half of the same gap, and the half a
     // subscription-only fix would leave open.
     expect(reasonsSeen).toEqual([]);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
 
     binder.dispose();
   });

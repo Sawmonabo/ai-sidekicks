@@ -10,7 +10,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { USER_YOU } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 
 export const SESSION_ID = "session-header";
@@ -33,7 +33,7 @@ export interface StoreWithOptions {
    */
   readonly readFromCursor?: string;
   /** Entities the read carried, for a case about what the base state authoritatively holds. */
-  readonly entities?: readonly ConsoleEntity[];
+  readonly entities?: readonly StoredEntity[];
   /** Rows the store retains, so a case can drive the cap the way the ledger does. */
   readonly timelineCap?: number;
 }
@@ -46,7 +46,7 @@ export function storeWith(
     sessionId: SESSION_ID,
     ...(options.timelineCap === undefined ? {} : { timelineCap: options.timelineCap }),
   });
-  store.initialise({
+  store.initialize({
     cursor: timeline.length,
     entities: options.entities ?? [],
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),

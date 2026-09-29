@@ -8,7 +8,7 @@ import type { NotificationPermission } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -41,7 +41,7 @@ const OS_PERMISSION_READ_KEY = "os-notification-permission-read";
 export interface OsNotificationPermissionReadOptions {
   readonly probe: OsNotificationPermissionProbe;
   /** The clock the scheduler arms on. The fixture's frozen one under a scenario. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** One machine's notification permission, kept current by the window's triggers. */

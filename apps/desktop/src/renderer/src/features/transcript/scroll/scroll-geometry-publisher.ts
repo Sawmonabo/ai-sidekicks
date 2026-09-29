@@ -23,7 +23,7 @@
 // `scroll-callers.ts` records the same shape one seam over.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_TAIL_TOLERANCE_PX,
@@ -48,7 +48,7 @@ export interface ScrollGeometryReading {
 }
 
 export interface ScrollGeometryPublisherOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * Within this many pixels of the bottom counts as the tail.
    *
@@ -68,7 +68,7 @@ export interface ScrollGeometryPublisherOptions {
  * place to keep them.
  */
 export class ScrollGeometryPublisher {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #tailTolerancePx: number;
   readonly #emitter = new Emitter<ScrollGeometry>("ledger geometry");
 

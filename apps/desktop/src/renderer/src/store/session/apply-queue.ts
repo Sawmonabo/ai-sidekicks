@@ -25,20 +25,20 @@
 // again.
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /** The drain the queue performs. Exactly one call per coalescing window. */
-export type ApplyDrain = (events: readonly ConsoleSessionEvent[]) => void;
+export type ApplyDrain = (events: readonly ProjectedSessionEvent[]) => void;
 
 export interface ApplyQueueOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly drain: ApplyDrain;
   /**
    * The coalescing window, in milliseconds.
    *
    * `0` (or less) means the unit is a PAINT: the queue arms
-   * `ConsoleClock.scheduleFrame`, which is `requestAnimationFrame` on the real
+   * `Clock.scheduleFrame`, which is `requestAnimationFrame` on the real
    * clock and an explicit `runFrame()` on the manual one. Any positive value arms
    * a timeout of that length instead, which is what a host with no frame source
    * wants and what makes a drain observable at a named number of milliseconds of
@@ -62,11 +62,11 @@ export interface ApplyQueueOptions {
 }
 
 export class ApplyQueue {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #drain: ApplyDrain;
   readonly #coalesceMs: number;
   readonly #onDrainError: ((error: unknown) => void) | undefined;
-  #buffer: ConsoleSessionEvent[] = [];
+  #buffer: ProjectedSessionEvent[] = [];
   #armedHandle: ScheduledHandle | undefined;
   #drainCount = 0;
   #failedDrainCount = 0;
@@ -114,12 +114,12 @@ export class ApplyQueue {
   }
 
   /** Enqueue one event. Arms a single frame or timeout; never an interval. */
-  public enqueue(event: ConsoleSessionEvent): void {
+  public enqueue(event: ProjectedSessionEvent): void {
     this.enqueueAll([event]);
   }
 
   /** Enqueue many. Still one drain. */
-  public enqueueAll(events: readonly ConsoleSessionEvent[]): void {
+  public enqueueAll(events: readonly ProjectedSessionEvent[]): void {
     if (events.length === 0) {
       return;
     }

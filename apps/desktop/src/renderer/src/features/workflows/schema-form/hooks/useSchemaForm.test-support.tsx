@@ -110,7 +110,7 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  * ~13-21 ms on this tree and failed about one run in three, on a park-card count naming
  * none of it. That is the evidence for warming BOTH, and the reason to keep doing so.
  *
- * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoadedLazyBody` holds a SECOND memo:
+ * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoaderBackedBody` holds a SECOND memo:
  * the settled body it renders directly. Resolving `schemaFormChunk` alone leaves that
  * memo empty, so a warmed mount still commits the reserved region for a frame — the one
  * thing a warm exists to avoid. Its own load awaits `schemaFormChunk.load()`, so a caller

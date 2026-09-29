@@ -79,7 +79,7 @@ export type ConsoleRoute =
   // The pane kind travels as a bare `string` rather than as `PaneKind`, and that is
   // the DAG rather than laziness: `seats/` sits four families above `routing/`, so
   // this module cannot name that set. The surface the slot mounts holds the segment
-  // to `parseConsolePaneAddress`, which is the console's one admission point for an
+  // to `parsePaneAddress`, which is the console's one admission point for an
   // address that arrived untyped — the same predicate a restored layout snapshot is
   // held to, so a route a person types and a snapshot read off disk cannot disagree
   // about which kinds exist.

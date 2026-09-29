@@ -21,7 +21,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import type { FrameBanner } from "@renderer/store/window/window-store.js";
+import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import { liveRegionOf, liveRegionText } from "@test/helpers/live-region.js";
 import { AppFrame } from "./AppFrame.js";
 import {
@@ -34,7 +34,7 @@ import {
 } from "@test/helpers/app-frame-fixtures.js";
 
 /** A refusal wide enough for a banner: what the whole room can do has changed. */
-const REFUSAL_BANNER: FrameBanner = {
+const REFUSAL_BANNER: WindowBanner = {
   id: "banner-session-not-found",
   code: "session.not_found",
   detail: "That session could not be found, so no run can start here.",

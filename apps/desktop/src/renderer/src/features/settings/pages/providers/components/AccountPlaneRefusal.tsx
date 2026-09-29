@@ -18,7 +18,7 @@ import "./account-plane-handoff.css";
 
 import type { ReactNode } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
@@ -26,7 +26,7 @@ import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 
 export function AccountPlaneRefusal(props: {
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
   readonly openSection: (section: SettingsPageId) => void;
   /**
    * The section this refusal is being rendered ON, where it is on one at all.

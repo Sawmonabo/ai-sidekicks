@@ -315,7 +315,7 @@ function boundedDetail(detail: string): string {
 }
 
 /**
- * The console's capture. One per renderer process, on `consoleTripwires`' reasoning:
+ * The console's capture. One per renderer process, on `windowTripwires`' reasoning:
  * an auxiliary window is its own renderer process and therefore its own capture.
  *
  * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
@@ -326,4 +326,4 @@ function boundedDetail(detail: string): string {
  * forwarder the capture marks its own forward seam blind and holds what it has under
  * the pending bound, which is the state its marker exists to make legible.
  */
-export const consoleDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();
+export const windowDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();

@@ -30,7 +30,7 @@
 // and `windowing/` each hold one concern. Five of them carry an inner door publishing
 // exactly what a SIBLING takes; `announce/`, `chord/`, `overlay/`, `posture/`, and
 // `restore/` carry none, because no sibling reads in — `chord/` is read only from
-// `SurfaceAbsence.tsx` here at the root, which is not a sibling, so that file takes the
+// `ScreenNotice.tsx` here at the root, which is not a sibling, so that file takes the
 // declaring modules directly. This door re-exports from the module that DECLARES each
 // symbol and never through an inner one: `console-no-barrel-chain` fails the second
 // shape, and following a name to its home would otherwise take two hops. The root keeps
@@ -103,7 +103,7 @@ export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
-export { SurfaceErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
+export { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
 // `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
@@ -138,7 +138,7 @@ export {
 // slot, and one hint — and because both of its producers now sit BELOW the frame:
 // `frame/composition/RouteSurface.tsx` reaches down to it like any other consumer, and
 // `seats/surface/absorbed-surfaces.ts` could not have reached up at all.
-export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.js";
+export { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of
@@ -244,7 +244,7 @@ export type {
 } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
 export { WindowAbsences } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
 
-// No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
+// No marker: `InlineRefusal` has its consumers — `components/PaneFrame/PaneFrame.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
 // address, and the composer, sidebar, runs, approvals, inspector, settings,
 // channels, sessions, and agents surfaces, which render a row-scoped refusal
@@ -265,7 +265,7 @@ export { RemediedRefusal } from "@renderer/features/composer/components/RefusalW
 // class names whose declarations were identical property for property.
 export {
   /** @consumedBy a refusal that offers the person a way to recover */
-  RefusalRecovery,
+  RefusalRemedyContent,
 } from "@renderer/components/Refusal/RefusalRemedyContent.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the

@@ -1,6 +1,6 @@
 // One saved definition, and the things that can be done to it.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { DerivedFigure, InlineRefusal, WireFigure } from "@renderer/console/primitives/index.js";
 import { type AgentLibraryView } from "../library-view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
@@ -22,7 +22,7 @@ export function SavedDefinitionRow(props: {
   readonly isAnyDeleteInFlight: boolean;
   /** Whether the editor is currently open on this record. */
   readonly isOpenInEditor: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   readonly view: AgentLibraryView;
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;

@@ -23,13 +23,13 @@ import { createFixtureBridge } from "../platform-bridge.fixture.js";
 import { findScenario } from "../../../../../../fixtures/index.js";
 import { useConsoleBridge } from "./usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./useClock.js";
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../../fixtures/scenarios/first-run.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface ClockProbeProps {
   /** Every clock a render was handed, so its identity across renders is readable. */
-  readonly onClock: (clock: ConsoleClock) => void;
+  readonly onClock: (clock: Clock) => void;
   /** What the window's own resolution says the time is, for the same render. */
   readonly onWindowTime: (time: number) => void;
 }
@@ -74,7 +74,7 @@ function lastOf<TSeen>(seen: readonly TSeen[], what: string): TSeen {
 
 describe("useConsoleClock — one identity, and the window's current reading", () => {
   it("reads the replacement's clock through the identity it handed out first", () => {
-    const clocks: ConsoleClock[] = [];
+    const clocks: Clock[] = [];
     const windowTimes: number[] = [];
     const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
@@ -134,7 +134,7 @@ interface PinnedClockProbeProps {
 /** The shape `useConsoleClock` replaced: resolve once into `useState`, then hold it. */
 function PinnedClockProbe(props: PinnedClockProbeProps): null {
   const bridge = useConsoleBridge();
-  const [pinned] = useState<ConsoleClock>(() => consoleClockFor(bridge));
+  const [pinned] = useState<Clock>(() => consoleClockFor(bridge));
   props.onPinnedTime(pinned.now());
   props.onWindowTime(consoleClockFor(bridge).now());
   return null;

@@ -35,7 +35,7 @@ import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** What the console's outermost mounted element is, and what this file captures. */
 const FRAME_SELECTOR = ".meridian-frame";
@@ -57,7 +57,7 @@ afterEach(async () => {
 });
 
 describe("screenshot — the frame under the first-run scenario", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`renders the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(

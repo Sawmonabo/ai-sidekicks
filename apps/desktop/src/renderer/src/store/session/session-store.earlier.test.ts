@@ -18,7 +18,7 @@ function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[
 
 function openStore(options: { readonly timelineCap?: number } = {}): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID, ...options });
-  store.initialise({
+  store.initialize({
     cursor: 20,
     entities: [],
     timeline: eventsAt([18, 19, 20]),
@@ -37,7 +37,7 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     // window", and it is what keeps the head control off a log that starts at its own
     // beginning.
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 3, entities: [], timeline: eventsAt([3]) });
+    store.initialize({ cursor: 3, entities: [], timeline: eventsAt([3]) });
 
     expect(store.snapshot().windowHeadCursor).toBeUndefined();
   });
@@ -99,7 +99,7 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     // of it is which rows survive the cap.
     expect(store.prependEarlierEvents(eventsAt([17])).admitted).toBe(1);
 
-    store.initialise({
+    store.initialize({
       cursor: 30,
       entities: [],
       timeline: eventsAt([29, 30]),

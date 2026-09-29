@@ -27,7 +27,7 @@
 
 import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
@@ -127,7 +127,7 @@ export function subscribeDaemon(
 ): Unsubscribe {
   const { sessionId } = stream.request;
   if (typeof sessionId !== "string" || sessionId.length === 0) {
-    throw new ConsoleRefusalError(
+    throw new RefusalError(
       refuse(
         DAEMON_STREAM_REFUSAL_ORIGIN,
         "stream-request-unscoped",

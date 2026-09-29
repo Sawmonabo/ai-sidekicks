@@ -23,7 +23,7 @@
 // Module scope is window scope, as it is for the command registry: each window is its
 // own renderer process, so two windows share nothing.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /**
@@ -45,14 +45,14 @@ export type TranscriptActName = keyof TranscriptActs;
 /** What asking the seat to perform an act produced. */
 export type TranscriptActOutcome =
   | { readonly status: "performed"; readonly act: TranscriptActName }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
  * What an act says when no transcript is mounted. One value rather than one per act: a
  * person pressing a transcript chord from the settings page needs to know the transcript
  * is not here, not which act they reached for.
  */
-export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
+export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "ledger",
   "transcript.no_mounted_transcript",
   "No ledger is open in this window. Open a session and try again.",

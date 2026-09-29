@@ -1,6 +1,6 @@
 // The diff pane: a change set, or an honest absence.
 //
-// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
 // kind in the console; what this file returns is the BODY that goes inside it. The
 // section, its tab stop, its accessible name, and the actor's hue all arrive from
@@ -13,7 +13,7 @@
 import "./diff.css";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { type ConsoleDiffModel } from "../diff-model.js";
 
@@ -73,7 +73,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const absence = ABSENT_DIFF_COPY[context.entity.kind];
 
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="diff"
       sessionId={context.sessionStore?.sessionId}
       // Unconditional: a diff address carries its entity, so the arm this body is
@@ -96,6 +96,6 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           />
         </div>
       )}
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

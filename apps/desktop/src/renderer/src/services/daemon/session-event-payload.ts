@@ -1,7 +1,7 @@
 // The session stream's decoder: one delivered wire envelope in, one console event
 // out, or a refusal.
 //
-// `store/entities/entities.ts` says where this belongs: `ConsoleSessionEvent` is a
+// `store/entities/entities.ts` says where this belongs: `ProjectedSessionEvent` is a
 // renderer-local projection contract rather than a wire type, and "the bridge
 // adapter narrows a payload into this shape at the boundary, so exactly one module
 // knows the wire and everything above it reads this". This module is that boundary
@@ -48,7 +48,7 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * Narrow a delivered wire envelope into the console's own event shape, or refuse it.
@@ -77,7 +77,7 @@ import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entit
  * `category` is then checked and NOT carried. Checked, because for a type the
  * census knows there is exactly one registered category and a delivery naming any
  * other is one the strict layer refuses — so this boundary refuses it too, with the
- * one refusal shape it has. Not carried, because no reader of `ConsoleSessionEvent`
+ * one refusal shape it has. Not carried, because no reader of `ProjectedSessionEvent`
  * reads a category: every projector above routes on `kind`, and a member minted
  * ahead of its reader is what this package's structure rules forbid. For a type the
  * census does NOT know the check does not apply and tolerance stands unchanged —
@@ -87,7 +87,7 @@ import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entit
  */
 export function readProjectedSessionEvent(
   deliveredEnvelope: unknown,
-): ConsoleSessionEvent | undefined {
+): ProjectedSessionEvent | undefined {
   const parsed = EventEnvelopeSchema.safeParse(deliveredEnvelope);
   if (!parsed.success) {
     return undefined;

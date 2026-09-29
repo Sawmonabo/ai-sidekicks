@@ -12,8 +12,8 @@ import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {
-  askSettledBy,
-  type DriverAskReading,
+  applyQuestionSettlement,
+  type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 import { useQuestionSettlement } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -28,7 +28,7 @@ export interface BoundQuestionCardProps {
    * attribution beside it: the reading and the dispatcher then name one run by
    * construction, and no caller can hand a row an ask belonging to another.
    */
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /** The session the ask belongs to, whose store folds every settlement it admits. */
   readonly sessionStore: SessionStore;
 }
@@ -47,7 +47,10 @@ export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Ele
   // another window, or answered here and then scrolled out and back, kept its controls.
   // The session store folds every settlement; this is the lookup and the merge.
   const askTerminal = useQuestionSettlement(props.sessionStore, props.ask);
-  const ask = useMemo(() => askSettledBy(props.ask, askTerminal), [props.ask, askTerminal]);
+  const ask = useMemo(
+    () => applyQuestionSettlement(props.ask, askTerminal),
+    [props.ask, askTerminal],
+  );
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.
   const deadlines = useMemo(

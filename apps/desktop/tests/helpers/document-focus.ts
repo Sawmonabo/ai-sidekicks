@@ -4,7 +4,7 @@
 // the sessions family's attention-notifier suite reports a focus through it beside
 // `shell/frame-store.test.ts`.
 //
-// `FrameStore` seeds `isWindowFocused` from its own document, so a case about a window
+// `WindowStore` seeds `isWindowFocused` from its own document, so a case about a window
 // that opened unfocused has to make the document say so — the shim this tier runs
 // under reports a focused, visible document, which is the state a shipped window is in
 // most of the time and exactly the one the defect hid behind.

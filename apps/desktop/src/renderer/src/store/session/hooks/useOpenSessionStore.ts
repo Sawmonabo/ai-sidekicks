@@ -38,8 +38,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 
-import type { ConsoleEntity } from "../entities/entities.js";
-import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { StoredEntity } from "../entities/entities.js";
+import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { SessionStoreRegistry } from "../session-store-registry.js";
 import {
   selectEntity,
@@ -104,8 +104,8 @@ export function useSessionStore<TSelected>(
 /** One entity kind's map. Identity changes only when that kind changes. */
 export function useSessionPartition(
   store: SessionStore,
-  kind: ConsoleEntityKind,
-): Readonly<Record<string, ConsoleEntity>> {
+  kind: EntityKind,
+): Readonly<Record<string, StoredEntity>> {
   const select = useCallback((state: SessionStoreState) => selectPartition(state, kind), [kind]);
   return useStore(store.readable, select);
 }
@@ -117,10 +117,7 @@ export function useSessionPartition(
  * ordinary `useSessionEntity(store, { kind: "run", id })` — a fresh literal every
  * render — does not rebuild the selector on every pass.
  */
-export function useSessionEntity(
-  store: SessionStore,
-  ref: ConsoleEntityRef,
-): ConsoleEntity | undefined {
+export function useSessionEntity(store: SessionStore, ref: EntityRef): StoredEntity | undefined {
   const { kind, id } = ref;
   const select = useCallback(
     (state: SessionStoreState) => selectEntity(state, { kind, id }),

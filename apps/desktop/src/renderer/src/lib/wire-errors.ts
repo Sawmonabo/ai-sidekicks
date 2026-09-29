@@ -186,7 +186,7 @@ export function lossyStringify(value: unknown): string {
  * Renders a rejection as an `Error`, for a surface whose view state holds one.
  *
  * NAMED FOR WHAT IT ANSWERS. `normalizeWireRejection` in `wire-rejection.ts` answers a
- * `ConsoleRefusal` and keeps the daemon's own code; this one flattens the code onto
+ * `Refusal` and keeps the daemon's own code; this one flattens the code onto
  * `Error.name` for a surface whose view state holds an `Error`.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as

@@ -23,7 +23,7 @@ import {
 } from "./waiting-on-person-states.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "../session-store.js";
-import type { ConsoleSessionEvent } from "../entities/entities.js";
+import type { ProjectedSessionEvent } from "../entities/entities.js";
 
 const SESSION_ID = "session-journal";
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
@@ -35,7 +35,7 @@ function rowOf(
   kind: string,
   payload?: Readonly<Record<string, unknown>>,
   actorId?: string,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   const base = eventOfKind(SESSION_ID, kind, sequence, payload);
   return actorId === undefined ? base : { ...base, actorId };
 }
@@ -193,7 +193,7 @@ describe("SessionStore — the ledger outlives the window", () => {
     // the row that opened this approval is gone from the timeline a fold used to walk
     // — and the approval is still open.
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),
@@ -206,7 +206,7 @@ describe("SessionStore — the ledger outlives the window", () => {
 
   it("negative control: the same store answers zero once the approval is resolved", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "approval.approved", { approvalRequestId: "req-1" }, "user-you"),
@@ -218,7 +218,7 @@ describe("SessionStore — the ledger outlives the window", () => {
 
   it("takes what a backward page recovered from behind the window's head", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 5, entities: [] });
+    store.initialize({ cursor: 5, entities: [] });
     store.applyBatch([rowOf(6, "tool.invoked", { runId: "run-a" }, "agent-scout")]);
     expect(openCountOf(store.outstandingAskLedger)).toBe(0);
 

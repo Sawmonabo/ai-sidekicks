@@ -16,8 +16,8 @@ import {
 // suite, and a door line no production module imports is a dead export.
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
+  StoredEntity,
+  ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
 import {
   capabilityReadout as readout,
@@ -129,7 +129,7 @@ describe("the session's own projection is what names a run's driver", () => {
     sequence: number,
     agentId: string,
     driverName: string,
-  ): ConsoleSessionEvent {
+  ): ProjectedSessionEvent {
     return {
       id: `event-${String(sequence)}`,
       sessionId: SESSION_ID,
@@ -142,11 +142,11 @@ describe("the session's own projection is what names a run's driver", () => {
 
   function runsBoundTo(
     ...pairs: readonly (readonly [string, string])[]
-  ): Readonly<Record<string, ConsoleEntity>> {
+  ): Readonly<Record<string, StoredEntity>> {
     return Object.fromEntries(
       pairs.map(([runId, agentId]) => [
         runId,
-        { kind: "run", id: runId, state: "running", body: { agentId } } satisfies ConsoleEntity,
+        { kind: "run", id: runId, state: "running", body: { agentId } } satisfies StoredEntity,
       ]),
     );
   }

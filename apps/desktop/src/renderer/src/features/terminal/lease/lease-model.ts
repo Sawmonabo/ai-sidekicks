@@ -26,7 +26,7 @@
 // state. A class holding the fold's result beside the store would be a second
 // source of truth for a fact the log already orders.
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TERMINAL_LEASE_HISTORY_CAP } from "../terminal-caps.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,
@@ -126,7 +126,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * current state again, and the state it understands is that transition's.
  */
 export function projectTerminalLease(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   input: TerminalLeaseProjectionInput,
 ): TerminalLeaseState {
   const transitions: TerminalLeaseTransition[] = [];
