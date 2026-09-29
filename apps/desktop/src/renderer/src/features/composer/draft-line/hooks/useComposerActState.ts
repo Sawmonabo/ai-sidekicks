@@ -30,8 +30,7 @@
 // where it lands rather than written at an address the composer has left.
 
 import { useCallback } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";

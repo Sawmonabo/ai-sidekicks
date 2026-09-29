@@ -81,8 +81,7 @@
 // so the prop went and the readings stayed.
 
 import { useCallback, useMemo } from "react";
-
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { LedgerAskTerminalProvider } from "@renderer/console/ledger/cards/index.js";
 import {
   LedgerRowLeaseProvider,

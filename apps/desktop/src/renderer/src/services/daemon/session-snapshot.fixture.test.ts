@@ -9,15 +9,14 @@
 // its own would be a second source of truth for them.
 
 import { describe, expect, it } from "vitest";
-
-import { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/index.js";
-import { fixtureSessionAnswers } from "@renderer/console/bridge/fixture/session/session-answers.js";
+import { ScenarioEngine } from "./engine.fixture.js";
+import { fixtureSessionAnswers } from "./session-answers.fixture.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import type { SessionSnapshot } from "@renderer/store/session/session-store.js";
 
-/** The base state the fixture's session read serves for the flagship's own session. */
-async function servedFlagshipSnapshot(): Promise<SessionSnapshot> {
+/** The base state the fixture's session read serves for the concurrent-streaming scenario's own session. */
+async function servedConcurrentStreamingSnapshot(): Promise<SessionSnapshot> {
   const engine = new ScenarioEngine({ scenario: FLAGSHIP_SCENARIO });
   return await fixtureSessionAnswers(engine).sessionRead({
     sessionId: FLAGSHIP_SCENARIO.sessionId,
@@ -35,7 +34,7 @@ describe("the fixture's base state — what a store opens with", () => {
   it("files no entity of its own, every partition being the log's to project", async () => {
     // A base state that filed rows would stand as a second source of truth for
     // partitions a registered projector owns.
-    expect((await servedFlagshipSnapshot()).entities).toStrictEqual([]);
+    expect((await servedConcurrentStreamingSnapshot()).entities).toStrictEqual([]);
   });
 
   it("lends nothing to a session this scenario is not playing", () => {

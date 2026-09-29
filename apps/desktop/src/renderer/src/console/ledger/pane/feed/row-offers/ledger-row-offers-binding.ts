@@ -34,10 +34,10 @@
 import { Menu } from "@base-ui/react/menu";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { FilePathRef, TimelineRow } from "@ai-sidekicks/contracts";
-
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { FilePathRef } from "@shared/preload-api.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { raiseConsoleActRefusal } from "../../../../palette/index.js";
 import { type TimelineRowDensity } from "../../../../seats/index.js";

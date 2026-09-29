@@ -78,7 +78,6 @@
         "build/**/*.{ts,mts,mjs,cjs}",
         "scripts/**/*.{ts,mts,mjs,cjs}",
         "tests/**/*.{ts,tsx}",
-        "test/**/*.{ts,tsx}",
         "vitest/**/*.ts"
       ],
 
@@ -115,7 +114,7 @@
       "ignoreExportsUsedInFile": true,
 
       // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes with `spawnSync` on
-      // Linux runners (`test/helpers/electron-probe.ts`); it is installed by the CI job's apt
+      // Linux runners (`tests/helpers/display-readiness.ts`); it is installed by the CI job's apt
       // step and is never a package dependency, so knip is told not to expect it in a manifest.
       "ignoreBinaries": ["xdpyinfo"]
     },

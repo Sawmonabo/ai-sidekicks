@@ -22,7 +22,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionClient } from "../src/session-client.js";
-import { JsonRpcClient } from "../src/transport/jsonRpcClient.js";
+import { JsonRpcClient } from "../src/transport/json-rpc-client.js";
 import type { ClientTransport } from "../src/transport/types.js";
 
 // ---------------------------------------------------------------------------

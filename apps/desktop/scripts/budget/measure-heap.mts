@@ -1,41 +1,23 @@
 #!/usr/bin/env node
 // Renderer heap-at-rest budget.
 //
-// This file measures nothing, and that is its whole point. The budget's subject
-// is a RENDERER heap, and a person who runs `pnpm budget:heap` is told here which
-// harness holds one rather than being handed a figure from a process that does
-// not.
+// This file measures nothing, and that is its whole point. The budget's subject is a
+// renderer heap, and a Node process holds no Chromium, no renderer isolate, no React
+// and no DOM, so a figure read here would be short of the renderer by everything that
+// makes one. A person who runs `pnpm budget:heap` is told which harness holds the
+// reading instead: `tests/endurance/heap-at-rest.test.ts`, which launches the built
+// app, opens the concurrent-streaming scenario's session, walks the frozen clock over
+// the whole script, and reads the renderer's own heap.
 //
-// WHAT THIS FILE USED TO DO, AND WHY IT NO LONGER DOES IT
-//
-// It read `process.memoryUsage().heapUsed` in THIS Node process with a stand-in
-// entity map retained, and compared that figure against the 120 MB renderer
-// ceiling. No Chromium, no V8 renderer isolate, no React, no DOM, no console
-// store — so the reading was short of the shipped renderer by everything that
-// makes a renderer, and the gate could report green over a renderer that was
-// well past the limit. A gate that cannot fail for the reason it exists is worse
-// than a recorded absence, so the reading is deleted rather than re-pointed.
-//
-// WHERE THE READING LIVES INSTEAD
-//
-// `apps/desktop/tests/endurance/heap-at-rest.test.ts`, which is what the
-// registry row names. Heap readings belong on the
-// endurance tier, and that tier launches the built console in the Electron shell:
-// it opens the flagship scenario's own session, walks the frozen clock over the
-// whole script so the session has content, asserts the store admitted it through
-// a live subscription, and reads the renderer's own heap. Every condition in the
-// budget's subject — one session open, with content, at rest — is established
-// there and none of them can be established here.
-//
-// So the one behaviour worth keeping in this file is the refusal: if the registry
-// ever names THIS harness as the row's measurer, that is a claim no code here can
-// honour, and it exits 2 rather than printing a report over a figure nobody took.
+// The one behavior kept here is the refusal: if the registry ever names this harness
+// as the row's measurer, that is a claim no code here can honor, and it exits 2 rather
+// than printing a report over a figure nobody took.
 //
 //   node --experimental-strip-types scripts/budget/measure-heap.mts [--json]
 //
-// Exit: 0 when the registry points the reading somewhere else and says where · 2
-// on bad usage, or when the registry names this harness as the measurer. There is
-// deliberately no exit 1: no reading is taken here, so nothing can be over budget.
+// Exit: 0 when the registry points the reading somewhere else and says where · 2 on
+// bad usage, or when the registry names this harness as the measurer. There is no
+// exit 1: no reading is taken here, so nothing can be over budget.
 
 import process from "node:process";
 import console from "node:console";
@@ -43,11 +25,9 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
 
-import {
-  ConsoleBudgetRegistry,
-  formatUnavailableBudgetReport,
-  type ConsoleBudget,
-} from "./budget-registry.mts";
+import { BudgetRegistry } from "./budget-registry.mts";
+import { formatUnavailableBudgetReport } from "./budget-report.mts";
+import { type Budget } from "./budget-document.mts";
 import { BudgetSubjectMissingError, formatBytes } from "./budget-harness.mts";
 
 export const HEAP_AT_REST_BUDGET_ID: string = "renderer-heap-at-rest";
@@ -71,7 +51,7 @@ const THIS_HARNESS_PATH: string = "apps/desktop/scripts/budget/measure-heap.mts"
  * letting the CLI exit 0 over a gate no code here performs.
  */
 export class HeapAtRestMeasurerMisattributedError extends BudgetSubjectMissingError {
-  public constructor(budget: ConsoleBudget) {
+  public constructor(budget: Budget) {
     super(
       `The budget registry names \`${THIS_HARNESS_PATH}\` as the measurer of ` +
         `\`${budget.id}\`, and nothing in this process can take that reading.\n` +
@@ -103,16 +83,16 @@ export interface HeapAtRestDelegationRecord {
  * arm above is reachable from a test against a fixture registry. Its default is
  * the one file every harness reads.
  */
-export class ConsoleHeapAtRestGate {
-  readonly #registry: ConsoleBudgetRegistry;
-  readonly #budget: ConsoleBudget;
+export class HeapAtRestGate {
+  readonly #registry: BudgetRegistry;
+  readonly #budget: Budget;
 
-  public constructor(registry: ConsoleBudgetRegistry = ConsoleBudgetRegistry.load()) {
+  public constructor(registry: BudgetRegistry = BudgetRegistry.load()) {
     this.#registry = registry;
     this.#budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
   }
 
-  public get budget(): ConsoleBudget {
+  public get budget(): Budget {
     return this.#budget;
   }
 
@@ -194,7 +174,7 @@ exit 0 measured elsewhere · 2 bad usage, or the registry names this harness as 
  */
 export function runHeapBudgetCommand(
   argumentList: readonly string[],
-  registry?: ConsoleBudgetRegistry,
+  registry?: BudgetRegistry,
 ): number {
   let values: { json?: boolean; help?: boolean };
   try {
@@ -218,8 +198,8 @@ export function runHeapBudgetCommand(
     return 0;
   }
 
-  const resolvedRegistry = registry ?? ConsoleBudgetRegistry.load();
-  const gate = new ConsoleHeapAtRestGate(resolvedRegistry);
+  const resolvedRegistry = registry ?? BudgetRegistry.load();
+  const gate = new HeapAtRestGate(resolvedRegistry);
   try {
     console.log(
       values.json === true

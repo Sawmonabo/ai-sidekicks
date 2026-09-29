@@ -60,7 +60,7 @@
 // live subscription. `#opening` is the single flight: an attempt already running is not
 // a second subscription, which matters because a seam may signal synchronously from
 // inside its own `subscribe` and re-enter holding nothing. `dispose()` beats all of it.
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { Emitter } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";

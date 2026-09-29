@@ -12,8 +12,7 @@
 //
 // WHAT IS LEFT HERE IS THE COORDINATOR: the held state, the latch, and the two
 // closures a control presses. Nothing in this file knows what an act does.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { WorkflowVersionBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";

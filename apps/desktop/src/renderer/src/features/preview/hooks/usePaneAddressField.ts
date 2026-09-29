@@ -9,8 +9,7 @@
 // following/editing pair and the two readings taken off it. This module owns only
 // WHOSE it is, which is a different question and the one a reused component
 // instance gets wrong.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

@@ -25,7 +25,7 @@
 // projection calls it `actorId`. A reader that looked for the console's
 // own names found neither, refused every live delivery as unreadable, and agreed
 // perfectly with a fixture that was handing it the console's shape to begin with.
-// `bridge/scenario/runtime/envelope.ts` closes the second half of that: the fixture now
+// `event-envelope.fixture.ts` closes the second half of that: the fixture now
 // composes the same registered envelope, so this parse is the one door both bridges
 // deliver through.
 //
@@ -85,7 +85,7 @@ import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entit
  * and refusing an unregistered pairing would refuse exactly the higher-MINOR
  * deliveries the tolerant layer exists to let through.
  */
-export function readConsoleSessionEvent(
+export function readProjectedSessionEvent(
   deliveredEnvelope: unknown,
 ): ConsoleSessionEvent | undefined {
   const parsed = EventEnvelopeSchema.safeParse(deliveredEnvelope);

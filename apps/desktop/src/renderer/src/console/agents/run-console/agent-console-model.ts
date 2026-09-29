@@ -30,7 +30,8 @@
 import { useEffect, useState } from "react";
 
 import type { ConsoleClock } from "@renderer/lib/clock.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { isCurrentSessionSubject, type SessionSubject } from "../../seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {

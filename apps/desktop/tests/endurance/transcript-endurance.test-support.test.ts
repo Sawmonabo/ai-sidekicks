@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createLedgerEnduranceScenario } from "./transcript-endurance.test-support.js";
-import { findScenarioWireTruthDefects } from "../helpers/scenario-contract-check/contract-check.js";
+import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
+import { findScenarioContractDefects } from "../helpers/scenario-contract-check/contract-check.js";
 
 /** The count the endurance tier measures the ledger at. */
 const TEN_THOUSAND_ROWS = 10_000;
@@ -23,9 +23,9 @@ const TEN_THOUSAND_ROWS = 10_000;
 /** Small enough to parse every beat through the strict layer in one case. */
 const WIRE_TRUTH_ROW_COUNT = 800;
 
-describe("createLedgerEnduranceScenario", () => {
+describe("createTranscriptEnduranceFixture", () => {
   it("plays exactly the row count it was asked for", () => {
-    expect(createLedgerEnduranceScenario({ rowCount: TEN_THOUSAND_ROWS }).beats).toHaveLength(
+    expect(createTranscriptEnduranceFixture({ rowCount: TEN_THOUSAND_ROWS }).beats).toHaveLength(
       TEN_THOUSAND_ROWS,
     );
   });
@@ -34,33 +34,33 @@ describe("createLedgerEnduranceScenario", () => {
     // The negative control for the case above: an exact count that only holds when
     // the budget divides cleanly is not an exact count. 9,997 leaves a remainder the
     // last chapter has to absorb.
-    expect(createLedgerEnduranceScenario({ rowCount: 9_997 }).beats).toHaveLength(9_997);
+    expect(createTranscriptEnduranceFixture({ rowCount: 9_997 }).beats).toHaveLength(9_997);
   });
 
   it("produces a byte-identical session for identical arguments", () => {
-    const first = createLedgerEnduranceScenario({ rowCount: WIRE_TRUTH_ROW_COUNT });
-    const second = createLedgerEnduranceScenario({ rowCount: WIRE_TRUTH_ROW_COUNT });
+    const first = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT });
+    const second = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT });
     expect(JSON.stringify(second)).toBe(JSON.stringify(first));
   });
 
   it("produces a different session for a different row count", () => {
     // The negative control for determinism: two equal strings prove nothing if the
     // generator ignores its arguments.
-    const smaller = createLedgerEnduranceScenario({ rowCount: WIRE_TRUTH_ROW_COUNT });
-    const larger = createLedgerEnduranceScenario({ rowCount: WIRE_TRUTH_ROW_COUNT + 8 });
+    const smaller = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT });
+    const larger = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT + 8 });
     expect(JSON.stringify(larger)).not.toBe(JSON.stringify(smaller));
   });
 
   it("scripts only events the daemon can emit", () => {
     expect(
-      findScenarioWireTruthDefects([
-        createLedgerEnduranceScenario({ rowCount: WIRE_TRUTH_ROW_COUNT }),
+      findScenarioContractDefects([
+        createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT }),
       ]),
     ).toStrictEqual([]);
   });
 
   it("advances sequence and scenario time monotonically across every beat", () => {
-    const { beats } = createLedgerEnduranceScenario({ rowCount: TEN_THOUSAND_ROWS });
+    const { beats } = createTranscriptEnduranceFixture({ rowCount: TEN_THOUSAND_ROWS });
     let previousAtMs = -1;
     for (const [beatIndex, beat] of beats.entries()) {
       expect(beat.event.sequence).toBe(beatIndex + 1);
@@ -71,7 +71,7 @@ describe("createLedgerEnduranceScenario", () => {
 
   it("spreads the rows across chapters, each of which closes", () => {
     const runCount = 12;
-    const { beats } = createLedgerEnduranceScenario({ rowCount: 2_000, runCount });
+    const { beats } = createTranscriptEnduranceFixture({ rowCount: 2_000, runCount });
     const openedRuns = new Set(
       beats.filter((beat) => beat.event.kind === "run.queued").map((beat) => beat.event.sequence),
     );
@@ -81,24 +81,28 @@ describe("createLedgerEnduranceScenario", () => {
   });
 
   it("refuses a row count too small to give every chapter a body", () => {
-    expect(() => createLedgerEnduranceScenario({ rowCount: 20, runCount: 12 })).toThrow(RangeError);
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 20, runCount: 12 })).toThrow(
+      RangeError,
+    );
   });
 
   it("accepts the smallest row count that does fit", () => {
     // The negative control for the refusal above: 4 opening beats, plus 12 chapters
     // of 4 lifecycle beats, plus one body row for each of those 12, is 64 — and one
     // row fewer leaves a chapter with no body at all.
-    expect(() => createLedgerEnduranceScenario({ rowCount: 64, runCount: 12 })).not.toThrow();
-    expect(() => createLedgerEnduranceScenario({ rowCount: 63, runCount: 12 })).toThrow(RangeError);
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 64, runCount: 12 })).not.toThrow();
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 63, runCount: 12 })).toThrow(
+      RangeError,
+    );
   });
 
   it("refuses a run count that is not a whole positive number", () => {
-    expect(() => createLedgerEnduranceScenario({ rowCount: 1_000, runCount: 0 })).toThrow(
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 1_000, runCount: 0 })).toThrow(
       RangeError,
     );
   });
 
   it("refuses a fractional row count rather than silently flooring it", () => {
-    expect(() => createLedgerEnduranceScenario({ rowCount: 1_000.5 })).toThrow(RangeError);
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 1_000.5 })).toThrow(RangeError);
   });
 });

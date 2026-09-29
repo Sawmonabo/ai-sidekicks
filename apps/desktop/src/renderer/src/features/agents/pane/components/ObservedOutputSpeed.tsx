@@ -1,5 +1,5 @@
 import { WireFigure } from "@renderer/console/primitives/index.js";
-import { type AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /**
  * The mode the provider declared, beside the one that was requested.

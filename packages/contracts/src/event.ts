@@ -1089,13 +1089,13 @@ export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
   .strict();
 
 // Emitted at the head of a (re)provisioning transition — the
-// `WorkspaceService.beginReprovision`.
-export interface WorkspaceProvisioningEvent extends EventEnvelope {
+// `WorkspaceService.beginRootPreparation`.
+export interface WorkspacePreparingEvent extends EventEnvelope {
   type: "workspace.provisioning";
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecycleVariantPayload;
 }
-export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEvent> = z
+export const WorkspacePreparingEventSchema: z.ZodType<WorkspacePreparingEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("workspace.provisioning"),
@@ -1105,7 +1105,7 @@ export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEv
   .strict();
 
 // Emitted when provisioning completes and the execution root is bound —
-// `WorkspaceService.completeReprovision`.
+// `WorkspaceService.completeRootPreparation`.
 export interface WorkspaceReadyEvent extends EventEnvelope {
   type: "workspace.ready";
   category: "session_lifecycle";
@@ -1121,7 +1121,7 @@ export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
   .strict();
 
 // Emitted on the availability-loss transition — a failed reprovision
-// (`WorkspaceService.failReprovision`) or a workspace path that became
+// (`WorkspaceService.failRootPreparation`) or a workspace path that became
 // unavailable after binding, after which write runs are blocked until
 // repair.
 export interface WorkspaceStaleEvent extends EventEnvelope {
@@ -1175,8 +1175,8 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // THE REGISTRY STAYS CLOSED. Five arms, not six: the worktree ROW vocabulary
 // has six states, but the `-> failed` transition emits no worktree event
 // (the failure incident is already evented as `workspace.stale` by the
-// coupled `failReprovision`). `worktree.failed` is not a census member and MUST stay rejected by
-// `SessionEventSchema` (pinned in __tests__/worktree.test.ts).
+// coupled `failRootPreparation`). `worktree.failed` is not a census member and MUST stay
+// rejected by `SessionEventSchema` (pinned in __tests__/worktree.test.ts).
 //
 // NO EPOCH STAMP. `session_lifecycle`, not run-scoped — the same WRAP
 // ADMISSION exclusion as the six above; __tests__/event-source-epoch.test.ts
@@ -2241,7 +2241,7 @@ export type SessionEvent =
   | SessionCreatedEvent
   | RepoAttachedEvent
   | RepoDetachedEvent
-  | WorkspaceProvisioningEvent
+  | WorkspacePreparingEvent
   | WorkspaceReadyEvent
   | WorkspaceStaleEvent
   | WorkspaceArchivedEvent

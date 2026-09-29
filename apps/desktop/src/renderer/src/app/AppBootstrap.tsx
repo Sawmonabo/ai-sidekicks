@@ -21,8 +21,7 @@
 // this boundary never remounts the frame under a running window.
 
 import { useLayoutEffect } from "react";
-
-import { useBridgeResolution } from "@renderer/console/bridge/BridgeProvider.js";
+import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { ConsoleFrame } from "@renderer/layout/AppShell/AppShell.js";
 import { installMeridianTokens } from "./token-installation.js";

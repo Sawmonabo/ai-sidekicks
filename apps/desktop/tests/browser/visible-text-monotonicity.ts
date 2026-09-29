@@ -17,9 +17,8 @@
 // the diagnostic and reads `regressions` for the retraction it names, so the
 // exception stays visible instead of being folded into the rule.
 //
-// WHY IT LIVES BESIDE THE TIER DIRECTORIES RATHER THAN INSIDE ONE. It is a console
-// test ROLE, and `apps/desktop/AGENTS.md` puts roles in the flat files of
-// `test/console/`: any surface that reveals text incrementally — a row body, a tool
+// WHY IT IS A ROLE MODULE RATHER THAN PART OF ONE SUITE. It is a test ROLE, and
+// `apps/desktop/AGENTS.md` gives each role one home: any surface that reveals text incrementally — a row body, a tool
 // result, a reasoning tail — wants this same watcher, and a second copy under a
 // tier directory is the duplicate that file rejects.
 //

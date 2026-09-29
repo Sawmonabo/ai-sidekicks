@@ -20,13 +20,10 @@
 
 import console from "node:console";
 
-import {
-  ConsoleBudgetRegistry,
-  evaluateBudget,
-  formatUnavailableBudgetReport,
-  type ConsoleBudget,
-  type ConsoleBudgetVerdict,
-} from "./budget-registry.mts";
+import { BudgetRegistry } from "./budget-registry.mts";
+import { evaluateBudget, type BudgetVerdict } from "./budget-evaluation.mts";
+import { formatUnavailableBudgetReport } from "./budget-report.mts";
+import { type Budget } from "./budget-document.mts";
 
 export function formatBytes(byteCount: number): string {
   return `${byteCount.toLocaleString("en-US")} B`;
@@ -38,14 +35,14 @@ function formatByteDelta(byteDelta: number): string {
 }
 
 /** The provenance line every harness prints above its own reading. */
-function formatBudgetRegistryHeaderLines(registry: ConsoleBudgetRegistry): readonly string[] {
+function formatBudgetRegistryHeaderLines(registry: BudgetRegistry): readonly string[] {
   return [`  registry:      ${registry.budgetsFilePath}`];
 }
 
 /** One gate, resolved against the registry and evaluated against a reading. */
 export interface BudgetGateReading {
-  readonly budget: ConsoleBudget;
-  readonly verdict: ConsoleBudgetVerdict;
+  readonly budget: Budget;
+  readonly verdict: BudgetVerdict;
   /** What the compared figure is a figure of, for the verdict line. */
   readonly measuredDescription: string;
 }
@@ -77,7 +74,7 @@ interface BudgetReportSections {
 export function formatBudgetReport(
   sections: BudgetReportSections,
   gateReadings: readonly BudgetGateReading[],
-  registry: ConsoleBudgetRegistry,
+  registry: BudgetRegistry,
 ): string {
   return [
     sections.title,
@@ -115,7 +112,7 @@ export interface BudgetGate<TMeasurement> {
 /** A gate paired with the row it named, so no later step re-looks one up by index. */
 interface ResolvedBudgetGate<TMeasurement> {
   readonly gate: BudgetGate<TMeasurement>;
-  readonly budget: ConsoleBudget;
+  readonly budget: Budget;
 }
 
 interface BudgetHarness<TMeasurement> {
@@ -126,7 +123,7 @@ interface BudgetHarness<TMeasurement> {
   readonly format: (
     measurement: TMeasurement,
     gateReadings: readonly BudgetGateReading[],
-    registry: ConsoleBudgetRegistry,
+    registry: BudgetRegistry,
   ) => string;
 }
 
@@ -144,7 +141,7 @@ interface BudgetHarness<TMeasurement> {
 export async function runBudgetHarness<TMeasurement>(
   harness: BudgetHarness<TMeasurement>,
 ): Promise<number> {
-  const registry = ConsoleBudgetRegistry.load();
+  const registry = BudgetRegistry.load();
   if (harness.gates.length === 0) {
     // `every` over an empty list is true, so a gate-less harness would print a
     // reading and exit 0 having compared it against nothing.

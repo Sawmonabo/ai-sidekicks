@@ -7,14 +7,10 @@
 // never scripts.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import {
-  withDaemonCall,
-  type BridgeUnderTest,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { withDaemonCall, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";

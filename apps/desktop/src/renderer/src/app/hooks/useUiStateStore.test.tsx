@@ -32,15 +32,13 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-
-import {
-  DesktopBridgeProvider,
-  useConsoleBridge,
-} from "@renderer/console/bridge/BridgeProvider.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";

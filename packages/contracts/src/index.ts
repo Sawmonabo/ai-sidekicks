@@ -12,7 +12,8 @@
 // Anything re-exported here is a stable cross-package contract.
 export * from "./agent-provider-binding.js";
 export * from "./artifacts/index.js";
-export * from "./desktop-bridge.js";
+export * from "./attention.js";
+export * from "./daemon-methods.js";
 export * from "./driver-event.js";
 export * from "./error.js";
 export * from "./event-anchor.js";

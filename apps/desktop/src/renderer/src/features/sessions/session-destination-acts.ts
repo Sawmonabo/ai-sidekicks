@@ -15,7 +15,7 @@
 // would be a heuristic standing in for it.
 
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { settleSessionStart } from "./start/session-start.js";
 
 /** Every act the sessions destination performs, already bound to its context. */

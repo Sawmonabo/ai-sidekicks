@@ -53,7 +53,7 @@ export async function mountConsole(): Promise<RenderResult> {
  * mounts, and that is what these suites drive; the pane board holds every kind a deck
  * can seat, including ones whose modules stand up an emulator or a hosted view, and
  * loading all of them at every `ConsoleRoot` mount stands up machinery no case asked
- * for. The pane side has its own answer next door — `test/console/console-harness.tsx`
+ * for. The pane side has its own answer next door — `app-harness.ts`
  * preloads the pane board inside `renderSettled`, where a case is actually seating one.
  *
  * EVERY REGISTERED SLOT, NOT THE UNLOADED ONES. `unloadedKeys()` reports the slots

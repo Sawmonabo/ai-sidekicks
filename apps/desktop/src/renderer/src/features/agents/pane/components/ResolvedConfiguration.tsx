@@ -9,7 +9,7 @@
 // moved, and a configuration naming NO definition is never attributed to one.
 
 import { WireFigure } from "@renderer/console/primitives/index.js";
-import type { AgentResolvedConfiguration } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import type { AgentResolvedConfiguration } from "@renderer/services/wire-shapes/agents.js";
 import { type AgentToolGrantPosition } from "../tool-allowlist.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";

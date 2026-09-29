@@ -1,4 +1,4 @@
-// The time-to-first-ledger-row budget, measured.
+// The time-to-first-transcript-row budget, measured.
 //
 // Time to first ledger row on launch is bounded at 800 ms from window show, in
 // fixture mode. This file is the row's
@@ -24,7 +24,7 @@
 //
 // WHAT THE INTERVAL CONTAINS
 //
-// The session route is opened, the frozen clock is walked over the flagship script,
+// The session route is opened, the frozen clock is walked over the concurrent-streaming script,
 // and the first painted ledger row ends the interval — all inside ONE page function,
 // so no driver round trip sits between the steps. The one round trip that IS inside
 // the interval is the gap between the launch handshake settling and this page
@@ -33,7 +33,7 @@
 // machine that share is 15–23 ms of a 45–50 ms reading.
 //
 // The clock has to be walked at all because a fixture build's clock is frozen and
-// moves only when told to: the flagship script's opening beats are what a live
+// moves only when told to: the concurrent-streaming script's opening beats are what a live
 // daemon would deliver on its own at launch, and a run that never advanced would be
 // timing a session that had not arrived.
 
@@ -41,25 +41,26 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole, type ConsoleApplication } from "../helpers/electron-harness.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "../../test/console/fixture-handles.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
-  FLAGSHIP_SESSION_ROUTE,
-  LEDGER_ROW_SELECTOR,
-  WORKSPACE_SURFACE_SELECTOR,
-  flagshipDeliverySchedule,
+  CONCURRENT_STREAMING_SESSION_ROUTE,
+  TRANSCRIPT_ROW_SELECTOR,
+  SESSION_SCREEN_SELECTOR,
+  concurrentStreamingDeliverySchedule,
 } from "./endurance-workload.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import { ConsoleBudgetRegistry, evaluateBudget } from "../../scripts/budget/budget-registry.mjs";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The row this file measures. Named once; every figure below comes off it. */
-const FIRST_LEDGER_ROW_BUDGET_ID = "time-to-first-ledger-row";
+const FIRST_LEDGER_ROW_BUDGET_ID = "time-to-first-transcript-row";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FIRST_LEDGER_ROW_BUDGET_ID);
 
 /**
@@ -121,7 +122,7 @@ interface FirstLedgerRowReading {
 type FirstLedgerRowOutcome = FirstLedgerRowReading | UnmeasuredLaunch;
 
 /**
- * Open the flagship session, deliver its script, and time the first painted row.
+ * Open the concurrent-streaming session, deliver its script, and time the first painted row.
  *
  * Everything happens inside the renderer for one reason: a step issued from the
  * driver process costs a round trip, and a round trip inside an interval bounded at
@@ -130,10 +131,10 @@ type FirstLedgerRowOutcome = FirstLedgerRowReading | UnmeasuredLaunch;
  * rather than a re-implementation of it.
  */
 async function measureFirstLedgerRow(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   plantedStallMilliseconds: number,
 ): Promise<FirstLedgerRowOutcome> {
-  const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
+  const { stepMilliseconds, stepCount } = concurrentStreamingDeliverySchedule();
   return consoleApplication.window.evaluate(
     async ([
       sessionRouteHash,
@@ -280,9 +281,9 @@ async function measureFirstLedgerRow(
       };
     },
     [
-      FLAGSHIP_SESSION_ROUTE,
-      WORKSPACE_SURFACE_SELECTOR,
-      LEDGER_ROW_SELECTOR,
+      CONCURRENT_STREAMING_SESSION_ROUTE,
+      SESSION_SCREEN_SELECTOR,
+      TRANSCRIPT_ROW_SELECTOR,
       SCENARIO_FIXTURE_GLOBAL,
       stepMilliseconds,
       stepCount,
@@ -311,7 +312,7 @@ const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string
     "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
     "reporting the harness",
   "no-scenario-handle":
-    "the launched console exposed no scenario handle, so the flagship script was never delivered: " +
+    "the launched console exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
     `the console never painted the workspace pane inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
@@ -348,7 +349,7 @@ function reportReading(label: string, reading: FirstLedgerRowReading): void {
   );
 }
 
-describe("the time-to-first-ledger-row budget row", () => {
+describe("the time-to-first-transcript-row budget row", () => {
   // The ceiling and the unit are the budget tier's to hold. What only THIS file can
   // say is that it is the harness the row names — so a reading that moves away, or a
   // row flipped back to ungated while this gate keeps running and passing, fails here.
@@ -361,7 +362,7 @@ describe("the time-to-first-ledger-row budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch", () => {
   it("paints the first ledger row inside the budget's ceiling", async () => {
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(await measureFirstLedgerRow(consoleApplication, 0));
 
       // The run delivered a session rather than timing an empty one. Both halves
@@ -388,7 +389,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch
     // window being shown and the ledger's first row, and it is driven through the
     // SAME measurement function — so what is shown is that this gate's own
     // comparison fails on a console that boots slowly.
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(
         await measureFirstLedgerRow(consoleApplication, PLANTED_PAINT_STALL_MS),
       );

@@ -13,12 +13,9 @@
 import { describe, expect, it } from "vitest";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
-import {
-  callThroughBridge,
-  createFixture,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { callThroughBridge, createFixture } from "@test/helpers/fixture-bridge.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 /** A registered method the registry binds, so a scripted reply is checkable. */
 const REGISTERED_CALL = "presence.read";
@@ -42,7 +39,7 @@ const ON_CONTRACT_REPLY = {
 function scenarioAnswering(call: string, result: unknown): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
-    id: "flagship-wire-contract-probe",
+    id: "concurrent-streaming-wire-contract-probe",
     replies: [{ call, result }],
   };
 }

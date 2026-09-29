@@ -1,6 +1,6 @@
 // The wire reaches the store, and only through the one door.
 //
-// Everything here runs against the REAL fixture bridge playing the REAL flagship
+// Everything here runs against the REAL fixture bridge playing the REAL concurrent-streaming
 // scenario on the REAL frozen clock the engine builds. That is not ceremony: the
 // gap this class closes was that `SessionStoreRegistry.enqueue` had no caller and
 // nothing subscribed to `daemon.subscribe`, and a test driving a hand-written
@@ -12,9 +12,8 @@
 // class rather than about the fixture being noisy.
 
 import { beforeEach, describe, expect, it } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";

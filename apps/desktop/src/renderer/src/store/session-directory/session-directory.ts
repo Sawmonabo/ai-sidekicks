@@ -19,7 +19,7 @@
 // changed. It is keyed on the call rather than on any one caller's state, because
 // what went stale is the node's answer every reader of that call holds.
 //
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 /** One session the node lists. A session with no title is shown by its identifier. */
 export interface SessionDirectoryEntry {

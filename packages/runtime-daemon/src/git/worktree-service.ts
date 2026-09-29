@@ -1072,7 +1072,7 @@ export class WorktreeService {
     );
 
     // No event accompanies this one: the failure incident is evented as
-    // `workspace.stale` by the coupled `failReprovision`.
+    // `workspace.stale` by the coupled `failRootPreparation`.
     this.#markFailedStmt = database.prepare<WorktreeTransitionParams>(
       `UPDATE worktrees
           SET state = 'failed', updated_at = @now
@@ -1127,7 +1127,7 @@ export class WorktreeService {
    *    (mount, branch) pair for the daemon's lifetime.
    *
    * The caller — the execution-root orchestrator — is what turns the throw into
-   * the workspace-level disposition, calling the `failReprovision` so the
+   * the workspace-level disposition, calling the `failRootPreparation` so the
    * workspace goes `stale` with the detail and the run parks in setup. This
    * service never substitutes a different execution mode.
    */

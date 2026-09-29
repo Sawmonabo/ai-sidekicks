@@ -38,7 +38,7 @@
  * subscription map, a store, or a bridge — the retained set is all it holds, and what
  * it may do about an id is exactly these three things.
  */
-export interface UnboundSessionRetryOptions {
+export interface FailedSubscriptionRetryOptions {
   /**
    * Whether the owner is gone. Asked BEFORE every attempt, not once per pass.
    *
@@ -53,7 +53,7 @@ export interface UnboundSessionRetryOptions {
   readonly rebind: (sessionId: string) => void;
 }
 
-export class UnboundSessionRetry {
+export class FailedSubscriptionRetry {
   readonly #isRetired: () => boolean;
   readonly #isStillOpen: (sessionId: string) => boolean;
   readonly #rebind: (sessionId: string) => void;
@@ -61,7 +61,7 @@ export class UnboundSessionRetry {
   #retriedBindCount = 0;
   #passRunning = false;
 
-  public constructor(options: UnboundSessionRetryOptions) {
+  public constructor(options: FailedSubscriptionRetryOptions) {
     this.#isRetired = options.isRetired;
     this.#isStillOpen = options.isStillOpen;
     this.#rebind = options.rebind;

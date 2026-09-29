@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { SessionStore } from "../session/session-store.js";
 import { type ConsoleSessionEvent } from "../session/entities/entities.js";
 import { type SessionSnapshot } from "../session/session-state.js";

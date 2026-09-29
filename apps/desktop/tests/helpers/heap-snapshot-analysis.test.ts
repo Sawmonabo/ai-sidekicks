@@ -10,10 +10,10 @@
 // surviving claims ask for: both are properties of the stream half, and a doubled stream
 // would answer `true` to every `write` and prove nothing about either.
 //
-// IN `test/helpers/` RATHER THAN BESIDE ITS SUBJECT, on `bounded-cleanup.test.ts`' and
+// IN `tests/helpers/` RATHER THAN BESIDE ITS SUBJECT, on `bounded-cleanup.test.ts`' and
 // `launch-deadline.test.ts`' precedent — cross-process scaffolding driven with doubles,
 // in the `main-unit` project a person runs before pushing. Under
-// `test/console/endurance/**` its two cases ran only when someone opted into the
+// `tests/endurance/**` its two cases ran only when someone opted into the
 // thirty-minute tier by name, and this file launches no window and needs no built bundle.
 
 import { EventEmitter } from "node:events";

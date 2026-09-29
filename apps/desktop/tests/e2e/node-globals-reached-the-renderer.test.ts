@@ -23,14 +23,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — node globals reached the renderer", () => {
   it("keeps the renderer free of Node globals", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+    await withLaunchedApp({}, async (consoleApplication) => {
       // The smoke test asserts this against a `SIDEKICKS_SMOKE_PROBE`
       // build through a stdout probe. It is re-asserted here for a different
       // reason and against a different artifact: this is the FIXTURES bundle

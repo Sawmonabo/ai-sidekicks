@@ -10,10 +10,9 @@
 import { act, render, screen } from "@testing-library/react";
 import { Suspense, startTransition, useState } from "react";
 import { describe, expect, it } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
 
 /** A promise that never settles, so a component reading it suspends for the test. */

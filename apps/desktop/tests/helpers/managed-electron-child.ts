@@ -58,7 +58,7 @@ export const TERMINATION_GRACE_MS = 2_000;
  * because three callers need it and two of them cannot reach the fourth
  * candidate home: `electron-child-cleanup.ts` imports `electron-child.ts`, so a
  * figure declared there and read by the spawn door would close an import cycle.
- * `test/console/bounded-cleanup.ts` takes it from here rather than restating it,
+ * `bounded-cleanup.ts` takes it from here rather than restating it,
  * because two `3`s in two files are two bounds that will disagree.
  */
 export const DISPOSAL_ATTEMPTS = 3;
@@ -315,8 +315,8 @@ export class ManagedElectronChild {
    *
    * ONCE `close` HAS FIRED THIS SIGNALS NOTHING, and that is not caution — it
    * is the only correct answer. Two of this package's harnesses call `dispose`
-   * from the child's OWN `close` handler (`electron-probe.ts`'s single settle
-   * path, `gc-probe.ts`'s cleanup), and by then the child has been
+   * from the child's OWN `close` handler (`smoke-probe-harness.ts`'s single settle
+   * path, `gc-probe-harness.ts`'s cleanup), and by then the child has been
    * reaped and its pid is the operating system's to reissue. Asking for a kill
    * there does not re-signal a dead process: on POSIX it delivers SIGKILL to
    * `-pid` and `pid`, either of which may by then name a group or a process

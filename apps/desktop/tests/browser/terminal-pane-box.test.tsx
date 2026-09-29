@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
@@ -30,8 +30,8 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 // family's stylesheet behind its own barrel and nowhere else, and this tier is about
 // what that stylesheet computes to.
 import "@renderer/console/terminal/index.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** A deck slot of a fixed height, which is the only case the rule is about. */
 const SLOT_HEIGHT_PX = 400;

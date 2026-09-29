@@ -37,8 +37,8 @@
 // survives: one implementation per job, hoisted on the second use. It is this file
 // rather than the tier root because the subject is the `seats/schema-form` seat that two
 // tiers and three mounts read, and because the tier root is typechecked WITHOUT the DOM
-// lib — `tsconfig.test.json` includes `test/**/*` under Node options and resolves
-// `ParentNode` for nothing there, while `test/console/surfaces/**` is in the browser
+// lib — `tsconfig.test.json` reads its files under Node options and resolves
+// `ParentNode` for nothing there, while `tests/helpers/feature-mounts/**` is in the browser
 // program beside the mounts that drive it.
 //
 // THE DEFECT THE SCOPE REPLACED, since the reading arrived carrying one. The workflows
@@ -64,7 +64,7 @@
 
 import { waitFor } from "@testing-library/react";
 
-import { renderSettled } from "../../../test/console/console-harness.js";
+import { renderSettled } from "../app-harness.js";
 import { schemaFormChunk } from "@renderer/console/seats/index.js";
 // The seat's own wait for its two chunks, taken from the module that owns them rather
 // than restated: that wait has one home for this job, and the three console-unit supports
@@ -121,7 +121,7 @@ export function schemaFormIsAwaitingCompiler(region: ParentNode): boolean {
 /**
  * Whether this form has stopped waiting for the thing that checks it.
  *
- * Exported beside the mount for the reason `isPhaseGraphSettled` is: a case that wants
+ * Exported beside the mount for the reason `isRunGraphSettled` is: a case that wants
  * to state the readiness it depends on before it measures anything can read it, and the
  * reading is one rule rather than one per tier. DERIVED from the two predicates above
  * rather than restating their selector — a third copy of the class name is a third thing

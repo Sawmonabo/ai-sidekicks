@@ -15,8 +15,7 @@
 // one of those four steps names a store or a route the workspace family cannot reach.
 // The draft knows the id and stops there; a control that carried the settlement itself
 // would be a second copy of an act that already has one home.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The call that puts the person's first message on the queue of the session a send made.

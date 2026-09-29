@@ -2,7 +2,7 @@
 
 import { callDaemon } from "./daemon-reply.js";
 import { readSessionId } from "./wire-identifiers.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "../platform/platform-bridge.js";
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { servedValueOrRaise } from "@renderer/console/seats/index.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";

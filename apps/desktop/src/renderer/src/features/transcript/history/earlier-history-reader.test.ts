@@ -14,11 +14,8 @@ import { describe, expect, it } from "vitest";
 
 import type { SessionId, TimelineReadRequest, TimelineRow } from "@ai-sidekicks/contracts";
 
-import {
-  createFixture,
-  SCRIPTED_LATENCY_MS,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import { createFixture, SCRIPTED_LATENCY_MS } from "@test/helpers/fixture-bridge.js";
+import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";

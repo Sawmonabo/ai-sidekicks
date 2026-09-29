@@ -26,8 +26,7 @@
 // verdict whose whole point is that it is the producer's.
 
 import { useCallback, useMemo, useState } from "react";
-
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";

@@ -29,9 +29,10 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleBudgetRegistry, type ConsoleBudget } from "./budget-registry.mjs";
+import { BudgetRegistry } from "./budget-registry.mjs";
+import { type Budget } from "./budget-document.mjs";
 import {
-  ConsoleHeapAtRestGate,
+  HeapAtRestGate,
   HEAP_AT_REST_BUDGET_ID,
   HeapAtRestMeasurerMisattributedError,
   runHeapBudgetCommand,
@@ -39,7 +40,7 @@ import {
 } from "./measure-heap.mjs";
 import { TemporaryDirectoryTrail } from "../../tests/helpers/temporary-directory.js";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
 
 const HEAP_HARNESS_PATH = fileURLToPath(new URL("./measure-heap.mts", import.meta.url));
@@ -67,7 +68,7 @@ afterEach(() => {
  * fixture cannot drift into a shape the loader would reject for an unrelated
  * reason and pass this test for the wrong one.
  */
-function registryClaimingTheNodeCliMeasuresTheHeap(): ConsoleBudgetRegistry {
+function registryClaimingTheNodeCliMeasuresTheHeap(): BudgetRegistry {
   const document = JSON.parse(readFileSync(registry.budgetsFilePath, "utf8")) as {
     readonly budgets: readonly Record<string, unknown>[];
   };
@@ -79,7 +80,7 @@ function registryClaimingTheNodeCliMeasuresTheHeap(): ConsoleBudgetRegistry {
   const directory = plantedFixtures.create("console-heap-budget-");
   const fixturePath = path.join(directory, "budgets.json");
   writeFileSync(fixturePath, JSON.stringify({ ...document, budgets }), "utf8");
-  return ConsoleBudgetRegistry.load(fixturePath);
+  return BudgetRegistry.load(fixturePath);
 }
 
 describe("the renderer heap-at-rest budget row", () => {
@@ -98,7 +99,7 @@ describe("the renderer heap-at-rest budget row", () => {
 
 describe("the heap budget CLI's delegation", () => {
   it("reports MEASURED ELSEWHERE with the ceiling and the harness, and no verdict over a figure", () => {
-    const report = new ConsoleHeapAtRestGate(registry).report();
+    const report = new HeapAtRestGate(registry).report();
     console.log(report);
 
     expect(report).toContain("MEASURED ELSEWHERE");
@@ -111,7 +112,7 @@ describe("the heap budget CLI's delegation", () => {
   });
 
   it("emits a discriminable delegation record rather than a verdict", () => {
-    const record = new ConsoleHeapAtRestGate(registry).record();
+    const record = new HeapAtRestGate(registry).record();
     expect(record).toStrictEqual({
       budgetId: HEAP_AT_REST_BUDGET_ID,
       status: "measured-elsewhere",
@@ -127,7 +128,7 @@ describe("the heap budget CLI's delegation", () => {
   // Node process, which is the shape this budget was falsely green under.
   it("refuses a registry that names this Node harness as the measurer", () => {
     const misattributedRegistry = registryClaimingTheNodeCliMeasuresTheHeap();
-    const gate = new ConsoleHeapAtRestGate(misattributedRegistry);
+    const gate = new HeapAtRestGate(misattributedRegistry);
 
     expect(gate.budget.measuredBy).toBe(NODE_CLI_HARNESS_PATH);
     expect(() => gate.report()).toThrow(HeapAtRestMeasurerMisattributedError);
@@ -169,7 +170,7 @@ describe("the heap budget CLI", () => {
 
     expect(result.status, result.stderr).toBe(0);
     const emitted = JSON.parse(result.stdout) as {
-      readonly budget: ConsoleBudget;
+      readonly budget: Budget;
       readonly delegation: HeapAtRestDelegationRecord;
     };
     expect(emitted.budget.id).toBe(HEAP_AT_REST_BUDGET_ID);

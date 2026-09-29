@@ -11,8 +11,7 @@
 // the two acts share it, so an arm composed from a closure's copy would drop the
 // other — an export settling while an import refusal was on screen would erase the
 // refusal.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type {
   WorkflowDefinitionCreateBody,
   WorkflowVersionBody,

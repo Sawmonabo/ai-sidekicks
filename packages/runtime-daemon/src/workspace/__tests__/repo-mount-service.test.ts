@@ -375,7 +375,7 @@ async function bindWorkspace(
 /** Bind a workspace and complete its provisioning at the repository root, so it is `ready`. */
 async function bindReadyWorkspace(repoMountId: RepoMountId): Promise<string> {
   const workspaceId = await bindWorkspace(repoMountId);
-  await harness.workspaces.completeReprovision(workspaceId, gitFixtures.repositoryRoot);
+  await harness.workspaces.completeRootPreparation(workspaceId, gitFixtures.repositoryRoot);
   return workspaceId;
 }
 

@@ -3,10 +3,10 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier need the surfaces this family ships, and a per-tier copy of the
 // mount would be two chances to compose them differently and then read the results as
-// if they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
+// if they were comparable. `app-harness.ts` owns HOW the app is mounted, one
 // level down; this module owns WHAT of this family is mounted into it.
 //
-// ONE FILE PER FAMILY, UNDER `test/console/surfaces/`. The tier root holds the roles
+// ONE FILE PER FAMILY, UNDER `tests/helpers/feature-mounts/`. The tier root holds the roles
 // every tier reaches for — the harness, the graph-readiness wait, the source walk —
 // and a mount that is one family's is not one of them. Seven families each dropping a
 // `<family>-surfaces.tsx` beside those would bury the shared set in the family set,
@@ -48,12 +48,11 @@
 
 import type { FunctionComponent } from "react";
 
-import { renderSettled } from "../../../test/console/console-harness.js";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { renderSettled } from "../app-harness.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { unscriptedScenario } from "../fixture-bridge.js";
 import {
   PARKED_RUN,
   PROBE_SESSION_ID,
@@ -80,8 +79,9 @@ import {
   type ConsolePaneContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
-import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
+import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
+import { type MountedView } from "./mount-queries.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -100,7 +100,7 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  * The workflows pane body the deck holds for a kind, loaded.
  *
  * The resolution — build a family-scoped registry, preload, read the descriptor, throw
- * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * by name — lives once in `pane-body-resolution.ts`; what stays here is
  * this family's registrar and the `{ context }` prop shape its mounts below render with.
  */
 async function paneBodyComponent(
@@ -136,15 +136,9 @@ function paneContext(
     // reads answers the empty map a session with no runs answers.
     sessionStore: new SessionStore({
       sessionId: PROBE_SESSION_ID,
-      projectors: COMPOSED_CONSOLE_PROJECTORS,
+      projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
   };
-}
-
-/** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
-  readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
 }
 
 /**
@@ -184,7 +178,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
 async function surfaceBodyComponent(): Promise<
   FunctionComponent<{ context: ConsoleSurfaceContext }>
 > {
-  const render = await resolvedSurfaceBody("workflows", registerWorkflowSurfaces);
+  const render = await resolvedScreenBody("workflows", registerWorkflowSurfaces);
   return ({ context }) => render(context);
 }
 
@@ -213,7 +207,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     // none would give a session this surface navigates into an unprojected store.
     sessionStoreRegistry: new SessionStoreRegistry({
       read: () => Promise.resolve(undefined),
-      projectors: COMPOSED_CONSOLE_PROJECTORS,
+      projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
     // This composition's own board, which is what the surface opens panes out of —
     // the same instance the pane helper above mounts bodies from, so a tier that
@@ -236,7 +230,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  * around it because `useAnnounce` throws outside its provider rather than falling back to
  * a region created at the moment something spoke.
  */
-export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
+export async function mountWorkflowsDestination(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
@@ -254,7 +248,7 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
 }
 
 /** The run pane addressed at a run, drawing the frame it has without a run read. */
-export async function mountWorkflowRunPane(): Promise<MountedFamilySurface> {
+export async function mountWorkflowRunPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
@@ -295,7 +289,7 @@ export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
  * this one composes the node-graph and drafts slots only this pane has. No wait: this
  * pane puts no read on any arm, so there is nothing in flight to settle.
  */
-export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
+export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(

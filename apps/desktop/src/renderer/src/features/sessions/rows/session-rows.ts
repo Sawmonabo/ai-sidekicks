@@ -30,9 +30,7 @@
 // not bump a row to the top of the pinned rows, which would make a pinned list a second
 // inbox.
 
-import type { SessionState } from "@ai-sidekicks/contracts";
-
-import type { AttentionSeverity } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { SessionState, AttentionSeverity } from "@ai-sidekicks/contracts";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 
 /**

@@ -5,7 +5,7 @@
 // if the parser has been shown to reject something: a checker that has never been
 // shown to bite has not been shown to check anything.
 //
-// Each case is one rule, driven through the real `ConsoleBudgetRegistry.load()`
+// Each case is one rule, driven through the real `BudgetRegistry.load()`
 // over a temporary fixture, and the first case is the positive control the rest
 // are measured against — without it a loader that refused every document would
 // pass this whole file.
@@ -26,7 +26,8 @@ import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
-import { ConsoleBudgetRegistry, ConsoleBudgetRegistryError } from "./budget-registry.mjs";
+import { BudgetRegistry } from "./budget-registry.mjs";
+import { BudgetRegistryError } from "./budget-document.mjs";
 import { TemporaryDirectoryTrail } from "../../tests/helpers/temporary-directory.js";
 
 const plantedFixtures = new TemporaryDirectoryTrail();
@@ -41,10 +42,10 @@ function fixturePathFor(name: string): string {
 }
 
 describe("registry validation (negative controls)", () => {
-  const loadFixture = (name: string, document: unknown): (() => ConsoleBudgetRegistry) => {
+  const loadFixture = (name: string, document: unknown): (() => BudgetRegistry) => {
     const fixturePath = fixturePathFor(name);
     writeFileSync(fixturePath, JSON.stringify(document), "utf8");
-    return () => ConsoleBudgetRegistry.load(fixturePath);
+    return () => BudgetRegistry.load(fixturePath);
   };
 
   const validEntry = {
@@ -69,9 +70,7 @@ describe("registry validation (negative controls)", () => {
     // The one case whose fixture is the ABSENCE of a file, so it plants the tree and
     // writes nothing into it — a path under the system temporary directory that has
     // never held a document, rather than one a sibling case happened to leave empty.
-    expect(() => ConsoleBudgetRegistry.load(fixturePathFor("absent"))).toThrow(
-      ConsoleBudgetRegistryError,
-    );
+    expect(() => BudgetRegistry.load(fixturePathFor("absent"))).toThrow(BudgetRegistryError);
   });
 
   it("rejects an unsupported schema version", () => {

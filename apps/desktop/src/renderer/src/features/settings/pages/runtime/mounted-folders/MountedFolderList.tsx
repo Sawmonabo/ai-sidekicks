@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import {
   Nothing,
   formatCount,

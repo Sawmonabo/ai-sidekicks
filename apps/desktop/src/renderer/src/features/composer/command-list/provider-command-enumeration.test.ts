@@ -7,7 +7,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   ProviderCommandEnumeration,
   useProviderCommandEnumeration,
@@ -20,9 +20,9 @@ import {
   recordingBridge,
   targetForAgent,
 } from "./provider-command-enumeration.test-support.js";
-import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { settleEnumeration } from "./provider-command-read.js";
 
 describe("ProviderCommandEnumeration — one reading, two readers", () => {

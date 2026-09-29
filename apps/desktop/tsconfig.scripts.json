@@ -6,18 +6,10 @@
   // `noEmit` plus an isolated buildinfo, so the scripts are typechecked without
   // entering the project-references graph or the production `dist/` layout.
   //
-  // Authored when the harnesses under
-  // `scripts/` moved from `.mjs` beside hand-written `.d.mts` declarations to
-  // TypeScript sources run through `node --experimental-strip-types`. That move
-  // is the whole point of this file: the declarations are now GENERATED from the
-  // implementations, and this config is what checks them. Before it, no
-  // `tsconfig` reached `scripts/**` at all — `tsconfig.test.json` includes
-  // `src/**` and `test/**`, `tsconfig.build.json` includes `build/**` — so a
-  // declaration could contradict its implementation indefinitely.
-  //
-  // Reached by the package `typecheck` script in the same commit, per the
-  // desktop structure rule that a new `tsconfig*.json` no script or `references`
-  // entry reaches is a config that checks nothing.
+  // The scripts are TypeScript run through `node --experimental-strip-types`, and this is
+  // the one config that checks them: `tsconfig.test.json` covers `src/**`, `tests/**`
+  // and the scripts' tests, and `tsconfig.build.json` covers `build/**`. The package
+  // `typecheck` script reaches it.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,

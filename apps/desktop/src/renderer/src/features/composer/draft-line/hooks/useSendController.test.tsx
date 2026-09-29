@@ -9,7 +9,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";

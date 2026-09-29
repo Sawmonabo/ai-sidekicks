@@ -18,6 +18,11 @@
 
 import type { ReactNode } from "react";
 
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { DraftStore } from "@renderer/store/draft-store.js";
+import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { FrameStore } from "@renderer/store/window/window-store.js";
+
 import {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
@@ -73,7 +78,7 @@ export async function resolvedPaneBody(
  * before anything is mounted, so a deferred surface's reserved region is the WHOLE
  * window rather than one pane inside a settled frame.
  */
-export async function resolvedSurfaceBody(
+export async function resolvedScreenBody(
   slot: ConsoleSurfaceSlot,
   registerSurface: (registry: ConsoleSurfaceRegistry) => void,
 ): Promise<(context: ConsoleSurfaceContext) => ReactNode> {
@@ -85,4 +90,23 @@ export async function resolvedSurfaceBody(
     throw new Error(`no console surface is registered for the \`${slot}\` slot`);
   }
   return descriptor.render;
+}
+
+/**
+ * What a pane is bound to, minus the address that says which pane it is.
+ *
+ * The address is a kind-scoped union, so it stays at each mount, where the body being
+ * mounted is also named; this supplies the binding every arm of the union shares.
+ */
+export function paneBinding(
+  overrides: Pick<ConsolePaneContext, "paneId" | "bridge" | "sessionStore">,
+): Omit<ConsolePaneContext, "kind"> {
+  return {
+    frameStore: new FrameStore(),
+    uiStateStore: UiStateStore.opening(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+    linkedSourcePaneId: undefined,
+    focusHue: undefined,
+    ...overrides,
+  };
 }

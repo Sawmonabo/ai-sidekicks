@@ -5,8 +5,8 @@
 // `due | abandoned | backlog-full` and says that "naming the refusal belongs to the
 // bridge". This module is the parking-and-classifying half — look up the canned reply,
 // park it on the frozen clock when it scripts a latency, and decide which of the four
-// things happened — and it reports a settlement rather than throwing, so the call door
-// (`fixture/call-plane/call-door.ts`) decides what each arm rejects with.
+// things happened — and it reports a settlement rather than throwing, so `resolveScriptedReply`
+// below decides what each arm rejects with.
 //
 // A COMPUTED REPLY IS SETTLED HERE TOO, and for the same reason the classification
 // is: `replyFor` matches on the method name and the REQUEST reaches only this seam,
@@ -19,32 +19,9 @@
 // the same reason: the diagnosis and the remedy are properties of what the engine did.
 
 import type { ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
-import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
-
-/**
- * The codes a scripted reply that never arrived refuses with.
- *
- * Two members, and each one is a distinct operator remedy rather than a shade of the
- * same failure: `reply-abandoned` means the engine was torn down before the frozen
- * clock reached the reply — advance it before disposing it — and `reply-backlog-full`
- * means the caller has parked more delayed replies than the cap admits without ever
- * moving the clock forward. A single merged code would tell a reader which surface
- * failed and not which mistake produced it.
- */
-export const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
-
-/**
- * The code a call the scenario in play scripts nothing for refuses with.
- *
- * An AUTHORING error: every method a surface reaches through the call door is one the
- * corpus registers, so a scenario that scripts none has a gap in it. Declared here,
- * where the seam that discovers the absence lives, so the fixture's refusal set spreads
- * it in rather than spelling it again.
- */
-export const SCRIPT_ABSENT_REFUSAL_CODE = "reply-unscripted" as const;
-
-/** One such code. Derived, so the refusal set that spreads them cannot disagree. */
-export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[number];
+import { daemonMethodBindingFor } from "./daemon-reply-registry.js";
+import type { ScenarioEngine } from "./engine.fixture.js";
+import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "./refusal.fixture.js";
 
 /**
  * What happened when the fixture went looking for one call's canned reply.
@@ -136,6 +113,91 @@ export async function settleScriptedReply(
 }
 
 /** The diagnosis and the remedy for a reply the frozen clock never released. */
+/**
+ * Answer one request/response call from the scenario, or reject by name.
+ *
+ * The classification is `settleScriptedReply`'s; this is the arm that turns each
+ * settlement into what a `DesktopBridge` method may do, which is resolve or reject
+ * and nothing else. Three of the four settlements are rejections here, and each
+ * rejects with a different value on purpose: an unscripted call is a fixture
+ * AUTHORING error, a reply the clock never released is a fixture failure carrying the
+ * shared code, and a scripted daemon refusal is thrown VERBATIM and unwrapped.
+ *
+ * The REQUEST travels through rather than being dropped, on both sides of the bridge.
+ * A scenario answering an entity-scoped call — `repo.mountRead` names the mount it
+ * wants — has to see which entity was asked for, and a seam that forwarded the daemon
+ * request while dropping the control-plane one would be the same defect waiting on
+ * the other half.
+ *
+ * That last one is the whole point of the refusal arm: it is the daemon's refusal,
+ * not the fixture's, and `src/shared/wire-errors.ts` records that a wire refusal
+ * reaches a renderer either as this plain object or as an `Error` carrying the same
+ * `code` — `normalizeWireRejection` renders both as `code: message`. Wrapping it in a
+ * `FixtureBridgeError` would replace the code a surface exists to show with a
+ * fixture-scoped one and make the rendered refusal a thing the live bridge never
+ * produces.
+ *
+ * A RESOLVED REPLY IS HANDED BACK exactly as the scenario scripts it.
+ */
+export async function resolveScriptedReply(
+  engine: ScenarioEngine,
+  call: string,
+  request: unknown,
+): Promise<unknown> {
+  const settlement = await settleScriptedReply(engine, call, request);
+  switch (settlement.status) {
+    case "unscripted":
+      throw new FixtureBridgeError(
+        call,
+        "reply-unscripted",
+        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the surface render an empty result for a call that would have failed.`,
+      );
+    case "unanswered":
+      throw new FixtureBridgeError(call, settlement.code, settlement.detail);
+    case "refused":
+      throw settlement.refusal;
+    case "resolved":
+      return settlement.value;
+  }
+}
+
+/**
+ * Hold one resolved scripted reply to the shape the corpus registers for its method.
+ *
+ * THE SAME REGISTRY THE CONSOLE READS THROUGH. `daemon-reply.ts` parses every live
+ * reply against `daemon-reply-registry.ts`; this reads the same table, so a scenario
+ * that scripts a reply the wire could not send fails in the scenario's own tests
+ * rather than in whichever surface renders it — the `scenario-wire-truth` posture,
+ * moved onto the call door. Two tables would let the fixture teach a shape the
+ * console then refuses, with both halves green.
+ *
+ * ASSERTS, AND DOES NOT SUBSTITUTE. The ORIGINAL value travels on, never the parsed
+ * one: a fixture is a stand-in for the wire, and a wire delivers what it delivers.
+ * Handing back the validator's output would let a scenario lean on a coercion or a
+ * default and look correct against a live daemon that supplies neither.
+ *
+ * A method the registry does not bind passes through untouched, which is the honest
+ * answer rather than a lax one: the corpus registers no shape for it, so there is
+ * nothing to check against.
+ * This is also why the check lives on the daemon arm alone — a control-plane
+ * procedure is not a daemon method and the registry does not describe one.
+ */
+export function assertScriptedReplyOnContract(method: string, value: unknown): unknown {
+  const binding = daemonMethodBindingFor(method);
+  if (binding === undefined) {
+    return value;
+  }
+  const parsed = binding.responseSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new FixtureBridgeError(
+      method,
+      "reply-off-contract",
+      "the scenario scripts a reply this build does not register for that method. Script the registered shape rather than teaching a surface a frame the daemon cannot send.",
+    );
+  }
+  return value;
+}
+
 function unansweredReplyDetail(
   engine: ScenarioEngine,
   outcome: "abandoned" | "backlog-full",

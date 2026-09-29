@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { refuse, refusedMemberPaths, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
-  UnreadableDeliveryLedger,
+  UnreadableDeliveryCounter,
   unreadableDeliveryRefusalComposerFor,
   type UnreadableDeliveryIssues,
 } from "./unreadable-deliveries.js";
@@ -28,9 +28,9 @@ function issuesOn(member: string): UnreadableDeliveryIssues {
   return [{ path: [member] }];
 }
 
-describe("UnreadableDeliveryLedger", () => {
+describe("UnreadableDeliveryCounter", () => {
   it("reads as nothing recorded before anything is", () => {
-    const ledger = new UnreadableDeliveryLedger(testRefusalFor);
+    const ledger = new UnreadableDeliveryCounter(testRefusalFor);
 
     expect(ledger.reading).toStrictEqual({
       unreadableDeliveryCount: 0,
@@ -42,7 +42,7 @@ describe("UnreadableDeliveryLedger", () => {
     // The count and the refusal answer different questions — how far behind, and
     // what failed most recently — so the second delivery must move both, one by
     // rising and one by being replaced.
-    const ledger = new UnreadableDeliveryLedger(testRefusalFor);
+    const ledger = new UnreadableDeliveryCounter(testRefusalFor);
 
     ledger.record(issuesOn("state"));
     ledger.record(issuesOn("priority"));
@@ -53,7 +53,7 @@ describe("UnreadableDeliveryLedger", () => {
   });
 
   it("clears the count and the refusal together", () => {
-    const ledger = new UnreadableDeliveryLedger(testRefusalFor);
+    const ledger = new UnreadableDeliveryCounter(testRefusalFor);
     ledger.record(issuesOn("state"));
 
     ledger.clear();
@@ -68,7 +68,7 @@ describe("UnreadableDeliveryLedger", () => {
     // Without this a `clear` that also stopped recording would read identically to a
     // correct one on every case above, and a stream that superseded its backlog once
     // would then report a live gap as closed forever.
-    const ledger = new UnreadableDeliveryLedger(testRefusalFor);
+    const ledger = new UnreadableDeliveryCounter(testRefusalFor);
     ledger.record(issuesOn("state"));
     ledger.clear();
 

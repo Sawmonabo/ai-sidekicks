@@ -14,7 +14,7 @@
 // instant and nothing ordered by time could be tested at all, and two derived it from
 // the sequence. Neither reports the other.
 //
-// It lives in `store/` rather than under `test/console/` because the consumers are
+// It lives in `store/` rather than under a tier directory because the consumers are
 // co-located console suites, and `src/renderer/tsconfig.test.json` inherits
 // `rootDir: ".."` — `apps/desktop/src` — so a co-located test importing out of the
 // package's `test/` tree is TS6059 rather than a style question. `store/` is then the

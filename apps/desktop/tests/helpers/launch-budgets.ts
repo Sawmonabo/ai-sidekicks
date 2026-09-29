@@ -6,10 +6,10 @@
 // the only numbers in the tree gated by nothing and reviewable nowhere, while
 // every product budget beside them carried a subject, a derivation, and a test
 // that fails when a row goes missing. They are rows now, and this module is the
-// one place they are read: the same `ConsoleBudgetRegistry` path the bundle and
+// one place they are read: the same `BudgetRegistry` path the bundle and
 // heap harnesses take.
 //
-// A module of its own rather than a load in each consumer. `frame-witness.ts` and
+// A module of its own rather than a load in each consumer. `frame-paint-probe.ts` and
 // `launch-deadline.ts` both need these figures and one imports the other, so
 // putting the registry handle in either would either duplicate the read or make
 // the witness the owner of the deadline's numbers. Here, each figure is read
@@ -19,9 +19,9 @@
 // is why the registry discriminates the two kinds rather than merging them — the
 // product list's completeness claim has to stay countable.
 
-import { ConsoleBudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
 
-const BUDGETS = ConsoleBudgetRegistry.load();
+const BUDGETS = BudgetRegistry.load();
 
 /**
  * How long the whole readiness ladder gets, in aggregate.
@@ -86,8 +86,8 @@ export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue(
  * 30 000 ms, so a launch could spend 135 000 ms inside a 60 000 ms tier and be
  * killed before this witness ever spoke.
  */
-export const FRAME_WITNESS_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
-  "console-launch-frame-witness",
+export const FRAME_PAINT_PROBE_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
+  "console-launch-frame-paint-probe",
 );
 
 /**

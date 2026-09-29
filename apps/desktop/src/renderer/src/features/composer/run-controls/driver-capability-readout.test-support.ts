@@ -6,9 +6,8 @@
 // declared nothing" looks like.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-
-import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
-import type { DeclaredDriverFlags } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+import type { DeclaredDriverFlags } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 /**
  * One driver's record: the named flags true, every other flag false.

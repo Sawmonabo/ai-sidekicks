@@ -19,8 +19,7 @@
 // slept moves the wake-up nowhere.
 
 import { useMemo } from "react";
-
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {

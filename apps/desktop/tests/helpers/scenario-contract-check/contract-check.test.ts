@@ -11,12 +11,9 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../../fixtures/index.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import { findScenarioWireTruthDefects } from "./contract-check.js";
-import type {
-  ConsoleScenario,
-  ScenarioBeat,
-} from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { findScenarioContractDefects } from "./contract-check.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
@@ -24,21 +21,28 @@ const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 describe("scenario wire truth — the shipped seat board", () => {
   it("accepts every scenario a family has landed on the board", () => {
     expect(
-      findScenarioWireTruthDefects(CONSOLE_SCENARIOS).map(
+      findScenarioContractDefects(CONSOLE_SCENARIOS).map(
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
       ),
     ).toStrictEqual([]);
   });
 });
 
+describe("the catalog", () => {
+  it("carries unique ids, so the picker and the lookup cannot collide", () => {
+    const ids = CONSOLE_SCENARIOS.map((scenario) => scenario.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
 /** A queue row the queue-state cases below are about, spelled as its branded id declares. */
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 
-/** Someone the flagship joins, so a caller case varies the caller and nothing else. */
-const FLAGSHIP_USER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
+/** Someone the concurrent-streaming joins, so a caller case varies the caller and nothing else. */
+const CONCURRENT_STREAMING_USER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
 
 /**
- * The flagship playing exactly ONE beat, built from its own opening beat.
+ * The concurrent-streaming scenario playing exactly ONE beat, built from its own opening beat.
  *
  * A single beat is what every case below is about, and starting from the seat board's
  * own means the envelope members a case does not touch — the session it travels on,
@@ -50,7 +54,9 @@ function scenarioPlayingOneBeat(
 ): ConsoleScenario {
   const openingBeat = FLAGSHIP_SCENARIO.beats[0];
   if (openingBeat === undefined) {
-    throw new Error("the flagship scenario plays no beats, so there is no beat to build from");
+    throw new Error(
+      "the concurrent-streaming scenario plays no beats, so there is no beat to build from",
+    );
   }
   return { ...FLAGSHIP_SCENARIO, id: scenarioId, beats: [revise(openingBeat)] };
 }
@@ -59,7 +65,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   it("reports a beat whose kind no daemon emits", () => {
     // `run.started` is the defect this leg was written for: it reads exactly like a
     // real event, and the census has `run.starting` instead.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("plays-an-unregistered-kind", (beat) => ({
         ...beat,
         event: { ...beat.event, kind: "run.started", payload: {} },
@@ -75,7 +81,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // the case above would still be green: `session.created` registers
     // `{sessionId, config, metadata}` and the variant is `.strict()`, so a `title`
     // member is a payload no daemon sends.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-an-unregistered-payload", (beat) => ({
         ...beat,
         event: { ...beat.event, kind: "session.created", payload: { title: "Rate-limit wiring" } },
@@ -90,7 +96,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // A readable identifier renders exactly like a real one and is rejected by every
     // branded schema the wire declares, so a scenario written from design notes rather
     // than from the contract fails at the first surface that parses it.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-a-readable-identifier", (beat) => ({
         ...beat,
         event: { ...beat.event, sessionId: "session-flagship" },
@@ -105,7 +111,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // `EventEnvelope.id` is what every later read of an event's body is keyed by, and
     // an empty one resolves to nothing — a defect exactly as a bad `sessionId` is, and
     // one the predicate could not see while it minted an envelope id of its own.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-no-envelope-id", (beat) => ({
         ...beat,
         event: { ...beat.event, id: "" },
@@ -126,9 +132,11 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // a beat that renders nothing.
     const runBeat = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.starting");
     if (runBeat === undefined) {
-      throw new Error("the flagship scenario plays no `run.starting` beat to build a case from");
+      throw new Error(
+        "the concurrent-streaming scenario plays no `run.starting` beat to build a case from",
+      );
     }
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       {
         ...FLAGSHIP_SCENARIO,
         id: "carries-an-empty-actor",
@@ -152,7 +160,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
 });
 
 describe("scenario wire truth — the state a queue beat says its row moved to", () => {
-  /** The flagship's opening beat, replaced by a queue beat carrying the payload named. */
+  /** The concurrent-streaming scenario's opening beat, replaced by a queue beat carrying the payload named. */
   function scenarioPlayingQueueBeat(
     scenarioId: string,
     eventKind: string,
@@ -170,7 +178,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     // the queue kinds — so the omission was invisible, and the stream's projection
     // would have taken the row's state from the KIND alone and built a valid-looking
     // summary out of half a payload.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-no-queue-state", "queue_item.admitted", {
         sessionId: FLAGSHIP_SCENARIO.sessionId,
         queueItemId: CONTROL_QUEUE_ITEM_ID,
@@ -185,7 +193,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     // The other half of the same rule, and the one the missing member used to skip
     // past: `queue_item.admitted` announces `admitted`, so a payload saying `queued` is
     // a row that moved two ways at once.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-two-queue-states", "queue_item.admitted", {
         sessionId: FLAGSHIP_SCENARIO.sessionId,
         queueItemId: CONTROL_QUEUE_ITEM_ID,
@@ -203,7 +211,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     // proves the mapping is read and not guessed: its kind says `created` and the state
     // it announces is `queued`.
     expect(
-      findScenarioWireTruthDefects([
+      findScenarioContractDefects([
         scenarioPlayingQueueBeat("names-the-announced-state", "queue_item.created", {
           sessionId: FLAGSHIP_SCENARIO.sessionId,
           queueItemId: CONTROL_QUEUE_ITEM_ID,
@@ -220,7 +228,7 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
     // surface that attributes a row to this window silently attributes it to nobody —
     // a defect that renders as a session nobody is looking at rather than as anything
     // wrong.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       {
         ...FLAGSHIP_SCENARIO,
         id: "names-a-caller-it-never-joins",
@@ -237,11 +245,11 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
     // refusal of the field — which would make every scenario that states its caller
     // fail and read exactly the same here.
     expect(
-      findScenarioWireTruthDefects([
+      findScenarioContractDefects([
         {
           ...FLAGSHIP_SCENARIO,
           id: "names-a-caller-it-joins",
-          callerUserId: FLAGSHIP_USER_ID,
+          callerUserId: CONCURRENT_STREAMING_USER_ID,
         },
       ]),
     ).toStrictEqual([]);

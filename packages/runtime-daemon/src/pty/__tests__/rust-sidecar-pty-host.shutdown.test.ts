@@ -37,7 +37,7 @@
 //
 //   • Primary FIFO + drain invariant (this test exercises the drain
 //     portion; lifecycle wiring tests live in
-//     `apps/desktop/test/sidecar-lifecycle.test.ts`).
+//     `apps/desktop/src/main/services/sidecar-lifecycle.test.ts`).
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";

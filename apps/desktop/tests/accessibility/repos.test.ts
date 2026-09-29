@@ -18,9 +18,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountDiffPane, mountRepoSection } from "../helpers/feature-mounts/repos.js";
-import { type MountedFamilySurface } from "../helpers/feature-mounts/mount-queries.js";
+import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -34,7 +34,7 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {
   readonly label: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
   { label: "the repos section with a degraded mount", mount: mountRepoSection },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },

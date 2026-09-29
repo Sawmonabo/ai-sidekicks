@@ -11,7 +11,7 @@
 //      fails against the open handle and the directory outlives the run.
 //   2. Disposal signals the child's tree. Doing that after `close` signals a
 //      pid the operating system has already reaped and may already have
-//      reissued — and `electron-probe.ts` and `gc-probe.ts` both call
+//      reissued — and `smoke-probe-harness.ts` and `gc-probe-harness.ts` both call
 //      `dispose` from the child's own `close` handler, so this is the ordinary
 //      path rather than a corner of one.
 //
@@ -126,7 +126,7 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
           .toBe(true);
 
         // Both pids are now reaped, so every target a kill could name is the
-        // operating system's to reissue. This is the call `electron-probe.ts`
+        // operating system's to reissue. This is the call `smoke-probe-harness.ts`
         // makes from its own `close` handler.
         //
         // The other side of this rule — that a disposal BEFORE `close` still

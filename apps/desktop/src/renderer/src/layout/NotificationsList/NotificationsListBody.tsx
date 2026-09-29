@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { NOTHING_NEEDS_YOU, uncheckedSessionsSentence } from "./attention-sentences.js";

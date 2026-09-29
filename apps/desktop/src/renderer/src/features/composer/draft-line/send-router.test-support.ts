@@ -11,7 +11,7 @@
 
 import type { InterventionRequestResponse, QueueItemCreateResponse } from "@ai-sidekicks/contracts";
 import type { Mock } from "vitest";
-import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type {
   ComposerChannelTarget,
   ComposerRunTarget,

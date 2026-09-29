@@ -52,7 +52,7 @@ import { type EntityProjectorRegistry } from "@renderer/store/session/entities/e
  * Handed to every `SessionStore` and `SessionStoreRegistry` a surface mount opens, so
  * a tier reads the partitions a person's window would have.
  */
-export const COMPOSED_CONSOLE_PROJECTORS: EntityProjectorRegistry = composeConsoleProjectors();
+export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorRegistry = composeConsoleProjectors();
 
 /**
  * Run the window's composition into boards this module owns, and keep the fold.

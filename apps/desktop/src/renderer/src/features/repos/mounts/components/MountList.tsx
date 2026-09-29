@@ -2,7 +2,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";

@@ -8,8 +8,7 @@
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
 import {

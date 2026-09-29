@@ -14,7 +14,7 @@
     "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "build:fixtures": "electron-vite build --mode=fixtures && node --experimental-strip-types build/assert-webprefs.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.bench-test.json && tsc -p tsconfig.browser-test.json && tsc -p tsconfig.electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
-    "lint": "eslint build scripts src fixtures tests test vitest",
+    "lint": "eslint build scripts src fixtures tests vitest",
     "test:coverage": "vitest run --project=renderer --coverage",
     "test:main-unit": "vitest run --project=main-unit",
     "test:smoke": "node --experimental-strip-types scripts/materialize-electron.ts && vitest run --project=smoke",

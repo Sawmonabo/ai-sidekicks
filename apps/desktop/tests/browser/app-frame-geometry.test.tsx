@@ -13,11 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  emulateSystemScheme,
-  pressKeys,
-  renderSettled,
-} from "../../test/console/console-harness.js";
+import { emulateSystemScheme, pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import {
   ConsoleRoot,

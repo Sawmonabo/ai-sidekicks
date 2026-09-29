@@ -46,12 +46,11 @@
 // no surface narrows on both vocabularies at once.
 
 import { useEffect, useMemo } from "react";
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
-import { type AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
 import { subscribeToOpenSessions } from "../../session/open-session-signal.js";

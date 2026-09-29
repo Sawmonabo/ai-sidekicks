@@ -23,7 +23,7 @@
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { pressKeys, renderSettled } from "../../test/console/console-harness.js";
+import { pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { advanceScenarioUntil } from "../helpers/scenario-manual-clock.js";

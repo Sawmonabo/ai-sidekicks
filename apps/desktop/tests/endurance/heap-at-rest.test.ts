@@ -28,7 +28,7 @@
 // "One session open at rest" is three conditions, and the run establishes each
 // rather than assuming it:
 //
-//   • **One session open.** The console is launched on the flagship scenario and
+//   • **One session open.** The console is launched on the concurrent-streaming scenario and
 //     navigated to that scenario's own session route, and the navigation is
 //     observed on a surface only that route renders.
 //   • **With content.** The frozen clock is walked over the whole script, and the
@@ -49,28 +49,26 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import {
   deliverWholeScenario,
   ENDURANCE_LAUNCH_OPTIONS,
-  expectFlagshipSessionCarriesContent,
-  openFlagshipSessionRoute,
+  expectConcurrentStreamingSessionCarriesContent,
+  openConcurrentStreamingSessionRoute,
 } from "./endurance-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import {
-  ConsoleBudgetRegistry,
-  evaluateBudget,
-  type ConsoleBudget,
-} from "../../scripts/budget/budget-registry.mjs";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
+import { type Budget } from "../../scripts/budget/budget-document.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The row this file measures. Named once; every figure below comes off it. */
 const HEAP_AT_REST_BUDGET_ID = "renderer-heap-at-rest";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
 
 /**
@@ -81,7 +79,7 @@ const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
  * `withinBudget: true` unconditionally would satisfy the assertion above and this
  * gate would report green over any renderer at all.
  */
-function budgetWithCeilingBelow(measuredCanonicalValue: number): ConsoleBudget {
+function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
   return {
     ...budget,
     limit: { ...budget.limit, canonicalValue: measuredCanonicalValue - 1 },
@@ -90,7 +88,7 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): ConsoleBudget {
 
 describe("the renderer heap-at-rest budget row", () => {
   // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are
-  // the budget tier's to hold (`test/console/budget/heap-budget.test.ts`) and are
+  // the budget tier's to hold (`scripts/budget/measure-heap.test.ts`) and are
   // deliberately not restated here. What only THIS file can say is that it is the
   // harness the row names — so a reading that moves away, or a row flipped back
   // to ungated while this gate keeps running and passing, fails here.
@@ -102,15 +100,15 @@ describe("the renderer heap-at-rest budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one session open", () => {
   it("holds the renderer heap under the budget's ceiling", async () => {
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      await openFlagshipSessionRoute(consoleApplication);
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+      await openConcurrentStreamingSessionRoute(consoleApplication);
       const deliveredBeatCount = await deliverWholeScenario(consoleApplication);
       expect(
         deliveredBeatCount,
         "the scenario handle is not exposed by this build, so nothing drove content into the session being measured",
       ).not.toBeNull();
       expect(Number(deliveredBeatCount)).toBe(FLAGSHIP_SCENARIO.beats.length);
-      await expectFlagshipSessionCarriesContent(consoleApplication);
+      await expectConcurrentStreamingSessionCarriesContent(consoleApplication);
 
       // Attached before the precondition, which needs it: the precondition proves the
       // instrument by measuring a difference of two readings, and it takes each of

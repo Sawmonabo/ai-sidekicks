@@ -32,9 +32,9 @@ import type { RunId } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { callDaemon } from "./daemon-reply.js";
-import { CONSOLE_DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
+import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
-import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 
 /** The code the door raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";
@@ -97,7 +97,7 @@ function heldReply(reply: unknown): {
  * The registered reply schema the door itself resolves for the method these cases
  * send, named once so the spy below watches the real parser rather than a lookalike.
  */
-const PRESENCE_REPLY_SCHEMA = CONSOLE_DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
+const PRESENCE_REPLY_SCHEMA = DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
 
 /**
  * A reply that fulfils, and queues the abandonment BEHIND its own fulfilment.

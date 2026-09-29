@@ -132,7 +132,7 @@ export const BranchContextIdSchema: z.ZodType<BranchContextId, BranchContextId> 
 //
 // SIX STATES, FIVE EVENTS. Each transition maps to its `worktree.*` event
 // EXCEPT `-> failed`, which deliberately emits none — the failure incident is
-// already evented as `workspace.stale` by the coupled `failReprovision`, and
+// already evented as `workspace.stale` by the coupled `failRootPreparation`, and
 // registry stays closed (no `worktree.failed` row exists to emit). Failed
 // rows remain queryable via `repo.worktreeStatusRead`.
 export type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed";
@@ -329,7 +329,7 @@ export const WORKTREE_REUSE_REASON_MAX_LEN = 512;
 // --------------------------------------------------------------------------
 //
 // SELECT RECORDS; PREPARE MATERIALIZES. This mutation records the canonical
-// mode and transitions the workspace through `beginReprovision` — while
+// mode and transitions the workspace through `beginRootPreparation` — while
 // per-task root materialization is `repo.executionRootPrepare`'s surface below.
 // A client sends exactly one selection mutation per explicit switch, never a
 // client-sequenced select-then-prepare chain.
@@ -483,7 +483,7 @@ export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareR
       "ExecutionRootPrepareResponse.executionRoot",
     ),
     // The workspace position after reprovision bracket
-    // (`completeReprovision` on success). Full 5-value vocabulary, not
+    // (`completeRootPreparation` on success). Full 5-value vocabulary, not
     // narrowed — the same stance as the select response above.
     state: WorkspaceStateSchema,
     // `worktreeId` is present for a `provisioned-worktree` prepare only, with

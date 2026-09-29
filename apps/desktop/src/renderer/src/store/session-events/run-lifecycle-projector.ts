@@ -113,8 +113,7 @@
 // timeline is the ledger that records it arrived.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
-
-import { runStateForTransitionKind } from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type {

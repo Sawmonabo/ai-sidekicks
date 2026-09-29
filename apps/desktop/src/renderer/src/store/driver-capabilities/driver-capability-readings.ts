@@ -18,10 +18,7 @@
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import type {
-  DeclaredDriverFlags,
-  DriverCapabilityReadout,
-} from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 
 /**
  * The node's declarations, joined to one session's run-to-driver bindings.

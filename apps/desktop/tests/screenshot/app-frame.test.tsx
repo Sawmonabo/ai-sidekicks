@@ -2,7 +2,7 @@
 //
 // The screenshot tier captures per component and per scheme, and it is a LOCAL CAPTURE AID rather than a regression
 // gate: every capture is written into the gitignored
-// `test/console/screenshot/__screenshots__/`, compared against nothing, in no CI job
+// `tests/screenshot/__screenshots__/`, compared against nothing, in no CI job
 // and in no `pnpm test` chain. What it still refuses is a capture that would be a
 // picture of a half-built console — `settled-capture.ts` holds both refusals, the
 // pending pane body and the surface the window cannot hold.
@@ -26,8 +26,8 @@ import {
   emulateSystemScheme,
   pressKeys,
   renderSettled,
-  resetDurableConsoleState,
-} from "../../test/console/console-harness.js";
+  resetDurableAppState,
+} from "../helpers/app-harness.js";
 import { requireCapturedElement } from "./captured-element.js";
 import { captureSettled } from "./settled-capture.js";
 
@@ -43,7 +43,7 @@ beforeEach(async () => {
   // gives every file in a session one origin, so a scheme preference or a sidebar
   // arrangement another file persisted would be restored into these mounts and
   // photographed here.
-  await resetDurableConsoleState();
+  await resetDurableAppState();
   document.location.hash = "";
   installMeridianTokens(document);
 });

@@ -26,7 +26,7 @@ import {
   type ScriptedAnswer,
   typeInto,
 } from "./steer-box.test-support.js";
-import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 
 describe("the composer outlives its dispatch", () => {
   const REJECTED_STEER: ScriptedAnswer = () => ({

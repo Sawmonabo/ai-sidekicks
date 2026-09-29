@@ -35,8 +35,7 @@
 // and holds no `useState`: it reads one snapshot and hands presses back to the view.
 
 import type { ReactNode } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   useDefinitionSettlementAnnouncement,
   useAgentRegistryView,

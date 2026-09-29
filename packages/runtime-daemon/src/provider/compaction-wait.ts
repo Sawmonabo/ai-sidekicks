@@ -148,7 +148,7 @@ export interface ArmedCompactionWait {
  * leg the session id is already that: a rewind installs its successor and
  * releases in the same act, and a resume beside a live holder is refused
  * outright, so no identity moves underneath a wait. On the Codex leg it is not:
- * a successful `rollbackTo` re-points the record at a forked thread and a
+ * a successful `forkConversation` re-points the record at a forked thread and a
  * superseding `resumeSession` installs a new record on the same session id, so
  * that driver composes `(sessionId, threadId)` and releases the predecessor's
  * key at both swaps. A registry that assumed the session id would have made the

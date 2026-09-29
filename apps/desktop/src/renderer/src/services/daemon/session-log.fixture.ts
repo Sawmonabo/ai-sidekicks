@@ -27,7 +27,7 @@
 // delivered at the sequences it was written with, byte for byte.
 //
 // THE SCRIPT IS NEVER REWRITTEN. Stamping happens on the way out, so `scenario.beats`
-// stays the authored record that `scenario/wire-truth/wire-truth.ts` checks and that a reader
+// stays the authored record that `tests/helpers/scenario-contract-check/contract-check.ts` checks and that a reader
 // reasons about — the shift is a property of one playback, not of the scenario.
 
 import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";

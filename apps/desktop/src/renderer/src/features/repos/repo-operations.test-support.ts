@@ -4,10 +4,9 @@
 // surface that reaches for a call the case did not expect fails on a sentence instead of on
 // an `undefined`. A case scripts only the calls it is about and reads what they were asked
 // from the arguments its own stubs receive.
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import type { RepoOperations } from "./repo-operations.js";
 

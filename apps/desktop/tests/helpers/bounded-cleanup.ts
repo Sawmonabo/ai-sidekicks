@@ -33,7 +33,7 @@
 // The process tree is SIGKILLed, and the outcome is reported rather than thrown.
 // Cleanup is never the interesting failure — something else already went wrong to
 // get here — so it returns a verdict the caller attaches to the error it was
-// already carrying, in the shape `FrameWitness` uses for the same reason. A kill
+// already carrying, in the shape `FramePaintProbe` uses for the same reason. A kill
 // the platform REFUSES is asked again inside that one pass, bounded by the same
 // figure the settle-time child disposal uses — `#terminateUntilGone` has the
 // reason it cannot be left to a second call.

@@ -12,8 +12,7 @@
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { PersistenceAdapterError } from "@renderer/store/persistence/persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

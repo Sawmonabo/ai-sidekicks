@@ -60,10 +60,10 @@
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import {
-  CONSOLE_DAEMON_METHOD_BINDINGS,
-  type ConsoleDaemonMethod,
+  DAEMON_METHOD_BINDINGS,
+  type RegisteredDaemonMethod,
   type DaemonRequestOf,
   type DaemonResponseOf,
 } from "./daemon-reply-registry.js";
@@ -183,13 +183,13 @@ export function abandonedReadRefusal(method: string): ConsoleRefusal {
  * cancellation is registered on this wire, so the pending promise is dropped and
  * nothing is sent to say so.
  */
-export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
+export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   bridge: ConsoleBridge,
   method: MethodName,
   request: DaemonRequestOf<MethodName>,
   options: DaemonCallOptions = {},
 ): Promise<DaemonReply<DaemonResponseOf<MethodName>>> {
-  const binding = CONSOLE_DAEMON_METHOD_BINDINGS[method];
+  const binding = DAEMON_METHOD_BINDINGS[method];
   const { signal } = options;
 
   if (isReadAbandoned(signal)) {

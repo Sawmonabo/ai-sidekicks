@@ -31,8 +31,7 @@
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Nothing,
   OverlayAlertDialogPopup,

@@ -70,7 +70,7 @@ declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
 /**
  * Environment variable a fixture build names its scenario on.
  *
- * Set by `test/console/electron-harness.ts` for the two Electron tiers, and by a
+ * Set by `tests/helpers/electron-harness.ts` for the two Electron tiers, and by a
  * developer running the fixtures build by hand. It is read in exactly one place —
  * below — and never reaches the renderer as an environment value: the renderer is
  * sandboxed and has no process environment, which is why this crosses the boundary

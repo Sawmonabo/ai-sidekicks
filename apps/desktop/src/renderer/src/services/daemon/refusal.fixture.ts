@@ -9,26 +9,32 @@
 // first would put a fixture-scoped code in front of every typed daemon refusal the
 // console renders, which is the one thing a fixture must not paraphrase.
 //
-// ITS OWN MODULE because both fixture doors raise it and the bridge that composes them
-// imports both. A vocabulary declared in the bridge and thrown from the doors would
-// close an import cycle through the module every console surface reaches the fixture
-// by; declared here, the doors and the bridge all read one leaf and none of them reads
-// another.
+// ITS OWN MODULE because the daemon fixture, its subscriptions and the platform fixture all
+// raise it; declared here, each reads one leaf and none of them reads another.
 
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
-import {
-  SCRIPT_ABSENT_REFUSAL_CODE,
-  SCRIPTED_REPLY_REFUSAL_CODES,
-} from "@renderer/console/bridge/scenario/runtime/index.js";
+
+/**
+ * The codes a scripted reply that never arrived refuses with.
+ *
+ * Two members, and each one is a distinct operator remedy rather than a shade of the
+ * same failure: `reply-abandoned` means the engine was torn down before the frozen
+ * clock reached the reply — advance it before disposing it — and `reply-backlog-full`
+ * means the caller has parked more delayed replies than the cap admits without ever
+ * moving the clock forward. A single merged code would tell a reader which surface
+ * failed and not which mistake produced it.
+ */
+const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
+
+/** One such code. Derived, so the refusal set that spreads them cannot disagree. */
+export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[number];
 
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.
  *
- * The first and the last two come from `scripted-reply.ts` rather than being spelled
- * again here: the last two name a reply the frozen clock never released, which is a
- * fact about the seam the fixture surfaces share. The first is that module's
- * `SCRIPT_ABSENT_REFUSAL_CODE`, so the value is written once and cannot drift apart
- * under a rename.
+ * `reply-unscripted` is an AUTHORING error: every method a surface reaches through the
+ * daemon's call is one the corpus registers, so a scenario that scripts none has a gap in
+ * it. The last two name a reply the frozen clock never released.
  *
  * `beat-unprojectable` is a SCENARIO authoring error rather than a wire one: the
  * beat named a kind a narrowed stream carries and then could not supply what that
@@ -45,13 +51,13 @@ import {
  * projection arm above exists to prevent, arriving through the call door.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
-  typeof SCRIPT_ABSENT_REFUSAL_CODE,
+  "reply-unscripted",
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
 ] = [
-  SCRIPT_ABSENT_REFUSAL_CODE,
+  "reply-unscripted",
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",

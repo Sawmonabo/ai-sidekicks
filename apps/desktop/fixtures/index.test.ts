@@ -1,13 +1,13 @@
-// Every scenario on the board names a frozen tick.
+// The catalog: every scenario on it names a frozen tick, and the lookup finds each by id.
 //
 // The case the design asks for: a scenario the registry names no frame for fails, so a
-// family that lands a scenario and decides no money frame is stopped by the build rather
-// than by a reviewer noticing.
+// scenario that lands and pins no frame is stopped by the build rather than by a
+// reviewer noticing.
 //
-// WHY IT IS HERE AND NOT BESIDE THE REGISTRY. The subject is the BOARD — this file reads
-// `CONSOLE_SCENARIOS` and holds the registry to it — and `runtime/` imports nothing from
-// the corpus above it. The registry's own rules, which need no corpus at all, stay beside
-// the registry in `runtime/frozen-tick-registry.test.ts`.
+// WHY IT IS HERE AND NOT BESIDE THE REGISTRY. The subject is the catalog — this file reads
+// `CONSOLE_SCENARIOS` and holds the registry to it — and the registry imports nothing from
+// the catalog. The registry's own rules, which need no catalog at all, stay beside the
+// registry in `services/daemon/frozen-tick-registry.fixture.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,7 +16,7 @@ import {
   findScenariosWithoutFrozenTick,
 } from "@renderer/services/daemon/frozen-tick-registry.fixture.js";
 import { scenarioNamed } from "@renderer/services/daemon/vocabulary.test-support.js";
-import { CONSOLE_SCENARIOS } from "./index.js";
+import { CONSOLE_SCENARIOS, findScenario } from "./index.js";
 
 describe("every scenario on the board names a frozen tick", () => {
   it("leaves no scenario unregistered", () => {
@@ -37,14 +37,26 @@ describe("every scenario on the board names a frozen tick", () => {
   });
 
   it("negative control: a row for a scenario the board dropped fails it too", () => {
-    const boardMissingTheFlagship = CONSOLE_SCENARIOS.filter(
-      (scenario) => scenario.id !== "flagship",
+    const catalogWithoutConcurrentStreaming = CONSOLE_SCENARIOS.filter(
+      (scenario) => scenario.id !== "concurrent-streaming",
     );
 
-    const defects = findFrozenTickRegistryDefects(boardMissingTheFlagship);
+    const defects = findFrozenTickRegistryDefects(catalogWithoutConcurrentStreaming);
 
     expect(defects).toHaveLength(1);
-    expect(defects[0]?.scenarioId).toBe("flagship");
+    expect(defects[0]?.scenarioId).toBe("concurrent-streaming");
     expect(defects[0]?.reason).toContain("no longer carries");
+  });
+});
+
+describe("the scenario lookup", () => {
+  it("resolves every scenario on the board", () => {
+    for (const scenario of CONSOLE_SCENARIOS) {
+      expect(findScenario(scenario.id).id).toBe(scenario.id);
+    }
+  });
+
+  it("negative control: an unknown scenario id is refused rather than defaulted", () => {
+    expect(() => findScenario("no-such-scenario")).toThrow(RangeError);
   });
 });

@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "./parked-daemon-calls.test-support.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";

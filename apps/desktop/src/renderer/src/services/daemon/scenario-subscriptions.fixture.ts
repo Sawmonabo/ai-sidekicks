@@ -28,18 +28,14 @@
 // Its own module rather than the bottom of `bridge.ts`: this is the seam with
 // four named defects behind it and three tables between them, and the bridge beside it
 // is a composition. The bridge imports these two functions and neither imports it.
-
-import type { RelayEventHandler, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { RelayEventHandler, Unsubscribe } from "@shared/preload-api.js";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { projectRunStreamDelivery } from "../run-streams/run-stream-projection.fixture.js";
-import { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/index.js";
-import { composeScenarioEventEnvelope } from "@renderer/console/bridge/scenario/runtime/index.js";
-import {
-  sessionEventStreamFor,
-  subscriptionDeliversEventKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { ScenarioEngine } from "./engine.fixture.js";
+import { composeScenarioEventEnvelope } from "./event-envelope.fixture.js";
+import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-event-streams.js";
 
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.

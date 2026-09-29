@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   APPROVAL_RECORD_MEMBERS,
-  hasCompleteResolvedQuad,
+  hasCompleteResolution,
   isResolvedState,
   readApprovalProjection,
   readRememberedRuleList,
@@ -268,9 +268,9 @@ describe("the resolved quad", () => {
     if (complete === undefined) {
       throw new Error("the resolved row did not parse");
     }
-    expect(hasCompleteResolvedQuad(complete)).toBe(true);
+    expect(hasCompleteResolution(complete)).toBe(true);
     // Negative control: dropping any one member has to make it incomplete, or the
     // card would render a partial resolution as if it were whole.
-    expect(hasCompleteResolvedQuad({ ...complete, approverId: undefined })).toBe(false);
+    expect(hasCompleteResolution({ ...complete, approverId: undefined })).toBe(false);
   });
 });

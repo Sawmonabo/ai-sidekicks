@@ -1,19 +1,18 @@
-// The lane-concurrency reader, and the claim the flagship script makes with it.
+// The lane-concurrency reader, and the claim the concurrent-streaming script makes with it.
 //
 // Two subjects in one file because they are one claim: the reader is only worth
 // anything if it says four about the scenario the four-lane budget row measures, and
 // the scenario's claim is only checkable through the reader. The controls below vary
-// the SCRIPT rather than the reader, so each one shows a session the flagship could
+// the SCRIPT rather than the reader, so each one shows a session the concurrent-streaming could
 // become and the number the reader would then report.
 
 import { describe, expect, it } from "vitest";
-
 import {
-  FLAGSHIP_LANE_COUNT,
+  CONCURRENT_STREAMING_LANE_COUNT,
   FLAGSHIP_SCENARIO,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
+} from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import type { ScenarioBeat } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ScenarioBeat } from "../../fixtures/scenario.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 
@@ -139,11 +138,11 @@ describe("peakConcurrentStreamingRuns", () => {
   });
 });
 
-describe("the flagship script", () => {
+describe("the concurrent-streaming script", () => {
   it("has one streaming lane per attached agent, all at once", () => {
     expect(
       peakConcurrentStreamingRuns(FLAGSHIP_SCENARIO.beats, 0, FLAGSHIP_SCENARIO.beats.length),
-    ).toBe(FLAGSHIP_LANE_COUNT);
+    ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
   });
 
   it("reaches that peak after its opening, so a sampled window contains it", () => {
@@ -162,12 +161,12 @@ describe("the flagship script", () => {
         openingBeatCount,
         FLAGSHIP_SCENARIO.beats.length,
       ),
-    ).toBe(FLAGSHIP_LANE_COUNT);
+    ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
   });
 
   it("negative control: the same script with its output removed streams nothing", () => {
     // The control that fails on the revision this file was written against, whose
-    // flagship script carried eight beats and no assistant or tool row at all. Every
+    // concurrent-streaming script carried eight beats and no assistant or tool row at all. Every
     // run transition is kept, so what is shown is that the lanes alone do not
     // satisfy the claim.
     const withoutOutput = FLAGSHIP_SCENARIO.beats.filter(
@@ -179,7 +178,7 @@ describe("the flagship script", () => {
   });
 
   it("negative control: taking the lanes in sequence drops the peak to one", () => {
-    // The other half. The beats are the flagship's own, re-timed so each lane
+    // The other half. The beats are the concurrent-streaming scenario's own, re-timed so each lane
     // finishes before the next begins — which is the script a reviewer would
     // accept as "four lanes" if concurrency were not measured.
     const runIdsInOrder: string[] = [];

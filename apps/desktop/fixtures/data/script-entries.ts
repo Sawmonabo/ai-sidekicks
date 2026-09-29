@@ -1,24 +1,15 @@
-// The console scenarios' shared beat vocabulary.
+// The scripted sessions' shared beat vocabulary.
 //
-// Four files script sessions into the ledger — the ledger family scenario, the
-// first-sixty-seconds session, the endurance generator, and the flagship's four-lane
-// session — and all four need the same four things: a sequence that never skips, an
-// `occurredAt` that agrees with the beat's own `atMs`, the registered run-lifecycle
-// payload, and the registered machine-activity payloads — assistant, tool, and the
-// provider-native subagent rows filed beside them.
-// `apps/desktop/AGENTS.md` hoists a helper on its second use, so the vocabulary
-// lives here once rather than four times; the four scenarios are then only their own
-// data, which is what a reader wants to read.
+// Every scenario that scripts runs into a session (transcript-states, concurrent-streaming
+// and the endurance generator) needs the same four things: a sequence that never skips,
+// an `occurredAt` that agrees with the beat's own `atMs`, the registered run-lifecycle
+// payload, and the registered machine-activity payloads (assistant, tool, and the
+// provider-native subagent rows filed beside them). They live here once, so each
+// scenario is only its own data.
 //
-// THE OPENING IS NEXT DOOR. Who is in the room before any run starts is
-// `ledger-opening-entries.ts`, which reads the entry type from here and is read back
-// by nothing here — a session's opening is not a lane's, so the lane binder at the
-// foot of this file composes the four builders below and never that one.
-//
-// The `Ledger` in the exported names is where the vocabulary was first needed rather
-// than a claim about who may use it; the flagship reaches for exactly the same
-// builders, and a second copy under a second name would be the drift this module
-// exists to prevent.
+// Who is in the room before any run starts is `opening-entries.ts`, which reads the
+// entry type from here and is read back by nothing here: a session's opening is not a
+// run's, so the run entry builders never compose one.
 //
 // WHAT THE BUILDER GUARANTEES, AND WHY EACH GUARANTEE IS WORTH A FUNCTION CALL
 //
@@ -51,11 +42,10 @@
 // `assistant.*` and `tool.*` do have one, and it is `.strict()`, so a member those
 // builders do not name is a member the wire rejects.
 
-import { parseInstant } from "@renderer/lib/instant.js";
-import type { ScenarioBeat } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ScenarioBeat } from "../scenario.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
-export interface LedgerScriptEntry {
+export interface ScriptEntry {
   /** Scenario time, measured from the scenario's start. Non-decreasing. */
   readonly atMs: number;
   /** A registered `SessionEventType`, verbatim. */
@@ -73,7 +63,7 @@ export interface LedgerScriptEntry {
 }
 
 /** What a script needs beyond its entries to become beats. */
-export interface LedgerScriptOptions {
+interface ScriptOptions {
   readonly sessionId: string;
   /**
    * The scenario's own stem for the row ids it mints — a UUID's first four groups
@@ -85,12 +75,13 @@ export interface LedgerScriptOptions {
    * stopped carrying the real id goes unnoticed.
    */
   readonly eventIdStem: string;
-  readonly startedAtIso: string;
-  readonly entries: readonly LedgerScriptEntry[];
+  /** The instant tick zero stands for, in epoch milliseconds. */
+  readonly startedAtMs: number;
+  readonly entries: readonly ScriptEntry[];
 }
 
 /** What one run-lifecycle transition says. */
-export interface RunTransitionInput {
+interface RunTransitionInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -125,18 +116,12 @@ export interface RunTransitionInput {
  * scenario — two lanes interleaving at particular ticks is what the ledger is being
  * measured against.
  */
-export function scriptLedgerBeats(options: LedgerScriptOptions): readonly ScenarioBeat[] {
-  const startedAt = parseInstant(options.startedAtIso);
-  if (startedAt.epochMilliseconds === undefined) {
-    throw new RangeError(
-      `a ledger script needs a parseable start instant; received "${options.startedAtIso}"`,
-    );
-  }
+export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBeat[] {
   let previousAtMs = 0;
   return options.entries.map((entry, entryIndex) => {
     if (entry.atMs < previousAtMs) {
       throw new RangeError(
-        `ledger script entry ${String(entryIndex)} ("${entry.kind}") is due at ${String(entry.atMs)}ms, ` +
+        `script entry ${String(entryIndex)} ("${entry.kind}") is due at ${String(entry.atMs)}ms, ` +
           `behind its predecessor at ${String(previousAtMs)}ms. The scenario engine delivers beats in ` +
           "script order, so an entry that goes backwards is delivered late or not at all.",
       );
@@ -149,7 +134,7 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
         kind: entry.kind,
-        occurredAt: new Date(startedAt.epochMilliseconds + entry.atMs).toISOString(),
+        occurredAt: new Date(options.startedAtMs + entry.atMs).toISOString(),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },
@@ -161,7 +146,7 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
 const RUN_BIRTH_STATE = "queued";
 
 /** What one assistant-output beat says. */
-export interface AssistantOutputInput {
+interface AssistantOutputInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -174,7 +159,7 @@ export interface AssistantOutputInput {
 }
 
 /** What one tool-activity beat says. */
-export interface ToolActivityInput {
+interface ToolActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -189,7 +174,7 @@ export interface ToolActivityInput {
 }
 
 /** What one provider-native subagent beat says. */
-export interface SubagentActivityInput {
+interface SubagentActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -204,23 +189,23 @@ export interface SubagentActivityInput {
 }
 
 /** The four entry builders one session's script uses, with its session bound in. */
-export interface LedgerLaneEntryBuilders {
+interface RunEntryBuilders {
   readonly transition: (
     runId: string,
     input: Omit<RunTransitionInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
+  ) => ScriptEntry;
   readonly output: (
     runId: string,
     input: Omit<AssistantOutputInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
+  ) => ScriptEntry;
   readonly tool: (
     runId: string,
     input: Omit<ToolActivityInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
+  ) => ScriptEntry;
   readonly subagent: (
     runId: string,
     input: Omit<SubagentActivityInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
+  ) => ScriptEntry;
 }
 
 /**
@@ -231,7 +216,7 @@ export interface LedgerLaneEntryBuilders {
  * transition no daemon performs, and nothing downstream would catch it — the census
  * leg sees a registered kind and the strict layer registers no `run.*` variant.
  */
-export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry {
+export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
   const linkage = orchestrationLinkageMembers(input);
   if (Object.keys(linkage).length > 0 && input.newState !== RUN_BIRTH_STATE) {
     throw new RangeError(
@@ -266,7 +251,7 @@ export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry
  * carries: the media type and the length, which is exactly what a machine body's
  * named absence renders.
  */
-export function assistantOutputEntry(input: AssistantOutputInput): LedgerScriptEntry {
+export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,
@@ -280,7 +265,7 @@ export function assistantOutputEntry(input: AssistantOutputInput): LedgerScriptE
 }
 
 /** One tool call, invocation or settlement, in the registered shape. */
-export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
+export function toolActivityEntry(input: ToolActivityInput): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,
@@ -309,7 +294,7 @@ export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
  * providers. One builder is what makes the two beats carry the same triple; two
  * literals are how a fixture ships a completion that pairs with nothing.
  */
-export function subagentActivityEntry(input: SubagentActivityInput): LedgerScriptEntry {
+function subagentActivityEntry(input: SubagentActivityInput): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,
@@ -330,7 +315,7 @@ export function subagentActivityEntry(input: SubagentActivityInput): LedgerScrip
  * every call site is both noise and the one place a copied line could name another
  * scenario's session without anything downstream noticing.
  */
-export function createLedgerLaneEntries(sessionId: string): LedgerLaneEntryBuilders {
+export function createRunEntryBuilders(sessionId: string): RunEntryBuilders {
   return {
     transition: (runId, input) => runTransitionEntry({ ...input, sessionId, runId }),
     output: (runId, input) => assistantOutputEntry({ ...input, sessionId, runId }),

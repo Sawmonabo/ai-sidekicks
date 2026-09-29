@@ -18,7 +18,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { queueFeedBridge } from "./queue-feed.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
 import type { QueueCalls, QueueFeed } from "./queue-reading.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initialisedStore(): SessionStore {

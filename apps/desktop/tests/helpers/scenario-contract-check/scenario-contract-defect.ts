@@ -18,7 +18,7 @@
  * every scenario at once. A predicate that threw on the first would make fixing a
  * family's scenario a one-defect-per-run loop.
  */
-export interface ScenarioWireTruthDefect {
+export interface ScenarioContractDefect {
   readonly scenarioId: string;
   /** The beat or reply at fault, in the form a failure message prints. */
   readonly subject: string;

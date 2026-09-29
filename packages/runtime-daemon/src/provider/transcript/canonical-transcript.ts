@@ -471,7 +471,7 @@ export interface CanonicalTranscriptFoldRequest {
   readonly runId: RunId;
   /**
    * Fold up to and including this normalized session position — the same
-   * position vocabulary `RollbackToParams.position` uses, so a rewind and the
+   * position vocabulary `ForkConversationParams.position` uses, so a rewind and the
    * export that reconstitutes the session past it name boundaries the same way.
    * ABSENT means the whole run.
    *

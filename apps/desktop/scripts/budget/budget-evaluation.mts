@@ -10,9 +10,9 @@
 // and on nothing that reads a file — which is what keeps `budget-registry.mts`
 // free to re-export it without the two modules importing each other.
 
-import { type ConsoleBudget } from "./budget-document.mts";
+import { type Budget } from "./budget-document.mts";
 
-export interface ConsoleBudgetVerdict {
+export interface BudgetVerdict {
   readonly budgetId: string;
   readonly measuredCanonicalValue: number;
   readonly limitCanonicalValue: number;
@@ -22,10 +22,7 @@ export interface ConsoleBudgetVerdict {
   readonly utilizationFraction: number;
 }
 
-export function evaluateBudget(
-  budget: ConsoleBudget,
-  measuredCanonicalValue: number,
-): ConsoleBudgetVerdict {
+export function evaluateBudget(budget: Budget, measuredCanonicalValue: number): BudgetVerdict {
   const limitCanonicalValue = budget.limit.canonicalValue;
   return Object.freeze({
     budgetId: budget.id,

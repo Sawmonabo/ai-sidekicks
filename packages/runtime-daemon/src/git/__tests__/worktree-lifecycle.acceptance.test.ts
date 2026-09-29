@@ -638,11 +638,12 @@ beforeEach(async () => {
   });
   const workspacePrimitives: WorkspaceLifecyclePrimitives = {
     assertWritable: (workspaceId) => workspaces.assertWritable(workspaceId),
-    beginReprovision: (workspaceId, targetMode) =>
-      workspaces.beginReprovision(workspaceId, targetMode),
-    completeReprovision: (workspaceId, fsRoot) =>
-      workspaces.completeReprovision(workspaceId, fsRoot),
-    failReprovision: (workspaceId, detail) => workspaces.failReprovision(workspaceId, detail),
+    beginRootPreparation: (workspaceId, targetMode) =>
+      workspaces.beginRootPreparation(workspaceId, targetMode),
+    completeRootPreparation: (workspaceId, fsRoot) =>
+      workspaces.completeRootPreparation(workspaceId, fsRoot),
+    failRootPreparation: (workspaceId, detail) =>
+      workspaces.failRootPreparation(workspaceId, detail),
   };
   const executionRoots = new ExecutionRootService({
     database: db,
@@ -1603,7 +1604,7 @@ describe("bound-root mode — the main checkout as the execution root", () => {
       // The one mode whose execution root IS the user's checkout —
       // the exact blast radius this tier polices — driven through the real
       // bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
-      // `beginReprovision` → `completeReprovision`.
+      // `beginRootPreparation` → `completeRootPreparation`.
       const before = await snapshotMainCheckout(ctx.repository);
       insertWorkspace({
         workspaceId: BOUND_ROOT_WORKSPACE_ID,

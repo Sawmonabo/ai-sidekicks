@@ -2,14 +2,14 @@
 //
 // Extracted from `../lifecycle.gc.test.ts`, which had grown past this package's
 // split threshold with its spawner taking more of the file than its assertions.
-// The split is by ROLE and not by size, the same cut `electron-probe.ts` records
+// The split is by ROLE and not by size, the same cut `smoke-probe-harness.ts` records
 // for the smoke probe: everything here is about GETTING a probe reading out of a
 // real Electron process — isolating a profile, arranging the activation gates,
 // spawning through the one owner, scanning the tagged line, and releasing what
 // the spawn was holding — and none of it decides whether a reading is
 // acceptable. That decision is the suite's, and it stayed there.
 //
-// It is a SIBLING of `electron-probe.ts` rather than a second copy of it. Those
+// It is a SIBLING of `smoke-probe-harness.ts` rather than a second copy of it. Those
 // two probes read different readings, arrange different activation gates, and
 // carry different diagnostics, so one function could not serve both without a
 // mode flag; what they genuinely share they take from one home — the bundle
@@ -70,15 +70,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { GC_PROBE_TAG } from "@shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
-import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "../../test/helpers/electron-probe.js";
+import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./smoke-probe-harness.js";
+import { needsXvfb } from "./display-readiness.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
-
-/** The line prefix the probe tags its single JSON reading with. */
-export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 
 // K=20 iterations × ~150 ms each ≈ 3 s probe runtime. Plus Electron boot
 // (typically 1-2 s on Linux runners). 30 s is a generous backstop.
@@ -111,36 +111,14 @@ export const GC_TEST_TIMEOUT_MS: number =
   TERMINATION_GRACE_MS +
   TEST_TIMEOUT_SLACK_MS;
 
-/** One reading emitted by the main process's GC probe branch. */
-interface GcProbe {
-  readonly ok: boolean;
-  readonly queryObjectsAvailable: boolean;
-  readonly globalGcAvailable: boolean;
-  readonly iterations: number;
-  readonly counts: readonly number[];
-  readonly min: number;
-  readonly max: number;
-  /** Windows open when the loop ended; the per-window delta's denominator. */
-  readonly windowsOpened: number;
-  /** The loop's last sample, taken with every window still open. */
-  readonly openCount: number;
-  /** One sample after every window closed, the close unwound, and a collection. */
-  readonly closedCount: number;
-  readonly allClosedFired: boolean;
-}
-
 /** What one spawn produced, reading or not, with the context to diagnose it. */
 interface GcProbeSpawnResult {
-  readonly probe: GcProbe | null;
+  readonly probe: GcProbeReading | null;
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly elapsedMs: number;
-}
-
-function needsXvfb(): boolean {
-  return process.platform === "linux" && !process.env["DISPLAY"];
 }
 
 /**
@@ -165,7 +143,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   // to do with BrowserWindow GC reachability.
   // `mkdtempSync` returns a unique path; `removeProfileDirectory` below is what
   // takes it off disk, from both of the paths that can reach it.
-  // `electron-probe.ts` isolates its own profile the same way, for the
+  // `smoke-probe-harness.ts` isolates its own profile the same way, for the
   // same reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
 
@@ -200,7 +178,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   // NOT fire ahead of the GC probe. This guards against a developer's
   // shell having SIDEKICKS_SMOKE_PROBE exported, or a future CI matrix
   // that runs both probes back-to-back.
-  const { SIDEKICKS_SMOKE_PROBE: _drop, ...envWithoutSmoke } = process.env;
+  const { SIDEKICKS_SMOKE_PROBE: _smokeProbeSwitch, ...envWithoutSmoke } = process.env;
 
   return new Promise<GcProbeSpawnResult>((resolve) => {
     // Through the shared owner, which is what makes this spawn survivable.
@@ -239,7 +217,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
 
     let stdout = "";
     let stderr = "";
-    let probe: GcProbe | null = null;
+    let probe: GcProbeReading | null = null;
     let pending = "";
 
     const spawnDeadline = setTimeout(() => {
@@ -269,7 +247,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         const payload = line.slice(probeTagIndex + GC_PROBE_TAG.length).trim();
         if (!payload.startsWith("{")) continue;
         try {
-          probe = JSON.parse(payload) as GcProbe;
+          probe = JSON.parse(payload) as GcProbeReading;
         } catch {
           // Tagged but malformed — keep scanning subsequent lines.
         }

@@ -15,7 +15,7 @@
 // baseline was minted over twelve loading shells and a session header reading "Nobody has
 // joined this session yet." for a scenario whose whole subject is its roster.
 //
-// Held apart from `console-harness.tsx`, which mounts and settles React turns: turns
+// Held apart from `app-harness.ts`, which mounts and settles React turns: turns
 // and frozen time are two different things to wait on, and a mount that settled both
 // would make every tier pay for a walk most of them do not want.
 
@@ -23,13 +23,13 @@ import { act } from "@testing-library/react";
 
 import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
-import type { ScenarioFixtureHandle } from "@renderer/console/bridge/scenario/selection.js";
+import type { ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
 /**
  * How many advances the whole script is walked in, and how many drain it.
  *
- * Steps rather than one jump, on `test/console/endurance/console-workload.ts`'
+ * Steps rather than one jump, on `tests/endurance/endurance-workload.ts`'
  * reasoning: a beat delivered into a store is applied through a coalescing window
  * armed on the same frozen clock, and the engine emits its beats AFTER moving the
  * clock — so one advance past the last beat delivers every one of them and leaves

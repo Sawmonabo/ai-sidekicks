@@ -38,14 +38,14 @@ import type {
  * sends and the response the corpus registers for it.
  *
  * Keyed by the method STRING rather than by a symbolic name, so a call site spells
- * the wire's own word and `ConsoleDaemonMethodContract[MethodName]` resolves for a
+ * the wire's own word and `RegisteredDaemonMethodContract[MethodName]` resolves for a
  * generic parameter. The method strings are quoted verbatim from the payload
  * contracts; nothing here invents one.
  *
  * Grouped by namespace, and within a namespace in the registry table's own row
  * order, so a reader comparing the two reads them top to bottom.
  */
-export interface ConsoleDaemonMethodContract {
+export interface RegisteredDaemonMethodContract {
   // driver — the five client-facing verbs a composer, a run control, or a picker
   // reaches, registered together because they are one plane rather than five
   // decisions. Two of the replies are the empty object and one of the requests is:

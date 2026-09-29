@@ -1,4 +1,4 @@
-// What `test/console/phase-graph-settled.ts` is for, held to by a graph and by a surface
+// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a surface
 // that draws none.
 //
 // Neither tier that consumes the helper can check it. The screenshot tier takes images
@@ -34,7 +34,7 @@ import {
   mountWorkflowBuilderPane,
   mountWorkflowRunPhaseGraph,
 } from "../helpers/feature-mounts/workflows.js";
-import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../helpers/run-graph-settled.js";
+import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 
 /**
  * Take the canvas's stated block size away, which is what collapsed the graph.
@@ -95,23 +95,23 @@ afterEach(() => {
 describe("the capture's phase-graph readiness", () => {
   it("holds while the picture is off screen, and resolves once it is back", async () => {
     const graph = await mountWorkflowRunPhaseGraph();
-    await awaitPhaseGraphSettled(graph);
-    expect(isPhaseGraphSettled(graph)).toBe(true);
+    await awaitRunGraphSettled(graph);
+    expect(isRunGraphSettled(graph)).toBe(true);
 
     // The negative control, and the whole reason the helper exists. The graph is
     // fitted — that transform stays on the viewport throughout — and its picture is
     // taken away, so a wait that read the style attribute alone would return here at
     // once. It must not: for as long as the box is empty the wait is still pending.
     collapseEveryGraphCanvas();
-    expect(isPhaseGraphSettled(graph)).toBe(false);
-    const waitingForThePicture = awaitPhaseGraphSettled(graph);
+    expect(isRunGraphSettled(graph)).toBe(false);
+    const waitingForThePicture = awaitRunGraphSettled(graph);
     expect(await settlesWithin(waitingForThePicture, EARLY_RETURN_WATCH_MS)).toBe(false);
 
     // And it is a wait rather than a refusal: the picture coming back is what resolves
     // it, without a second call and without the mount being touched.
     restoreEveryGraphCanvas();
     await waitingForThePicture;
-    expect(isPhaseGraphSettled(graph)).toBe(true);
+    expect(isRunGraphSettled(graph)).toBe(true);
 
     // Fitted AND still: the transform the capture will read is the one the last
     // commit wrote, not one a further frame is about to replace.
@@ -129,20 +129,20 @@ describe("the capture's phase-graph readiness", () => {
     // committed reference recorded: a fitted transform over a root of zero height, a
     // 20rem sunken box with no phase in it, and every tier green.
     const graph = await mountWorkflowRunPhaseGraph();
-    await awaitPhaseGraphSettled(graph);
-    expect(isPhaseGraphSettled(graph)).toBe(true);
+    await awaitRunGraphSettled(graph);
+    expect(isRunGraphSettled(graph)).toBe(true);
 
     collapseEveryGraphCanvas();
     // The fit is untouched — the transform the predicate used to read is still on the
     // viewport — and the picture is gone, which is exactly the pair that used to pass.
     expect(graph.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform).not.toBe("");
-    expect(isPhaseGraphSettled(graph)).toBe(false);
+    expect(isRunGraphSettled(graph)).toBe(false);
   });
 
   it("returns at once for a surface that draws no graph", async () => {
     const mounted = await mountWorkflowBuilderPane();
     expect(mounted.element.querySelector(".meridian-phase-graph")).toBeNull();
-    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
-    await awaitPhaseGraphSettled(mounted.element);
+    expect(isRunGraphSettled(mounted.element)).toBe(true);
+    await awaitRunGraphSettled(mounted.element);
   });
 });

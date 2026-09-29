@@ -28,8 +28,8 @@ import type {
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { ActSurfaceController } from "@renderer/features/repos/acts/act-controller-base.js";
 import { useSessionScopedActController } from "@renderer/console/store/act/use-act-controller.js";

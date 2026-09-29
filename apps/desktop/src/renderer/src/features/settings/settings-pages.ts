@@ -22,7 +22,7 @@
 import { createElement, type ReactNode } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";

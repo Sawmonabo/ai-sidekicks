@@ -10,7 +10,7 @@
 //
 // It cannot be one of those runs, and the reason is structural rather than a
 // preference: the endurance scenario is deliberately absent from
-// `bridge/scenario/corpus.ts`, so no launched console can be asked to play it. The
+// `fixtures/index.ts`, so no launched console can be asked to play it. The
 // scenario module says why — nobody wants a ten-thousand-row session in the fixture
 // picker, and every suite that iterates the shipped set would pay for one. A
 // launched console therefore reaches this workload through no path at all, and the
@@ -55,7 +55,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { createLedgerEnduranceScenario } from "./transcript-endurance.test-support.js";
+import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
 import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
 import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
@@ -132,7 +132,7 @@ function resolveForcedCollection(): () => void {
 
 /** One generated session's log, as the events a store would have admitted. */
 function enduranceTimeline(rowCount: number): readonly ConsoleSessionEvent[] {
-  return createLedgerEnduranceScenario({ rowCount }).beats.map((beat) => beat.event);
+  return createTranscriptEnduranceFixture({ rowCount }).beats.map((beat) => beat.event);
 }
 
 /**

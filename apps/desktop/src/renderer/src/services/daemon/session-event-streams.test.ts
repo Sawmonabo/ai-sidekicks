@@ -17,13 +17,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CONSOLE_SESSION_EVENT_STREAMS,
+  SESSION_EVENT_STREAMS,
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
   sessionEventStreamFor,
   subscriptionDeliversEventKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 import {
   EVERY_REGISTERED_EVENT_KIND,
   ROLLED_BACK_KIND,
@@ -87,7 +87,7 @@ describe("session-event streams — the table cannot be re-routed at runtime", (
 
   it("refuses to swap a whole stream row out of the exported table", () => {
     expect(() => {
-      (CONSOLE_SESSION_EVENT_STREAMS as Record<string, unknown>)[RUN_STATE_EVENT_STREAM] = {
+      (SESSION_EVENT_STREAMS as Record<string, unknown>)[RUN_STATE_EVENT_STREAM] = {
         scope: "whole-session",
       };
     }).toThrow(TypeError);
@@ -97,8 +97,8 @@ describe("session-event streams — the table cannot be re-routed at runtime", (
   });
 
   it("freezes the table, every row on it, and every kind list", () => {
-    expect(Object.isFrozen(CONSOLE_SESSION_EVENT_STREAMS)).toBe(true);
-    for (const stream of Object.values(CONSOLE_SESSION_EVENT_STREAMS)) {
+    expect(Object.isFrozen(SESSION_EVENT_STREAMS)).toBe(true);
+    for (const stream of Object.values(SESSION_EVENT_STREAMS)) {
       expect(Object.isFrozen(stream)).toBe(true);
       if (stream.scope === "selected-kinds") {
         expect(Object.isFrozen(stream.carriedKinds)).toBe(true);
@@ -111,7 +111,7 @@ describe("session-event streams — the table cannot be re-routed at runtime", (
     // case above — and a copy is exactly what a caller who wants to mutate should
     // have to make, so it must read as unfrozen.
     expect(Object.isFrozen([...carriedKindsOf(RUN_STATE_EVENT_STREAM)])).toBe(false);
-    expect(Object.isFrozen({ ...CONSOLE_SESSION_EVENT_STREAMS })).toBe(false);
+    expect(Object.isFrozen({ ...SESSION_EVENT_STREAMS })).toBe(false);
   });
 
   it("answers a lookup for an inherited property name as no row at all", () => {

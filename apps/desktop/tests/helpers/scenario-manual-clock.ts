@@ -7,14 +7,10 @@
 // those surfaces, and a case that polled it — `waitFor` and its five-second budget —
 // would be polling a still picture until the budget ran out.
 //
-// IT LIVES BESIDE THE ENGINE THAT OWNS THE CLOCK. The clock these two functions move
-// is `ScenarioEngine`'s, declared one module over, and the surfaces that need moving
-// are in every view family: the repo mounts, the artifact pane, the workflow run pane.
-// Parked in any one of those families it would be a helper a sibling may not import —
-// `console-view-family-isolation` fails that edge — so a second family reaching for it
-// would either copy it or reach around the rule. Here it is a `bridge/` module like
-// `fixture/call-plane/bridge.test-support.ts` and `readings/scheduled-read.test-support.ts`,
-// which every family above `bridge/` already takes by its own specifier.
+// ONE SHARED HELPER. The clock these two functions move is `ScenarioEngine`'s, and the
+// surfaces that need moving are in every feature: the repo mounts, the artifact pane, the
+// workflow run pane. Parked in one feature it would be a helper no other feature may import,
+// so it lives in `tests/helpers/` beside `fixture-bridge.ts` and `scheduled-read.ts`.
 //
 // ONE HOME FOR BOTH HALVES, because the two are one act done wrong in two ways. An
 // advance performed outside `act` lands its state updates untracked, and React reports
@@ -25,8 +21,7 @@
 // than with a timeout that says nothing about what was missing.
 
 import { act } from "@testing-library/react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 

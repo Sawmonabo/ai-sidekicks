@@ -54,7 +54,7 @@
 // re-implemented here would be a second authority over a decision already made — and
 // a second authority that cannot see the inputs the first one had.
 
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { type AnsweredAttentionReading } from "./attention-summary.js";
 
 /**

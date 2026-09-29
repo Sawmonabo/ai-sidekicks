@@ -7,8 +7,7 @@
 // `settings/shared/` rather than under `pages/`.
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,

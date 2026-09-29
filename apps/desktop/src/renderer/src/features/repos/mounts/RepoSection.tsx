@@ -1,6 +1,5 @@
 import { useCallback } from "react";
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type ConsolePaneOpener } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

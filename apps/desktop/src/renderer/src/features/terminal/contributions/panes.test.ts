@@ -15,11 +15,10 @@
 // one reason it does not script.
 
 import { describe, expect, it } from "vitest";
-
 import {
   TERMINAL_SCENARIO,
   TERMINAL_SCENARIO_ID,
-} from "@renderer/console/bridge/scenario/terminal/terminal.js";
+} from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,

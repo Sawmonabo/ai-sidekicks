@@ -8,8 +8,7 @@
 //
 // EVERY DEPENDENCY IS ONE OBJECT, so a new one is one edit rather than one at each
 // call site, and the three optional members travel together for a reason each states.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";

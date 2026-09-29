@@ -210,7 +210,7 @@ async function bindReady(repoMountId: RepoMountId, mountRoot: string): Promise<s
     repoMountId,
     executionMode: "bound-root",
   });
-  await harness.service.completeReprovision(bound.workspaceId, mountRoot);
+  await harness.service.completeRootPreparation(bound.workspaceId, mountRoot);
   return bound.workspaceId;
 }
 
@@ -897,17 +897,17 @@ describe("reprovision cycle", () => {
     const worktreeRoot = join(harness.tmpDir, "worktrees", "feature");
     mkdirSync(worktreeRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     const midCycle = readWorkspaceRow(workspaceId);
     expect(midCycle?.state).toBe("provisioning" satisfies WorkspaceState);
     // The released root does not linger: would otherwise keep matching
     // approvals against a root the workspace no longer owns.
     expect(midCycle?.fs_root).toBeNull();
-    // The target mode is persisted at BEGIN because `completeReprovision` takes
+    // The target mode is persisted at BEGIN because `completeRootPreparation` takes
     // no mode argument — nothing downstream could persist it.
     expect(midCycle?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
 
-    await harness.service.completeReprovision(workspaceId, worktreeRoot);
+    await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
     const afterCycle = readWorkspaceRow(workspaceId);
 
     // The invariant, stated three ways: same id, same row count, and a state
@@ -931,14 +931,14 @@ describe("reprovision cycle", () => {
     const outsideRoot = join(harness.tmpDir, "worktrees", "outside");
     mkdirSync(outsideRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
-    await harness.service.completeReprovision(workspaceId, outsideRoot);
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
+    await harness.service.completeRootPreparation(workspaceId, outsideRoot);
 
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBe(outsideRoot);
   });
 
   it("refuses an execution root that does not name one complete location", async () => {
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
     // Provenance does not make an incomplete path safe: approvals are scoped
     // against this value, and each shape below is missing a piece only the
@@ -946,7 +946,7 @@ describe("reprovision cycle", () => {
     // directory, a drive.
     for (const incompleteRoot of ["worktrees/relative", "~/worktrees", "\\worktrees\\app"]) {
       const refusal = await captureRejection(() =>
-        harness.service.completeReprovision(workspaceId, incompleteRoot),
+        harness.service.completeRootPreparation(workspaceId, incompleteRoot),
       );
       expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
       expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
@@ -960,15 +960,15 @@ describe("reprovision cycle", () => {
     // on a POSIX host too.
     const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
     for (const completeRoot of completeRoots) {
-      await harness.service.completeReprovision(workspaceId, completeRoot);
+      await harness.service.completeRootPreparation(workspaceId, completeRoot);
       expect(readWorkspaceRow(workspaceId)?.fs_root).toBe(completeRoot);
-      await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+      await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     }
   });
 
   it("records a scrubbed failure detail and lands the row `stale`", async () => {
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
-    await harness.service.failReprovision(
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
+    await harness.service.failRootPreparation(
       workspaceId,
       "fatal: could not read from https://octocat:ghp_abcdefghijklmnop@github.com/acme/repo.git",
     );
@@ -990,8 +990,8 @@ describe("reprovision cycle", () => {
   });
 
   it("surfaces the recorded failure on the list response", async () => {
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
-    await harness.service.failReprovision(workspaceId, "fatal: worktree add failed (exit 128)");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
+    await harness.service.failRootPreparation(workspaceId, "fatal: worktree add failed (exit 128)");
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
@@ -1004,13 +1004,13 @@ describe("reprovision cycle", () => {
     const worktreeRoot = join(harness.tmpDir, "worktrees", "retry");
     mkdirSync(worktreeRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
-    await harness.service.failReprovision(workspaceId, "fatal: first attempt failed");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
+    await harness.service.failRootPreparation(workspaceId, "fatal: first attempt failed");
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeDefined();
 
     // the switch may be retried, and a failed switch left the row `stale`. A
     // gate that refused `stale` would make the documented retry impossible.
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
     // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
@@ -1023,7 +1023,7 @@ describe("reprovision cycle", () => {
     expect(midRetry.workspaces[0]?.state).toBe("provisioning" satisfies WorkspaceState);
     expect(midRetry.workspaces[0]?.lastError).toBeUndefined();
 
-    await harness.service.completeReprovision(workspaceId, worktreeRoot);
+    await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
 
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
     // A `ready` workspace still advertising a fixed failure reports something
@@ -1035,7 +1035,7 @@ describe("reprovision cycle", () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
 
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(workspaceId, "provisioned-worktree"),
+      harness.service.beginRootPreparation(workspaceId, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
@@ -1047,7 +1047,7 @@ describe("reprovision cycle", () => {
     harness.db.prepare("UPDATE workspaces SET state = 'archived' WHERE id = ?").run(workspaceId);
 
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(workspaceId, "provisioned-worktree"),
+      harness.service.beginRootPreparation(workspaceId, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
@@ -1056,9 +1056,9 @@ describe("reprovision cycle", () => {
 
   it("refuses to complete or fail a cycle that was never begun", async () => {
     await expect(
-      harness.service.completeReprovision(workspaceId, harness.gitMountRoot),
+      harness.service.completeRootPreparation(workspaceId, harness.gitMountRoot),
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
-    await expect(harness.service.failReprovision(workspaceId, "boom")).rejects.toBeInstanceOf(
+    await expect(harness.service.failRootPreparation(workspaceId, "boom")).rejects.toBeInstanceOf(
       WorkspaceServiceInvariantError,
     );
     // Nothing was written and nothing was announced.
@@ -1068,7 +1068,7 @@ describe("reprovision cycle", () => {
 
   it("refuses an unknown workspace with `workspace.not_found`", async () => {
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(UNKNOWN_WORKSPACE_ID, "provisioned-worktree"),
+      harness.service.beginRootPreparation(UNKNOWN_WORKSPACE_ID, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceNotFoundError);
@@ -1160,8 +1160,8 @@ describe("lastError normalization", () => {
   it("records NO lastError when nothing publishable survives", async () => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
     const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
-    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
-    await harness.service.failReprovision(workspaceId, "  \n\t   ");
+    await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
+    await harness.service.failRootPreparation(workspaceId, "  \n\t   ");
 
     // `wireFreeFormString` demands `.min(1)`, at least one non-whitespace
     // character, and no NUL. Persisting an illegal value would make the very

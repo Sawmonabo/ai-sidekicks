@@ -22,21 +22,19 @@ import { StrictMode, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import {
-  DesktopBridgeProvider,
-  useBridgeResolution,
-  useConsoleBridge,
-  useConsoleClock,
-} from "@renderer/console/bridge/BridgeProvider.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
+import { DesktopBridgeProvider } from "./PlatformBridgeProvider.js";
+import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
+import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
+import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
+import { type ConsoleBridge } from "./platform-bridge.js";
+import { createFixtureBridge } from "./platform-bridge.fixture.js";
+import { findScenario } from "../../../../../fixtures/index.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
   FLAGSHIP_SCENARIO,
-  FLAGSHIP_SCENARIO_ID,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
+  CONCURRENT_STREAMING_SCENARIO_ID,
+} from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface BridgeProbeProps {
   readonly onObserve: (bridge: ConsoleBridge) => void;
@@ -80,14 +78,14 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("holds one engine across re-renders that change nothing it resolves on", () => {
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
     const first = lastBridge(observed);
 
     rerender(
-      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
@@ -100,11 +98,11 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("replaces the engine when the scenario changes, and disposes the one it replaced", () => {
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
-    const flagship = engineOf(lastBridge(observed));
+    const concurrentStreaming = engineOf(lastBridge(observed));
 
     rerender(
       <DesktopBridgeProvider scenarioId={FIRST_RUN_SCENARIO_ID}>
@@ -113,13 +111,13 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     );
     const firstRun = engineOf(lastBridge(observed));
 
-    expect(firstRun).not.toBe(flagship);
+    expect(firstRun).not.toBe(concurrentStreaming);
     expect(firstRun.scenario.id).toBe(FIRST_RUN_SCENARIO_ID);
     // The superseded engine is TORN DOWN rather than merely dropped. An
     // abandoned engine still holds every sink subscribed to it, and a driver
     // holding the old handle would go on advancing a scenario no window renders.
-    expect(flagship.isDisposed).toBe(true);
-    expect(flagship.sinkCount).toBe(0);
+    expect(concurrentStreaming.isDisposed).toBe(true);
+    expect(concurrentStreaming.sinkCount).toBe(0);
     expect(firstRun.isDisposed).toBe(false);
     expect(scenarioControlIsInstalled()).toBe(true);
   });
@@ -127,7 +125,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("disposes the engine it built when the console unmounts", () => {
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
@@ -166,7 +164,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     const observed: ConsoleBridge[] = [];
     const tree: ReactNode = (
       <StrictMode>
-        <DesktopBridgeProvider scenarioId={FLAGSHIP_SCENARIO_ID}>
+        <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
           <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
         </DesktopBridgeProvider>
       </StrictMode>
@@ -210,9 +208,10 @@ function lastClock(observed: readonly ConsoleClock[]): ConsoleClock {
 }
 
 describe("useConsoleClock — the clock is a fact about the bridge", () => {
-  const flagshipBridge = (): ConsoleBridge => createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const concurrentStreamingBridge = (): ConsoleBridge =>
+    createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
   const firstRunBridge = (): ConsoleBridge =>
-    createFixtureBridge({ scenario: consoleScenario(FIRST_RUN_SCENARIO_ID) });
+    createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {
     // The READING is what moves, not the identity. One `ForwardingConsoleClock` per
@@ -220,7 +219,7 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     // a scenario switch if the hook handed back a new object — so what the case has
     // to show is that the one object it does hand back stops reading the retired
     // bridge's time the moment the replacement is committed.
-    const bridgeA = flagshipBridge();
+    const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     const observed: ConsoleClock[] = [];
     const { rerender } = render(
@@ -247,7 +246,7 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     // The shape this hook had. Everything downstream of it — the deck's rect flush,
     // the reveal engine's armed frame, every `[clock]` re-mint arm — would go on
     // reading a clock the scenario switch stopped advancing.
-    const bridgeA = flagshipBridge();
+    const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     const observed: ConsoleClock[] = [];
     const { rerender } = render(
@@ -269,7 +268,7 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     // Without the first half the case above would pass over two bridges sharing a
     // clock; without the second, over a hook that recomputed on every render, which
     // is the property `useState` was there for and which must survive the change.
-    const bridgeA = flagshipBridge();
+    const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     expect(engineOf(bridgeA).clock).not.toBe(engineOf(bridgeB).clock);
 

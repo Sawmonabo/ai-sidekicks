@@ -32,7 +32,8 @@ import {
   type QueueCancellationState,
 } from "./queue-cancellation.js";
 import { QueueOrder } from "./queue-order.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * Reads one session's whole queue at one moment, in the daemon's canonical order.

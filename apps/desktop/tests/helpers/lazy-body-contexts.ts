@@ -3,7 +3,7 @@
 //
 // ONE HOME BECAUSE TWO TIERS ASK THE SAME QUESTION. `lazy-body.test.tsx` and
 // `lazy-body.surface-board.test.tsx` prove what the two boards do with a loader;
-// `test/console/browser/console-harness-settle.test.tsx` proves that the shared browser
+// `tests/browser/app-harness.test.tsx` proves that the shared browser
 // mount waits for one. All of them need a context the fallback can render from and a
 // promise the case itself decides when to settle, and a second copy of either is how two
 // tiers come to disagree about what a cold mount looks like.

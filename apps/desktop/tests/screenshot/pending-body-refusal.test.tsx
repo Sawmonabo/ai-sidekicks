@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";

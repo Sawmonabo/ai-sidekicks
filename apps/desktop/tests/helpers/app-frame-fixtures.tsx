@@ -5,13 +5,12 @@
 // from. It holds nothing a single suite uses — the exploding surface, the failure
 // card's addressing, the banner, and the live regions each have one reader and stay
 // beside it.
-
-import { createStubBridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
+import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { FrameBanner } from "@renderer/store/window/window-store.js";
 import {
@@ -59,7 +58,7 @@ export function frameProps(
  * WINDOW rather than of the primitive, and the frame reads it from the bridge. Both
  * arms are the real thing: `createStubBridge()` is the object the preload exposes
  * to a shipped window, and `createFixtureBridge` builds the real engine over the
- * real flagship scenario.
+ * real concurrent-streaming scenario.
  */
 export function bridgeWrapper(
   bridge: ConsoleBridge,
@@ -73,7 +72,7 @@ export function bridgeWrapper(
 export function liveBridgeWrapper(): (props: {
   readonly children: ReactNode;
 }) => React.JSX.Element {
-  return bridgeWrapper(createLiveBridge(createStubBridge()));
+  return bridgeWrapper(createLiveBridge(createStubBridge(FIXTURE_APP_META)));
 }
 
 export function backgroundOf(container: HTMLElement): HTMLElement {

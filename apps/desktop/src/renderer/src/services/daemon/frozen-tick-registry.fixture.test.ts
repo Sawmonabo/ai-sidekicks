@@ -61,7 +61,9 @@ describe("the rules one scenario's pinned frames are held to", () => {
 
 describe("reading the registry", () => {
   it("answers a scenario's frames, and an empty list for one it does not name", () => {
-    expect(frozenTicksFor("flagship")).toStrictEqual([{ name: "money-shot", atMs: 2_450 }]);
+    expect(frozenTicksFor("concurrent-streaming")).toStrictEqual([
+      { name: "money-shot", atMs: 2_450 },
+    ]);
     expect(frozenTicksFor("no-scenario-is-named-this")).toStrictEqual([]);
   });
 

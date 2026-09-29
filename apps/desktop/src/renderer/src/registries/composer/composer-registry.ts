@@ -13,8 +13,7 @@
 // behind it. Those come from the session store and the route. If the mount and the
 // body agreed on that shape by convention rather than by type, the two branches
 // would agree until one of them shipped.
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";

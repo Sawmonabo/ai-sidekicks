@@ -6,7 +6,7 @@
 import { act } from "@testing-library/react";
 
 import { PAST_REFRESH_DEBOUNCE_MS, settle as settleReactWork } from "@test/helpers/settle.js";
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import type { SessionDirectoryReadCall } from "@renderer/console/seats/index.js";
 import type { AttentionProjectionReadCall } from "@renderer/console/sessions/notifications/index.js";
 

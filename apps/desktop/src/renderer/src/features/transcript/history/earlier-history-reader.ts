@@ -46,9 +46,9 @@ import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What a surface renders about the rows before this window. */

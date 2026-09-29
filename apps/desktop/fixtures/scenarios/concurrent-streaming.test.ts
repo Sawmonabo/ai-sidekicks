@@ -1,6 +1,6 @@
 // The composition the screenshot tier pins, asserted element by element.
 //
-// The screenshot tier captures the flagship frame at its frozen tick, and a
+// The screenshot tier captures the concurrent-streaming frame at its frozen tick, and a
 // reference image cannot say WHY it is the right frame: a capture of a
 // session missing half its story is a perfectly stable image that compares green
 // forever. So the elements are named here, in the file that owns the script, and the
@@ -10,15 +10,14 @@
 // that restated the beats it expects would pass over a script that had lost them.
 //
 // The wire-truth predicate is asserted elsewhere and is not repeated here: whether a
-// beat is a shape a daemon can emit is `wire-truth.*.test.ts`'s question, and whether
+// beat is a shape a daemon can emit is the contract-check tests' question, and whether
 // the session tells the whole story is this one's.
 
 import { describe, expect, it } from "vitest";
-
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "./concurrent-streaming.js";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 
-/** Every kind the flagship plays, in script order. */
+/** Every kind the concurrent-streaming plays, in script order. */
 const SCRIPTED_KINDS: readonly string[] = FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.kind);
 
 /** The payloads of every beat of one kind. */
@@ -44,7 +43,7 @@ function replyTo(call: string): unknown {
   return FLAGSHIP_SCENARIO.replies.find((reply) => reply.call === call)?.result;
 }
 
-describe("the flagship frame — the approval it asks and grants", () => {
+describe("the concurrent-streaming frame — the approval it asks and grants", () => {
   it("carries the approval pair and the run pair, both", () => {
     // Four beats about one moment, and neither pair is derivable from the other: a
     // run can block on an ask nobody answers, and the card renders from the approval
@@ -76,7 +75,7 @@ describe("the flagship frame — the approval it asks and grants", () => {
   });
 });
 
-describe("the flagship frame — the park, counting down", () => {
+describe("the concurrent-streaming frame — the park, counting down", () => {
   it("parks a lane on a quota reading that names when it resets", () => {
     // The countdown a person reads is `resetsAt`, and it is the only member on either
     // beat that names a future instant — the run row carries no park members at all,
@@ -108,7 +107,7 @@ describe("the flagship frame — the park, counting down", () => {
   });
 });
 
-describe("the flagship frame — its name", () => {
+describe("the concurrent-streaming frame — its name", () => {
   it("names itself, so the identity is more than an id", () => {
     const read = replyTo("session.read") as { session?: { metadata?: { title?: string } } };
 
@@ -116,7 +115,7 @@ describe("the flagship frame — its name", () => {
   });
 });
 
-describe("the flagship frame — what it deliberately cannot show", () => {
+describe("the concurrent-streaming frame — what it deliberately cannot show", () => {
   it("plays no provider switch, because this workspace registers none", () => {
     // The one element of the designed composition that is absent, and it is absent
     // for a reason a reader can check rather than by omission: the census does not

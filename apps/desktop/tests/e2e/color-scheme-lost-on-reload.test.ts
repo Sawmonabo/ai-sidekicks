@@ -20,7 +20,7 @@
 // observation that separates a preference that was WRITTEN from one that is merely
 // readable in the window that wrote it is a reload.
 //
-// EVERY WAIT IS CHARGED TO THE BODY'S ALLOWANCE. `withLaunchedConsole` reserves an
+// EVERY WAIT IS CHARGED TO THE BODY'S ALLOWANCE. `withLaunchedApp` reserves an
 // allowance for what runs between a settled launch and its cleanup, and a wait that
 // ignored it would be bounded twice over with the wrong one winning: a poll declaring
 // 10 000 ms against an allowance with 200 ms left runs past the allowance, and the
@@ -41,7 +41,7 @@ import {
   CONSOLE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { openPalette } from "../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
@@ -52,7 +52,7 @@ const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", () => {
   it("persists an explicit colour scheme across a reload", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+    await withLaunchedApp({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>
         await consoleWindow.evaluate(

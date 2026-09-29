@@ -59,7 +59,7 @@ import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DriverAuthProbeResultSchema,
   DriverResumeResultSchema,
-  DriverRollbackResultSchema,
+  ForkConversationResultSchema,
   ProviderCommandEntrySchema,
   ProviderOutputSpeedStateSchema,
   type CallbackToolInvocation,
@@ -72,7 +72,7 @@ import {
   type DriverAuthProbeResult,
   type DriverCompactionResult,
   type DriverResumeResult,
-  type DriverRollbackResult,
+  type ForkConversationResult,
   type ExecutionPosture,
   type InterruptRunParams,
   type ListProviderCommandsParams,
@@ -83,7 +83,7 @@ import {
   type ProviderSessionHandle,
   type RecoveryCondition,
   type ResumeSessionParams,
-  type RollbackToParams,
+  type ForkConversationParams,
   type RunId,
   type SessionCallbackTool,
   type SessionId,
@@ -906,7 +906,7 @@ export interface ClaudeSessionTransport {
    *     nothing, because that arm types `credentialPolicyRef?: never` and is a
    *     positive statement that nothing is denied.
    *   * a rewind reuses its predecessor's legs, and that is deliberate rather
-   *     than the same rule going missing: `RollbackToParams` carries no posture,
+   *     than the same rule going missing: `ForkConversationParams` carries no posture,
    *     so no newer one is reachable at that call, and substituting a default
    *     would invent a policy no caller stated.
    *
@@ -2086,7 +2086,7 @@ interface LiveClaudeSession {
    *
    * A REWIND INHERITS IT rather than re-reading, for the same reason it inherits
    * `spawnBinding`: a fork continues the run the daemon already admitted, and
-   * `RollbackToParams` names no account of its own.
+   * `ForkConversationParams` names no account of its own.
    */
   readonly admittedProviderAccountId: string | null;
 }
@@ -3185,7 +3185,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * startable, and un-rewound — rather than emptying a slot whose process is
    * still alive.
    */
-  async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     const live = this.#findLiveSession(params.sessionId);
     if (live === undefined) {
       // Thrown rather than degraded, and the split is deliberate: `degraded` is
@@ -3204,9 +3204,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async #establishRewoundSession(
-    params: RollbackToParams,
+    params: ForkConversationParams,
     predecessor: LiveClaudeSession,
-  ): Promise<DriverRollbackResult> {
+  ): Promise<ForkConversationResult> {
     const rewoundSpawnBoundLegs: ClaudeSpawnBoundLegs = {
       // The predecessor's OWN legs, re-realized verbatim. Rebuilding them from
       // anything else would relaunch the session under a configuration nobody
@@ -3234,7 +3234,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // The predecessor is untouched, so the session is exactly as it was and a
       // retry is safe. `degraded` rather than a throw: the caller has a fallback
       // arm for precisely this, and the daemon's own rewind path is what runs it.
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: `rewind-refused: ${sanitizeFailureDetail(describeFailure(error))}`,
       });
@@ -3253,7 +3253,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         attachment.channel === predecessor.channel
           ? ""
           : await this.#disposeRefusedChannel(attachment.channel, "resume_identity_diverged");
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: `rewind-not-forked: the provider answered with session ${attachment.providerSessionId} rather than a fork.${disposalNote}`,
       });
@@ -3264,20 +3264,20 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // validation and `#registerLiveSession`'s transport-implemented
     // `onTurnTerminal`, and an escaping throw would orphan a forked process
     // whose slot this method's own claim then restores to the PREDECESSOR.
-    let validatedRollbackResult: DriverRollbackResult;
+    let validatedRollbackResult: ForkConversationResult;
     try {
       const applied = {
         status: "applied" as const,
         sessionPosition: attachment.sessionPosition,
         bindingId: this.#mintBindingId(),
       };
-      const validated = DriverRollbackResultSchema.safeParse(applied);
+      const validated = ForkConversationResultSchema.safeParse(applied);
       if (!validated.success) {
         const disposalNote = await this.#disposeRefusedChannel(
           attachment.channel,
           "resume_result_invalid",
         );
-        return DriverRollbackResultSchema.parse({
+        return ForkConversationResultSchema.parse({
           status: "degraded",
           fallbackAction: `rewind-result-invalid: ${sanitizeFailureDetail(validated.error.message)}${disposalNote}`,
         });
@@ -3308,7 +3308,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // which reaches a receipt as real money and says nothing.
         establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
         // INHERITED, for the reason `spawnBinding` above is: a fork continues the
-        // run the daemon already admitted, and `RollbackToParams` names no
+        // run the daemon already admitted, and `ForkConversationParams` names no
         // account of its own. Re-reading the registry here would let a rewind
         // silently re-bill a session the daemon never re-admitted.
         admittedProviderAccountId: predecessor.admittedProviderAccountId,
@@ -3318,7 +3318,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         attachment.channel,
         "establishment_failed",
       );
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}${disposalNote}`,
       });
@@ -5001,8 +5001,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   async #withRewindSlotClaimed(
     sessionId: SessionId,
     predecessor: LiveClaudeSession,
-    rewind: () => Promise<DriverRollbackResult>,
-  ): Promise<DriverRollbackResult> {
+    rewind: () => Promise<ForkConversationResult>,
+  ): Promise<ForkConversationResult> {
     const rewinding = rewind();
     const settled = rewinding.then(
       () => undefined,

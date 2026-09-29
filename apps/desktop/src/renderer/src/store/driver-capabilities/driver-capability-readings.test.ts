@@ -8,12 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-
-import { neverRead } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.test-support.js";
-import type {
-  DeclaredDriverFlags,
-  DriverCapabilityReadout,
-} from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import { neverRead } from "./driver-capability-readout.test-support.js";
+import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 import {
   DRIVER_CAPABILITY_READINGS,
   boundDriverNameForRun,

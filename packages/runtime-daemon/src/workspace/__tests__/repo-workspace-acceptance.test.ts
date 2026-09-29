@@ -496,7 +496,7 @@ async function bindReadyWorkspace(
     repoMountId,
     executionMode: "bound-root",
   });
-  await harness.stack.workspaces.completeReprovision(bound.workspaceId, fsRoot);
+  await harness.stack.workspaces.completeRootPreparation(bound.workspaceId, fsRoot);
   return String(bound.workspaceId);
 }
 
@@ -707,7 +707,7 @@ describe("the full-lifecycle event sequence", () => {
       executionMode: "provisioned-worktree",
     });
     expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("provisioning");
-    await harness.stack.workspaces.completeReprovision(
+    await harness.stack.workspaces.completeRootPreparation(
       alphaWorkspace.workspaceId,
       harness.provisionedWorktreeRoot,
     );
@@ -818,7 +818,7 @@ describe("a mode switch reprovisions IN PLACE", () => {
     expect(beforeCycles.fs_root).toBe(fixtures.repositoryRoot);
     expect(countRows("workspaces")).toBe(1);
 
-    await harness.stack.workspaces.beginReprovision(workspaceId, "provisioned-worktree");
+    await harness.stack.workspaces.beginRootPreparation(workspaceId, "provisioned-worktree");
     const midCycle = requireWorkspaceRow(workspaceId);
     expect(midCycle.state).toBe("provisioning");
     expect(midCycle.execution_mode).toBe("provisioned-worktree");
@@ -827,15 +827,15 @@ describe("a mode switch reprovisions IN PLACE", () => {
     // path the new mode does not use.
     expect(midCycle.fs_root).toBeNull();
 
-    await harness.stack.workspaces.completeReprovision(
+    await harness.stack.workspaces.completeRootPreparation(
       workspaceId,
       harness.provisionedWorktreeRoot,
     );
 
     // A SECOND switch, to a different mode and a different root — one cycle
     // would not distinguish "the id is stable" from "the id is stable once".
-    await harness.stack.workspaces.beginReprovision(workspaceId, "bound-root");
-    await harness.stack.workspaces.completeReprovision(workspaceId, harness.boundRootCheckout);
+    await harness.stack.workspaces.beginRootPreparation(workspaceId, "bound-root");
+    await harness.stack.workspaces.completeRootPreparation(workspaceId, harness.boundRootCheckout);
 
     const afterCycles = requireWorkspaceRow(workspaceId);
     expect(afterCycles.id).toBe(workspaceId);

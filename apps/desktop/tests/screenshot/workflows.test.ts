@@ -14,13 +14,13 @@
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import {
   mountWorkflowBuilderPane,
   mountWorkflowRunPane,
   mountWorkflowsDestination,
-  type MountedFamilySurface,
 } from "../helpers/feature-mounts/workflows.js";
+import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
@@ -35,9 +35,9 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
  */
 const PINNED_SURFACES: readonly {
   readonly captureName: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
-  { captureName: "workflow-definitions-browser", mount: mountWorkflowsDestination },
+  { captureName: "workflows-destination", mount: mountWorkflowsDestination },
   { captureName: "workflow-run", mount: mountWorkflowRunPane },
   { captureName: "workflow-builder-definition", mount: mountWorkflowBuilderPane },
 ];

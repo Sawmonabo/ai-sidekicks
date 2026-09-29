@@ -1,6 +1,6 @@
 // The one registration that can refuse AFTER a real Electron is already up.
 //
-// `withLaunchedConsole` binds its close to the end of the current test, and that
+// `withLaunchedApp` binds its close to the end of the current test, and that
 // binding is what covers the outcome nothing else does: vitest's own per-test
 // timeout never runs the body's settlement, so without it a tier that overran its
 // budget left a browser and a private profile directory behind. The registration
@@ -61,7 +61,7 @@ const UNTERMINABLE_OUTCOME: CleanupOutcome = {
  * handle was closed exactly once" are different properties, and only the second
  * one says the recovery did not run beside a registration that had already taken.
  *
- * The failure is one-shot because the real close is: `withLaunchedConsole`'s
+ * The failure is one-shot because the real close is: `withLaunchedApp`'s
  * `close` sets its `closed` guard BEFORE the cleanup runs and returns on it
  * afterwards, so a second call resolves without repeating the verdict — which is
  * exactly why the retry against a tree that refused the kill had to move inside

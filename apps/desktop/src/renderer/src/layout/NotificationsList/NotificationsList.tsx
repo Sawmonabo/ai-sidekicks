@@ -24,8 +24,7 @@
 // screen: `attention.preferenceRead` / `attention.preferenceUpdate` are
 // control-plane procedures the console cannot reach, so the center says where mute
 // lives rather than drawing a switch that would write nowhere.
-
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { ProjectionBody } from "./NotificationsListBody.js";
 

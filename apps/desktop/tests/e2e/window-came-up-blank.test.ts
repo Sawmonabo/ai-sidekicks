@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 import { RENDERER_ORIGIN } from "@main/services/renderer-scheme.js";
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
 import { PANE_HARNESS_LABEL } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 
@@ -34,7 +34,7 @@ const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
   it("serves the window from the privileged renderer scheme", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+    await withLaunchedApp({}, async (consoleApplication) => {
       // The origin is the persistence partition key: a scheme registered without
       // `standard: true` has no origin at all, and an origin-less document gets
       // neither IndexedDB nor `localStorage` — so the scheme-persistence test
@@ -55,7 +55,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
     // it, which is the first-launch rule doing exactly what it was built to do. Naming the
     // scenario is also what stands that rule down, on the same principle the rule
     // applies to an explicit hash: a launch that said what it wanted is not overridden.
-    await withLaunchedConsole({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
+    await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // The rail exists and carries the destinations the frame declares. Read as

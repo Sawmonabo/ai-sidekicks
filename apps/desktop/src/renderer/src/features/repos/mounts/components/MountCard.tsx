@@ -44,7 +44,7 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Chip,
   Glyph,

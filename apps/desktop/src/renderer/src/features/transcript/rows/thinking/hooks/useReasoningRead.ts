@@ -30,8 +30,8 @@
 import { useCallback, useState } from "react";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useReadScope } from "@renderer/hooks/useReadScope.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import { type ReasoningSurfaceReading } from "@renderer/console/ledger/cards/bodies/index.js";
 

@@ -17,8 +17,8 @@
 // gives its lock back on the way out so the page does not stay disabled.
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";

@@ -500,7 +500,7 @@ describe("WorktreeEventEmitter — mapping and carve-out", () => {
     // `worktree.retired` carrying `state: "failed"`. What makes the `-> failed`
     // transition unevented is that no method here resolves to that state; the
     // failure incident is evented as `workspace.stale` by the coupled
-    // `failReprovision` instead.
+    // `failRootPreparation` instead.
     const failedStatePayload = WorktreeLifecyclePayloadSchema.safeParse({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,

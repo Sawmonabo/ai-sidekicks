@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
 import { AgentCard } from "./AgentBindingCard.js";
-import type { AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 
 const RUNNING: AgentRosterEntry = {
   agentId: "agent-scout",

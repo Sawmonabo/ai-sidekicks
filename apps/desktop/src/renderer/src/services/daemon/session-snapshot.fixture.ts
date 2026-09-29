@@ -24,7 +24,7 @@
 // base state that filed rows of its own would be a second source of truth for them.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 
 /**

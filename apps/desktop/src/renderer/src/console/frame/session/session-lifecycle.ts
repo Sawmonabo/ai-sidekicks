@@ -72,9 +72,9 @@
 // plumbing that has already disposed itself.
 
 import { useEffect } from "react";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";

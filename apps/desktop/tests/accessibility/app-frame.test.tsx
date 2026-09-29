@@ -20,7 +20,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderSettled } from "../../test/console/console-harness.js";
+import { emulateSystemScheme, renderSettled } from "../helpers/app-harness.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,

@@ -13,7 +13,7 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { FrameWitness, type RendererFrameSource } from "./frame-paint-probe.js";
+import { FramePaintProbe, type RendererFrameSource } from "./frame-paint-probe.js";
 import {
   POST_READINESS_RESERVE_MS,
   readinessFailure,
@@ -28,7 +28,7 @@ import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
  * guards cost the launch budget once between them rather than once each, and a
  * failure at any rung is raised as a readiness failure that names the rung.
  */
-export async function awaitPaintingConsoleWindow(
+export async function awaitPaintingAppWindow(
   application: ElectronApplication,
   deadline: LaunchDeadline,
 ): Promise<Page> {
@@ -85,7 +85,7 @@ export async function awaitPaintingConsoleWindow(
         `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
     );
   }
-  const frames = await new FrameWitness(rendererFrameSource(window)).witness();
+  const frames = await new FramePaintProbe(rendererFrameSource(window)).probe();
   if (!frames.painting) {
     throw new Error(
       `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +

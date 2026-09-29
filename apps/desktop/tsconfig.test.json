@@ -46,14 +46,7 @@
   // `tsconfig.browser-test.json`, `tsconfig.electron-test.json`,
   // `tsconfig.bench-test.json` and the renderer's `tsconfig.test.json`. A helper under
   // `tests/helpers/` is typechecked here when a test here imports it.
-  "include": [
-    "src/**/*",
-    "scripts/**/*.test.ts",
-    "tests/*.test.ts",
-    "test/*.test.ts",
-    "tests/budget/**/*",
-    "test/console/budget/**/*"
-  ],
+  "include": ["src/**/*", "scripts/**/*.test.ts", "tests/*.test.ts", "tests/budget/**/*"],
   // `src/renderer/**` is excluded because the renderer is a separate composite
   // project (browser context: JSX + DOM lib) wired in via the parent
   // tsconfig.json `references`. This Node-context test config would otherwise

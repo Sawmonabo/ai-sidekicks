@@ -43,7 +43,7 @@ export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
  *
  * INTRA-FAMILY AND OFF THE DOOR. The engine is its only reader, and a door line for a
  * class one sibling constructs would publish an edge into the engine's own internals to
- * every reader of `scenario/runtime/`.
+ * every reader of the engine.
  */
 export class HeldReplyQueue {
   readonly #held: HeldScenarioReply[] = [];

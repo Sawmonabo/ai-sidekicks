@@ -22,7 +22,7 @@
 // whether the profile came off disk. What a caller is then TOLD about that
 // verdict, and which of two failures a reader sees when the body failed too, is
 // `cleanup-disposition.test.ts`: the two were one file until the seam between both
-// subjects was drawn, which is the split `frame-witness.test.ts` and
+// subjects was drawn, which is the split `frame-paint-probe.test.ts` and
 // `launch-deadline.test.ts` already made for the same reason — and
 // `bounded-cleanup-retry.test.ts` is that same split made a second time, for the
 // one outcome that is not a race: a platform that reports the kill was refused,
@@ -32,7 +32,7 @@
 // The launch clock these cases deliberately do NOT draw from is
 // `launch-deadline.test.ts` — cleanup's bound is the registered ceiling rather
 // than a slice of whatever is left; the verdict the witness renders just before
-// them is `frame-witness.test.ts`.
+// them is `frame-paint-probe.test.ts`.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";

@@ -24,8 +24,8 @@
 // what a person pastes into an issue.
 
 import { useMemo } from "react";
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 

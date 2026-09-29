@@ -14,10 +14,10 @@ import { describe, expect, it } from "vitest";
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
-import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
-import { STAND_IN_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
 
 /**
  * The scenario every case below varies one member of.
@@ -58,7 +58,7 @@ const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
  *
  * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
  * a method the corpus registers, so the fixture holds a scripted reply for it to
- * that shape (`fixture/call-plane/bridge.wire-contract.test.ts`) — and a scenario that could
+ * that shape (`daemon.fixture.wire-contract.test.ts`) — and a scenario that could
  * answer it with `{id, health}` would be teaching every mount surface a frame the
  * daemon cannot send. Only `id` and `health.status` vary between the two, which is
  * what these cases read.
@@ -72,7 +72,7 @@ const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
 function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
   return {
     id: repoMountId,
-    sessionId: STAND_IN_SESSION_ID,
+    sessionId: FIXTURE_SCENARIO_SESSION_ID,
     nodeId: "9f2c4a10-1111-4000-8000-000000000100",
     localPath: "/Users/probe/dev/ai-sidekicks",
     canonicalRoot: "/Users/probe/dev/ai-sidekicks",

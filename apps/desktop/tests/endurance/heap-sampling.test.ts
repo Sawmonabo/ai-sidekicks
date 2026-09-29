@@ -1,6 +1,6 @@
 // The collector's memo, and the order dependence it used to have.
 //
-// The subject is `test/console/heap-sampling.ts`, which this tier's terminal cases
+// The subject is `heap-sampling.ts`, which this tier's terminal cases
 // measure through. It lives beside them rather than in a tier of its own because
 // its one consumer is here, and because the property under test is the one that
 // decides whether a heap assertion in this directory is admissible at all: if the

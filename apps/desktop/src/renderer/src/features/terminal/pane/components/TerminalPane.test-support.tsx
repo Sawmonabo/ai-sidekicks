@@ -3,11 +3,10 @@
 // produce.
 
 import { render } from "@testing-library/react";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
-import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

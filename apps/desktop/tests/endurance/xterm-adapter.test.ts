@@ -46,13 +46,13 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleBudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "@renderer/features/terminal/terminal-caps.js";
 import { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "./heap-sampling.js";
 import { requireHeapCollector, TerminalAdapterWorkload } from "./terminal-adapter-workload.js";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 
 /**
  * This file's collector and settling loop.

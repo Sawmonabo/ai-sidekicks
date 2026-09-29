@@ -14,8 +14,8 @@
 // and the hook takes no first read for it.
 
 import { useCallback, useEffect, useMemo } from "react";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSessionScopedActController } from "@renderer/console/store/act/use-act-controller.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {

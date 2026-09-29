@@ -43,11 +43,10 @@
 //      harness that never got as far as reading anything.
 
 import { describe, expect, it } from "vitest";
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering } from "../helpers/fixture-bridge.js";
 import { SESSION_ID } from "../helpers/daemon-reply-refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";

@@ -28,7 +28,7 @@ import { useMemo } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
 import { useLatestRef } from "../../../primitives/index.js";
-import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import type { RunState } from "@ai-sidekicks/contracts";
 import { RUN_CONTROL_PRESENTATION } from "@renderer/features/composer/run-controls/run-control-presentation.js";
 import { type RunControl } from "@renderer/features/composer/run-controls/services/run-control-dispatch.js";

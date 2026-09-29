@@ -4,8 +4,8 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier both need the same surfaces this family ships, and a per-tier copy
 // of the mount would be two chances to compose them differently and then read the
-// results as if they were comparable. Three modules divide that job: `console-harness.tsx`
-// owns HOW the console is mounted, `repos-mount-harness.ts` owns what SETTLED means and
+// results as if they were comparable. Three modules divide that job: `app-harness.ts`
+// owns HOW the app is mounted, `repos-mount-harness.ts` owns what SETTLED means and
 // how a tier waits for it, and `repos-fixtures.ts` owns what the surfaces are drawn
 // against.
 //
@@ -40,13 +40,9 @@ import {
   sessionOperations,
 } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
-import { renderSettled } from "../../../test/console/console-harness.js";
-import { extendedHeaderChangeSet, scenarioCollaborators } from "./repos-fixtures.js";
-import {
-  requireElement,
-  requireLabelledRegion,
-  type MountedFamilySurface,
-} from "./mount-queries.js";
+import { renderSettled } from "../app-harness.js";
+import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
+import { requireElement, requireLabelledRegion, type MountedView } from "./mount-queries.js";
 
 /**
  * The repos sidebar section, open, with its three mounts read.
@@ -56,8 +52,8 @@ import {
  * frame and then compare a later warm run against it. All three cards are waited for,
  * because the first to land is not the last.
  */
-export async function mountRepoSection(): Promise<MountedFamilySurface> {
-  const { bridge, sessionStore } = scenarioCollaborators();
+export async function mountRepoSection(): Promise<MountedView> {
+  const { bridge, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     // The announcer is the section's environment: an act announces its own settlement,
     // and `useAnnounce` throws outside the provider on purpose.
@@ -87,8 +83,8 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
 }
 
 /** The diff pane over a parsed change set: compared states, file list, rows. */
-export async function mountDiffPane(): Promise<MountedFamilySurface> {
-  const { bridge, sessionStore } = scenarioCollaborators();
+export async function mountDiffPane(): Promise<MountedView> {
+  const { bridge, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     <DiffPane
       context={paneContext({

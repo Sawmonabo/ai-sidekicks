@@ -11,7 +11,7 @@
 // target that wrote no source maps all throw with the command that produces a build.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../scripts/budget/measure-bundle.mjs";
 
@@ -21,7 +21,13 @@ export interface BuiltFile {
   readonly text: string;
 }
 
-/** One hidden source map: where it sits under `out/`, and the modules it lists. */
+/**
+ * One hidden source map: where it sits under `out/`, and the modules it lists.
+ *
+ * `sources` are absolute paths. A map spells each source relative to itself, and the
+ * fixture predicate names some folders by absolute path, so a relative spelling would
+ * slip past it.
+ */
 export interface BuiltSourceMap {
   readonly relativePath: string;
   readonly sources: readonly string[];
@@ -65,7 +71,10 @@ export function readSourceMapsOrFailLoudly(
     .filter((path) => path.endsWith(".map"))
     .map((path) => {
       const map = JSON.parse(readFileSync(path, "utf8")) as { sources: string[] };
-      return { relativePath: relative(BUILD_OUTPUT_DIRECTORY, path), sources: map.sources };
+      return {
+        relativePath: relative(BUILD_OUTPUT_DIRECTORY, path),
+        sources: map.sources.map((source) => resolve(dirname(path), source)),
+      };
     });
   if (maps.length === 0) {
     throw new Error(

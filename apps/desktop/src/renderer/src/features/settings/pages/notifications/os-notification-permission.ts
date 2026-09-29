@@ -4,8 +4,7 @@
 // ask it, and a view family may not import its sibling. Every window trigger re-reads
 // it, since the person grants the permission outside this application; the scheduler
 // serializes probes and the latch drops a reply from a superseded round.
-
-import type { NotificationPermission } from "@ai-sidekicks/contracts";
+import type { NotificationPermission } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
@@ -20,7 +19,8 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
 export type OsNotificationPermissionState = NotificationPermission["state"];

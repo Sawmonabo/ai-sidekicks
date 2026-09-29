@@ -131,7 +131,7 @@ import {
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
   DriverAuthProbeResultSchema,
   DriverResumeResultSchema,
-  DriverRollbackResultSchema,
+  ForkConversationResultSchema,
   ProviderCommandEntrySchema,
   SessionIdSchema,
   wireFreeFormString,
@@ -146,7 +146,7 @@ import {
   type ProviderCommandEntry,
   type ProviderCommandListResult,
   type DriverResumeResult,
-  type DriverRollbackResult,
+  type ForkConversationResult,
   type DriverTransportConfig,
   type ExecutionPosture,
   type InterruptRunParams,
@@ -156,7 +156,7 @@ import {
   type PtyHost,
   type RecoveryCondition,
   type ResumeSessionParams,
-  type RollbackToParams,
+  type ForkConversationParams,
   type RunId,
   type SessionId,
   type SetSessionGoalParams,
@@ -2140,7 +2140,7 @@ export class CodexRewindBoundaryUnsupportedError extends Error {
  * about a member of THAT method's params type, and a future caller that reuses
  * this helper on another request must not inherit the claim by accident.
  *
- * Not folded into a `degraded` result: `DriverRollbackResult` closes at
+ * Not folded into a `degraded` result: `ForkConversationResult` closes at
  * `applied` and `degraded`, a new `fallbackAction` value would be a wire growth
  * this round does not carry, and the promise this delivers is a refusal AT
  * INVOCATION rather than a fallback the caller is asked to absorb. A degraded
@@ -4545,7 +4545,7 @@ interface CodexSessionRecord {
   /**
    * The thread this session is currently bound to.
    *
-   * MUTABLE, uniquely among this record's identity fields, and only `rollbackTo`
+   * MUTABLE, uniquely among this record's identity fields, and only `forkConversation`
    * moves it: `thread/fork` mints a NEW thread and the rewound session continues
    * on it, so the leg's thread is a value that changes while the leg's identity
    * does not. Re-pointing in place rather than installing a replacement record
@@ -4556,7 +4556,7 @@ interface CodexSessionRecord {
   threadId: string;
   /**
    * The ordered turn ids of this thread, oldest first — the session-position
-   * axis `RollbackToParams.position` indexes into (position N names
+   * axis `ForkConversationParams.position` indexes into (position N names
    * `turnBoundaries[N - 1]`, the Nth turn, which is the inclusive `lastTurnId`
    * a fork through position N must carry).
    *
@@ -5357,7 +5357,7 @@ const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze(
  * The compaction-wait key for one Codex binding — session AND thread identity.
  *
  * KEYING ON THE SESSION ALONE WAS THE DEFECT. This driver's thread identity
- * MOVES within one live session: a successful `rollbackTo` forks a replacement
+ * MOVES within one live session: a successful `forkConversation` forks a replacement
  * thread and re-points the record at it, and a superseding `resumeSession`
  * installs a whole new record on the same session id. A wait armed against the
  * predecessor and keyed only by session would survive both — settling `applied`
@@ -6759,7 +6759,7 @@ export class CodexLifecycleManager {
    * what the `rollback` flag's `static` detection source leaves to invocation
    * time. See {@link CodexRewindBoundaryUnsupportedError}.
    */
-  async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     // HOISTED OUT OF THE CLAIM below, and it has to be: that claim is taken in
     // `establishing`, which is a state `#requireSession` REFUSES — read from
     // inside the claimed body, this operation would refuse its own claim. Every
@@ -6772,7 +6772,7 @@ export class CodexLifecycleManager {
       // either the boundary itself or a turn after it, and forking through it is
       // refused either way. Checked here so the refusal is a typed local answer
       // rather than an opaque provider error.
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-deferred-turn-in-progress",
       });
@@ -6785,7 +6785,7 @@ export class CodexLifecycleManager {
     const boundaryTurnId =
       params.position >= 1 ? record.turnBoundaries[params.position - 1] : undefined;
     if (boundaryTurnId === undefined) {
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-target-not-a-recorded-boundary",
       });
@@ -6820,10 +6820,10 @@ export class CodexLifecycleManager {
   }
 
   async #establishRewoundSession(
-    params: RollbackToParams,
+    params: ForkConversationParams,
     record: CodexSessionRecord,
     boundaryTurnId: string,
-  ): Promise<DriverRollbackResult> {
+  ): Promise<ForkConversationResult> {
     // Captured BEFORE the request, and used as the request's own `threadId`, so
     // the thread this fork descends from and the thread its usage base is keyed
     // to are provably the same value rather than two reads of a mutable field.
@@ -6871,7 +6871,7 @@ export class CodexLifecycleManager {
     // refused BEFORE the re-point below, so the record, the router, and the
     // accountant are all exactly as they were and a retry is safe.
     if (forkedThread.id === preForkThreadId) {
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-not-forked",
       });
@@ -6885,7 +6885,7 @@ export class CodexLifecycleManager {
     // purpose: the pre-fork thread is itself registered, so this test alone would
     // answer the unforked case with the wrong token.
     if (this.usageAccountantFor(params.sessionId).hasThread(forkedThread.id)) {
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-target-thread-already-registered",
       });
@@ -6894,14 +6894,14 @@ export class CodexLifecycleManager {
     // claim is what makes this unreachable today — a turn dispatched while it is
     // held is refused at the entrance, and one already in flight is refused
     // post-await by `startRun`'s own slot check rather than registered — but the
-    // guard at the top of `rollbackTo` read a MUTABLE map before the await, and
+    // guard at the top of `forkConversation` read a MUTABLE map before the await, and
     // its stability is a property of those other call sites rather than of this
     // one. Answered with the pre-await guard's exact shape, so a caller cannot
     // tell which of the two refused. The cost of refusing here is a forked thread
     // the daemon never adopts; rebinding under a live turn would strand the turn
     // itself, which is the worse of the two.
     if (record.runIdByActiveTurnId.size > 0) {
-      return DriverRollbackResultSchema.parse({
+      return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-deferred-turn-in-progress",
       });
@@ -6984,7 +6984,7 @@ export class CodexLifecycleManager {
       // means, so the ledger stays usable for the next rewind.
       record.turnBoundaries.length = params.position;
     }
-    return DriverRollbackResultSchema.parse({
+    return ForkConversationResultSchema.parse({
       status: "applied",
       sessionPosition: params.position,
       bindingId: this.#newBindingId(),
@@ -7684,7 +7684,7 @@ export class CodexLifecycleManager {
    * re-metered where none exists.
    *
    * The reader is CALLER-SUPPLIED, so its throw is contained here rather than
-   * allowed to escape. Two paths make that load-bearing: `rollbackTo` calls
+   * allowed to escape. Two paths make that load-bearing: `forkConversation` calls
    * this AFTER the record has been re-pointed at the forked thread, where a
    * throw would break that method's own promise that a failed rewind leaves the
    * session exactly as it was and would report a fork that DID happen as one

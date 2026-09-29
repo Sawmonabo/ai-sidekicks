@@ -4,11 +4,10 @@
 // surfaces and nothing else, and reaches into this module's exports.
 
 import { within } from "@testing-library/react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
+export interface MountedView {
   readonly element: HTMLElement;
   readonly bridge: ConsoleBridge;
 }
@@ -51,4 +50,14 @@ export function requireElement(container: HTMLElement, selector: string): HTMLEl
     throw new Error(`nothing in the mounted tree matches \`${selector}\``);
   }
   return element;
+}
+
+/**
+ * What the pane chrome calls a pane of one kind mounted over `sessionId`.
+ *
+ * The chrome names a pane by every scope its address carries and then by what the pane
+ * is, so two terminals in one layout are told apart by the session each holds.
+ */
+export function paneTrailName(sessionId: string | undefined, paneWord: string): string {
+  return `${sessionId ?? "No session"} ${paneWord}`;
 }

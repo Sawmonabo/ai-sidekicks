@@ -59,7 +59,7 @@ import {
   type AddressedProviderBinding,
   type ProviderCatalogEntry,
 } from "@renderer/features/composer/command-list/command-list-entries.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */

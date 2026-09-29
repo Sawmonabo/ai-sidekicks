@@ -15,13 +15,13 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import {
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
   mountComposerSessionDefault,
-  type MountedFamilySurface,
 } from "../helpers/feature-mounts/composer.js";
+import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -35,7 +35,7 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {
   readonly label: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
   { label: "the composer on the session", mount: mountComposerSessionDefault },
   { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },

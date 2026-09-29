@@ -5,13 +5,12 @@
 // driven with items whose order and resolution differ.
 
 import { describe, expect, it } from "vitest";
-
 import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
   type AttentionItem,
-} from "@renderer/console/bridge/wire-shapes/attention-projection.js";
-import { AttentionPlane } from "./attention-summary.js";
+} from "@ai-sidekicks/contracts";
+import { AttentionPlane } from "@renderer/store/attention/attention-summary.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {

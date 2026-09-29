@@ -36,12 +36,12 @@ import { describe, expect, it } from "vitest";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import {
   BOOT_TEST_TIMEOUT_MS,
-  DIAGNOSTIC_COLLECTION_CEILING_MS,
-  DISPLAY_READY_TIMEOUT_MS,
   FORCED_STALL_SPAWN_TIMEOUT_MS,
   FORCED_STALL_TEST_TIMEOUT_MS,
   SPAWN_TIMEOUT_MS as BOOT_SPAWN_TIMEOUT_MS,
-} from "../../test/helpers/electron-probe.js";
+} from "./smoke-probe-harness.js";
+import { DIAGNOSTIC_COLLECTION_CEILING_MS } from "./smoke-probe-diagnosis.js";
+import { DISPLAY_READY_TIMEOUT_MS } from "./display-readiness.js";
 import { GC_TEST_TIMEOUT_MS, SPAWN_TIMEOUT_MS as GC_SPAWN_TIMEOUT_MS } from "./gc-probe-harness.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import {

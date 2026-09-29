@@ -204,8 +204,8 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     interruptRun(): Promise<never> {
       return Promise.reject(new Error("interruptRun not exercised in this integration suite"));
     },
-    rollbackTo(): Promise<never> {
-      return Promise.reject(new Error("rollbackTo not exercised in this integration suite"));
+    forkConversation(): Promise<never> {
+      return Promise.reject(new Error("forkConversation not exercised in this integration suite"));
     },
     respondToRequest(): Promise<never> {
       return Promise.reject(new Error("respondToRequest not exercised in this integration suite"));

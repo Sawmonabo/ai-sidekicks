@@ -86,7 +86,7 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
     // The composer substitutes nothing. A kind the census does not register has no
     // category, and a record with none is the shape `EventEnvelopeSchema` rejects —
     // so a scenario that plays a beat no daemon emits cannot be delivered as though
-    // one did, and `scenario/wire-truth/wire-truth.ts` reports it by name before it ships.
+    // one did, and `tests/helpers/scenario-contract-check/contract-check.ts` reports it by name before it ships.
     const composed = composeScenarioEventEnvelope(authoredBeat({ kind: "run.started" }));
 
     expect(composed).not.toHaveProperty("category");

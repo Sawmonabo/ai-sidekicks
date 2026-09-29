@@ -84,7 +84,7 @@ const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
  * `unreadableDeliveryRefusalComposerFor` takes those words from the family and
  * returns a composer, rather than the ledger growing an origin of its own.
  */
-export class UnreadableDeliveryLedger {
+export class UnreadableDeliveryCounter {
   readonly #refusalFor: UnreadableDeliveryRefusalComposer;
   #unreadableDeliveryCount = 0;
   #unreadableRefusal: ConsoleRefusal | undefined = undefined;

@@ -8,10 +8,10 @@
 //
 //   • A frame arriving across the opening read is HELD and replayed rather than
 //     silently overwritten by the snapshot, and an overflowing hold degrades to a
-//     fresh read rather than a drop ({@link ProviderQuotaDeliveries.deliver},
+//     fresh read rather than a drop ({@link ProviderAccountDeliveries.deliver},
 //     `#holdAcrossSeedRead`).
 //   • A same-window reading below the high-water mark is recorded as a diagnostic
-//     rather than rendered as a regression ({@link ProviderQuotaDeliveries.mergeWindow}).
+//     rather than rendered as a regression ({@link ProviderAccountDeliveries.mergeWindow}).
 //
 // AND ONE FRAME IS CARRIED WITHOUT MOVING THE FOLD. `login_completed` is a report from
 // the provider that its own login process finished, not a reading of anything — the
@@ -57,13 +57,13 @@ import {
 } from "./provider-account-refusals.js";
 import { ProviderQuotaNotificationHold } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
 import {
-  UnreadableDeliveryLedger,
+  UnreadableDeliveryCounter,
   type UnreadableDeliveryReading,
 } from "../wire-reads/unreadable-deliveries.js";
 import type { ProviderQuotaFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
 /** What the reading hands over so a frame can reach a surface without this module publishing. */
-export interface ProviderQuotaDeliverySink {
+export interface ProviderAccountDeliverySink {
   /** Something moved, or a delivery was recorded unreadably. Publish. */
   readonly onChanged: () => void;
   /**
@@ -90,15 +90,15 @@ export interface ProviderQuotaDeliverySink {
  *
  * @consumedBy the provider account service, which folds quota frames
  */
-export class ProviderQuotaDeliveries {
+export class ProviderAccountDeliveries {
   readonly #fold: ProviderQuotaFold;
-  readonly #sink: ProviderQuotaDeliverySink;
+  readonly #sink: ProviderAccountDeliverySink;
   readonly #hold = new ProviderQuotaNotificationHold();
-  readonly #unreadable = new UnreadableDeliveryLedger(unreadableProviderQuotaDeliveryRefusal);
+  readonly #unreadable = new UnreadableDeliveryCounter(unreadableProviderQuotaDeliveryRefusal);
   #hasReportedHighWaterDrop = false;
   #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
 
-  public constructor(fold: ProviderQuotaFold, sink: ProviderQuotaDeliverySink) {
+  public constructor(fold: ProviderQuotaFold, sink: ProviderAccountDeliverySink) {
     this.#fold = fold;
     this.#sink = sink;
   }

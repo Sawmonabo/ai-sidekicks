@@ -17,16 +17,12 @@
 import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-
-import {
-  DesktopBridgeProvider,
-  useConsoleBridge,
-  useConsoleClock,
-} from "@renderer/console/bridge/BridgeProvider.js";
-import { consoleClockFor } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "../PlatformBridgeProvider.js";
+import { useConsoleBridge } from "./usePlatformBridge.js";
+import { consoleClockFor, useConsoleClock } from "./useClock.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO_ID } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface ClockProbeProps {
   /** Every clock a render was handed, so its identity across renders is readable. */
@@ -68,15 +64,15 @@ describe("useConsoleClock — one identity, and the window's current reading", (
         />
       </DesktopBridgeProvider>
     );
-    const { rerender } = render(tree(FLAGSHIP_SCENARIO_ID));
+    const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
     const captured = lastOf(clocks, "a clock");
-    const flagshipTime = lastOf(windowTimes, "a window time");
+    const concurrentStreamingTime = lastOf(windowTimes, "a window time");
 
     rerender(tree(FIRST_RUN_SCENARIO_ID));
     const firstRunTime = lastOf(windowTimes, "a window time");
 
     // The two engines really are two time bases, or the rest of this proves nothing.
-    expect(firstRunTime).not.toBe(flagshipTime);
+    expect(firstRunTime).not.toBe(concurrentStreamingTime);
     // ONE IDENTITY, so a consumer that pins the clock is not re-mounted by a scenario
     // change — and the reading behind that identity is the window's, not the retired
     // engine's.
@@ -98,13 +94,13 @@ describe("useConsoleClock — one identity, and the window's current reading", (
         />
       </DesktopBridgeProvider>
     );
-    const { rerender } = render(tree(FLAGSHIP_SCENARIO_ID));
-    const flagshipTime = lastOf(windowTimes, "a window time");
+    const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
+    const concurrentStreamingTime = lastOf(windowTimes, "a window time");
 
     rerender(tree(FIRST_RUN_SCENARIO_ID));
 
-    expect(lastOf(windowTimes, "a window time")).not.toBe(flagshipTime);
-    expect(lastOf(pinnedTimes, "a pinned time")).toBe(flagshipTime);
+    expect(lastOf(windowTimes, "a window time")).not.toBe(concurrentStreamingTime);
+    expect(lastOf(pinnedTimes, "a pinned time")).toBe(concurrentStreamingTime);
   });
 });
 

@@ -149,7 +149,7 @@ export class BodyAllowance {
         "harness reserves for it — the tier's own timeout is that allowance plus the launch budget " +
         "and a settlement residual, so this sentence and the close that follows it both reach you " +
         "rather than vitest killing the test mid-body and leaving an Electron alive; a tier whose " +
-        "body needs longer states its own allowance (test/console/launch-budgets.ts)",
+        "body needs longer states its own allowance (tests/helpers/launch-budgets.ts)",
       { cause: error },
     );
   }

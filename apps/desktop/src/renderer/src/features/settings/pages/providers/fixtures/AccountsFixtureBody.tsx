@@ -10,8 +10,7 @@
 
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ProviderQuotaReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { AccountDetail } from "./components/AccountDetail.js";

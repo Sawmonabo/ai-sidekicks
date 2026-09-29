@@ -7,8 +7,7 @@
 // sees new inputs.
 
 import { useEffect } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** Which device this is, or that the console has not been told yet. */

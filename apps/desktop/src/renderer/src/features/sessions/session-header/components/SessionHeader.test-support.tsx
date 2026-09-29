@@ -6,13 +6,12 @@
 // a header the others never build.
 
 import { render } from "@testing-library/react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { USER_YOU } from "@renderer/console/bridge/scenario/flagship/flagship-cast.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { USER_YOU } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 
 export const SESSION_ID = "session-cast";
 

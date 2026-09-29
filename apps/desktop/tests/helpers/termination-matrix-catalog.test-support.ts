@@ -20,11 +20,11 @@
 // enumeration rather than deciding for themselves which halves to add up.
 
 import { type TerminationCell } from "./termination-matrix-axes.test-support.js";
-import { EXTERNAL_ARM_CELLS } from "./termination-matrix-external.test-support.js";
+import { EXTERNAL_TERMINATION_CELLS } from "./termination-matrix-external.test-support.js";
 import { SIGNALLED_AND_OBSERVED_CELLS } from "./termination-matrix-signal.test-support.js";
 
 /** Every state the termination path can be asked in, with the verdict each owes. */
 export const TERMINATION_MATRIX: readonly TerminationCell[] = [
-  ...EXTERNAL_ARM_CELLS,
+  ...EXTERNAL_TERMINATION_CELLS,
   ...SIGNALLED_AND_OBSERVED_CELLS,
 ];

@@ -17,7 +17,7 @@ import { isConsoleRefusal } from "@renderer/lib/refusal.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
 import { describeFailingPaths } from "./failing-member-paths.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
-import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 
 /** A device id the response schema accepts. Same seam, same run-time check. */
 const DEVICE_ID = "device-workstation";

@@ -16,8 +16,7 @@
 import { renderHook } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {

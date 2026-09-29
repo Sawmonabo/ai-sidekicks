@@ -15,24 +15,23 @@
 // `readInstalledBridge` returns `undefined` rather than throwing, and the caller
 // renders the "error" kind of nothing — a stated failure with a next step — instead
 // of a blank window.
-
-import type { DesktopBridge } from "@ai-sidekicks/contracts";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { PreloadApi } from "@shared/preload-api.js";
+import type { ConsoleBridge } from "./platform-bridge.js";
 import { TransportReconnectSignal } from "../transport/transport-reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
-export function readInstalledBridge(): DesktopBridge | undefined {
+export function readInstalledBridge(): PreloadApi | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
-  const candidate = (window as { desktopBridge?: DesktopBridge }).desktopBridge;
+  const candidate = (window as { desktopBridge?: PreloadApi }).desktopBridge;
   return isBridgeShaped(candidate) ? candidate : undefined;
 }
 
 /** Wrap the installed preload bridge for console use. */
-export function createLiveBridge(desktopBridge: DesktopBridge): ConsoleBridge {
+export function createLiveBridge(desktopBridge: PreloadApi): ConsoleBridge {
   return {
     desktopBridge,
     // No attention signal, and that is this bridge's honest answer rather than a
@@ -70,7 +69,7 @@ export function createLiveBridge(desktopBridge: DesktopBridge): ConsoleBridge {
  * probe and the console went on to call methods on it. The shared predicate rejects one,
  * and it also narrows, so the cast the inner line carried is gone with it.
  */
-function isBridgeShaped(candidate: unknown): candidate is DesktopBridge {
+function isBridgeShaped(candidate: unknown): candidate is PreloadApi {
   if (!isWireRecord(candidate)) {
     return false;
   }

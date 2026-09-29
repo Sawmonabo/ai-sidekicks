@@ -6,7 +6,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import {
   ProviderCommandEnumeration,
   useProviderCommandEnumeration,
@@ -18,7 +18,7 @@ import {
   recordingBridge,
   targetForAgent,
 } from "../provider-command-enumeration.test-support.js";
-import { type RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("useProviderCommandEnumeration", () => {

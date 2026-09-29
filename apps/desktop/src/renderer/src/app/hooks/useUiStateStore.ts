@@ -45,9 +45,9 @@
 //     on those stamps ordered on how fast the host was. `consoleClockFor` is the
 //     one answer to which clock a window runs on; `frame/session/session-lifecycle.ts` asks it
 //     the same question for the session registry.
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";

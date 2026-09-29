@@ -27,7 +27,7 @@
 // is a function of the directory state and the row count cannot reach it.
 
 import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
-import type { AttentionSeverity } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionSeverity } from "@ai-sidekicks/contracts";
 import type { SessionListRow } from "./session-rows.js";
 
 /**

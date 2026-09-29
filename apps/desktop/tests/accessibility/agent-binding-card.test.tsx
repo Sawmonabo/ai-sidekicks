@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -25,7 +25,7 @@ import {
 import "@renderer/console/agents/index.js";
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 import { AgentCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
-import type { AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /** An agent whose echo fills every row the card can draw, including the tail. */
 const AGENT_WITH_FULL_ECHO: AgentRosterEntry = {

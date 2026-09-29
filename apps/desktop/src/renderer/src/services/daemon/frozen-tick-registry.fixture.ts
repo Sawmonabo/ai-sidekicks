@@ -1,6 +1,6 @@
 // The frozen-tick registry: which frame of each scenario the capture tiers pin.
 //
-// The manifest names every scenario, its frozen ticks (`flagship@t=<tick>`), and,
+// The manifest names every scenario, its frozen ticks (`concurrent-streaming@t=<tick>`), and,
 // per bridge method, its live status at HEAD. The manifest already carried the
 // scenarios and the live statuses and
 // named no tick, which left the middle claim unmade — and it is the claim that decides
@@ -24,7 +24,7 @@
 //
 // WHAT A NAME MEANS. `settled` is the tick at which every beat the script carries has
 // been delivered — the longest the session gets, and the frame most surfaces are worth
-// photographing at. `money-shot` is the flagship's own composed frame. A
+// photographing at. `money-shot` is the concurrent-streaming scenario's own composed frame. A
 // scenario that wants a second frame adds a second row with its own name; the rules
 // below hold the pair to an ascending, uniquely-named sequence.
 //
@@ -32,7 +32,7 @@
 // what a person writes in a document; no capture tier reads a reference file by it, and
 // a formatter with no caller is a handle nothing is held by.
 
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 
 /** One pinned frame of one scenario: what it is called, and the tick it is taken at. */
 export interface ScenarioFrozenTick {
@@ -54,12 +54,12 @@ export type FrozenTickTable = Readonly<Record<string, readonly ScenarioFrozenTic
  */
 export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   "first-run": [{ name: "settled", atMs: 0 }],
-  flagship: [{ name: "money-shot", atMs: 2_450 }],
-  ledger: [{ name: "settled", atMs: 3_140 }],
-  "ledger-quiet": [{ name: "settled", atMs: 0 }],
-  composer: [{ name: "settled", atMs: 540 }],
-  approvals: [{ name: "settled", atMs: 1_100 }],
-  terminal: [{ name: "settled", atMs: 4_100 }],
+  "concurrent-streaming": [{ name: "money-shot", atMs: 2_450 }],
+  "transcript-states": [{ name: "settled", atMs: 3_140 }],
+  "empty-session": [{ name: "settled", atMs: 0 }],
+  "waiting-for-input": [{ name: "settled", atMs: 540 }],
+  "approval-request": [{ name: "settled", atMs: 1_100 }],
+  "terminal-lease": [{ name: "settled", atMs: 4_100 }],
 };
 
 /** One way the registry and the scenario board disagree. */

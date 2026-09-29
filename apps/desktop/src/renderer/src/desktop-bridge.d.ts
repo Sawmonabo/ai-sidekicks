@@ -1,30 +1,15 @@
-// Renderer-wide ambient declaration for the `window.desktopBridge` contextBridge global.
-// The preload (`apps/desktop/src/preload/index.ts`) installs the bridge at runtime via
-// `contextBridge.exposeInMainWorld('desktopBridge', ...)` — a runtime-only registration
-// with no static typing. TypeScript needs an ambient augmentation to type the resulting
-// `window.desktopBridge` access; a dedicated `.d.ts` is the conventional Electron + Vite
-// pattern for typing contextBridge-exposed globals.
+// Types the `window.desktopBridge` global the preload installs with
+// `contextBridge.exposeInMainWorld`, which carries no static type of its own.
 //
-// This file is picked up by both renderer typecheck graphs, but via different
-// `include` patterns: the PRODUCTION renderer graph globs it in through
-// `src/renderer/tsconfig.json`'s `include: ["**/*"]`; the renderer TEST graph
-// globs it in through `src/renderer/tsconfig.test.json`'s `"src/**/*.d.ts"`
-// entry. The test config needs its own glob because TS `extends` replaces
-// (does not merge) `include`, so the test config does not inherit the
-// production `["**/*"]`. With both in place every renderer consumer (production
-// and test) sees `window.desktopBridge` as `DesktopBridge`-typed without
-// importing anything.
-//
-// The top-level `import type` makes this file a module, so `declare global` is
-// the correct augmentation form (a script-scoped `interface Window` would
-// merge into the global scope without the `declare global` wrapper, but the
-// module scope here requires it). No `export {}` is needed — the `import type`
-// already marks the file as a module.
+// Both renderer graphs pick this file up: the production one through
+// `src/renderer/tsconfig.json`'s `**/*`, the test one through `src/renderer/tsconfig.test.json`'s
+// `src/**/*.d.ts` (a test config's `include` replaces the one it extends). The top-level
+// `import type` makes the file a module, so the augmentation needs `declare global`.
 
-import type { DesktopBridge } from "@ai-sidekicks/contracts";
+import type { PreloadApi } from "@shared/preload-api.js";
 
 declare global {
   interface Window {
-    desktopBridge: DesktopBridge;
+    desktopBridge: PreloadApi;
   }
 }

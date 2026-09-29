@@ -13,14 +13,14 @@
 // ledger row streams through. The only thing this file supplies is the probe body
 // and the deltas, which is what a producer supplies in production too.
 //
-// AND THE RECORDER IS NOT THIS FILE'S. `test/console/visible-text-monotonicity.ts`
+// AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
 // owns the watcher, because any surface that reveals text incrementally wants the
 // same one; a copy here would be the second implementation of a role.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 import { VisibleTextMonotonicityRecorder } from "./visible-text-monotonicity.js";
 
 import { ManualClock } from "@renderer/lib/clock.js";

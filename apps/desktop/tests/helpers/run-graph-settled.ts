@@ -1,7 +1,7 @@
 // The readiness a surface owes any tier that reads it, when a lazily-drawn graph is
 // on it.
 //
-// Not a test file — no `include` glob reaches it. It lives in `test/console/` rather
+// Not a test file — no `include` glob reaches it. It lives in `tests/helpers/` rather
 // than in one tier's directory because two tiers ask the same question of the same
 // surface: the screenshot tier asks it before a capture, and the accessibility tier
 // asks it before an axe run. One home, for the reason a second copy would rot — the
@@ -144,7 +144,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
  * what lets a caller run this over every surface it reads rather than over the one it
  * knows draws a graph.
  */
-export function isPhaseGraphSettled(surface: HTMLElement): boolean {
+export function isRunGraphSettled(surface: HTMLElement): boolean {
   if (surface.querySelector(".meridian-phase-graph") === null) {
     return true;
   }
@@ -163,7 +163,7 @@ export function isPhaseGraphSettled(surface: HTMLElement): boolean {
  * fit has been computed" and "the fit is what the compositor last drew", and a frame
  * is the only clock that answers it.
  */
-export async function awaitPhaseGraphSettled(surface: HTMLElement): Promise<void> {
+export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> {
   if (surface.querySelector(".meridian-phase-graph") === null) {
     return;
   }

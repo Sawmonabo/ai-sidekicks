@@ -31,8 +31,8 @@ import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import {
   type AgentRosterReading,
   type ChildRunLinkReading,
-} from "@renderer/console/bridge/wire-shapes/agent-plane.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+} from "@renderer/services/wire-shapes/agents.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
 import { PushDrivenRead, servedValueOrRaise } from "@renderer/console/seats/index.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
@@ -42,7 +42,7 @@ import {
   CHILD_RUN_LINKAGE_EVENT_KINDS,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
-} from "@renderer/console/agents/agent-wire.js";
+} from "@renderer/services/wire-shapes/agent-vocabularies.js";
 import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
 /** Named in a refusal, so a failed read says which read failed. */

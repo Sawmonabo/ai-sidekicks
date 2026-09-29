@@ -16,7 +16,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";

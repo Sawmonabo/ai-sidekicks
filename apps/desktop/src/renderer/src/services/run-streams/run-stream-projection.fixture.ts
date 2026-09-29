@@ -50,7 +50,7 @@
 // budget is enforced, and this module's sibling `session-event-streams.ts` keeps its
 // contracts import type-only for exactly that reason — it is on the release path,
 // reached from the binder one family up. This module is not: its only importer is
-// `fixture/call-plane/bridge.ts`, which `BridgeProvider.tsx` reaches solely inside the
+// `services/daemon/scenario-subscriptions.fixture.ts`, which `PlatformBridgeProvider.tsx` reaches solely inside the
 // `__SIDEKICKS_CONSOLE_FIXTURES__` branch, and that identifier is a build-time
 // literal, so a release bundle folds the branch away and drops this module with the
 // rest of the fixture subtree. The budget therefore pays nothing for the schemas,
@@ -81,15 +81,12 @@ import {
   unprojectableFor,
 } from "./run-stream-shapes.js";
 import type { RunStreamProjection } from "./run-stream-shapes.js";
-import {
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-  runStateForTransitionKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "../daemon/session-event-streams.js";
+import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,
-} from "@renderer/console/bridge/daemon/session-event-stream-kinds.js";
+} from "../daemon/session-event-stream-kinds.js";
 
 /**
  * The optional members of `RunStateChangeEvent` this projection carries through.

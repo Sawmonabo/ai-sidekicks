@@ -11,14 +11,14 @@
 // perfectly well.
 //
 // The seam is what makes this testable without an Electron process:
-// `FrameWitness` takes its `RendererFrameSource` as a constructor argument, so a
+// `FramePaintProbe` takes its `RendererFrameSource` as a constructor argument, so a
 // source that resolves late and a source that never resolves are each one object
 // literal. The class under test is the REAL one the harness constructs — a local
 // re-implementation of the race would pass while the shipped witness stayed
 // broken.
 //
 // Every case runs against a small injected budget rather than the shipped
-// `FRAME_WITNESS_TIMEOUT_MS`, and that is deliberate on two counts: the shipped
+// `FRAME_PAINT_PROBE_TIMEOUT_MS`, and that is deliberate on two counts: the shipped
 // value is a property of CI runners rather than of the race, and a suite that
 // spent it would take 15 seconds to prove a timeout fires.
 //
@@ -29,11 +29,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FrameWitness,
+  FramePaintProbe,
   MEASURED_WORST_LOCAL_MS,
   type RendererFrameSource,
 } from "./frame-paint-probe.js";
-import { FRAME_WITNESS_TIMEOUT_MS, READINESS_BUDGET_MS } from "./launch-budgets.js";
+import { FRAME_PAINT_PROBE_TIMEOUT_MS, READINESS_BUDGET_MS } from "./launch-budgets.js";
 import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 /** A budget short enough that exhausting it costs the suite nothing. */
@@ -60,10 +60,10 @@ describe("frame witness — late is not the same as never", () => {
   it("passes a renderer whose first frame is late but inside the budget", async () => {
     // The case both CI failures were: a window that painted, just not within the
     // window the old fused race allowed it.
-    const outcome = await new FrameWitness(
+    const outcome = await new FramePaintProbe(
       frameSourceDeliveringAfter(TEST_BUDGET_MS * 0.6, 97),
       TEST_BUDGET_MS,
-    ).witness();
+    ).probe();
     expect(outcome.painting).toBe(true);
     // The reported interval is the RENDERER's figure, passed through untouched —
     // not the driver-side wall time, which is the other half of the diagnosis.
@@ -73,10 +73,10 @@ describe("frame witness — late is not the same as never", () => {
   it("fails a renderer whose frames never arrive", async () => {
     // The condition the witness exists for: background throttling left on, so
     // the callbacks are registered against a schedule that never runs.
-    const outcome = await new FrameWitness(
+    const outcome = await new FramePaintProbe(
       frameSourceThatNeverDelivers(),
       TEST_BUDGET_MS,
-    ).witness();
+    ).probe();
     expect(outcome.painting).toBe(false);
     expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_BUDGET_MS * 0.9);
   });
@@ -86,14 +86,14 @@ describe("frame witness — late is not the same as never", () => {
     // late frame" and "the witness admits everything". Same witness, same
     // budget, one source moved past it.
     const budget = TEST_BUDGET_MS;
-    const inside = await new FrameWitness(
+    const inside = await new FramePaintProbe(
       frameSourceDeliveringAfter(budget * 0.6, 12),
       budget,
-    ).witness();
-    const outside = await new FrameWitness(
+    ).probe();
+    const outside = await new FramePaintProbe(
       frameSourceDeliveringAfter(budget * 3, 12),
       budget,
-    ).witness();
+    ).probe();
     expect([inside.painting, outside.painting]).toStrictEqual([true, false]);
   });
 
@@ -105,7 +105,7 @@ describe("frame witness — late is not the same as never", () => {
       awaitTwoFrames: () =>
         Promise.reject(new Error("Target page, context or browser has been closed")),
     };
-    await expect(new FrameWitness(crashed, TEST_BUDGET_MS).witness()).rejects.toThrow(
+    await expect(new FramePaintProbe(crashed, TEST_BUDGET_MS).probe()).rejects.toThrow(
       /has been closed/u,
     );
   });
@@ -116,10 +116,10 @@ describe("frame witness — late is not the same as never", () => {
     // fails the whole tier on something other than the witness's own verdict —
     // so the outcome must settle AND the late rejection must reach a handler.
     const abandonedProbe = deferredRejection();
-    const outcome = await new FrameWitness(
+    const outcome = await new FramePaintProbe(
       { awaitTwoFrames: () => abandonedProbe.promise },
       TEST_BUDGET_MS,
-    ).witness();
+    ).probe();
     expect(outcome.painting).toBe(false);
     // Asserted rather than waited out. This is what holds the witness to racing
     // the probe rather than merely bounding it: `Promise.race` calls `then` on
@@ -139,23 +139,26 @@ describe("frame witness — the verdict names the bound it applied", () => {
     // witness held to 200. Both arms carry it, because both arms are reported:
     // the failure sentence names the bound that was missed, and the passing
     // breadcrumb names the bound the figure it prints was measured against.
-    const missed = await new FrameWitness(frameSourceThatNeverDelivers(), TEST_BUDGET_MS).witness();
-    const witnessed = await new FrameWitness(
+    const missed = await new FramePaintProbe(
+      frameSourceThatNeverDelivers(),
+      TEST_BUDGET_MS,
+    ).probe();
+    const witnessed = await new FramePaintProbe(
       frameSourceDeliveringAfter(TEST_BUDGET_MS * 0.4, 12),
       TEST_BUDGET_MS,
-    ).witness();
+    ).probe();
     expect([missed.budgetMs, witnessed.budgetMs]).toStrictEqual([TEST_BUDGET_MS, TEST_BUDGET_MS]);
     // Non-vacuous: the injected bound is not the shipped one, so an outcome that
     // reported the constant would differ here rather than agree by coincidence.
-    expect(TEST_BUDGET_MS).not.toBe(FRAME_WITNESS_TIMEOUT_MS);
+    expect(TEST_BUDGET_MS).not.toBe(FRAME_PAINT_PROBE_TIMEOUT_MS);
   });
 
   it("negative control: a witness given no bound reports the shipped default", async () => {
     // Without this the case above is ambiguous between "the outcome carries the
     // bound it was constructed with" and "the outcome carries 200". The source
     // delivers at once, so taking the shipped default costs no wall time.
-    const outcome = await new FrameWitness(frameSourceDeliveringAfter(0, 3)).witness();
-    expect(outcome.budgetMs).toBe(FRAME_WITNESS_TIMEOUT_MS);
+    const outcome = await new FramePaintProbe(frameSourceDeliveringAfter(0, 3)).probe();
+    expect(outcome.budgetMs).toBe(FRAME_PAINT_PROBE_TIMEOUT_MS);
   });
 });
 
@@ -164,7 +167,7 @@ describe("frame witness — the shipped budget", () => {
     // Not a re-statement of the constant: it holds the RELATIONSHIP the constant's
     // derivation claims, so shrinking the bound toward the measured figure — the
     // move that produced the flake this replaces — fails here and says why.
-    expect(FRAME_WITNESS_TIMEOUT_MS).toBeGreaterThan(MEASURED_WORST_LOCAL_MS * 100);
+    expect(FRAME_PAINT_PROBE_TIMEOUT_MS).toBeGreaterThan(MEASURED_WORST_LOCAL_MS * 100);
   });
 
   it("stays inside half the cold-start budget it must not swallow", () => {
@@ -174,6 +177,6 @@ describe("frame witness — the shipped budget", () => {
     // that would not paint. Both constants are importable now that they live in
     // a module free of `@playwright/test`, so this is the real inequality rather
     // than the literal it used to restate against itself.
-    expect(FRAME_WITNESS_TIMEOUT_MS).toBeLessThanOrEqual(READINESS_BUDGET_MS / 2);
+    expect(FRAME_PAINT_PROBE_TIMEOUT_MS).toBeLessThanOrEqual(READINESS_BUDGET_MS / 2);
   });
 });

@@ -14,8 +14,7 @@
 // A call that throws or rejects is not caught here; it propagates to the caller.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
-
-import type { UpdateState } from "@ai-sidekicks/contracts";
+import type { UpdateState } from "@shared/preload-api.js";
 
 import { useSettlementAnnouncement } from "../../../../primitives/index.js";
 import {

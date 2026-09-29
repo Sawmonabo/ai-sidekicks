@@ -51,7 +51,7 @@ import { type DriverCapabilityFlag, type RunState } from "@ai-sidekicks/contract
 
 import { isLiveRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { readingForRun } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { type RunControl } from "./services/run-control-dispatch.js";
 
 /**

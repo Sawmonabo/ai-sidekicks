@@ -17,15 +17,14 @@
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { useBridgeResolution } from "@renderer/console/bridge/BridgeProvider.js";
+import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
 import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
 
 // Spied, never replaced: every export of the bridge provider keeps its real
 // implementation and is merely observable, so the one case that needs the
 // missing-preload resolution can state it for that case alone.
-vi.mock(import("@renderer/console/bridge/BridgeProvider.js"), { spy: true });
+vi.mock(import("@renderer/services/platform/hooks/useBridgeResolution.js"), { spy: true });
 
 describe("ConsoleRoot — every state it can render sits on the Meridian tokens", () => {
   // The tokens are installed on the DOCUMENT, so they outlive `cleanup()` and

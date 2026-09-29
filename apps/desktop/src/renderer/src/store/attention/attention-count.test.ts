@@ -6,8 +6,7 @@
 // asserted to be an absence rather than a zero.
 
 import { describe, expect, it } from "vitest";
-
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { AttentionPlane } from "./attention-summary.js";
 import { attentionCountOf } from "./attention-count.js";
 

@@ -26,7 +26,7 @@
 import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { closePalette, openPalette } from "../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 
@@ -68,7 +68,7 @@ async function delayEveryAnimationFrame(consoleWindow: Page): Promise<void> {
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — palette opened without focus", () => {
   it("opens the palette from a real keystroke and focuses it before a frame lands", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+    await withLaunchedApp({}, async (consoleApplication) => {
       // A real key event through the real window, which is the only place the
       // whole chord path runs end to end: the browser tier's synthetic events
       // never traverse Electron's own accelerator handling, and a chord the

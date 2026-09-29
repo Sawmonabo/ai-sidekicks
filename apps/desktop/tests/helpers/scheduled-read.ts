@@ -25,7 +25,7 @@ import { act } from "@testing-library/react";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The frozen clock this bridge's readings schedule against.

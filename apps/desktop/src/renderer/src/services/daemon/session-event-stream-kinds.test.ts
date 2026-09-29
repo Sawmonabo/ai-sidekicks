@@ -28,13 +28,13 @@ import { describe, expect, it } from "vitest";
 import { QueueItemStateSchema, RunStateSchema } from "@ai-sidekicks/contracts";
 
 import {
-  CONSOLE_SESSION_EVENT_STREAMS,
+  SESSION_EVENT_STREAMS,
   PRESENCE_EVENT_STREAM,
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
   subscriptionDeliversEventKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 import {
   ROLLED_BACK_KIND,
   carriedKindsOf,
@@ -78,7 +78,7 @@ const UNREGISTERED_KIND = "run.started";
 
 describe("session-event streams — the table carries what the wire registers", () => {
   it("routes exactly the four registered subscriptions this console opens", () => {
-    expect(Object.keys(CONSOLE_SESSION_EVENT_STREAMS).sort()).toStrictEqual(
+    expect(Object.keys(SESSION_EVENT_STREAMS).sort()).toStrictEqual(
       sorted([
         SESSION_EVENT_STREAM,
         RUN_STATE_EVENT_STREAM,
@@ -89,7 +89,7 @@ describe("session-event streams — the table carries what the wire registers", 
   });
 
   it("carries only kinds the census registers", () => {
-    const carried = Object.values(CONSOLE_SESSION_EVENT_STREAMS).flatMap((stream) =>
+    const carried = Object.values(SESSION_EVENT_STREAMS).flatMap((stream) =>
       stream.scope === "selected-kinds" ? [...stream.carriedKinds] : [],
     );
 

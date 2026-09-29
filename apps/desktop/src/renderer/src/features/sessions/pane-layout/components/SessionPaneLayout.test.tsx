@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";

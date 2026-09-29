@@ -407,7 +407,7 @@ describe("driver.* registration surface", () => {
       "driver.resumeSession",
       "driver.startRun",
       "driver.closeSession",
-      "driver.rollbackTo",
+      "driver.forkConversation",
       "driver.setSessionGoal",
       "driver.clearSessionGoal",
       "driver.probeAuth",

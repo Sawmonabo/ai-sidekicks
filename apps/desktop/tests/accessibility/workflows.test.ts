@@ -27,8 +27,8 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
-import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../helpers/run-graph-settled.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
+import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
   mountWorkflowRunPane,
@@ -93,12 +93,12 @@ describe("accessibility — the workflows surfaces", () => {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
-        await awaitPhaseGraphSettled(mounted);
+        await awaitRunGraphSettled(mounted);
         // The subject, stated before it is read, so the wait above cannot be dropped
         // in silence: the fit has not landed at the mount's return whether the lazy
         // chunk is cold or already cached. For the rows that draw no graph the reading
         // is true by construction, which is what lets one line cover the table.
-        expect(isPhaseGraphSettled(mounted)).toBe(true);
+        expect(isRunGraphSettled(mounted)).toBe(true);
 
         expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
       });

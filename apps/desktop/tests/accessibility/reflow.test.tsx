@@ -16,8 +16,8 @@
 // about a PAGE, and a pane mounted inside one is measured by whichever destination
 // carries it.
 //
-// THE FLAGSHIP SCENARIO AND NOT THE FIRST-RUN ONE. A console with nothing in it
-// reflows trivially — there is no row long enough to push a box wide. The flagship
+// THE CONCURRENT-STREAMING SCENARIO AND NOT THE FIRST-RUN ONE. A console with nothing in it
+// reflows trivially — there is no row long enough to push a box wide. The concurrent-streaming scenario
 // fixture is the one carrying real sessions, runs, and wire identifiers, which are
 // the strings that actually decide whether a 320 px column holds.
 //
@@ -29,15 +29,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 import {
   describeHorizontalOverflow,
   narrowTesterViewportTo,
   plantHorizontalOverflow,
   restoreTesterViewport,
 } from "./reflow.js";
-
-import { FLAGSHIP_SCENARIO_ID } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
@@ -59,11 +58,11 @@ import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
 /**
  * A wire identifier with no break opportunity anywhere in it.
  *
- * The flagship's session ids are UUIDs, and a UUID's four hyphens are break
+ * The concurrent-streaming scenario's session ids are UUIDs, and a UUID's four hyphens are break
  * opportunities — so the narrowest line one can make is a twelve-character group,
  * and whether THAT fits the column the floor leaves the row is a question about the
  * face as much as about the layout. A digest-shaped id hands the line breaker
- * nothing at all, so this case asks the row the question the flagship's data can only
+ * nothing at all, so this case asks the row the question the concurrent-streaming scenario's data can only
  * ask of one font at a time: the box wraps whatever the wire sent, or it overflows on
  * every font there is.
  */
@@ -96,7 +95,7 @@ describe("reflow — the console at 320 CSS px", () => {
   for (const destination of RAIL_DESTINATIONS) {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
       document.location.hash = formatRoute(routeForDestination(destination));
-      await renderSettled(<ConsoleRoot scenarioId={FLAGSHIP_SCENARIO_ID} />);
+      await renderSettled(<ConsoleRoot scenarioId={CONCURRENT_STREAMING_SCENARIO_ID} />);
 
       // Stated before it is read, so the width this case measured is in the record
       // rather than inferred from the assertion that follows it.
@@ -117,7 +116,7 @@ describe("reflow — the console at 320 CSS px", () => {
   for (const page of SETTINGS_SECTION_IDS) {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
       document.location.hash = formatRoute({ kind: "settings", page });
-      await renderSettled(<ConsoleRoot scenarioId={FLAGSHIP_SCENARIO_ID} />);
+      await renderSettled(<ConsoleRoot scenarioId={CONCURRENT_STREAMING_SCENARIO_ID} />);
 
       expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
       expect(describeHorizontalOverflow(document.documentElement)).toStrictEqual([]);
@@ -133,7 +132,9 @@ describe("reflow — the console at 320 CSS px", () => {
     // the frame at the narrower width.
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
     document.location.hash = formatRoute(routeForDestination("settings"));
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={FLAGSHIP_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot scenarioId={CONCURRENT_STREAMING_SCENARIO_ID} />,
+    );
 
     const frame = container.querySelector(".meridian-frame");
     expect(frame?.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
@@ -143,7 +144,7 @@ describe("reflow — the console at 320 CSS px", () => {
   // not choose the width of.
   //
   // WHY A COMPONENT CASE BESIDE THE PAGE ONES. The destination case above measures
-  // the flagship's own ids in whatever face the host resolves, and both are
+  // the concurrent-streaming scenario's own ids in whatever face the host resolves, and both are
   // variables — so it answers "these ids fit here today" rather than the thing the
   // row actually owes, which is that the identity column wraps whatever the wire
   // sent. That is a property one row can be asked about directly, with an identifier
@@ -204,7 +205,9 @@ describe("reflow — the console at 320 CSS px", () => {
 
   it("finds a planted overflow, so a clean result means something", async () => {
     document.location.hash = formatRoute(routeForDestination("sessions"));
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={FLAGSHIP_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot scenarioId={CONCURRENT_STREAMING_SCENARIO_ID} />,
+    );
 
     const planted = plantHorizontalOverflow(container, REFLOW_MIN_WIDTH_PX);
     try {

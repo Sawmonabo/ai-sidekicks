@@ -19,8 +19,7 @@ import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowRead
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-reading.js";
 
 /**

@@ -1695,7 +1695,7 @@ describe("ClaudeSessionUnavailableError", () => {
 // --------------------------------------------------------------------------
 //
 // What is under test:
-//   * `rollbackTo` reports the `bindingId` the daemon rebinds on.
+//   * `forkConversation` reports the `bindingId` the daemon rebinds on.
 //   * This provider's EMULATED cells: the concurrency cap as a daemon-side
 //     boundary serialization, and the callback-tool registry as a daemon-hosted
 //     ephemeral MCP server.
@@ -1705,7 +1705,7 @@ describe("ClaudeSessionUnavailableError", () => {
 //     withheld and recorded, never silently admitted.
 //   * A rewind is a spawn, so it re-realizes every spawn-bound leg.
 
-describe("ClaudeSessionLifecycle.rollbackTo (EMULATED as a fork)", () => {
+describe("ClaudeSessionLifecycle.forkConversation (EMULATED as a fork)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -1713,7 +1713,7 @@ describe("ClaudeSessionLifecycle.rollbackTo (EMULATED as a fork)", () => {
     // The INPUT binding is deliberately NOT the minted one, so a driver that
     // echoed the caller's `bindingId` back — reporting the binding of the
     // process the rewind just replaced — fails here.
-    const result = await harness.lifecycle.rollbackTo({
+    const result = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,
@@ -1736,7 +1736,7 @@ describe("ClaudeSessionLifecycle.rollbackTo (EMULATED as a fork)", () => {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.announcedForkedProviderSessionId = TEST_PINNED_PROVIDER_SESSION_ID;
 
-    const result = await harness.lifecycle.rollbackTo({
+    const result = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -1795,7 +1795,7 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -2158,7 +2158,7 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
     const predecessorGate = harness.transport.spawnRequests[0]?.subagentAdmission;
     await predecessorGate?.admit("held-across-the-rewind");
 
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -2596,7 +2596,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     });
     harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
 
-    const rollback = harness.lifecycle.rollbackTo({
+    const rollback = harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -2638,7 +2638,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     });
     harness.transport.rewindFailure = new Error("the provider refused the rewind");
 
-    const rollback = harness.lifecycle.rollbackTo({
+    const rollback = harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -2740,7 +2740,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
 
-    const rollback = await harness.lifecycle.rollbackTo({
+    const rollback = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -2935,7 +2935,7 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
     drive: async (harness) =>
       await captureTransition(
         async () =>
-          await harness.lifecycle.rollbackTo({
+          await harness.lifecycle.forkConversation({
             sessionId: TEST_SESSION_ID,
             bindingId: "binding-predecessor",
             position: 4,
@@ -3269,7 +3269,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
       openingText: "/compact the thread please",
     });
     await harness.lifecycle.startRun(buildStartRunParams());
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,
@@ -3306,7 +3306,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,
@@ -3327,7 +3327,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
     await harness.lifecycle.startRun(buildStartRunParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
 
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,
@@ -3474,7 +3474,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     });
     // The fork announces its own id by default, so the held stamp no longer
     // matches the live session.
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -3511,7 +3511,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       },
     });
     await harness.lifecycle.createSession(buildCreateSessionParams());
-    await harness.lifecycle.rollbackTo({
+    await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,
@@ -4452,7 +4452,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("carries the admitted account through a REWIND rather than re-reading it", async () => {
-    // A fork continues the run the daemon already admitted, and `RollbackToParams`
+    // A fork continues the run the daemon already admitted, and `ForkConversationParams`
     // names no account of its own — so the successor INHERITS the predecessor's,
     // exactly as it inherits `spawnBinding`. An implementation that re-consulted
     // the registry here would let a rewind silently re-bill a session the daemon
@@ -4464,7 +4464,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       providerAccountId: "account-admitted",
     });
 
-    const rewound = await harness.lifecycle.rollbackTo({
+    const rewound = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,

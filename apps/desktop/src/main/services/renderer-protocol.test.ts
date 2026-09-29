@@ -20,7 +20,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // This suite keeps a LOCAL `electron` stub rather than the shared
-// `test/helpers/electron-mock.ts`, and the reason is mechanical rather than
+// `tests/helpers/electron-mock.ts`, and the reason is mechanical rather than
 // stylistic: it imports the module under test STATICALLY, so `electron` is
 // resolved during this file's own import phase — before a top-level
 // `const electronMock = createElectronMock(...)` would have initialised, which

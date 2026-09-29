@@ -37,7 +37,7 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { gzipSync, brotliCompressSync } from "node:zlib";
 
-import { DESKTOP_PACKAGE_ROOT, type ConsoleBudgetRegistry } from "./budget-registry.mts";
+import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./budget-registry.mts";
 import {
   BudgetSubjectMissingError,
   formatBudgetReport,
@@ -296,7 +296,7 @@ function formatClassReadings(
 export function formatRendererBundleReport(
   measurement: RendererBundleMeasurement,
   gateReadings: readonly BudgetGateReading[],
-  registry: ConsoleBudgetRegistry,
+  registry: BudgetRegistry,
 ): string {
   return formatBudgetReport(
     {

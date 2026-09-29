@@ -7,11 +7,10 @@
 // reader and stay beside it.
 
 import { useRef, type ReactNode } from "react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

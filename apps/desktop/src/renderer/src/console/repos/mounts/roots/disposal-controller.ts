@@ -18,9 +18,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { WorktreeId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
 import type { DisposalSubject } from "./root-act-model.js";
 

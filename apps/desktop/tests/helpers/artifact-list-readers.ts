@@ -61,16 +61,6 @@ export const SERVED_SUMMARY: ArtifactManifest = {
   createdAt: "2026-09-02T07:00:00.000Z",
 };
 
-/**
- * The same row with the one member a case varies.
- *
- * `state` is the wire's own union rather than `string`, so a case that varies it to a
- * value the contract does not carry is a compile error.
- */
-export function summary(state: ArtifactState): ArtifactManifest {
-  return { ...SERVED_SUMMARY, state };
-}
-
 /** One served list of exactly the row above. */
 export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
 
@@ -81,7 +71,7 @@ export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
  * deferred arm, which is what a metadata read lands on.
  */
 export function deferredRead(state: ArtifactState): ArtifactReadResponse {
-  return { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` };
+  return { manifest: { ...SERVED_SUMMARY, state }, payloadHandle: `sha256:2b4c/${state}` };
 }
 
 /** A served payload read on the inline arm, with the bytes and the encoding to read them by. */
@@ -89,7 +79,7 @@ export function inlineRead(
   payload: string,
   encoding: ArtifactPayloadEncoding,
 ): ArtifactReadResponse {
-  return { manifest: summary("published"), payload, payloadEncoding: encoding };
+  return { manifest: SERVED_SUMMARY, payload, payloadEncoding: encoding };
 }
 
 /** One served inline utf8 payload for a named artifact. */
