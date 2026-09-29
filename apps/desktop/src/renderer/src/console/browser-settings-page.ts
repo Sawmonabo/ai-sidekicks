@@ -31,7 +31,7 @@
 // `settings/index.js` because the settings door composes this file's registration, and a
 // type line back through it closes a module cycle `no-circular` fails on.
 
-import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
+import type { SettingsPageRegistrar } from "@renderer/features/settings/settings-pages.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
 const OWNER = "settings-browser";
@@ -63,6 +63,6 @@ export function registerBrowserSettingsPage(registry: SettingsPageRegistrar): vo
       "page tools",
       "clear",
     ],
-    body: () => import("./browser/settings/browser-settings-page-body.js"),
+    body: () => import("@renderer/features/settings/pages/browser/browser-settings-page-body.js"),
   });
 }

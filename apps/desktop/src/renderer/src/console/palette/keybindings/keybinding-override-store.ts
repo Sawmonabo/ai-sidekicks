@@ -40,14 +40,12 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
-import {
-  consoleKeyBindings,
-  type KeyBinding,
-  subscribeToConsoleKeyBindings,
-} from "../commands/index.js";
-import type { UiStateStore } from "../../persistence/index.js";
-import { GenerationLatch } from "../../store/index.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { consoleKeyBindings, subscribeToConsoleKeyBindings } from "../commands/command-surface.js";
+import { type KeyBinding } from "@renderer/registries/commands/command-types.js";
+import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../primitives/index.js";
 import {
   KEYBINDING_OVERRIDES_KEY,
@@ -55,7 +53,7 @@ import {
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
   type KeybindingSurface,
-} from "./keybinding-surface.js";
+} from "@renderer/registries/keybindings/keybinding-override-types.js";
 import {
   composeEffectiveBindings,
   readOverrideMap,
@@ -63,7 +61,7 @@ import {
   type KeybindingOverride,
   type KeybindingOverrideMap,
   type KeybindingOverrideRefusal,
-} from "./keybinding-overrides.js";
+} from "@renderer/registries/keybindings/keybinding-overrides.js";
 
 /**
  * The latch key the hydration round is taken under.

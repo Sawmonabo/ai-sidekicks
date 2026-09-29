@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { type ConsoleScenario } from "../runtime/vocabulary.js";
 import { APPROVALS_SCENARIO } from "../approvals/approvals.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
-import { findScenarioWireTruthDefects } from "../wire-truth/wire-truth.js";
+import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 
 /** The two composer-family scenarios, named once so every case below covers both. */
 const FAMILY_SCENARIOS: readonly ConsoleScenario[] = [COMPOSER_SCENARIO, APPROVALS_SCENARIO];

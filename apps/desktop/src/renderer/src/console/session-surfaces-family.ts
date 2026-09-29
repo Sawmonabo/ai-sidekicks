@@ -9,7 +9,7 @@
 // takes the registry it is handed, so a test composes this family into a registry it owns.
 
 import type { ConsoleSurfaceRegistry } from "./seats/index.js";
-import { registerSessionsSurface } from "./sessions/index.js";
+import { registerSessionsSurface } from "@renderer/features/sessions/contributions/screens.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**

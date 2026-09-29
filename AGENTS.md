@@ -16,7 +16,7 @@ pnpm 10.33.2, Node ≥ 24.16. Never `npm` (the workspace uses pnpm's `catalog:` 
 
 - `pnpm install` (also installs the git hooks)
 - `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format`
-- Desktop, cheap and headless: `pnpm --filter @ai-sidekicks/desktop run test:console-unit`; the Electron tiers run in CI.
+- Desktop, cheap and headless: `pnpm --filter @ai-sidekicks/desktop run test:renderer`; the Electron tiers run in CI.
 
 ## How work lands
 

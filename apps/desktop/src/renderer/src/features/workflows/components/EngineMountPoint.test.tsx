@@ -1,0 +1,63 @@
+// The one composition every slot in this family goes through: whether a body is present,
+// whether the mount obligation could be met, and how the body becomes a subtree. The
+// wrappers' own suites assert what each of them promises its body; these cases assert
+// what the mount does with a body and a promise once it has them.
+
+import { render } from "@testing-library/react";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { WorkflowSlotMount } from "./EngineMountPoint.js";
+
+interface ProbeMount {
+  readonly sessionId: string;
+}
+
+const PROBE_MOUNT: ProbeMount = { sessionId: "ses-slot-mount" };
+
+/** Assert the frame stands once and holds nothing: no text and no absence block. */
+function expectEmptyFrame(container: HTMLElement): void {
+  const frames = container.querySelectorAll(".meridian-workflow__slot");
+  expect(frames).toHaveLength(1);
+  expect(frames[0]?.textContent).toBe("");
+  expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+}
+
+describe("a slot's mount", () => {
+  it("draws an empty frame while no body has been supplied", () => {
+    const { container } = render(<WorkflowSlotMount body={undefined} mount={PROBE_MOUNT} />);
+    expectEmptyFrame(container);
+  });
+
+  it("renders a supplied body, and hands it the mount verbatim", () => {
+    const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
+    const { container } = render(<WorkflowSlotMount body={body} mount={PROBE_MOUNT} />);
+    expect(container.textContent).toContain("probe body for ses-slot-mount");
+    expect(body.mock.calls[0]?.[0]).toStrictEqual(PROBE_MOUNT);
+  });
+
+  it("draws an empty frame when the mount obligation cannot be met", () => {
+    // A body composed against an obligation nobody could supply would be answerable in
+    // appearance and unsubmittable in fact.
+    const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
+    const { container } = render(<WorkflowSlotMount body={body} mount={undefined} />);
+    expectEmptyFrame(container);
+    expect(body).not.toHaveBeenCalled();
+  });
+
+  it("gives the body its own hook boundary across the conditional", () => {
+    // A body holding a hook is mounted and unmounted as the mount obligation comes and
+    // goes. Called instead of rendered, the body's hook would join the mount's own list on
+    // the render where the branch is first taken, which is React's hook-order error.
+    function StatefulBody(mount: ProbeMount): React.JSX.Element {
+      const [seen] = useState(mount.sessionId);
+      return <p>held {seen}</p>;
+    }
+    const { container, rerender } = render(
+      <WorkflowSlotMount body={StatefulBody} mount={undefined} />,
+    );
+    expectEmptyFrame(container);
+    rerender(<WorkflowSlotMount body={StatefulBody} mount={PROBE_MOUNT} />);
+    expect(container.textContent).toContain("held ses-slot-mount");
+  });
+});

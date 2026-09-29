@@ -1,6 +1,6 @@
 // The console budget registry.
 //
-// The QUERY surface over `test/console/budget/budgets.json`, the one place every
+// The QUERY surface over `tests/budget/budgets.json`, the one place every
 // numeric budget the console is gated on is written down. Load it, then ask it
 // things: which rows are the console's own product budgets, which the
 // scaffolding applies to itself, which are enforced, and what one row's canonical
@@ -51,8 +51,7 @@ export const DESKTOP_PACKAGE_ROOT: string = path.resolve(THIS_DIRECTORY, "..", "
 
 export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
   DESKTOP_PACKAGE_ROOT,
-  "test",
-  "console",
+  "tests",
   "budget",
   "budgets.json",
 );

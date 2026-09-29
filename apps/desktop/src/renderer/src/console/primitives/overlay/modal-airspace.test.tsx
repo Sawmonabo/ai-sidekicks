@@ -28,12 +28,13 @@ import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor, type AirspaceRect } from "../../core/index.js";
-import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
-import { OverlayComboboxPopup } from "./OverlayComboboxPopup.js";
-import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
-import { OverlayMenuPopup } from "./OverlayMenuPopup.js";
-import { OverlaySelectPopup } from "./OverlaySelectPopup.js";
+import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
+import { type AirspaceRect } from "@renderer/lib/airspace-registry.js";
+import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { OverlayComboboxPopup } from "@renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
+import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { OverlayMenuPopup } from "@renderer/components/OverlayPopups/OverlayMenuPopup.js";
+import { OverlaySelectPopup } from "@renderer/features/composer/components/OverlaySelectPopup/OverlaySelectPopup.js";
 
 /** The class every case below hangs on the backdrop so it can be found again. */
 const BACKDROP_CLASS = "probe-backdrop";

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../../core/keyed-registry.js";
+import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
   CONSOLE_WHEN_CLAUSE_KEYS,
   consoleCommandSurface,
@@ -26,7 +26,7 @@ import {
   type ConsoleContributionRelease,
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";
-import type { ConsoleCommand, KeyBinding } from "./contributions.js";
+import type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
 
 /** Every key the console publishes, all false — the shape, not a situation. */
 const NO_CONTEXT: ConsoleWhenClauseContext = {

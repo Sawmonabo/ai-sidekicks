@@ -29,14 +29,14 @@
 // effect and removes them on unmount.
 
 import { COMPOSER_FOCUS_CHORD } from "@shared/composer-chord.js";
-import type { Unsubscribe } from "../../core/index.js";
-import { RAIL_DESTINATIONS, type RailDestination } from "../../routing/index.js";
+import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import {
   consoleFamilyKeyBindings,
   subscribeToConsoleFamilyContributions,
   type ConsoleWhenClauseKey,
 } from "./console-commands.js";
-import type { ConsoleCommand, KeyBinding } from "./contributions.js";
+import type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
 
 /** A command the frame itself contributes: its `when` is the console's vocabulary. */
 export type FrameCommand = Omit<ConsoleCommand, "when"> & {

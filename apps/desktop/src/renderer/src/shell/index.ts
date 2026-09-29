@@ -19,12 +19,12 @@
 
 import { createElement } from "react";
 
-import { registerApprovalFlowProjectors } from "../console/bridge/index.js";
+import { registerApprovalFlowProjectors } from "@renderer/store/session-events/approval-flow-projection.js";
 import { registerComposerSeat } from "../console/seats/index.js";
-import type { ConsoleEntityProjectorRegistry } from "../console/store/index.js";
-import { MessageComposer } from "./MessageComposer.js";
+import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { MessageComposer } from "@renderer/features/composer/Composer.js";
 
-import "./composer.css";
+import "@renderer/features/composer/Composer.css";
 
 /**
  * Fill the composer seat.

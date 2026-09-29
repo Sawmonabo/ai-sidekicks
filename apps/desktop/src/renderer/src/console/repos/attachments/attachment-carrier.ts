@@ -34,22 +34,19 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
+import { earliestFutureDeadline } from "@renderer/console/store/subject-scoped/deadline-wake.js";
+import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import type { AttachmentIngestPort } from "@renderer/features/composer/attachments/services/attachment-ingest-answer.js";
+import { AttachmentIngestClient } from "@renderer/features/composer/attachments/attachment-ingest-client.js";
+import { ingestStallDisclosureAtMs } from "@renderer/features/composer/attachments/attachment-presentation.js";
 import {
-  Emitter,
-  type ConsoleClock,
-  type ScheduledHandle,
-  type Unsubscribe,
-} from "../../core/index.js";
-import {
-  CONTROLLER_DISPOSAL,
-  earliestFutureDeadline,
-  useSubjectScopedResource,
-} from "../../store/index.js";
-import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
-import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
-import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
-import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
+  attachmentSourceFrom,
+  type AttachmentIngestEntry,
+} from "@renderer/features/composer/attachments/attachment-shapes.js";
 
 /** What the carrier holds, and the instant it last said so. */
 export interface AttachmentCarrierSnapshot {

@@ -287,7 +287,7 @@ jobs:
       # (`Spec-021 §Security Hardening Baseline` — the mandatory webPreferences
       # block: contextIsolation, sandbox and webSecurity true, nodeIntegration
       # false) — running Electron with `--no-sandbox` would defeat the very
-      # invariant apps/desktop/test/launch.smoke.test.ts asserts (the
+      # invariant apps/desktop/tests/launch.smoke.test.ts asserts (the
       # three-globals set, per `Spec-021 §Acceptance Criteria`: "Renderer
       # attempts to access `require`, `process`, or `global` return
       # `undefined`").
@@ -311,7 +311,7 @@ jobs:
       # test runs, with `$DISPLAY` exported for every later step.
       #
       # Replaces a per-spawn `xvfb-run -a` inside the Electron test harnesses
-      # (apps/desktop/test/launch.smoke.test.ts, lifecycle.gc.test.ts), which
+      # (apps/desktop/tests/launch.smoke.test.ts, lifecycle.gc.test.ts), which
       # was unsound in three ways on a hosted runner:
       #
       #   1. `xvfb-run -a` picks its display number with `find_free_servernum()`
@@ -348,7 +348,7 @@ jobs:
       #
       # NOTE: nothing here passes `--no-sandbox`. That switch would disable the
       # renderer's Linux namespace sandbox and thereby defeat the very invariant
-      # apps/desktop/test/launch.smoke.test.ts asserts (`require` / `process` /
+      # apps/desktop/tests/launch.smoke.test.ts asserts (`require` / `process` /
       # `global` all `undefined`, which follow from `webPreferences.sandbox:
       # true`). The SUID helper configured in the step above is what makes that
       # sandbox work, and it stays.
@@ -584,16 +584,16 @@ jobs:
         # check, which run at the default concurrency. The dead-code check
         # covers every workspace, so it runs in the `structure` job below.
         include:
-          - tier: "test:main-unit test:console-unit test:console-assets"
-          - tier: "test:console-browser test:console-accessibility"
+          - tier: "test:main-unit test:renderer"
+          - tier: "test:browser test:accessibility"
             serial: true
-          - tier: "test:console-bundle"
+          - tier: "test:bundle"
             serial: true
           - tier: "test:smoke"
             serial: true
-          - tier: "test:console-e2e test:console-endurance"
+          - tier: "test:e2e test:endurance"
             serial: true
-          - tier: "test:console-bench"
+          - tier: "test:bench"
           - tier: "structure:layering"
     steps:
       - name: Checkout
@@ -663,7 +663,7 @@ jobs:
       # (`Spec-021 §Security Hardening Baseline` — the mandatory webPreferences
       # block: contextIsolation, sandbox and webSecurity true, nodeIntegration
       # false) — running Electron with `--no-sandbox` would defeat the very
-      # invariant apps/desktop/test/launch.smoke.test.ts asserts (the
+      # invariant apps/desktop/tests/launch.smoke.test.ts asserts (the
       # three-globals set, per `Spec-021 §Acceptance Criteria`: "Renderer
       # attempts to access `require`, `process`, or `global` return
       # `undefined`").
@@ -687,7 +687,7 @@ jobs:
       # test runs, with `$DISPLAY` exported for every later step.
       #
       # Replaces a per-spawn `xvfb-run -a` inside the Electron test harnesses
-      # (apps/desktop/test/launch.smoke.test.ts, lifecycle.gc.test.ts), which
+      # (apps/desktop/tests/launch.smoke.test.ts, lifecycle.gc.test.ts), which
       # was unsound in three ways on a hosted runner:
       #
       #   1. `xvfb-run -a` picks its display number with `find_free_servernum()`
@@ -724,7 +724,7 @@ jobs:
       #
       # NOTE: nothing here passes `--no-sandbox`. That switch would disable the
       # renderer's Linux namespace sandbox and thereby defeat the very invariant
-      # apps/desktop/test/launch.smoke.test.ts asserts (`require` / `process` /
+      # apps/desktop/tests/launch.smoke.test.ts asserts (`require` / `process` /
       # `global` all `undefined`, which follow from `webPreferences.sandbox:
       # true`). The SUID helper configured in the step above is what makes that
       # sandbox work, and it stays.
@@ -782,7 +782,7 @@ jobs:
       - name: Build (excluding control-plane, which the desktop does not use)
         run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # The browser-mode console tiers drive a real Chromium through Vitest
+      # The browser-mode tiers drive a real Chromium through Vitest
       # browser mode, and `pnpm install` downloads no browser. `--with-deps`
       # rather than a bare install: Playwright's own chromium build is not
       # Electron's, and the supported way to satisfy its shared-library set on
@@ -798,7 +798,7 @@ jobs:
       # `--concurrency=1` only on the legs the matrix marks `serial`.
       #
       # `CONSOLE_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the
-      # runner's temp directory. `test/console/bench/ledger.json` is a curated
+      # runner's temp directory. `tests/bench/ledger.json` is a curated
       # record a person reads; no CI run should rewrite one as a side effect.
       # The runner's own numbers are read from this step's log. It is harmless
       # on every other leg, which never reads the variable.
@@ -1072,7 +1072,7 @@ jobs:
           cache: "pnpm"
 
       # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron:
-      # the desktop package's `test:coverage` is `vitest run --project=console-unit`,
+      # the desktop package's `test:coverage` is `vitest run --project=renderer`,
       # a happy-dom project, and the `main` (smoke) project — the only one that
       # spawns the binary — is not in the coverage set. Without this the
       # `apps/desktop` postinstall would pull the 120-160 MB platform archive

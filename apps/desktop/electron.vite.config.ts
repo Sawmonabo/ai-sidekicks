@@ -3,7 +3,7 @@
 // The renderer loads over a custom protocol (not file://); sourcemaps are
 // emitted as "hidden" so they are available for reading a crash report's stack
 // but NOT referenced from the shipped bundle. The release fixture gate
-// (`test/console/budget/release-absence.test.ts`) reads the same maps, and fails
+// (`tests/budget/release-absence.test.ts`) reads the same maps, and fails
 // rather than passing if a target stops writing them. Source-code protection
 // (bytecodePlugin) is deferred.
 //
@@ -70,7 +70,7 @@
 //   the security-hardening baseline holds for every renderer document and not
 //   merely for the packaged one. The dev server therefore emits the
 //   same policy the handler does, composed from the SAME directive list in
-//   `src/main/renderer-scheme.ts` so the two cannot drift, widened by exactly
+//   `src/main/services/renderer-scheme.ts` so the two cannot drift, widened by exactly
 //   one directive: `connect-src` also admits the HMR websocket. `strictPort`
 //   is set because the policy names that port literally — a silent fallback to
 //   5174 would leave HMR blocked by a policy that no longer matches the server
@@ -82,12 +82,14 @@
 //   `grep -c "about:blank" out/main/index.js` all return 0 — proving
 //   the probe body never reaches the release bundle.
 
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
 
 import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
-} from "./src/main/renderer-scheme.js";
+} from "./src/main/services/renderer-scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
@@ -129,11 +131,18 @@ const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\
  * side-effect-free drops what nothing references and keeps what does.
  */
 const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
+  fileURLToPath(new URL("./fixtures/", import.meta.url))
+    .split("\\")
+    .join("/"),
   "/src/renderer/src/console/bridge/scenario/",
   "/src/renderer/src/console/bridge/fixture/",
-  "/src/renderer/src/console/settings/pages/mcp-servers/shell/",
-  "/src/renderer/src/console/settings/pages/provider-accounts/shell/",
 ];
+
+/** A fixture implementation, which sits beside the real boundary it substitutes. */
+const FIXTURE_IMPLEMENTATION_PATTERN = /\.fixture\.[cm]?tsx?$/u;
+
+/** A feature's `fixtures/` folder, which holds a fixture of a boundary that feature owns. */
+const FEATURE_FIXTURES_PATTERN = /\/src\/renderer\/src\/features\/.+\/fixtures\//u;
 
 /**
  * Does this module belong to the fixture corpus?
@@ -144,7 +153,11 @@ const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
  */
 function isFixtureCorpusModule(moduleId: string): boolean {
   const normalized = moduleId.split("\\").join("/");
-  return FIXTURE_CORPUS_DIRECTORIES.some((directory) => normalized.includes(directory));
+  return (
+    FIXTURE_IMPLEMENTATION_PATTERN.test(normalized) ||
+    FEATURE_FIXTURES_PATTERN.test(normalized) ||
+    FIXTURE_CORPUS_DIRECTORIES.some((directory) => normalized.includes(directory))
+  );
 }
 
 /**
@@ -158,6 +171,7 @@ function isFixtureCorpusModule(moduleId: string): boolean {
 const FIXTURE_ONLY_PATHS: readonly string[] = [
   "/src/renderer/src/console/core/fixture-globals.ts",
   "/src/renderer/src/console/frame/pane-harness/",
+  "/src/renderer/src/app/pane-harness/",
 ];
 
 /** A test suite or its scaffolding, which no build of any flavor ships. */
@@ -167,7 +181,7 @@ const TEST_MODULE_PATTERN = /\.test(?:-support)?\.[cm]?tsx?$/u;
  * Does a release build owe this module's absence?
  *
  * True for the fixture corpus, for the fixture-only modules outside it, and for every test
- * and test-support file. `test/console/budget/release-absence.test.ts` reads the release
+ * and test-support file. `tests/budget/release-absence.test.ts` reads the release
  * build's source maps, which list every module that rendered code into a shipped file, and
  * fails on any module this answers true for. The tree-shaking declaration below reads the
  * narrower {@link isFixtureCorpusModule}, because only the corpus needs its side effects
@@ -183,7 +197,7 @@ export function isFixtureOnlyModule(moduleId: string): boolean {
 }
 
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
-// this module is imported by `src/main/renderer-scheme.test.ts` — which asserts
+// this module is imported by `src/main/services/renderer-scheme.test.ts` — which asserts
 // the dev server emits the same Content-Security-Policy the protocol handler
 // does — so it is part of a checked program and not config the compiler only
 // ever sees through Vite's own loader.
@@ -277,7 +291,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // users, charge them the bytes on every bundle-budget run, and leave a
       // switch that flips the app into fixture data in production. As a literal,
       // Rollup folds `if (false)` and drops the whole subtree, which
-      // `test/console/budget/release-absence.test.ts` asserts by reading the release
+      // `tests/budget/release-absence.test.ts` asserts by reading the release
       // build's source maps: no module `isFixtureOnlyModule` names may appear in them.
       //
       // True only under `--mode=fixtures` (the gallery and screenshot builds) and
@@ -353,7 +367,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
           //
           // It is not mode-scoped, and does not need to be: in a fixture build the
           // corpus is referenced, so nothing about it is unused and nothing is
-          // dropped. `test/console/budget/release-absence.test.ts` gates the outcome
+          // dropped. `tests/budget/release-absence.test.ts` gates the outcome
           // on the release build's source maps, with a planted negative control.
           treeshake: {
             moduleSideEffects: (moduleId: string) => !isFixtureCorpusModule(moduleId),

@@ -30,9 +30,12 @@
 // against the run the pane is addressed at — the same run the run read itself is held
 // against — so the render that re-addresses already reads no selection.
 
-import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../../bridge/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
-import type { HumanFormPhase } from "./slots/human-form-mount.js";
+import type {
+  WorkflowPhaseState,
+  WorkflowRunSnapshot,
+} from "@renderer/services/wire-shapes/workflow-projection.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { HumanFormPhase } from "@renderer/features/workflows/run-page/human-form-mount.js";
 
 /**
  * Why a phase parked on a person cannot be answered from here.

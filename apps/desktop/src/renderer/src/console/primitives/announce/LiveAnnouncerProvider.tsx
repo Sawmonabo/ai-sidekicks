@@ -19,9 +19,9 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { type ConsoleClock } from "../../core/index.js";
-import { LiveAnnouncer, type Announce } from "./live-announcer.js";
-import { LiveRegion } from "./LiveRegion.js";
+import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { LiveAnnouncer, type Announce } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { LiveRegion } from "@renderer/components/LiveAnnouncer/LiveRegion.js";
 
 const LiveAnnouncerContext = createContext<LiveAnnouncer | undefined>(undefined);
 

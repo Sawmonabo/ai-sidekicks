@@ -53,17 +53,17 @@
 // qualified was a focus ring for two buttons no caller could reach, so it went when
 // they did. A rule the two come to share again mints `structure.css` back, imported
 // first for the cascade order `ledger/ledger.css` states.
-import "./chapters/chapters.css";
-import "./narrowing/narrowing.css";
+import "@renderer/features/transcript/run-groups/components/run-groups.css";
+import "@renderer/features/transcript/find/components/find-box.css";
 
-export { ChapterHeader } from "./chapters/ChapterHeader.js";
+export { ChapterHeader } from "@renderer/features/transcript/run-groups/components/RunGroupHeader.js";
 export { FindInLedger } from "./narrowing/FindInLedger.js";
-export { ChapterCollapseState } from "./chapters/chapter-collapse.js";
+export { ChapterCollapseState } from "@renderer/features/transcript/run-groups/run-group-fold-state.js";
 export {
   LedgerChapterIndex,
   runIdOfChapteredRow,
   type LedgerChapter,
-} from "./chapters/chapters.js";
+} from "@renderer/features/transcript/run-groups/run-groups.js";
 export {
   UNFILTERED_LEDGER,
   applyLedgerFilter,
@@ -82,12 +82,18 @@ export {
   stepFindMatch,
   type FindStepDirection,
   type LedgerFindResult,
-} from "./narrowing/find-model.js";
+} from "@renderer/features/transcript/find/find-model.js";
 export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";
 export {
   ChildRunIndex,
   type ChildRunEntry,
   type HandoffEntry,
-} from "./child-runs/child-run-entries.js";
-export { LedgerSeamIndex, type LedgerSeam } from "./seams/seams.js";
-export { SupersededIndex, type SupersededBand } from "./seams/superseded-bands.js";
+} from "@renderer/features/transcript/dispatches/child-run-entries.js";
+export {
+  LedgerSeamIndex,
+  type LedgerSeam,
+} from "@renderer/features/transcript/system-messages/system-message-classifier.js";
+export {
+  SupersededIndex,
+  type SupersededBand,
+} from "@renderer/features/transcript/superseded/superseded-bands.js";

@@ -16,7 +16,7 @@ import type { FilePathRef } from "@ai-sidekicks/contracts";
 
 // Deeply, and only here: the row samples are the cards' own fixtures and no door
 // publishes them, so this reaches the module that declares them.
-import { sampleGeneralRow } from "../../../cards/row-samples.test-support.js";
+import { sampleGeneralRow } from "@test/helpers/timeline-row-samples.js";
 import {
   LEDGER_ROW_OFFER_KINDS,
   buildLedgerRowOffers,

@@ -42,15 +42,15 @@
 // halves cannot drift — which they could while the union and the array were two
 // hand-maintained lists that only a reader ever compared.
 
-import { isWireRecord } from "../core/index.js";
-import { SCHEME_PREFERENCES, isSchemePreference } from "../tokens/index.js";
+import { isWireRecord } from "@renderer/lib/wire-record.js";
+import { SCHEME_PREFERENCES, isSchemePreference } from "@renderer/styles/tokens.js";
 import { isIdentifierShaped, validatePersistedAddress } from "./identifier-grammar.js";
 import {
   PERSISTENCE_REFUSAL_CODES,
   PERSISTENCE_REFUSAL_ORIGIN,
   refusePersistence,
   type PersistenceRefusal,
-} from "./refusals.js";
+} from "@renderer/store/persistence/persistence-refusals.js";
 
 // Re-exported rather than only imported: the co-located `value-classes.test.ts`
 // reaches these four through this module, which is the surface it has always read

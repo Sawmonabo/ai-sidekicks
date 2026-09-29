@@ -32,14 +32,12 @@
 // the daemon" once it reaches zero, which is a statement about what the surface is
 // doing rather than about what the ask has become.
 
-import {
-  driverAskIdentitySegments,
-  readWireString,
-  structuralKey,
-  type ConsoleRefusal,
-} from "../../../core/index.js";
+import { driverAskIdentitySegments } from "@renderer/store/session/waiting-on-person/driver-ask-identity.js";
+import { readWireString } from "@renderer/lib/wire-strings.js";
+import { structuralKey } from "@renderer/lib/structural-key.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
-import { projectedPayload } from "../wire-payload.js";
+import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
 
 /** The four event types this surface renders, and the only ones it renders. */
 export const DRIVER_ASK_EVENT_TYPES = [

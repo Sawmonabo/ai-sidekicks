@@ -8,7 +8,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 
 import type { ConsoleCommand, ConsoleCommandSurface, KeyBinding } from "../../../palette/index.js";
 
-import type { DeckActs } from "./deck-acts.js";
+import type { DeckActs } from "@renderer/features/sessions/pane-layout/pane-layout-acts.js";
 import {
   DECK_COMMAND_OWNER,
   DECK_NOT_MOUNTED_REFUSAL,

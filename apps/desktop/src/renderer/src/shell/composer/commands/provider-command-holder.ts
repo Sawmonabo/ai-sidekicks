@@ -48,15 +48,18 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 
-import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
-import { ReadScope } from "../../../console/store/index.js";
+import {
+  settleEnumeration,
+  type ProviderCommandReadState,
+} from "@renderer/features/composer/command-list/provider-command-read.js";
+import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";
 import {
   composeCatalog,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
   type ProviderCatalogEntry,
-} from "./provider-command-catalog.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+} from "@renderer/features/composer/command-list/command-list-entries.js";
+import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
@@ -213,11 +216,6 @@ export class ProviderCommandEnumeration {
   }
 }
 
-/** The agent this composer would enumerate, or `undefined` when it addresses none. */
-function addressedAgentId(target: ComposerTarget): string | undefined {
-  return target.path === "provider-bound" ? target.agentId : undefined;
-}
-
 /**
  * Drive one composer's enumeration from the surface that opens it, and read it back.
  *
@@ -245,4 +243,9 @@ export function useProviderCommandEnumeration(options: {
   }, [enumeration, bridge, sessionId, agentId, isOpen]);
 
   return useSyncExternalStore(enumeration.subscribe, enumeration.snapshot, enumeration.snapshot);
+}
+
+/** The agent this composer would enumerate, or `undefined` when it addresses none. */
+function addressedAgentId(target: ComposerTarget): string | undefined {
+  return target.path === "provider-bound" ? target.agentId : undefined;
 }

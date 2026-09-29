@@ -43,8 +43,8 @@
 
 import { useEffect, useRef } from "react";
 
-import type { ConsoleClock, ScheduledHandle } from "../../core/index.js";
-import { useSubjectScopedState } from "./subject-scoped-state.js";
+import type { ConsoleClock, ScheduledHandle } from "@renderer/lib/clock.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /**
  * The largest delay a platform timer holds, and therefore the largest step this

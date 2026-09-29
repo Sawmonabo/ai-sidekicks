@@ -33,11 +33,14 @@
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "../../../primitives/index.js";
-import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { carriesAnsiEscapes, withoutResidualEscapes } from "../ansi/escape-sequences.js";
-import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { TruncationNotice } from "./TruncationNotice.js";
-import { UnavailableBody } from "./UnavailableBody.js";
+import { AnsiOutput } from "@renderer/features/transcript/rows/ansi/AnsiOutput.js";
+import {
+  carriesAnsiEscapes,
+  withoutResidualEscapes,
+} from "@renderer/features/transcript/rows/ansi/escape-sequences.js";
+import { StreamingMarkdown } from "@renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
+import { TruncationNotice } from "@renderer/features/transcript/rows/bodies/TruncationNotice.js";
+import { UnavailableBody } from "@renderer/features/transcript/rows/bodies/UnavailableBody.js";
 import { type FootnoteRegistry } from "../markdown/index.js";
 
 /**

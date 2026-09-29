@@ -29,13 +29,13 @@ import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
-} from "./phase-sequence-layout.js";
+} from "@renderer/features/workflows/run-page/run-graph/phase-sequence-layout.js";
 import {
   PHASE_PARK_ATTENTION_MARKS,
   phaseDisplayText,
   type PhaseGraphNode,
   type PhaseSequenceEdge,
-} from "./phase-topology.js";
+} from "@renderer/features/workflows/run-page/run-graph/phase-topology.js";
 
 /**
  * What a node carries into its own renderer.

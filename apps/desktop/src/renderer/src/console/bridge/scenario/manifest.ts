@@ -1,7 +1,7 @@
 // The scenario lookup: a scenario by its id, out of the catalog in `corpus.ts`.
 
 import type { ConsoleScenario } from "./runtime/vocabulary.js";
-import { CONSOLE_SCENARIOS } from "./corpus.js";
+import { CONSOLE_SCENARIOS } from "../../../../../../fixtures/index.js";
 
 /** Scenario lookup by id. Throws rather than returning a silent default. */
 export function consoleScenario(scenarioId: string): ConsoleScenario {

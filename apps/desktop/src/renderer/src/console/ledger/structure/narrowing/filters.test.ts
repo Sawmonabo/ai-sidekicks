@@ -20,7 +20,11 @@ import {
   withToggledCategory,
   withToggledUser,
 } from "./filters.js";
-import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import {
+  generalRow,
+  rollbackBoundaryRow,
+  runRow,
+} from "@renderer/features/transcript/timeline-rows.test-support.js";
 
 /** Two runs by two agents, one session row, and a boundary in each run. */
 function twoRunWindow(): readonly TimelineRow[] {

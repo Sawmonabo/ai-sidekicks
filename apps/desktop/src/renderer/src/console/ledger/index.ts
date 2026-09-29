@@ -44,7 +44,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { consoleCommandSurface } from "../palette/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { routeSessionId } from "../routing/index.js";
+import { routeSessionId } from "@renderer/routing/route-readers.js";
 import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
@@ -52,7 +52,7 @@ import {
   type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
-import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
+import { SessionResumeDegraded } from "@renderer/features/transcript/components/ResumeRefusalBanner.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. A directory that carries a door has an
@@ -62,12 +62,12 @@ import { registerLedgerCommands } from "./structure/structure-commands.js";
 // `structure/` imports the four its doorless children's sheets are, because it is
 // their nearest owner. Every one of those doors is reachable from this file, so the
 // cascade order is unchanged and nothing drops out of the bundle.
-import "./ledger.css";
+import "@renderer/features/transcript/transcript.css";
 
 export {
   /** @consumedBy the composer's question card */
   FixtureShellAskRow,
-} from "./cards/shell/FixtureShellAskRow.js";
+} from "@renderer/features/composer/question-card/BoundQuestionCard.js";
 
 // This door carries the family's REGISTRATIONS and no pieces.
 //
@@ -183,7 +183,7 @@ export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
     // written at the registration so the chunk boundary is visible where the claim is
     // made, and the deck's own reserved pane chrome is what stands in the body's place
     // while the module is in flight.
-    body: () => import("./pane/timeline-pane-body.js"),
+    body: () => import("@renderer/features/transcript/contributions/transcript-pane-body.js"),
   });
 }
 

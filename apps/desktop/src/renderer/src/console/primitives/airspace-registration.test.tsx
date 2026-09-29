@@ -21,13 +21,13 @@ import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor } from "../core/index.js";
-import { useAirspaceRegistration } from "./airspace-registration.js";
-import { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
-import { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
-import { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
-import { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
-import { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";
+import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
+import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
+import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { OverlayComboboxPopup } from "@renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
+import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { OverlayMenuPopup } from "@renderer/components/OverlayPopups/OverlayMenuPopup.js";
+import { OverlaySelectPopup } from "@renderer/features/composer/components/OverlaySelectPopup/OverlaySelectPopup.js";
 
 function OverlayProbe(props: { readonly open: boolean }): React.JSX.Element {
   const airspaceRef = useAirspaceRegistration("dialog");

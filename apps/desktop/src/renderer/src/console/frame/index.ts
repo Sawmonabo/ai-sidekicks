@@ -34,4 +34,4 @@ export { ConsoleRoot } from "./composition/ConsoleRoot.js";
 // beside them: nothing above this family names it, and the tiers that assert the
 // sheet landed exactly once read it from `frame/bindings/token-installation.ts` — the module that
 // both declares it and puts it in the document.
-export { applyConsoleScheme, installMeridianTokens } from "./bindings/token-installation.js";
+export { applyConsoleScheme, installMeridianTokens } from "@renderer/app/token-installation.js";

@@ -14,6 +14,6 @@
 // AND THE SHEET ENTERS HERE, for the reason the rule keys on: a directory carrying a
 // door owns its own rules, whatever its depth.
 
-import "./nothing.css";
+import "@renderer/components/Nothing/Nothing.css";
 
-export { Nothing } from "./Nothing.js";
+export { Nothing } from "@renderer/components/Nothing/Nothing.js";

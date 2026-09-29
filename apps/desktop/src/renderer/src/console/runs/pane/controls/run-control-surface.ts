@@ -56,17 +56,18 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import { type ConsoleBridge } from "../../../bridge/index.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useLatestRef } from "../../../primitives/index.js";
-import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
-import { INTERVENTION_OUTCOME_CAP } from "../../../core/index.js";
+import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { INTERVENTION_OUTCOME_CAP } from "@renderer/console/core/constants/runs-caps.js";
 import {
   RunControlDispatcher,
   type RunControl,
   type RunControlCalls,
   type RunControlOutcome,
-} from "./run-control-dispatch.js";
-import { mintRunControlDispatchToken } from "./run-control-dispatch-token.js";
+} from "@renderer/features/composer/run-controls/services/run-control-dispatch.js";
+import { mintRunControlDispatchToken } from "@renderer/features/composer/run-controls/run-control-keys.js";
 
 /** One recorded dispatch, for the pane's own intervention history. */
 export interface RunControlRecord {

@@ -49,8 +49,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { Unsubscribe } from "../../core/index.js";
-import type { UiStateStore } from "../../persistence/index.js";
+import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
 /**
  * What a durable binding must offer for a holder to own its lifetime.

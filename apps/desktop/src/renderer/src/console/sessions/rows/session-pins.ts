@@ -14,14 +14,14 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { ConsoleRefusal } from "../../core/index.js";
-import type { UiStateStore } from "../../persistence/index.js";
+import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import {
   DurableViewBindingHolder,
   noDurableViewSubscription,
   useDurableViewBinding,
 } from "../durable-view/durable-view-binding.js";
-import { DurableViewState } from "../durable-view/durable-view-state.js";
+import { DurableViewState } from "@renderer/features/sessions/durable-view/durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */
 export const SESSION_PIN_TIERS_KEY = "session-pin-tiers";

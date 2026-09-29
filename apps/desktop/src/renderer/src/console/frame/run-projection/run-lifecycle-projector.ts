@@ -114,16 +114,17 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 
-import { runStateForTransitionKind } from "../../bridge/index.js";
-import { payloadNamesSession, readWireString } from "../../core/index.js";
-import type { ConsoleEntityProjectorRegistry } from "../../store/index.js";
+import { runStateForTransitionKind } from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
+import { readWireString } from "@renderer/lib/wire-strings.js";
+import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {
   ConsoleSessionEvent,
   EntityMutation,
   EntityProjector,
   EntityProjectorRegistry,
-} from "../../store/index.js";
-import { readRunEntityBody } from "./run-entity-body.js";
+} from "@renderer/console/store/entities/entities.js";
+import { readRunEntityBody } from "@renderer/store/session-events/run-entity-body.js";
 
 /**
  * The event kinds this projector claims, derived from the shipped taxonomy.

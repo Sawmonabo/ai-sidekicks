@@ -15,12 +15,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  useGenerationLatch,
-  useSubjectScopedState,
-  type ShellConnection,
-} from "../../../store/index.js";
+import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { type ShellConnection } from "@renderer/store/window/main-process-state.js";
 
 /** What the daemon says about itself, once it has been asked. */
 export interface DaemonStatus {

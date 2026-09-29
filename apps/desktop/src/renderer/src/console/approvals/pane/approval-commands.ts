@@ -24,9 +24,12 @@ import { useMemo } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../palette/index.js";
 import { useLatestRef } from "../../primitives/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
-import { type ApprovalRecord, type ApprovalResolveRequest } from "../../bridge/index.js";
-import { isApprovalAnswerable } from "./approval-offer.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import {
+  type ApprovalRecord,
+  type ApprovalResolveRequest,
+} from "@renderer/services/approvals/approval-records.js";
+import { isApprovalAnswerable } from "@renderer/features/composer/approval/approval-offer.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */
 export const APPROVAL_COMMAND_OWNER = "approvals-family";

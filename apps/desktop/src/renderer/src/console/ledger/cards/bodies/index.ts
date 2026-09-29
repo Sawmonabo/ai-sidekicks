@@ -19,7 +19,7 @@
 import "./bodies.css";
 
 export { MachineBody } from "./MachineBody.js";
-export { UserBody } from "./UserBody.js";
+export { UserBody } from "@renderer/features/transcript/rows/bodies/UserBody.js";
 
 // The two plan-owned row bodies, and exactly what the sibling that mounts them
 // takes. Each is a slot with a shell behind it and each dies with the change that
@@ -32,7 +32,7 @@ export { UserBody } from "./UserBody.js";
 // by the co-located suites, both of which take the declaring module directly. A door
 // line with no reader outside the directory is a dead export the barrel census fails,
 // so this door is never widened for symmetry.
-export { InputAskCard } from "./InputAskCard.js";
+export { InputAskCard } from "@renderer/features/composer/question-card/QuestionCard.js";
 export { useLedgerAskTerminal } from "./AskTerminalProvider.js";
 export {
   ASK_ANSWER_UNSENT,
@@ -40,5 +40,8 @@ export {
   type DriverAskDelivery,
   type DriverAskReading,
 } from "./input-ask.js";
-export { ReasoningSurface } from "./ReasoningSurface.js";
-export { reasoningRunIdOf, type ReasoningSurfaceReading } from "./reasoning-surface.js";
+export { ReasoningSurface } from "@renderer/features/transcript/rows/thinking/ThinkingRow.js";
+export {
+  reasoningRunIdOf,
+  type ReasoningSurfaceReading,
+} from "@renderer/features/transcript/rows/thinking/reasoning-reading.js";

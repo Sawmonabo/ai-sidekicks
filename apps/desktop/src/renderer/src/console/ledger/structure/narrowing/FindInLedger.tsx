@@ -10,8 +10,11 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import { DerivedFigure, Glyph } from "../../../primitives/index.js";
-import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
-import { type FindStepDirection, type LedgerFindResult } from "./find-model.js";
+import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import {
+  type FindStepDirection,
+  type LedgerFindResult,
+} from "@renderer/features/transcript/find/find-model.js";
 
 /** The query, its result, and the acts the field offers. */
 export interface FindInLedgerProps {

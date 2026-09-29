@@ -64,21 +64,26 @@
 // quiet stretch of the script would never be delivered. Why they are two emitters
 // rather than one widened sink list is `scenario-delivery.ts`'s to state.
 
+import { ManualClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import {
-  ManualClock,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
-  parseInstant,
-  reportTripwire,
-  type ConsoleClock,
-  type EmitterSink,
-  type Unsubscribe,
-} from "../../../core/index.js";
-import type { ConsoleSessionEvent } from "../../../store/index.js";
-import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
-import { ScenarioDelivery, type ScenarioSink, type ScenarioSubscribeOptions } from "./delivery.js";
-import type { UnpositionedSessionEvent } from "./log.js";
-import type { ScenarioReply } from "./reply.js";
+} from "@renderer/console/core/constants/fixture-caps.js";
+import { parseInstant } from "@renderer/lib/instant.js";
+import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import {
+  HeldReplyQueue,
+  type ScenarioReplyOutcome,
+} from "@renderer/services/daemon/held-reply-queue.fixture.js";
+import {
+  ScenarioDelivery,
+  type ScenarioSink,
+  type ScenarioSubscribeOptions,
+} from "@renderer/services/daemon/event-delivery.fixture.js";
+import type { UnpositionedSessionEvent } from "@renderer/services/daemon/session-log.fixture.js";
+import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type { ConsoleScenario } from "./vocabulary.js";
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */

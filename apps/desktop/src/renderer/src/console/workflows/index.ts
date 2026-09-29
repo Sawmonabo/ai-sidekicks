@@ -14,8 +14,8 @@
 // it instead. This door imports `runs/run-list.css` and `parks/park-badge.css` itself, so
 // they ride the initial document.
 
-import "./runs/run-list.css";
-import "./parks/park-badge.css";
+import "@renderer/features/workflows/runs/components/RunList.css";
+import "@renderer/features/workflows/components/ParkBadge.css";
 
 import {
   type ConsolePaneRegistration,
@@ -27,7 +27,7 @@ import {
 export {
   /** @consumedBy the Workflows tab's table of definitions */
   DefinitionListItem,
-} from "./definitions/DefinitionListItem.js";
+} from "@renderer/features/workflows/definitions/components/DefinitionListItem.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -63,7 +63,7 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
     // `meridian-workflow-run-controls` — so no bundle boundary decides how the pane
     // looks. The module-shape rule in `apps/desktop/AGENTS.md` keeps a collision from
     // landing unnoticed, and review is what reads it.
-    body: () => import("./pane/workflow-run-pane-body.js"),
+    body: () => import("@renderer/features/workflows/run-page/run-page-body.js"),
   },
   {
     kind: "workflow-builder",
@@ -71,7 +71,7 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
     // The builder carries its own sheet, which no other family declares against, so
     // its body travels as its own chunk: the rail's destination opens it and nothing
     // paints it before a person asks.
-    body: () => import("./pane/workflow-builder-pane-body.js"),
+    body: () => import("@renderer/features/workflows/builder/builder-pane-body.js"),
   },
 ];
 
@@ -96,7 +96,7 @@ const WORKFLOW_SURFACES: readonly ConsoleSurfaceRegistration[] = [
     owner: WORKFLOWS_OWNER,
     // A loader: the rail destination paints nothing until a person asks, and a `render`
     // here would put the host and the run list on every session's initial graph.
-    body: () => import("./workflows-surface-body.js"),
+    body: () => import("@renderer/features/workflows/workflows-screen-body.js"),
   },
 ];
 

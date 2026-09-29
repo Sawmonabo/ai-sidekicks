@@ -38,5 +38,7 @@
     "allowImportingTsExtensions": true
   },
   "include": ["scripts/**/*"],
-  "exclude": ["dist", "out", "node_modules"]
+  // The executables' tests import shared test helpers from `tests/helpers/`, outside
+  // `rootDir`; they are typechecked by `tsconfig.test.json`.
+  "exclude": ["dist", "out", "node_modules", "scripts/**/*.test.ts"]
 }

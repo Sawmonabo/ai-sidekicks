@@ -20,7 +20,7 @@ import type { PlaywrightProviderOptions } from "@vitest/browser-playwright";
 import {
   CAPTURE_WINDOW_HEIGHT_CEILING,
   stabilityWaitMsFor,
-} from "../test/console/screenshot/capture-viewport.js";
+} from "../tests/screenshot/capture-viewport.js";
 import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
 
 /**
@@ -175,8 +175,8 @@ export const SCREENSHOT_TIER_TIMEOUT_MS: number =
  * and passes whether or not one was already on disk — a missing picture is written,
  * a changed one is overwritten, and neither outcome fails a run. That is the whole
  * of what "a local capture aid" means mechanically, and it is applied HERE rather
- * than only in the `test:console-screenshot` script so that a bare
- * `vitest run --project=console-screenshot` behaves identically.
+ * than only in the `test:screenshot` script so that a bare
+ * `vitest run --project=screenshot` behaves identically.
  *
  * AN ENVIRONMENT VARIABLE RATHER THAN A PROJECT OPTION, because Vitest offers no
  * per-project one. `update` is listed among the options a project may not declare,

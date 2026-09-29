@@ -13,7 +13,7 @@
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import type { SessionStoreRegistry } from "./session-store-registry.js";
+import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
 /**
  * Watch every open session's projection as one signal.

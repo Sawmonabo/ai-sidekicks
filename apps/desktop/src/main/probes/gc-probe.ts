@@ -9,7 +9,7 @@
 // `v8.queryObjects(BrowserWindow)` after each cycle, then closes every window,
 // lets the close unwind, collects once more, and takes one post-close sample —
 // and emits one summary line tagged `[SIDEKICKS_GC_PROBE]` that
-// `apps/desktop/test/lifecycle.gc.test.ts` parses. It asserts the observable
+// `apps/desktop/tests/lifecycle.gc.test.ts` parses. It asserts the observable
 // lifecycle contract: the count is stable across the cycles (the window stays
 // reachable across the `.then(...)` callback unwind), `window-all-closed` does
 // not fire mid-loop, and the count drops by at least one per window once the
@@ -31,7 +31,7 @@ import { BrowserWindow, type App } from "electron";
 import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
-/** The stdout marker `apps/desktop/test/lifecycle.gc.test.ts` parses. */
+/** The stdout marker `apps/desktop/tests/lifecycle.gc.test.ts` parses. */
 export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */

@@ -27,10 +27,10 @@ import {
   mountTerminalPane,
   type MountedFamilySurface,
 } from "../surfaces/browser-terminal.js";
-import { captureSettled } from "./settled-capture.js";
+import { captureSettled } from "@test/screenshot/settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
+import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
  * The surfaces this tier captures, each with the name its image is written under.

@@ -19,7 +19,7 @@
 // substituted for the driver process by each tier's `define` in `vitest.config.ts`.
 
 /** The tripwire registry. */
-export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tripwires.js";
+export { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/lib/tripwires.js";
 
 /**
  * The scenario control, and its shape.
@@ -45,7 +45,7 @@ export {
 export {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
-} from "../../src/renderer/src/console/frame/session/session-diagnostics-handle.js";
+} from "@renderer/services/session-events/session-diagnostics-handle.js";
 
 /**
  * What one of those reads answers with.
@@ -54,4 +54,4 @@ export {
  * mounted viewport's shape and `session-diagnostics-handle.ts` only carries it, so a
  * tier naming the type reads it where it is declared.
  */
-export { type LedgerWindowReading } from "../../src/renderer/src/console/core/ledger-window-diagnostics.js";
+export { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";

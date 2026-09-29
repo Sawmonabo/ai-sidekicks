@@ -11,20 +11,18 @@
 // What stays here is the one thing that has to happen before any window renders,
 // and the provider that has to wrap every one of them.
 
-import { DesktopBridgeProvider } from "../../bridge/index.js";
-import {
-  ForwardingConsoleClock,
-  RealClock,
-  routeConsoleTripwiresToDiagnosticCapture,
-} from "../../core/index.js";
+import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
+import { RealClock } from "@renderer/lib/clock.js";
+import { routeConsoleTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
 import { registerConsoleFamilies } from "../../families.js";
-import { consoleEntityProjectorRegistry } from "../../store/index.js";
+import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
   inlineCardSeatRegistry,
 } from "../../seats/index.js";
-import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
+import { ConsoleFrameHost } from "@renderer/app/AppBootstrap.js";
 
 // Composition, at module scope, before any window renders.
 //

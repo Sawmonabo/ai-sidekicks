@@ -18,9 +18,9 @@
 // own sheet works until a second component in the family needs it, at which point
 // the sheet's presence depends on which component the bundler reached first.
 
-import "./palette.css";
+import "@renderer/layout/CommandPalette/command-palette.css";
 
-export { CommandRegistry } from "./commands/command-registry.js";
+export { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 
 // This window's one registry, the plural call a family contributes through, the seat
 // a family contributes its whole set at composition time, the channel an act with no
@@ -58,7 +58,7 @@ export {
 // own table. It is on the door for those readers and not for symmetry — the moment no
 // production module outside this family writes the type, the line comes off, which is
 // how it came off once already when the frame's own vocabulary moved into the family.
-export type { ConsoleCommand, KeyBinding } from "./commands/contributions.js";
+export type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
 
 // The frame's own command vocabulary — the shapes its contributions take, the rail's
 // navigation table, and the chords it binds. On this door because a command IS a
@@ -97,14 +97,7 @@ export type { FrameCommand } from "./commands/command-surface.js";
 // without a React tree, which is its own family's business and not a caller's.
 export { useBridgeCommands } from "./commands/bridge-commands.js";
 
-// The console's ONE matcher, published because two settings surfaces rank against
-// it. The palette, settings search, the sidebar filter and find all score
-// identically, which is a rule about one implementation rather than one algorithm —
-// so the sharing is declared here rather than performed by a deep import that no
-// layering rule can see.
-export { scoreSubsequence } from "./commands/subsequence-score.js";
-
-export { KeyBindingTable } from "./keybindings/keybindings.js";
+export { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 
 // The chord grammar itself, forwarded because it is this family's own and because a
 // second consumer arrived for it: `browser/pane/handback/keyboard-handback.ts` has to decide whether
@@ -115,24 +108,30 @@ export { KeyBindingTable } from "./keybindings/keybindings.js";
 // rather than the comparison key is what that consumer needs, because the grammar's
 // optional-modifier set (`$mod+[Shift]+KeyK`) is a claim about which keystrokes
 // satisfy a chord and not about which chords are the same chord.
-export { chordMatchesEvent, parseChord } from "./keybindings/keybinding-chord.js";
+export {
+  chordMatchesEvent,
+  parseChord,
+} from "@renderer/registries/keybindings/keybinding-chord.js";
 
-export type { WhenClauseContext } from "./when-clause/when-clause.js";
+export type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 // The open chord is NOT forwarded, and it is no longer this family's to forward. The
 // overlay BINDS it and two surfaces PRINT it, one of them a primitive, so the literal
 // sits in `primitives/chord/chord-format.ts` beside the printer and this family imports it
 // down like every other caller.
-export { PaletteOverlay } from "./overlay/PaletteOverlay.js";
+export { PaletteOverlay } from "@renderer/layout/CommandPalette/CommandPalette.js";
 
 // The keybinding surface this family added beside the table: what a chord audit
 // answers, how a person's overrides compose onto the shipped bindings, and the store
 // that holds them for a window. Published because the keyboard settings page is the
 // reader of all three, and settings is a view family that may reach nothing inside
 // this one by any other path.
-export { auditKeybindings, reservedChordReason } from "./keybindings/keybinding-audit.js";
+export {
+  auditKeybindings,
+  reservedChordReason,
+} from "@renderer/registries/keybindings/keybinding-audit.js";
 
-export { type KeybindingOverrideMap } from "./keybindings/keybinding-overrides.js";
+export { type KeybindingOverrideMap } from "@renderer/registries/keybindings/keybinding-overrides.js";
 
 export {
   consoleKeybindingOverrides,
@@ -144,4 +143,4 @@ export {
 // its readers and a view family may reach nothing else in this one — and because the
 // alternative, each pane writing its own register/unregister effect against
 // `registerConsoleCommands`, is a contribution the open palette never re-reads.
-export { useConsoleCommandSeat } from "./commands/command-seat.js";
+export { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";

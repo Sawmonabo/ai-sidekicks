@@ -48,12 +48,12 @@
 import { useId } from "react";
 
 import { Glyph, InlineRefusal } from "../../primitives/index.js";
-import { type ConsoleEntityRef } from "../../store/index.js";
-import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "../../tokens/index.js";
-import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
+import { type ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
+import { PaneBreadcrumb } from "@renderer/components/PaneFrame/PaneBreadcrumb.js";
 import { usePaneControls } from "./pane-controls.js";
-import { type PaneKind } from "./pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { type ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set.

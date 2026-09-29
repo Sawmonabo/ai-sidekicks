@@ -25,9 +25,12 @@
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 
-import { Emitter, type Unsubscribe } from "../../../core/index.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { isEphemeralPaneKind } from "../../../seats/index.js";
-import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../../workspace-bounds.js";
+import {
+  DEFAULT_DECK_DENSITY,
+  type DeckDensity,
+} from "@renderer/features/sessions/pane-layout/pane-layout-measures.js";
 import {
   DECK_TOTAL_PERMILLE,
   addressesMatch,
@@ -43,13 +46,13 @@ import {
   type DeckPane,
   type DeckPaneAddress,
   type PaneSizePercentages,
-} from "./deck-model.js";
+} from "@renderer/features/sessions/pane-layout/pane-layout.js";
 import {
   decodeDeckSnapshot,
   encodeDeckSnapshot,
   type DeckRestoreReport,
   type DeckSnapshotRecord,
-} from "./deck-snapshot.js";
+} from "@renderer/features/sessions/pane-layout/pane-layout-snapshot.js";
 
 /** Construction inputs. */
 export interface DeckLayoutOptions {

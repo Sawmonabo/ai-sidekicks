@@ -70,18 +70,17 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  RefreshScheduler,
   useSessionReadTriggers,
   useWindowReadTriggers,
-  type ReadRound,
   type ReadTriggerTarget,
-  type RefreshReason,
-  type SessionStore,
-} from "../../store/index.js";
-import { callDaemon } from "../daemon/daemon-reply.js";
+} from "@renderer/console/store/read/read-triggers.js";
+import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */

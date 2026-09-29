@@ -54,9 +54,9 @@
 // re-implemented here would be a second authority over a decision already made — and
 // a second authority that cannot see the inputs the first one had.
 
-import { ATTENTION_NOTIFIED_ITEM_CAP } from "../../core/index.js";
-import type { AttentionItem } from "../../bridge/index.js";
-import { type AnsweredAttentionReading } from "./attention-plane.js";
+import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/sessions-caps.js";
+import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { type AnsweredAttentionReading } from "@renderer/store/attention/attention-summary.js";
 
 /**
  * Which items are news to a window, and what it has announced already.

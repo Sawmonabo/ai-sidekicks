@@ -28,11 +28,11 @@ import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
-import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
-import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
-import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { spawnChildCleanedUpAtSettleTime } from "@test/helpers/electron-child-cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "@test/helpers/electron-child.js";
+import { TERMINATION_GRACE_MS } from "@test/helpers/managed-electron-child.js";
+import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "@test/helpers/process-tree/budget.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

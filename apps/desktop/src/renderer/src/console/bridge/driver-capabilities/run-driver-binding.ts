@@ -35,11 +35,13 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 import {
   useSessionPartition,
   useSessionStore,
+} from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import {
   type ConsoleEntity,
   type ConsoleSessionEvent,
-  type SessionStore,
-  type SessionStoreState,
-} from "../../store/index.js";
+} from "@renderer/console/store/entities/entities.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 
 /**
  * The one event kind that names an agent's driver.

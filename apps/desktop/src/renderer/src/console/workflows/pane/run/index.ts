@@ -17,6 +17,6 @@
 // initial document for every session that never opened a run pane and made a sheet in
 // one directory the reason a surface in another was styled at all.
 
-import "./run-controls.css";
+import "@renderer/features/workflows/run-page/components/OperatorControls.css";
 
-export { WorkflowRunPane } from "./WorkflowRunPane.js";
+export { WorkflowRunPane } from "@renderer/features/workflows/run-page/RunPage.js";

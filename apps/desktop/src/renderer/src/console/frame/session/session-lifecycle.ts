@@ -73,17 +73,18 @@
 
 import { useEffect } from "react";
 
-import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import {
-  SessionStoreRegistry,
-  useOpenSessionStore,
   useSubjectScopedResource,
-  type ConsoleEntityProjectorRegistry,
-  type SessionSnapshotReader,
-  type SessionStore,
   type SubjectScopedDisposal,
-} from "../../store/index.js";
-import { SessionEventBinder } from "./session-event-binder.js";
+} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { type ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionEventBinder } from "@renderer/services/session-events/session-event-subscriber.js";
 
 /**
  * This window's session-store registry, rebuilt on a new bridge and disposed with

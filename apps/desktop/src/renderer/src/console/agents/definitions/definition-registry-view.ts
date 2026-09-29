@@ -18,23 +18,23 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
 import {
-  GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
-  RefreshScheduler,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-  type RefreshReason,
-} from "../../store/index.js";
+} from "@renderer/console/store/read/read-triggers.js";
+import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
-import type { ListAgentDefinitions } from "../run-console/agent-console-reads.js";
+import type { ListAgentDefinitions } from "@renderer/features/agents/agent-reads.js";
 import {
   describeDefinitionSettlement,
   readDefinitions,
   type AgentDefinitionReading,
-} from "./definition-rows.js";
+} from "@renderer/features/agents/library/definition-rows.js";
 
 /**
  * Deletes one saved definition. Rejects when the daemon refuses.

@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   CommandRegistry,
   KeyBindingTable,

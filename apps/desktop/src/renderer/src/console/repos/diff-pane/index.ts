@@ -20,7 +20,7 @@
 // `repos/family-bodies.ts` reaches this barrel statically, so the sheet is present
 // whenever the family door is, and it still lands once.
 
-import "./diff.css";
+import "@renderer/features/repos/diff/components/diff.css";
 
 // The ledger's `diff` inline-card body. Exported as the REGISTRATION rather than
 // the component, because the seat is filled by a call and a family barrel that

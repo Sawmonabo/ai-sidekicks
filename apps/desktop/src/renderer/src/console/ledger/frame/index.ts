@@ -67,31 +67,37 @@
 
 // The sheet this directory owns, imported by its own door: a family door reaching
 // into a directory that carries one is the shape `apps/desktop/AGENTS.md` forbids.
-import "./frame.css";
+import "@renderer/features/transcript/viewport/components/transcript-viewport.css";
 
-export { LedgerRowGroup } from "./LedgerRowGroup.js";
+export { LedgerRowGroup } from "@renderer/features/transcript/viewport/components/TranscriptRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealProvider.js";
 // The binding TYPES leave beside their hooks because `ledger-feed-windows.ts`
 // publishes the values: a chain that derives the reveal engine, the viewport and the
 // backward walk and hands all three to the arrangement has to name what it returns,
 // which the feed itself never had to while it held them as locals.
-export { useLedgerReveal, type LedgerRevealBinding } from "./reveal/reveal-binding.js";
-export { LedgerViewport } from "./viewport/surface/LedgerViewport.js";
-export { type LedgerRowRenderer } from "./LedgerRowMount.js";
+export {
+  useLedgerReveal,
+  type LedgerRevealBinding,
+} from "@renderer/features/transcript/reveal/hooks/useReveal.js";
+export { LedgerViewport } from "@renderer/features/transcript/viewport/components/TranscriptViewport.js";
+export { type LedgerRowRenderer } from "@renderer/features/transcript/viewport/components/VirtualRow.js";
 export {
   useLedgerViewport,
   type LedgerViewportBinding,
-} from "./viewport/surface/viewport-binding.js";
+} from "@renderer/features/transcript/viewport/hooks/useTranscriptViewport.js";
 // The walk back into the rows before this window's head. Published because the FEED
 // mints it — it is the mount that holds the session store — and hands the value to
 // the viewport, which is where the head control is placed.
-export { useLedgerEarlierPaging, type LedgerEarlierPaging } from "./paging/paging-binding.js";
-export { type LedgerViewportRow } from "./viewport/surface/viewport-snapshot.js";
-export { type LedgerRowLease } from "./row-lease-table.js";
+export {
+  useLedgerEarlierPaging,
+  type LedgerEarlierPaging,
+} from "@renderer/features/transcript/history/hooks/useEarlierHistory.js";
+export { type LedgerViewportRow } from "@renderer/features/transcript/viewport/viewport-snapshot.js";
+export { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
 
 // The hook that mints the frame's own scheduler. Published because the FEED mints it
 // — one coordinator per paint, above both the reveal engine and the viewport — and
 // the feed lives outside this directory. The coordinator CLASS stays internal: the
 // feed holds the value and hands it on, and never names its type.
-export { useLedgerFrameCoordinator } from "./coordinator/coordinator-binding.js";
+export { useLedgerFrameCoordinator } from "@renderer/features/transcript/hooks/useAnimationFrameCoordinator.js";

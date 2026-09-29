@@ -27,7 +27,7 @@
 // anybody"; the notifications settings page says something different for each state,
 // so the reading crosses the door unfolded and each consumer folds it.
 
-import type { OsNotificationPermissionReading } from "../../bridge/index.js";
+import type { OsNotificationPermissionReading } from "@renderer/features/settings/pages/notifications/os-notification-permission.js";
 
 /**
  * What the console may say about the OS notification path.

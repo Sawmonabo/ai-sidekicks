@@ -29,8 +29,9 @@
 
 import { useEffect, useRef } from "react";
 
-import { refusalRemedyFor, type ConsoleRefusal } from "../../core/index.js";
-import { type FrameStore } from "./frame-store.js";
+import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type FrameStore } from "@renderer/store/window/window-store.js";
 
 /**
  * The banner-class refusal a caller PREFERS, or nothing where it listed none.

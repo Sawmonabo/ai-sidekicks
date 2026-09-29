@@ -17,12 +17,12 @@
 // the daemon calls and never a client method, and the operating-system banner is
 // raised by the main process.
 
-import "./notifications.css";
+import "@renderer/layout/NotificationsList/notifications.css";
 
 export {
   /** @consumedBy the notifications list the rail's bell opens */
   NotificationCenter,
-} from "./NotificationCenter.js";
+} from "@renderer/layout/NotificationsList/NotificationsList.js";
 
 export {
   /** @consumedBy the notifications settings page */
@@ -35,7 +35,7 @@ export {
 // are reached deeply from inside — an intra-subtree import is deep by
 // the layout rule, and a barrel re-exporting a symbol nobody outside it imports is
 // a door onto a room with no other entrance.
-export { type AttentionReading } from "./attention-plane.js";
+export { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 // The plane is a vocabulary and a fold; the hook that yields the reading is what a
 // destination mounts.
 export {

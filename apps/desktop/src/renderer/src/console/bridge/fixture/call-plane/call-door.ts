@@ -6,8 +6,8 @@
 // resolve or reject. The bridge beside this file composes both doors and is read by
 // every console surface; neither door reads it.
 
-import { daemonMethodBindingFor } from "../../daemon/index.js";
-import { FixtureBridgeError } from "./refusal.js";
+import { daemonMethodBindingFor } from "@renderer/services/daemon/daemon-reply-registry.js";
+import { FixtureBridgeError } from "@renderer/services/daemon/refusal.fixture.js";
 import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import { settleScriptedReply } from "../../scenario/runtime/index.js";
 

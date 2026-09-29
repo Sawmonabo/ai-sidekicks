@@ -27,13 +27,13 @@
 import path from "node:path";
 
 import { app } from "electron";
-import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./diagnostic-log.js";
+import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./services/diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
-import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
-import { createMainWindow } from "./window.js";
-import { installActivationPolicy } from "./window-reveal.js";
+import { installRendererProtocol, registerRendererScheme } from "./services/renderer-protocol.js";
+import { createMainWindow } from "./windows/window.js";
+import { installActivationPolicy } from "./windows/window-reveal.js";
 
 // The `electron-vite` output layout puts the main bundle at `out/main/index.js`
 // and the renderer tree at `out/renderer/` (see `electron.vite.config.ts`

@@ -34,7 +34,7 @@ import {
   monitorForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
-import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Announce, type AnnouncementPoliteness } from "../../primitives/index.js";
 import { type PaneKind } from "../../seats/index.js";
 import type { DeckLayout } from "./model/deck-layout.js";

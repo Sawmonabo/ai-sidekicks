@@ -79,9 +79,9 @@
 // still disagree with the run, which is the class of defect this whole file is
 // about.
 //
-// A resolution under `test/` could not be shared with this one anyway:
+// A resolution under `tests/` could not be shared with this one anyway:
 // `tsconfig.scripts.json` roots at `scripts/`, so a script importing from
-// `test/` is outside the program that typechecks it. What would be shared is a
+// `tests/` is outside the program that typechecks it. What would be shared is a
 // four-line `createVitest` call rather than a rule — the RULE is
 // `project.matchesTestGlob`, which is vitest's own and is the only matcher this
 // file runs.
@@ -122,9 +122,9 @@ const MISUSE_EXIT_CODE = 2;
  *
  * The criterion is one property and not a taste: a project here runs from a
  * clean checkout with no prior `pnpm build`. That is what keeps this script
- * something a lane can invoke at any moment. `console-assets` and
- * `console-bundle` read `out/**`, `main`, `console-e2e` and `console-endurance`
- * launch Electron, and the three browser-mode tiers need a real browser — none
+ * something a lane can invoke at any moment. `bundle` reads `out/**`, `smoke`,
+ * `e2e` and `endurance` launch Electron, and the three browser-mode tiers need a
+ * real browser — none
  * of them belongs in a command a lane runs against its own uncommitted work,
  * and a file owned by one of them is REFUSED here rather than silently skipped.
  *
@@ -132,7 +132,7 @@ const MISUSE_EXIT_CODE = 2;
  * renamed in `vitest.config.ts` fails this script rather than quietly shrinking
  * what it verifies.
  */
-const CHANGED_TIER_PROJECTS: readonly string[] = ["main-unit", "console-unit"];
+const CHANGED_TIER_PROJECTS: readonly string[] = ["main-unit", "renderer"];
 
 /** Held here rather than in the script line, which is what the caller appends to. */
 const CHANGED_TIER_WORKERS = "2";

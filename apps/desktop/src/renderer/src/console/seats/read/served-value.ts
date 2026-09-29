@@ -14,12 +14,12 @@
 import {
   ConsoleRefusalError,
   isConsoleRefusal,
-  normalizeWireRejection,
   type ConsoleRefusal,
-} from "../../core/index.js";
+} from "@renderer/lib/refusal.js";
+import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { wireRejectionToError } from "@shared/wire-errors.js";
-import type { DaemonReply } from "../../bridge/index.js";
-import { READ_FAILED } from "./read-failure-codes.js";
+import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
+import { READ_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
 
 /**
  * The refusal a rejection is, in the console's one refusal shape.

@@ -53,7 +53,11 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useAnnounce } from "./LiveAnnouncerProvider.js";
-import { partialReadNotices, type PartialReadNotice, type ReadingState } from "../reading/index.js";
+import {
+  partialReadNotices,
+  type PartialReadNotice,
+  type ReadingState,
+} from "@renderer/lib/partial-read.js";
 
 /**
  * What "once" is counted by, where the sentence itself is the wrong answer.

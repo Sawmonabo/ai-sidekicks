@@ -29,16 +29,14 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleClock } from "../../../core/index.js";
-import {
-  ActSurfaceController,
-  useSessionScopedActController,
-  type ActReading,
-  type SessionStore,
-} from "../../../store/index.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleClock } from "@renderer/lib/clock.js";
+import { ActSurfaceController } from "@renderer/features/repos/acts/act-controller-base.js";
+import { useSessionScopedActController } from "@renderer/console/store/act/use-act-controller.js";
+import { type ActReading } from "@renderer/features/repos/acts/act-reading.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
 
 /** What a finished bind carries: the workspace the daemon bound, in whatever state. */
 export interface BindSettlement {

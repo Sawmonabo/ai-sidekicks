@@ -78,6 +78,6 @@ export function registerTerminalPanes(registry: ConsolePaneRegistry): void {
     // A loader, for `browser/index.ts`'s reason. The emulator was already a lazy chunk
     // of its own and everything around it was not, so a session that never opens a
     // terminal still carried the pane, the lease line, and their rules.
-    body: () => import("./pane/terminal-pane-body.js"),
+    body: () => import("@renderer/features/terminal/pane/terminal-pane-body.js"),
   });
 }

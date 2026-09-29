@@ -27,15 +27,13 @@
 
 import { useEffect, useMemo } from "react";
 
-import type { TransportReconnectObservable } from "../../core/index.js";
-import type { ConsoleSessionEvent } from "../entities/index.js";
-import {
-  useSessionDegradedCause,
-  useSessionStore,
-  type SessionStore,
-  type SessionStoreState,
-} from "../session/index.js";
-import type { RefreshReason } from "./refresh-scheduler.js";
+import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
+import type { ConsoleSessionEvent } from "../entities/entities.js";
+import { useSessionDegradedCause } from "@renderer/store/session/hooks/useSessionInitialized.js";
+import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStoreState } from "@renderer/store/session/session-state.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 
 /**
  * What a trigger set needs of the reading it refreshes.

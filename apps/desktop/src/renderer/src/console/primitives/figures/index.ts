@@ -24,15 +24,15 @@
 // static graph, so the sheet belongs where its one reader is, at the family root.
 // The order is the one these five held on the family door.
 
-import "./glyph.css";
-import "./figure.css";
-import "./chip.css";
-import "./choice-list.css";
-import "./ledger-row.css";
+import "@renderer/components/Glyph/Glyph.css";
+import "@renderer/styles/figure.css";
+import "@renderer/components/Chip/Chip.css";
+import "@renderer/components/WireChoiceList/WireChoiceList.css";
+import "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.css";
 
-export type { ChipTone } from "./Chip.js";
-export { Chip } from "./Chip.js";
-export { DerivedFigure } from "./DerivedFigure.js";
-export { Glyph } from "./Glyph.js";
-export { WireFigure } from "./WireFigure.js";
-export { formatCount, formatWireString } from "./wire-figures.js";
+export type { ChipTone } from "@renderer/components/Chip/Chip.js";
+export { Chip } from "@renderer/components/Chip/Chip.js";
+export { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+export { Glyph } from "@renderer/components/Glyph/Glyph.js";
+export { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+export { formatCount, formatWireString } from "@renderer/lib/wire-figures.js";

@@ -9,7 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { IDENTIFIER_MAX_LENGTH, isConsoleRefusal } from "../core/index.js";
+import { IDENTIFIER_MAX_LENGTH } from "@renderer/console/core/constants/persistence-caps.js";
+import { isConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   PERSISTED_VALUE_CLASSES,
   PERSISTENCE_REFUSAL_CODES,

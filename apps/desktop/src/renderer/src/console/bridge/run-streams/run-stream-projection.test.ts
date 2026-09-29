@@ -24,9 +24,9 @@ import { describe, expect, it } from "vitest";
 
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "../../store/index.js";
+import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "../fixture/call-plane/bridge.test-support.js";
-import { projectRunStreamDelivery } from "./run-stream-projection.js";
+import { projectRunStreamDelivery } from "@renderer/services/run-streams/run-stream-projection.fixture.js";
 import { FLAGSHIP_SCENARIO } from "../scenario/flagship/flagship.js";
 import {
   RUN_QUEUE_EVENT_STREAM,

@@ -62,9 +62,9 @@
 import { GenerationLatch, type CurrentGenerationClaim } from "./generation-latch.js";
 import {
   useSubjectScopedResource,
-  type SubjectKey,
   type SubjectScopedTerminalDisposal,
-} from "../subject-scoped/index.js";
+} from "../subject-scoped/subject-scoped-resource.js";
+import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 
 /**
  * The one key every scope claims under.

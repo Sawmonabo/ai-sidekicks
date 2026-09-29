@@ -7,4 +7,4 @@
 
 // Straight from the module that DECLARES it rather than through a door of that
 // directory's own, which would be the barrel chain `console-no-barrel-chain` fails.
-export { registerAgentConsolePane } from "./agent-console/agent-console-mounts.js";
+export { registerAgentConsolePane } from "@renderer/features/agents/contributions/panes.js";

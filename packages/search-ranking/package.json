@@ -1,0 +1,27 @@
+{
+  "name": "@ai-sidekicks/search-ranking",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "The one fuzzy scorer the desktop's label searches and the daemon's file search rank with.",
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "exports": {
+    ".": {
+      "@ai-sidekicks/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "lint": "eslint src"
+  }
+}

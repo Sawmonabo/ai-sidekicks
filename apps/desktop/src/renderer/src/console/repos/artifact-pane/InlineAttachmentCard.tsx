@@ -12,8 +12,8 @@
 // reading, and the reference it was given when not.
 
 import { WireFigure } from "../../primitives/index.js";
-import { AttachmentCard } from "../attachments/AttachmentCard.js";
-import type { AttachmentReading } from "../attachments/attachment-shapes.js";
+import { AttachmentCard } from "@renderer/features/composer/attachments/components/AttachmentCard.js";
+import type { AttachmentReading } from "@renderer/features/composer/attachments/attachment-shapes.js";
 import type { InlineCardSeatRegistry, AttachmentInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

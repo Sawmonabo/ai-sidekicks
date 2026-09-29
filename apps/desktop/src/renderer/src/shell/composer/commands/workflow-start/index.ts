@@ -9,11 +9,11 @@
 // its own rules, which is the same reason the zone's own sheet enters through the
 // zone's door rather than through a component.
 
-import "./workflow-start.css";
+import "@renderer/features/composer/command-list/workflow-command/workflow-command.css";
 
 export { useWorkflowStartHandlers } from "./start-dispatch.js";
-export { useWorkflowStartPrefill } from "./prefill.js";
+export { useWorkflowStartPrefill } from "@renderer/features/composer/command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
 export {
   /** @consumedBy the composer's workflow command */
   WorkflowStartCandidates,
-} from "./WorkflowStartCandidates.js";
+} from "@renderer/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.js";

@@ -4,7 +4,7 @@
 // which reading wins when two arrive — so the events have to be built the same way
 // in both or the two suites would be ranking different things.
 
-import { type ConsoleSessionEvent } from "../store/index.js";
+import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 
 /**
  * A single entry on the timeline.

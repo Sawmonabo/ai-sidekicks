@@ -18,12 +18,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { FilePathRef } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../../bridge/index.js";
-import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenario/first-run.js";
-import { type ConsoleRefusal } from "../../../../core/index.js";
+import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
 import { type LedgerRowLease } from "../../../frame/index.js";
-import { sampleGeneralRow } from "../../../cards/row-samples.test-support.js";
+import { sampleGeneralRow } from "@test/helpers/timeline-row-samples.js";
 import {
   LEDGER_BODY_NOT_COPIED_REFUSAL,
   LEDGER_FILE_NOT_REVEALED_REFUSAL,

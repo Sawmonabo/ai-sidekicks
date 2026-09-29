@@ -13,7 +13,7 @@
 // The bodies are in `family-bodies.ts`, so this module reads no pane barrel and no
 // sidebar registry itself.
 
-import "./repos.css";
+import "@renderer/features/repos/repos.css";
 // The subject sheets, in the order their rules held inside `repos.css` before that
 // file outgrew a reader. Imported after the root sheet, which is the order the rules
 // were in, so nothing about the cascade turns on the split. Each is imported HERE
@@ -27,14 +27,14 @@ import "./repos.css";
 // `repos.css` is no alternative: the browser tiers inject a sheet as a `<style>` element
 // and a relative `@import` inside one resolves against the document, so the rules never
 // arrive.
-import "./mounts/mounts.css";
+import "@renderer/features/repos/mounts/components/mounts.css";
 // The two surfaces that left `mounts.css` on the seam between their subjects and its
 // own, directly after it and ahead of the act sheets, so the four below keep their order.
 // Siblings rather than residents of `bind/` and `roots/` because ownership follows the
 // components: all four of the ones they dress live in `mounts/` itself. Each header
 // says so, and says why the cascade cannot turn on the move.
-import "./mounts/mode-picker.css";
-import "./mounts/root-cards.css";
+import "@renderer/features/repos/mounts/components/execution-mode-picker.css";
+import "@renderer/features/repos/mounts/components/execution-root-cards.css";
 // The mount surfaces' own four sheets, after the sheet they were split out of and in
 // the order their rules held inside it — the shape the act surfaces share, then the
 // three sub-directories that override it. `mounts/mount-acts.css` says why a shape
@@ -43,12 +43,12 @@ import "./mounts/root-cards.css";
 // surface wears. The cascade is the split's whole risk and this order is the whole
 // answer to it: an excluded mode's `cursor` still lands after the row shape it
 // overrides.
-import "./mounts/mount-acts.css";
-import "./mounts/attach/attach.css";
-import "./mounts/roots/roots.css";
-import "./mounts/bind/bind.css";
-import "./artifacts/artifacts.css";
-import "./attachments/attachments.css";
+import "@renderer/features/repos/mounts/mount-controls.css";
+import "@renderer/features/repos/mounts/attach/attach.css";
+import "@renderer/features/repos/mounts/execution-roots/execution-roots.css";
+import "@renderer/features/repos/mounts/bind/bind.css";
+import "@renderer/features/inspector/artifacts/components/artifacts.css";
+import "@renderer/features/composer/attachments/components/attachments.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { REPOS_FAMILY_OWNER, registerRepos } from "./family-bodies.js";
@@ -75,7 +75,7 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
     // Loader-backed: the pane is not on the first paint, and it reaches the diff
     // parser and the virtualized row renderer, the largest block this family would put
     // on the initial import graph.
-    body: () => import("./diff-pane/diff-pane-body.js"),
+    body: () => import("@renderer/features/repos/contributions/diff-pane-body.js"),
   });
 }
 
@@ -105,12 +105,15 @@ export {
 export {
   attachmentCarrierFill,
   exceedsAttachmentByteAllowance,
-} from "./attachments/attachment-bounds.js";
-export { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachments/attachment-policy.js";
-export { isIngestStalled } from "./attachments/attachment-presentation.js";
+} from "@renderer/features/composer/attachments/attachment-bounds.js";
+export {
+  INGEST_ABANDON_COPY,
+  INGEST_DISPOSITION_COPY,
+} from "@renderer/features/composer/attachments/attachment-policy.js";
+export { isIngestStalled } from "@renderer/features/composer/attachments/attachment-presentation.js";
 export {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
   attachmentNameReading,
-} from "./attachments/attachment-provenance.js";
-export type { AttachmentIngestEntry } from "./attachments/attachment-shapes.js";
+} from "@renderer/features/composer/attachments/attachment-provenance.js";
+export type { AttachmentIngestEntry } from "@renderer/features/composer/attachments/attachment-shapes.js";

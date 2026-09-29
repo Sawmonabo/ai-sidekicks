@@ -80,8 +80,11 @@ import {
   SubjectScopedHolder,
   type SubjectKey,
   type SubjectScopedPublish,
-} from "./subject-scoped-holder.js";
-import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
+} from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
+import {
+  useHeldSubjectValue,
+  type SubjectScopedState,
+} from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /**
  * A disposal that hands a resource back rather than ending it.

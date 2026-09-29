@@ -5,33 +5,54 @@
     // --- The three build flavours ------------------------------------------
     //
     // All three write `out/**` and differ in exactly the `define` that decides
-    // what the console talks to and whether the main process carries its test
+    // what the renderer talks to and whether the main process carries its test
     // probes. All three are therefore `cache: false`, and that is a correctness
     // requirement rather than a preference: a Turborepo cache HIT restores the
     // files it saved and does not empty the directory first, while a real run of
     // `electron-vite build` does (Vite's `emptyOutDir`). So a cached restore
     // layered over a sibling flavour's output leaves that sibling's
     // content-hashed chunks in place beside the restored ones — measured
-    // 2026-09-02, where `test:console-bundle` replayed a cached `build` over a
+    // 2026-09-02, where the bundle tier replayed a cached `build` over a
     // fixtures tree and `release-absence.test.ts` correctly found the fixture
     // tripwire handle in the orphaned chunk. Running the build is what makes the
     // flavour switch total.
     "build": {
-      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/**",
+        "fixtures/**",
+        "build/**",
+        "electron.vite.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": ["out/**", "dist/**", ".tsbuildinfo"],
       "cache": false
     },
     "build:smoke": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/**",
+        "fixtures/**",
+        "build/**",
+        "electron.vite.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": ["out/**", "dist/**"],
       "cache": false
     },
     "build:fixtures": {
-      // The console with its fixture bridge compiled in, for the two Electron
-      // tiers.
+      // The renderer with its fixture implementations compiled in, for the two
+      // Electron tiers.
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/**",
+        "fixtures/**",
+        "build/**",
+        "electron.vite.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": ["out/**", "dist/**"],
       "cache": false
     },
@@ -39,15 +60,28 @@
       // `scripts/**` is in the input set because the harnesses there are
       // TypeScript and `tsconfig.scripts.json` typechecks them, so a change to
       // one has to invalidate this task.
-      "inputs": ["src/**", "test/**", "build/**", "scripts/**", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/**",
+        "fixtures/**",
+        "tests/**",
+        "test/**",
+        "build/**",
+        "scripts/**",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": [".tsbuildinfo"]
     },
     "lint": {
       "inputs": [
         "src/**",
+        "fixtures/**",
+        "tests/**",
         "test/**",
         "build/**",
         "scripts/**",
+        "vitest/**",
+        "eslint.restricted-syntax.mjs",
         "*.{ts,tsx,js,mjs,cjs,json}",
         "eslint.config.mjs"
       ],
@@ -62,12 +96,14 @@
     // running them in sequence would hide the second leg's findings behind the first leg's
     // exit code. CI runs both with `--continue`, so one red leg never conceals the other.
     //
-    // Cacheable, unlike the console test tiers: both legs read only files inside this package
+    // Cacheable, unlike the test tiers: both legs read only files inside this package
     // plus the workspace-root manifest and `pnpm-workspace.yaml`, and a change to either of
     // those moves `pnpm-lock.yaml`, which Turborepo hashes globally.
     "structure:dead-code": {
       "inputs": [
         "src/**",
+        "fixtures/**",
+        "tests/**",
         "test/**",
         "build/**",
         "scripts/**",
@@ -81,15 +117,17 @@
       "outputs": []
     },
     // Only `tsconfig.paths.json` of the tsconfigs: the cruise resolves through an explicit
-    // extension list and that file's aliases rather than `--ts-config`, so no other tsconfig
-    // edit can change its result. `package.json` stays because the script that invokes it lives there.
+    // extension list and that file's aliases, so no other tsconfig edit can change its
+    // result. `package.json` stays because the script that invokes it lives there.
     "structure:layering": {
       "inputs": [
         "src/**",
+        "fixtures/**",
         "build/**",
         "scripts/**",
+        "vitest/**",
         ".dependency-cruiser.mjs",
-        ".dependency-cruiser.families.mjs",
+        ".dependency-cruiser.layers.mjs",
         "tsconfig.paths.json",
         "package.json"
       ],
@@ -109,12 +147,8 @@
         "scripts/test-changed.ts",
         "scripts/test-changed.test.ts",
         "scripts/budget/**",
-        "test/console/budget/budgets.json",
-        "test/helpers/**",
-        // The launch and cleanup scaffolding the suites under `test/helpers/`
-        // drive. The flat modules only — the console tiers under
-        // `test/console/<tier>/` are their own projects' inputs.
-        "test/console/*.ts",
+        "tests/budget/budgets.json",
+        "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig*.json",
@@ -138,13 +172,15 @@
     },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
-      // Narrowed from `test/**`: the console tiers under `test/console/**` are
-      // not this project's inputs, and leaving them here would invalidate the
-      // ~25-30 s smoke build on every console test edit.
+      // Narrowed from `tests/**`: the tiers under `tests/<tier>/**` are not this
+      // project's inputs, and leaving them here would invalidate the ~25-30 s
+      // smoke build on every tier test edit.
       // `scripts/materialize-electron.ts` is named because this task runs it;
       // `scripts/**` would pull the budget harnesses in with it.
       "inputs": [
+        "tests/*.test.ts",
         "test/*.test.ts",
+        "tests/helpers/**",
         "scripts/materialize-electron.ts",
         "vitest.config.*",
         "vitest/**",
@@ -155,17 +191,23 @@
       "cache": false
     },
 
-    // --- Console test tiers -------------------------------------------------
+    // --- Test tiers ---------------------------------------------------------
     //
     // Each tier is its own task so a tier can be run, cached, and gated alone.
     // `cache: false` throughout for the same reason the tasks above carry it:
     // these assert against a tree state, and a cached pass would report on a
     // tree that is no longer there.
 
-    "test:console-unit": {
+    "test:renderer": {
       "dependsOn": ["^build"],
       "inputs": [
-        "src/renderer/src/console/**",
+        "src/renderer/src/**",
+        "src/shared/**",
+        "fixtures/**",
+        "tests/scenarios/**",
+        "tests/helpers/**",
+        "tests/endurance/streaming-lanes*",
+        "tests/endurance/transcript-endurance*",
         "vitest.config.*",
         "vitest/**",
         "tsconfig*.json",
@@ -174,22 +216,13 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-assets": {
-      "inputs": [
-        "src/renderer/src/console/**",
-        "test/console/assets/**",
-        "vitest.config.*",
-        "vitest/**",
-        "tsconfig*.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
-    "test:console-browser": {
+    "test:browser": {
       "dependsOn": ["^build"],
       "inputs": [
-        "src/renderer/src/console/**",
-        "test/console/browser/**",
+        "src/renderer/src/**",
+        "tests/browser/**",
+        "tests/helpers/**",
+        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -197,11 +230,13 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-screenshot": {
+    "test:screenshot": {
       "dependsOn": ["^build"],
       "inputs": [
-        "src/renderer/src/console/**",
-        "test/console/screenshot/**",
+        "src/renderer/src/**",
+        "tests/screenshot/**",
+        "tests/helpers/**",
+        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -209,11 +244,13 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-accessibility": {
+    "test:accessibility": {
       "dependsOn": ["^build"],
       "inputs": [
-        "src/renderer/src/console/**",
-        "test/console/accessibility/**",
+        "src/renderer/src/**",
+        "tests/accessibility/**",
+        "tests/helpers/**",
+        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -221,13 +258,14 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-bundle": {
-      // The one console tier that measures a BUILD rather than a source tree.
+    "test:bundle": {
+      // The one tier that measures a BUILD rather than a source tree.
       // The `build` edge is load-bearing: the gate fails loudly when a build
       // output under `out/` is absent rather than skipping, and this edge is
       // what makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
+        "tests/budget/**",
         "test/console/budget/**",
         "scripts/budget/**",
         "vitest.config.*",
@@ -242,19 +280,18 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-e2e": {
-      // The one console tier that needs a FIXTURE build rather than a release
-      // one: it drives the console against the fixture bridge, which the release
+    "test:e2e": {
+      // The one tier that needs a FIXTURE build rather than a release one: it
+      // drives the renderer against the fixture implementations, which the release
       // define folds out. The edge makes that bundle present by construction, so
       // the tier's skip-with-a-message path stays a developer convenience rather
       // than something CI can silently fall into.
       "dependsOn": ["build:fixtures"],
       "inputs": [
-        "src/renderer/src/console/**",
+        "src/renderer/src/**",
         "src/main/**",
-        "test/console/e2e/**",
-        "test/console/electron-harness.ts",
-        "test/console/palette-interaction.ts",
+        "tests/e2e/**",
+        "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json",
@@ -263,18 +300,17 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-endurance": {
+    "test:endurance": {
       // Same bundle, tens of seconds rather than milliseconds. Its own task
-      // rather than a slow file inside the end-to-end tier, so `test:console-e2e`
+      // rather than a slow file inside the end-to-end tier, so `test:e2e`
       // stays a fast gate a person will run before pushing and the slow one is
       // named separately — both are on the `test` aggregate, in its last group.
       "dependsOn": ["build:fixtures"],
       "inputs": [
-        "src/renderer/src/console/**",
+        "src/renderer/src/**",
         "src/main/**",
-        "test/console/endurance/**",
-        "test/console/electron-harness.ts",
-        "test/console/palette-interaction.ts",
+        "tests/endurance/**",
+        "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json",
@@ -283,10 +319,10 @@
       "outputs": [],
       "cache": false
     },
-    "test:console-bench": {
-      // Not one of the registered console tiers, and
+    "test:bench": {
+      // Not one of the registered tiers, and
       // deliberately not on the `test` aggregate, because each run APPENDS its
-      // absolutes to `test/console/bench/ledger.json` — a curated record a person
+      // absolutes to `tests/bench/ledger.json` — a curated record a person
       // reads, which no test run should rewrite as a side effect. It does gate: CI
       // runs it in its own step with the ledger pointed at the runner's temp
       // directory, and both arms assert a RATIO with a wide margin rather than a
@@ -299,8 +335,8 @@
       // Not `env`: the value is a path that differs per machine and says nothing
       // about what the task computes, and this task is uncached anyway.
       "inputs": [
-        "src/renderer/src/console/**",
-        "test/console/bench/**",
+        "src/renderer/src/**",
+        "tests/bench/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -323,13 +359,13 @@
 
     "budget:bundle": {
       // Measures a BUILD, so it carries the same load-bearing edge the
-      // `test:console-bundle` tier does: the harness refuses loudly when
+      // bundle tier does: the harness refuses loudly when
       // `out/renderer` is absent rather than skipping, and this edge is what
       // makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
         "scripts/budget/**",
-        "test/console/budget/budgets.json",
+        "tests/budget/budgets.json",
         "out/renderer/**",
         "package.json"
       ],
@@ -339,11 +375,11 @@
     "budget:heap": {
       // No build edge, because this harness takes no reading at all. The
       // `renderer-heap-at-rest` row is `enforced` and its `measuredBy` names the
-      // endurance tier, which launches the built console; `measure-heap.mts` reads
+      // endurance tier, which launches the built renderer; `measure-heap.mts` reads
       // the registry, reports where the reading lives, and refuses if the registry
       // ever names it as the measurer. So the gate's own source and the registry are
       // the whole input set, and `out/**` would be an input nothing here opens.
-      "inputs": ["scripts/budget/**", "test/console/budget/budgets.json", "package.json"],
+      "inputs": ["scripts/budget/**", "tests/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false
     },
@@ -357,7 +393,7 @@
       // The ORDER is load-bearing and is why the script is a chain of `turbo run`
       // invocations rather than one. `build`, `build:smoke`, and `build:fixtures`
       // all write `out/**` and differ in the `define` that decides what the
-      // console talks to, so a single invocation would schedule them
+      // renderer talks to, so a single invocation would schedule them
       // concurrently and hand a tier the wrong bundle: the bundle tier would
       // measure a fixture build against a release budget, and its
       // release-absence assertions would read a tree that legitimately contains
@@ -366,8 +402,8 @@
       // fixtures each with its own consumers.
       //
       // Two projects are deliberately absent, each with its reason:
-      // `console-screenshot`, which compares nothing and writes local capture
-      // aids a person looks at, and `console-bench`, which records timings into
+      // `screenshot`, which compares nothing and writes local capture aids a
+      // person looks at, and `bench`, which records timings into
       // a ledger and gates nothing.
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge

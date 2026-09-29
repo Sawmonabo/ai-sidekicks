@@ -1,5 +1,5 @@
 // Build-time assertion: every hardening-locked `webPreferences` key still
-// appears with the required literal value in `apps/desktop/src/main/window.ts`,
+// appears with the required literal value in `apps/desktop/src/main/windows/window.ts`,
 // and that locked block appears EXACTLY ONCE. Drift fails the build —
 // `nodeIntegration: true` or `sandbox: false` in any window is a build error,
 // never a runtime surprise.
@@ -40,7 +40,13 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DEFAULT_WINDOW_TS_PATH = path.resolve(__dirname, "../src/main/window.ts");
+const DEFAULT_WINDOW_TS_PATH = path.resolve(__dirname, "../src/main/windows/window.ts");
+
+/**
+ * The tree the real run scans for stray constructions: the whole main process, named
+ * rather than derived from the locked module's directory, which is one folder of it.
+ */
+const DEFAULT_SCAN_ROOT = path.resolve(__dirname, "../src/main");
 
 /**
  * Extensions the tree scan reads. A `.d.ts` declares and never constructs, and
@@ -315,8 +321,15 @@ function assertWebPreferences(targetPath: string, scanRoot: string): void {
 }
 
 // Argument 1 is the locked module; argument 2 is the tree scanned for stray
-// constructions, defaulting to that module's own directory so the real run
-// covers `src/main/**` and `build/assert-webprefs.test.ts` can drive both over a
-// temp fixture tree instead of re-implementing the rules inline.
-const lockedModulePath = process.argv[2] ?? DEFAULT_WINDOW_TS_PATH;
-assertWebPreferences(lockedModulePath, process.argv[3] ?? path.dirname(lockedModulePath));
+// constructions. With no arguments the real run checks the shipped factory and scans
+// all of `src/main/**`. A fixture module given alone is scanned against its own
+// directory, so `build/assert-webprefs.test.ts` can drive both over a temp fixture
+// tree instead of re-implementing the rules inline.
+const lockedModulePathArgument = process.argv[2];
+assertWebPreferences(
+  lockedModulePathArgument ?? DEFAULT_WINDOW_TS_PATH,
+  process.argv[3] ??
+    (lockedModulePathArgument === undefined
+      ? DEFAULT_SCAN_ROOT
+      : path.dirname(lockedModulePathArgument)),
+);

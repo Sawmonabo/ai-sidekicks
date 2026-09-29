@@ -15,8 +15,8 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { FrameStore } from "./frame-store.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { FrameStore } from "@renderer/store/window/window-store.js";
 import {
   preferredBannerClassRefusalAmong,
   useRefusalBannerEscalation,

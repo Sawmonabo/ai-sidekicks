@@ -149,8 +149,8 @@ import {
 // The two bounds the spawner shares with every other Electron harness: the
 // SIGTERM-to-SIGKILL grace, and the reserve that keeps a spawner's own deadline
 // ahead of vitest's per-test budget.
-import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
-import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "@test/helpers/electron-child.js";
+import { TERMINATION_GRACE_MS } from "@test/helpers/managed-electron-child.js";
 
 describe("desktop shell substrate boot", () => {
   it("verifies built bundle exists before spawning Electron", () => {

@@ -33,10 +33,11 @@
 // rail navigation table, and the chords it binds itself — is `command-surface.ts`
 // beside this file, which followed the same rule here for the same reason.
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../primitives/index.js";
-import { CommandRegistry } from "./command-registry.js";
-import type { ConsoleCommand, KeyBinding } from "./contributions.js";
+import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
+import type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
 
 /** This window's command registry. */
 export const consoleCommands: CommandRegistry = new CommandRegistry();

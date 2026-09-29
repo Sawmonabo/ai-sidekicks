@@ -35,11 +35,11 @@ import {
   type TimelineRowSlotProps,
 } from "../../../seats/index.js";
 import { reasoningRunIdOf } from "../bodies/index.js";
-import { classifyCardFamily } from "../card-family.js";
-import { FixtureShellReasoningSurface } from "./FixtureShellReasoningSurface.js";
+import { classifyCardFamily } from "@renderer/features/transcript/rows/row-kind.js";
+import { FixtureShellReasoningSurface } from "@renderer/features/transcript/rows/thinking/BoundThinkingRow.js";
 import { FootnoteRegistry } from "../markdown/index.js";
-import { MessageCard } from "../MessageCard.js";
-import { ToolCard } from "../ToolCard.js";
+import { MessageCard } from "@renderer/features/transcript/rows/MessageRow.js";
+import { ToolCard } from "@renderer/features/transcript/rows/ToolRow.js";
 
 /** The owner this renderer claims the seat under. */
 export const FIXTURE_SHELL_OWNER = "ledger fixture shell";

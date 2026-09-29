@@ -19,7 +19,7 @@ import {
   REVIEW_DECISION_PRESENTATION,
   checkRollup,
   type ProposalCheck,
-} from "./hosting-status.js";
+} from "@renderer/features/repos/mounts/hosting-status.js";
 
 describe("the host vocabularies — declared once, and closed where the design closes them", () => {
   it("keeps every trichotomy at exactly three members", () => {

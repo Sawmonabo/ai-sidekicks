@@ -12,18 +12,18 @@ import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "../../core/index.js";
+import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
 // The unit factors come from the module that declares them rather than through the
 // family door: their door specifiers are claimed for the families that will read them
 // in production, and a claim a test retires is a claim nothing came to collect.
-import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_MINUTE } from "../../core/instant.js";
+import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
 import { earliestFutureDeadline } from "./deadline-wake.js";
 import {
   CountingManualClock,
   MOUNTED_AT,
   WakingSurface,
   renderWake,
-} from "../deadline-wake.test-support.js";
+} from "@renderer/hooks/useDeadlineWake.test-support.js";
 
 /**
  * The real clock, instrumented the same way — and the reason this file drives two.

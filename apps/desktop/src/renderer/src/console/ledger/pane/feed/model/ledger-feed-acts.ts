@@ -21,7 +21,7 @@
 
 import { useMemo } from "react";
 
-import { refuse, type ConsoleRefusal } from "../../../../core/index.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { raiseConsoleActRefusal } from "../../../../palette/index.js";
 
 import {
@@ -29,7 +29,8 @@ import {
   type FindStepDirection,
   type LedgerStructureActs,
 } from "../../../structure/index.js";
-import { type LedgerFilterState, type LedgerFindState } from "../../find/index.js";
+import { type LedgerFilterState } from "../../find/ledger-narrowing.js";
+import { type LedgerFindState } from "@renderer/features/transcript/find/hooks/useTranscriptFind.js";
 
 /**
  * What "clear ledger filters" answers over a ledger nobody has narrowed.

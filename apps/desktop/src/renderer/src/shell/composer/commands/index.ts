@@ -18,6 +18,6 @@
 // The stylesheet is imported here so it arrives on the zone's one edge, the same rule
 // every other family's door follows.
 
-import "./provider-command-autocomplete.css";
+import "@renderer/features/composer/command-list/components/CommandList.css";
 
-export { ProviderCommandAutocomplete } from "./ProviderCommandAutocomplete.js";
+export { ProviderCommandAutocomplete } from "@renderer/features/composer/command-list/components/CommandList.js";

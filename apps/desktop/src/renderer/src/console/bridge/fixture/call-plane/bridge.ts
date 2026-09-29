@@ -36,9 +36,12 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
-import { refuseAbsentCapability } from "./refusal.js";
-import { TransportReconnectSignal } from "../../transport/transport-reconnect.js";
-import { subscribeToScenario, subscribeToScenarioRelay } from "./subscriptions.js";
+import { refuseAbsentCapability } from "@renderer/services/daemon/refusal.fixture.js";
+import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
+import {
+  subscribeToScenario,
+  subscribeToScenarioRelay,
+} from "@renderer/services/daemon/scenario-subscriptions.fixture.js";
 import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 

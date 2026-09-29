@@ -12,11 +12,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
-import type { AttachedPaneViewHost } from "../geometry/view-host.js";
-import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
-import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  PaneGeometryPublisher,
+  type PaneGeometryOutcome,
+} from "@renderer/features/preview/geometry/geometry-publisher.js";
+import type { AttachedPaneViewHost } from "@renderer/features/preview/geometry/view-host.js";
+import {
+  useSubjectScopedResource,
+  type SubjectScopedDisposal,
+} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
+import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 
 /**
  * The pair a pane-scoped resource belongs to.

@@ -28,7 +28,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 
-import { refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /**
  * The acts a mounted ledger offers. One function per command, named for the act

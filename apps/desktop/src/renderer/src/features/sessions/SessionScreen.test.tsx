@@ -1,0 +1,20 @@
+// The workspace: what it composes.
+//
+// The arrangement it saves and restores is `Workspace.persistence.test.tsx`. Both mount
+// through the same shape, which lives once in `Workspace.test-support.tsx`.
+
+import { waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { SESSION_ID, memoryStore, renderWorkspace } from "./SessionScreen.test-support.js";
+
+describe("Workspace — what it composes", () => {
+  it("renders the session header above the deck", async () => {
+    const { container } = renderWorkspace(memoryStore());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__pane")).not.toBeNull();
+    });
+    expect(container.querySelector(".meridian-session-header")).not.toBeNull();
+    expect(container.querySelector(".meridian-session-header")?.textContent).toContain(SESSION_ID);
+  });
+});

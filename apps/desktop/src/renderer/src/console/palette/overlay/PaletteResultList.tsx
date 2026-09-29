@@ -10,10 +10,10 @@
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
 import { ChordHint, type ChordPlatform } from "../../primitives/index.js";
-import type { CommandSearchResult } from "../commands/index.js";
-import type { KeyBindingTable } from "../keybindings/index.js";
-import type { PaletteRowPressOutcome } from "./palette-latch.js";
-import type { WhenClauseContext } from "../when-clause/index.js";
+import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
+import type { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import type { PaletteRowPressOutcome } from "@renderer/layout/CommandPalette/palette-latch.js";
+import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 /** Results for one category, in the order the best result in it appeared. */
 export interface CommandResultGroup {

@@ -14,11 +14,11 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { SCENARIO_TICK_MS } from "../core/index.js";
-import { consoleTripwires } from "../core/tripwires.js";
-import type { ConsoleSessionEvent } from "../store/index.js";
+import { SCENARIO_TICK_MS } from "@renderer/console/core/constants/fixture-caps.js";
+import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { ScenarioEngine } from "./scenario/runtime/engine.js";
-import { FIRST_RUN_SCENARIO } from "./scenario/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test
 // they are RECORDED instead, because the point of these cases is to assert that the

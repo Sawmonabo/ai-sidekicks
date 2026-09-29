@@ -30,7 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   COMPOSER_FOCUS_COMMAND_ID,
   KeyBindingTable,
@@ -47,13 +47,17 @@ import {
   type FrameCommand,
   type WhenClauseContext,
 } from "../palette/index.js";
-import { RAIL_DESTINATIONS, type ConsoleRoute } from "../routing/index.js";
-import type { UiStateStore } from "../persistence/index.js";
-import type { FrameStore } from "../store/index.js";
-import type { SchemePreference } from "../tokens/index.js";
-import { RAIL_ENTRY_TEMPLATES } from "./composition/IconRail.js";
+import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
+import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import type { FrameStore } from "@renderer/store/window/window-store.js";
+import type { SchemePreference } from "@renderer/styles/tokens.js";
+import { RAIL_ENTRY_TEMPLATES } from "@renderer/layout/NavigationRail/NavigationRail.js";
 import { requestComposerFocus, type ConsoleSurfaceRegistry } from "../seats/index.js";
-import { routeForDestination, warmDestination } from "./composition/rail-navigation.js";
+import {
+  routeForDestination,
+  warmDestination,
+} from "@renderer/layout/NavigationRail/rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {

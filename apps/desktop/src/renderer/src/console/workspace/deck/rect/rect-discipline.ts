@@ -38,21 +38,18 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import {
-  airspaceRegistryFor,
-  type AirspaceRegistry,
-  type ConsoleClock,
-  type ScheduledHandle,
-  type Unsubscribe,
-} from "../../../core/index.js";
+import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
+import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
+import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { observeElementResize } from "../../../primitives/index.js";
-import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../../workspace-bounds.js";
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "@renderer/features/sessions/pane-layout/pane-layout-measures.js";
 import {
   rectKey,
   visibleClipOf,
   type RectInvalidationSource,
   type TrackedRect,
-} from "./rect-geometry.js";
+} from "@renderer/features/sessions/pane-layout/pane-rect-geometry.js";
 
 export interface PaneRectTrackerOptions {
   readonly clock: ConsoleClock;

@@ -18,7 +18,7 @@
 //
 // WHERE THE READING LIVES INSTEAD
 //
-// `apps/desktop/test/console/endurance/heap-at-rest.test.ts`, which is what the
+// `apps/desktop/tests/endurance/heap-at-rest.test.ts`, which is what the
 // registry row names. Heap readings belong on the
 // endurance tier, and that tier launches the built console in the Electron shell:
 // it opens the flagship scenario's own session, walks the frozen clock over the
@@ -78,7 +78,7 @@ export class HeapAtRestMeasurerMisattributedError extends BudgetSubjectMissingEr
         "The figure this budget bounds is a renderer heap with one session open. This is a Node " +
         "process: no Chromium, no renderer isolate, no React, no DOM, no console store. The " +
         "reading belongs to the endurance tier, which launches the built console — see " +
-        "`apps/desktop/test/console/endurance/heap-at-rest.test.ts`.\n",
+        "`apps/desktop/tests/endurance/heap-at-rest.test.ts`.\n",
     );
     this.name = "HeapAtRestMeasurerMisattributedError";
   }

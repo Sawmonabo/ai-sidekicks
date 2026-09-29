@@ -33,14 +33,14 @@ import {
   BASE64_ENCODE_STRIDE_BYTES,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
-} from "./attachment-caps.js";
+} from "@renderer/features/composer/attachments/attachment-caps.js";
 import {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
-} from "./diff-caps.js";
+} from "@renderer/features/repos/diff-caps.js";
 import { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./fixture-caps.js";
 import {
   LEDGER_EARLIER_PAGE_ROWS,
@@ -49,25 +49,35 @@ import {
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
-} from "./ledger-frame-caps.js";
-import { CHAPTER_VISIBLE_ROW_CAP, FIND_MATCH_CAP } from "./ledger-structure-caps.js";
+} from "@renderer/features/transcript/frame/frame-caps.js";
+import {
+  CHAPTER_VISIBLE_ROW_CAP,
+  FIND_MATCH_CAP,
+} from "@renderer/features/transcript/structure/structure-caps.js";
 import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
-} from "./live-announcement-caps.js";
+} from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import { PALETTE_RECENTS_CAP, PALETTE_RESULT_CAP, WHEN_CLAUSE_MAX_DEPTH } from "./palette-caps.js";
 import {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
 } from "./persistence-caps.js";
-import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
+import {
+  APPLY_COALESCE_MS,
+  REFRESH_DEBOUNCE_MS,
+  REFRESH_MAX_WAIT_MS,
+} from "@renderer/lib/reads/refresh-caps.js";
 import {
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PRE_INITIALISATION_BUFFER_CAP,
-} from "./session-store-caps.js";
-import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
-import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "./workflows-caps.js";
+} from "@renderer/store/session/session-store-caps.js";
+import { TRIPWIRE_REPORT_CAP } from "@renderer/lib/tripwire-caps.js";
+import {
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
+} from "@renderer/features/workflows/workflows-caps.js";
 
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
 const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [

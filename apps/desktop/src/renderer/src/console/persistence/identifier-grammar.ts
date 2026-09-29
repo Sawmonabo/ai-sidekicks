@@ -23,8 +23,11 @@
 // the ceiling, the path-separator exclusion — is the half a reviewer has to be able
 // to read on one screen without the seven class shapes around it.
 
-import { IDENTIFIER_MAX_LENGTH } from "../core/index.js";
-import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
+import { IDENTIFIER_MAX_LENGTH } from "@renderer/console/core/constants/persistence-caps.js";
+import {
+  refusePersistence,
+  type PersistenceRefusal,
+} from "@renderer/store/persistence/persistence-refusals.js";
 
 /**
  * The identifier charset: no whitespace, no quotes, no brackets. Chosen from what

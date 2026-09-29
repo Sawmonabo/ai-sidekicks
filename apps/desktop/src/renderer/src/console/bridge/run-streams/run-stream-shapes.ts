@@ -21,8 +21,8 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ZodType } from "zod";
 
-import { readWireString } from "../../core/index.js";
-import type { ConsoleSessionEvent } from "../../store/index.js";
+import { readWireString } from "@renderer/lib/wire-strings.js";
+import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 
 /** One registered payload a narrowed run stream delivers. */
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;

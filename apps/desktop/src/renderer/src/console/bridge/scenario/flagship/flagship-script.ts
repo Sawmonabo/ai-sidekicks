@@ -8,8 +8,11 @@
 // rule, at the same seam: they say what a row of a kind LOOKS like, and this file
 // says which rows play and when.
 
-import { ledgerOpeningEntries } from "../ledger/ledger-opening-entries.js";
-import { createLedgerLaneEntries, type LedgerScriptEntry } from "../ledger/ledger-script.js";
+import { ledgerOpeningEntries } from "../../../../../../../fixtures/data/opening-entries.js";
+import {
+  createLedgerLaneEntries,
+  type LedgerScriptEntry,
+} from "../../../../../../../fixtures/data/script-entries.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

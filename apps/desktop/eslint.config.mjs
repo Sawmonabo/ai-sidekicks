@@ -49,22 +49,22 @@
 // a "merge conflict" between two selectors. Each block below is therefore
 // self-contained by necessity.
 //
-// The console/shell block below is the one place a file IS matched by two
+// The wire-parsing block below is the one place a file IS matched by two
 // `no-restricted-imports` objects, and it is written knowing that: it restates the
 // renderer ban by SPREADING the two arrays hoisted directly beneath this comment
 // rather than by copying them, so the replace-not-merge semantics above cost the
-// console nothing and a ban added to the renderer list reaches the console with it.
+// renderer nothing and a ban added to the renderer list reaches that block with it.
 // The one thing that block adds is `zod` — see its own comment.
 import {
-  CONSOLE_TIME_READING_EXEMPT_FILES,
-  CONSOLE_TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
-} from "./eslint.console-syntax-bans.mjs";
+  TIME_READING_EXEMPT_FILES,
+  TIME_READING_SELECTORS,
+} from "./eslint.restricted-syntax.mjs";
 import perfectionist from "eslint-plugin-perfectionist";
 import root from "../../eslint.config.mjs";
 
 /**
- * The bare specifiers renderer source may not import. Hoisted so the console/shell
+ * The bare specifiers renderer source may not import. Hoisted so the wire-parsing
  * block can extend the list instead of restating it: flat config REPLACES a rule's
  * options at the last matching object, so a second block that spelled out its own
  * shorter list would silently delete every entry it forgot.
@@ -169,16 +169,16 @@ const RENDERER_RESTRICTED_PATTERNS = [
 ];
 
 /**
- * The groups a console or shell module may not import: the renderer's, plus the two
- * that keep wire parsing out of a surface.
+ * The groups a renderer module outside `services/` may not import: the renderer's, plus
+ * the two that keep wire parsing out of a surface.
  *
  * Hoisted because flat config replaces a rule's options at the LAST matching config
- * object, so any narrower block below that names a console file would have to restate
+ * object, so any narrower block below that names a renderer file would have to restate
  * this whole union — and a union spread from one const cannot drift from the block it
  * was copied out of. One block spends it today; the hoist stays because the hazard is
  * the rule's, not that block's, and a second narrower block is one edit away.
  */
-const CONSOLE_RESTRICTED_PATTERNS = [
+const RENDERER_WIRE_RESTRICTED_PATTERNS = [
   ...RENDERER_RESTRICTED_PATTERNS,
   {
     // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
@@ -186,7 +186,7 @@ const CONSOLE_RESTRICTED_PATTERNS = [
     // on the bare form alone would be one import away from useless.
     group: ["zod", "zod/**"],
     message:
-      "A console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+      "A surface never parses a wire value itself. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
   },
   {
     // The same claim as the `zod` group above, on the schemas the corpus
@@ -201,15 +201,15 @@ const CONSOLE_RESTRICTED_PATTERNS = [
     // corpus spells a parser, not a guess about one.
     importNamePattern: "Schema$",
     message:
-      "A console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+      "A surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
   },
 ];
 
 /**
  * Reading the preload bridge off the window.
  *
- * `console/bridge/live-bridge.ts` is the one console module that may — `BridgeProvider`
- * calls its `readInstalledBridge` and hands the result down as context, so the provider
+ * `services/platform/live-bridge.ts` is the one renderer module that may — the platform
+ * bridge provider calls its `readInstalledBridge` and hands the result down as context, so the provider
  * is where the bridge is DISTRIBUTED and the live bridge is where it is READ. A second
  * reader is a second idea of when the bridge exists, what it does before it does, and
  * which fixture stands in for it under test.
@@ -237,7 +237,7 @@ const BRIDGE_GLOBAL_READ = {
   selector:
     ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], MemberExpression[object.name="globalThis"][property.name="desktopBridge"], MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
   message:
-    "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+    "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `services/platform/live-bridge.ts`, and every surface above it takes the bridge from the platform bridge provider's context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
 
 /**
@@ -292,12 +292,12 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
   },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
   },
 ];
 
@@ -313,9 +313,9 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
  *
  * SCOPE: every directory this package's `lint` script reads — `src/**` (the renderer
  * union and, through the widest `src` block, `src/main/**`, `src/preload/**`, and
- * `src/shared/**`), `test/**`, `scripts/**`, `build/**`, and `vitest/**`. That set is
+ * `src/shared/**`), `tests/**`, `fixtures/**`, `scripts/**`, `build/**`, and `vitest/**`. That set is
  * not decoration: five of `main-unit`'s six `include` entries live outside the renderer
- * and `test/**` unions, so a ban that stopped there would leave the process-wide mode
+ * and `tests/**` unions, so a ban that stopped there would leave the process-wide mode
  * unguarded in exactly the projects that run under it. Because flat config REPLACES a
  * rule's options at the last matching block, the selector is added to each block by
  * name rather than declared once in a widest one, which a later block would drop.
@@ -343,11 +343,11 @@ const SCREENSHOT_MATCHER_REACH = {
   selector:
     ':matches(MemberExpression[property.name="toMatchScreenshot"], MemberExpression[computed=true][property.value="toMatchScreenshot"])',
   message:
-    "The test rules in `apps/desktop/AGENTS.md`: a screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
+    "The test rules in `apps/desktop/AGENTS.md`: a screenshot is taken through `tests/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
 };
 
 /**
- * A stylesheet entering through a component rather than through its directory's door.
+ * A stylesheet imported by a component rather than by its feature's entry.
  *
  * Relative specifiers only: the rule is about the sheets this tree owns, and a vendor
  * sheet reached by package specifier has no owning directory here to enter through.
@@ -362,7 +362,7 @@ const RELATIVE_STYLESHEET_SPECIFIER = "^[.][.]?[/].*[.]css(?:[?].*)?$";
 const STYLESHEET_THROUGH_OWNER = {
   selector: `:matches(ImportDeclaration[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/], ImportExpression[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/])`,
   message:
-    "The module-shape rules in `apps/desktop/AGENTS.md`: a stylesheet enters through the barrel of the directory that OWNS it — that directory's `index.ts`, or the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — and through no component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
+    "The stylesheet rule in `apps/desktop/AGENTS.md`: a sheet sits beside its component, and its import sits in one ordered list at the feature's `index.ts` or at the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — never in a component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
 };
 
 /**
@@ -404,20 +404,14 @@ const RENDERER_SYNTAX_BANS = [
   // exactly the files that already carry them. Riding the union puts the ban on the
   // renderer's co-located tests, which is where a snapshot would actually be written.
   TEXT_SNAPSHOT_MATCHER_REACH,
-  // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
-  // not the console's: a surface that reads the bridge off the global with no existence
-  // check throws inside a render under a preload that failed to install.
+  // A surface that reads the bridge off the global with no existence check throws
+  // inside a render under a preload that failed to install.
   BRIDGE_GLOBAL_READ,
-];
-
-/** The same, plus what only the console and the shell subtree it composes seats for carry. */
-const CONSOLE_SYNTAX_BANS = [
-  ...RENDERER_SYNTAX_BANS,
-  ...CONSOLE_TIME_READING_SELECTORS,
+  ...TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
 ];
 
-/** What every file under `test/` carries. */
+/** What every test file carries. */
 const TEST_SYNTAX_BANS = [
   EXPORT_DEFAULT_DECLARATION,
   SCREENSHOT_MATCHER_REACH,
@@ -426,15 +420,15 @@ const TEST_SYNTAX_BANS = [
 ];
 
 /**
- * The console tiers, which read the same wire stamps the console does.
+ * The test tiers, which read the same wire stamps the renderer does.
  *
- * The exported-collection ban is here for the same reason it is in the console union: a
+ * The exported-collection ban is here for the same reason it is in the renderer union: a
  * tier module that publishes a `Set` publishes one object every suite in the project
  * shares, and a suite that grows it changes what a later suite measures.
  */
-const CONSOLE_TIER_SYNTAX_BANS = [
+const TIER_SYNTAX_BANS = [
   ...TEST_SYNTAX_BANS,
-  ...CONSOLE_TIME_READING_SELECTORS,
+  ...TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
 ];
 
@@ -449,8 +443,23 @@ function withoutSelectors(bans, ...liftedBans) {
   return bans.filter((ban) => !liftedBans.includes(ban));
 }
 
-/** The stylesheet owners: a directory's own door, and the root of a lazily-loaded chunk. */
+/** The stylesheet entries: a feature's `index.ts`, and the root of a lazily-loaded chunk. */
 const STYLESHEET_OWNER_FILES = ["**/index.ts", "**/*-body.{ts,tsx}"];
+
+/**
+ * Held open while the restructure places them, and removed one by one as each is placed:
+ * modules that validate with `zod` or a contracts schema outside `services/`, and the
+ * sessions door that still imports its sheets. The list only shrinks.
+ */
+const WIRE_PARSE_HELD_FILES = [
+  "src/renderer/src/store/session-events/approval-flow-projection.ts",
+  "src/renderer/src/features/workflows/schema-form/json-schema-validator.ts",
+  "src/renderer/src/features/transcript/queue/queue-feed.test-support.tsx",
+  "src/renderer/src/features/transcript/queue/queue-order.test.ts",
+  "src/renderer/src/store/provider-accounts/provider-account-fold.test.ts",
+  "src/renderer/src/store/provider-accounts/provider-account-notification-hold.test.ts",
+];
+const STYLESHEET_HELD_FILES = ["src/renderer/src/features/sessions/contributions/screens.ts"];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
 const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
@@ -479,7 +488,7 @@ function rendererFiles(subtree, patterns) {
  * every `VariableDeclaration`, so the rule neither positions a constant nor moves any
  * declaration across one.
  */
-const CONSOLE_MODULE_GROUPS = [
+const MODULE_SECTION_GROUPS = [
   ["export-type", "export-interface"],
   "export-class",
   "export-function",
@@ -495,7 +504,7 @@ const CONSOLE_MODULE_GROUPS = [
  * reads as `private` (`node-info/common-modifiers.js`), so both halves match on this
  * tree's own style without an explicit keyword.
  */
-const CONSOLE_CLASS_GROUPS = [
+const CLASS_SECTION_GROUPS = [
   ["index-signature", "static-block", "property", "accessor-property", "function-property"],
   "constructor",
   ["public-method", "public-get-method", "public-set-method"],
@@ -578,13 +587,13 @@ export default [
       ],
     },
   },
-  // The CONSOLE and the shell subtree it composes seats for. One entry more than
-  // the renderer block above, and one subtree less.
+  // The renderer outside `services/`. One entry more than the renderer block above, and
+  // one subtree less.
   //
   // WHAT IT ADDS. `zod`, AND THE SCHEMAS `@ai-sidekicks/contracts` ALREADY SHIPS.
-  // Every daemon reply the console reads is parsed at one door —
-  // `console/bridge/daemon/daemon-reply.ts`, against the schemas
-  // `console/bridge/daemon/daemon-reply-registry.ts` binds to each method — and a surface
+  // Every daemon reply the renderer reads is parsed at one door —
+  // `services/daemon/daemon-reply.ts`, against the schemas
+  // `services/daemon/daemon-reply-registry.ts` binds to each method — and a surface
   // that could reach the validator directly could parse a second time, differently,
   // or skip the parse and keep the fulfilled `unknown`. That is not hypothetical:
   // the per-family parsers this chokepoint replaces were three different readings
@@ -593,46 +602,51 @@ export default [
   //
   // BANNING `zod` ALONE LEFT THE SECOND PARSER ONE IMPORT AWAY. The contracts
   // package publicly exports the ready-made schema objects the registry composes,
-  // and the console is otherwise free to import that package — so a surface could
+  // and the renderer is otherwise free to import that package — so a surface could
   // take `QueueItemListResponseSchema`, call `.safeParse()` on a reply it obtained
   // directly, and be exactly the per-surface parser this gate claims to reject,
   // with no lint error anywhere. The ban is therefore on the NAME as well as on the
-  // package: a console module outside `bridge/**` may import types and non-schema
+  // package: a renderer module outside `services/**` may import types and non-schema
   // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`,
   // `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`) and no binding whose name ends in `Schema`.
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the
   // other candidate and is measurably worse in both directions. `.parse(` is not a
-  // zod name: `console/palette/when-clause/when-clause-parser.ts` calls `.parse()` on its own
+  // zod name: `registries/commands/when-clause/when-clause-parser.ts` calls `.parse()` on its own
   // parser and the two exempt time suites call `Date.parse`, so the selector's
   // first three findings in this tree would be false — a ban whose false alarms
   // outnumber its findings is a ban somebody turns off. And `.safeParse(` needs no
   // banning once the import is banned: a schema can only ARRIVE by importing `zod`
-  // (banned above), by importing this package (banned here), or through a console
-  // barrel that re-exported one — and no console barrel does, which this ban is what
+  // (banned above), by importing this package (banned here), or through a renderer
+  // barrel that re-exported one — and no renderer barrel does, which this ban is what
   // keeps true: a barrel can only re-export a schema it imported, and both spellings
   // of that import refuse here.
   //
-  // WHY `console/bridge/**` IS EXEMPT RATHER THAN THE CHOKEPOINT FILE ALONE. The
+  // WHY `services/**` IS EXEMPT RATHER THAN THE CHOKEPOINT FILE ALONE. The
   // registry composes contracts-exported schemas, the run-stream projector decodes
   // a subscription payload, and the wire-truth scenarios assert against the wire's
-  // own shapes — three modules in one family, all of them below every surface. The
-  // family is the honest unit: a file-scoped exemption would have to grow a line
-  // per module and would say nothing about which layer may hold a validator.
+  // own shapes — three modules in one layer, all of them below every surface. The
+  // layer is the honest unit: a file-scoped exemption would have to grow a line
+  // per module and would say nothing about which layer may hold a validator. The
+  // bridge files still under `console/bridge/` until they move share the exemption.
   //
   // WHY IT RESTATES THE RENDERER BAN. Flat config replaces a rule's options at the
   // last matching object, so this block must carry every entry that block carries
-  // or the console silently loses the renderer-untrusted boundary. It SPREADS the
+  // or the renderer silently loses the renderer-untrusted boundary. It SPREADS the
   // hoisted arrays rather than copying them, so the two cannot drift.
   {
-    files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
-    ignores: ["src/renderer/src/console/bridge/**"],
+    files: ["src/renderer/src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/renderer/src/services/**",
+      "src/renderer/src/console/bridge/**",
+      ...WIRE_PARSE_HELD_FILES,
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           paths: RENDERER_RESTRICTED_PATHS,
-          patterns: CONSOLE_RESTRICTED_PATTERNS,
+          patterns: RENDERER_WIRE_RESTRICTED_PATTERNS,
         },
       ],
     },
@@ -674,13 +688,9 @@ export default [
     rules: { "no-restricted-syntax": ["error", ...RENDERER_SYNTAX_BANS] },
   },
   {
-    files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
-    rules: { "no-restricted-syntax": ["error", ...CONSOLE_SYNTAX_BANS] },
-  },
-  {
-    // The stylesheet owners, renderer-wide: a directory's own door and the root of a
-    // lazily-loaded chunk are where a sheet is SUPPOSED to enter.
-    files: rendererFiles("**", STYLESHEET_OWNER_FILES),
+    // The stylesheet entries: a feature's `index.ts` and the root of a lazily-loaded
+    // chunk are where a sheet is SUPPOSED to be imported.
+    files: [...rendererFiles("**", STYLESHEET_OWNER_FILES), ...STYLESHEET_HELD_FILES],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -689,24 +699,12 @@ export default [
     },
   },
   {
-    files: [
-      ...rendererFiles("console/**", STYLESHEET_OWNER_FILES),
-      ...rendererFiles("shell/**", STYLESHEET_OWNER_FILES),
-    ],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...withoutSelectors(CONSOLE_SYNTAX_BANS, STYLESHEET_THROUGH_OWNER),
-      ],
-    },
-  },
-  {
     // Suites and their scaffolding. A module-level `let` reassigned in `beforeEach` is
     // the standard vitest shape and holds no state anything else can reach, so the ban
     // on shared runtime singletons is lifted here and every other selector restated.
     //
-    // The bridge-global ban comes off for the same reason the console tests' does: a
-    // renderer suite INSTALLS a fixture bridge on the global and deletes it again in
+    // The bridge-global ban comes off because a renderer suite INSTALLS a fixture
+    // bridge on the global and deletes it again in
     // `afterEach`, and that installation is the substitution seam the ban exists to
     // protect rather than a second reader of it.
     files: rendererFiles("**", RENDERER_TEST_FILES),
@@ -718,45 +716,31 @@ export default [
     },
   },
   {
-    files: [
-      ...rendererFiles("console/**", RENDERER_TEST_FILES),
-      ...rendererFiles("shell/**", RENDERER_TEST_FILES),
-    ],
-    rules: {
-      // The bridge-global ban comes off here and only here among the bans: a console
-      // test INSTALLS a fixture bridge on the global, and that installation is the
-      // substitution seam the ban exists to protect rather than a second reader of it.
-      "no-restricted-syntax": [
-        "error",
-        ...withoutSelectors(CONSOLE_SYNTAX_BANS, MODULE_LEVEL_LET, BRIDGE_GLOBAL_READ),
-      ],
-    },
-  },
-  {
     // The two time-ban negative controls, which have to CALL the banned API to
-    // demonstrate what it answers. Everything else the console carries stays on.
-    files: CONSOLE_TIME_READING_EXEMPT_FILES,
+    // demonstrate what it answers. Everything else the renderer carries stays on.
+    files: TIME_READING_EXEMPT_FILES,
     rules: {
       "no-restricted-syntax": [
         "error",
         ...withoutSelectors(
-          CONSOLE_SYNTAX_BANS,
+          RENDERER_SYNTAX_BANS,
           MODULE_LEVEL_LET,
           BRIDGE_GLOBAL_READ,
-          ...CONSOLE_TIME_READING_SELECTORS,
+          ...TIME_READING_SELECTORS,
         ),
       ],
     },
   },
   {
-    // The one console module that may read the bridge off the window. `BridgeProvider`
-    // calls into it and hands the result down as context, so every surface above takes
-    // the bridge FROM here and the ban is lifted exactly here and nowhere else.
-    files: ["src/renderer/src/console/bridge/live-bridge.ts"],
+    // The one renderer module that may read the bridge off the window. The platform
+    // bridge provider calls into it and hands the result down as context, so every
+    // surface above takes the bridge FROM here and the ban is lifted exactly here and
+    // nowhere else.
+    files: ["src/renderer/src/services/platform/live-bridge.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        ...withoutSelectors(CONSOLE_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
       ],
     },
   },
@@ -765,29 +749,41 @@ export default [
     rules: { "no-restricted-syntax": ["error", ...TEST_SYNTAX_BANS] },
   },
   {
-    files: ["test/console/**/*.{ts,tsx}"],
-    rules: { "no-restricted-syntax": ["error", ...CONSOLE_TIER_SYNTAX_BANS] },
+    files: ["tests/**/*.{ts,tsx}", "test/console/**/*.{ts,tsx}", "fixtures/**/*.ts"],
+    rules: { "no-restricted-syntax": ["error", ...TIER_SYNTAX_BANS] },
+  },
+  {
+    // The process-table reader parses the start stamp `ps` prints for a process. That is
+    // the operating system's clock, read in the host's zone on purpose, not a wire
+    // instant, so the time-reading bans do not apply to it.
+    files: ["tests/helpers/process-tree/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(TIER_SYNTAX_BANS, ...TIME_READING_SELECTORS),
+      ],
+    },
   },
   {
     // The capture door itself, and nothing else. The tier compares nothing since
     // 2026-09-09, so the probe that used to assert the matcher REJECTS is gone with
     // the comparison it probed, and this exemption is one file wide.
-    files: ["test/console/screenshot/settled-capture.ts"],
+    files: ["tests/screenshot/settled-capture.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        ...withoutSelectors(CONSOLE_TIER_SYNTAX_BANS, SCREENSHOT_MATCHER_REACH),
+        ...withoutSelectors(TIER_SYNTAX_BANS, SCREENSHOT_MATCHER_REACH),
       ],
     },
   },
   {
     // The spawn door. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
-    files: ["test/helpers/electron-child.ts"],
+    files: ["tests/helpers/electron-child.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        ...withoutSelectors(TEST_SYNTAX_BANS, ...CHILD_PROCESS_DYNAMIC_REACH),
+        ...withoutSelectors(TIER_SYNTAX_BANS, ...CHILD_PROCESS_DYNAMIC_REACH),
       ],
     },
   },
@@ -821,13 +817,13 @@ export default [
     // A declaration file carries no runtime code — no call, no assignment, no import of
     // a stylesheet — so every selector above is unreachable in one, and the `export
     // default` inside an ambient `declare module` is how a virtual module that DOES
-    // default-export is typed (`~icons/*` in `console-env.d.ts`).
+    // default-export is typed (`~icons/*` in `vite-env.d.ts`).
     files: ["**/*.d.ts"],
     rules: { "no-restricted-syntax": "off" },
   },
   // --- The refresh cadence: no wall-clock polling in the renderer ----------------
   //
-  // Every refresh goes through `console/store/read/refresh-scheduler.ts`, which the console's own
+  // Every refresh goes through `lib/reads/refresh-scheduler.ts`, which the renderer's own
   // read scheduling is built on. A `setInterval` beside it is a second cadence nothing
   // cancels on unmount, nothing pauses when the window is hidden, and nothing bounds
   // when the daemon stops answering. Both spellings, because `window.setInterval` and
@@ -840,7 +836,7 @@ export default [
         {
           name: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
       "no-restricted-properties": [
@@ -849,13 +845,13 @@ export default [
           object: "window",
           property: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
         {
           object: "globalThis",
           property: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
     },
@@ -868,7 +864,12 @@ export default [
   // absent: it settles before the statement after it, so it leaves no child for a test
   // to own.
   {
-    files: ["test/**/*.{ts,tsx}", "src/main/**/*.ts", "scripts/**/*.{ts,mts}"],
+    files: [
+      "tests/**/*.{ts,tsx}",
+      "test/**/*.{ts,tsx}",
+      "src/main/**/*.ts",
+      "scripts/**/*.{ts,mts}",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -878,13 +879,13 @@ export default [
               name: "node:child_process",
               importNames: ["spawn"],
               message:
-                "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
+                "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
             },
             {
               name: "child_process",
               importNames: ["spawn"],
               message:
-                "The test rules in `apps/desktop/AGENTS.md`: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
+                "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
           ],
         },
@@ -892,14 +893,14 @@ export default [
     },
   },
   {
-    // The door itself.
-    files: ["test/helpers/electron-child.ts"],
+    // The spawn module itself.
+    files: ["tests/helpers/electron-child.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   // --- Member order: the file and class shapes `AGENTS.md` states under Module shape ---
   //
-  // Scope is the console subtree ONLY — `src/renderer/src/console/**/*.{ts,tsx}`,
-  // co-located tests included, since a suite reads top to bottom like anything else.
+  // Scope is the renderer source — `src/renderer/src/**/*.{ts,tsx}` — co-located tests
+  // included, since a suite reads top to bottom like anything else.
   //
   // Both rules run `type: "unsorted"`: the claim is the ORDER OF THE SECTIONS, never an
   // alphabet. Within a section source order is preserved exactly, so a file whose
@@ -912,11 +913,11 @@ export default [
   // admits. `@typescript-eslint/member-ordering` stays frozen
   // out, and no other perfectionist rule is enabled.
   {
-    files: ["src/renderer/src/console/**/*.{ts,tsx}"],
+    files: ["src/renderer/src/**/*.{ts,tsx}"],
     plugins: { perfectionist },
     rules: {
-      "perfectionist/sort-modules": ["error", { type: "unsorted", groups: CONSOLE_MODULE_GROUPS }],
-      "perfectionist/sort-classes": ["error", { type: "unsorted", groups: CONSOLE_CLASS_GROUPS }],
+      "perfectionist/sort-modules": ["error", { type: "unsorted", groups: MODULE_SECTION_GROUPS }],
+      "perfectionist/sort-classes": ["error", { type: "unsorted", groups: CLASS_SECTION_GROUPS }],
     },
   },
 ];

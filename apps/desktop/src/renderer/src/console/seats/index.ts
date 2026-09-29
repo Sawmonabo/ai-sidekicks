@@ -69,7 +69,7 @@
 // module carries the same claim as a `// Consumed by` line. Both go in the PR that
 // imports the symbol — a tag that outlives its consumer fails the run.
 
-import "./pane-chrome.css";
+import "@renderer/components/PaneFrame/PaneFrame.css";
 // The schema form seat's rules are deliberately NOT here. That directory carries a
 // lazily-loaded chunk now, so it owns its own sheet and admits it at that chunk's root —
 // `apps/desktop/AGENTS.md`'s rule read from the owner's side. It loads with the first
@@ -101,7 +101,7 @@ export {
   // claims in a table, and a table needs the type its rows are. The workflows family
   // is the first with two — the rail's destination and the phase deep link.
   type ConsoleSurfaceRegistration,
-} from "./surface/surface-registry.js";
+} from "@renderer/registries/screens/screen-registry.js";
 
 // The frame-lifetime binding seat, beside the four that mount bodies. It is on this
 // door for the same reason every other board is — a family claims a place on it and
@@ -130,15 +130,19 @@ export {
 // mounts while a loader-backed body is in flight, and that frame names the context — and
 // re-exporting them from the boards here would put this door's readers back on a
 // specifier the declaration no longer lives at.
-export type { ConsolePaneContext } from "./pane/pane-context.js";
-export type { ConsoleSurfaceContext } from "./surface/surface-context.js";
+export type { ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
+export type { ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
 
 // `PANE_KINDS` and `EPHEMERAL_PANE_KINDS` are deliberately absent: every reader of
 // either SET is inside this family or is a suite that drives the kinds directly, and
 // both take `seats/pane-kinds.js` by its own specifier. A door line no production
 // module reads is one the barrel census fails, so the sets leave rather than being
 // tagged. Their two predicates stay, because the deck asks both of them.
-export { isEphemeralPaneKind, isPaneKind, type PaneKind } from "./pane/pane-kinds.js";
+export {
+  isEphemeralPaneKind,
+  isPaneKind,
+  type PaneKind,
+} from "@renderer/routing/panes/pane-kinds.js";
 
 export {
   /** @consumedBy a view family that has not landed yet */
@@ -149,9 +153,9 @@ export {
   type ConsolePaneOpener,
   /** @consumedBy a view family that has not landed yet */
   type PaneEntityScopeDeclaration,
-} from "./pane/pane-address.js";
+} from "@renderer/routing/panes/pane-address.js";
 
-export { parseConsolePaneAddress } from "./pane/pane-address-parse.js";
+export { parseConsolePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 
 export {
   ConsolePaneRegistry,
@@ -160,7 +164,7 @@ export {
   registeredPaneKinds,
   type ConsolePaneDescriptor,
   type ConsolePaneRegistration,
-} from "./pane/pane-registry.js";
+} from "@renderer/registries/panes/pane-registry.js";
 
 // The idle warm and its scheduler. Published because the composition that owns a
 // window's first frame is the one that starts the walk, and that composition is
@@ -169,7 +173,7 @@ export {
   LazyBodyIdleWarm,
   idleWarmScheduler,
   type IdleWarmScheduler,
-} from "./lazy-body/lazy-body-warm.js";
+} from "@renderer/components/LazyBody/lazy-body-warm.js";
 
 // THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
 //
@@ -202,8 +206,11 @@ export {
 // `LazyBodyBoard` and `LazyBodyModule` stay absent — named only by the boards and the
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
-export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
-export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
+export {
+  PENDING_PANE_BODY_ATTRIBUTE,
+  reservedBodyRegion,
+} from "@renderer/components/LazyBody/pending-body-marker.js";
+export { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 
 export {
   composerSeatRenderer,
@@ -213,11 +220,14 @@ export {
   type ComposerSeatProps,
   /** @consumedBy a view family that has not landed yet */
   type ComposerSeatRenderer,
-} from "./composer/composer-seat.js";
+} from "@renderer/registries/composer/composer-registry.js";
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
 // are two view families that name each other nowhere.
-export { requestComposerFocus, subscribeToComposerFocus } from "./composer/composer-focus.js";
+export {
+  requestComposerFocus,
+  subscribeToComposerFocus,
+} from "@renderer/features/composer/composer-focus-requests.js";
 
 export {
   /** @consumedBy a view family that has not landed yet */
@@ -227,7 +237,7 @@ export {
   type TimelineRowDensity,
   type TimelineRowRenderer,
   type TimelineRowSlotProps,
-} from "./slots/timeline-row-slot.js";
+} from "@renderer/features/transcript/transcript-row-renderer.js";
 
 // The footer seat publishes only what a PRODUCTION reader takes: the shell's
 // registration, the ledger's mount, and the two types both name. Its slot contract,
@@ -238,7 +248,7 @@ export {
   rowTakesFooter,
   timelineRowFooterRenderer,
   type TimelineRowFooterRenderer,
-} from "./slots/timeline-row-footer-seat.js";
+} from "@renderer/features/transcript/transcript-row-footer-renderer.js";
 
 // `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an
 // object literal and `inlineCardBody` answers already narrowed, so the reservation that
@@ -259,7 +269,7 @@ export {
   /** @consumedBy a view family that has not landed yet */
   type InlineCardPropsByKind,
   type InlineCardSeatProps,
-} from "./slots/inline-card-seats.js";
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 
 // The pane chrome and the seam its host control travels on. No marker on any of
 // these lines, and every half of the reason has now happened: shipped pane bodies
@@ -314,7 +324,10 @@ export type { SessionDirectoryReadCall, SessionDirectoryState } from "./session-
 // import the other, so a second spelling in either would be a contract with two homes
 // and one reader. The module beside this line carries no runtime value at all: what a
 // settled start DOES is the sessions family's act, and this seat carries only the id.
-export type { FirstTurnQueueCall, NewSessionControlProps } from "./slots/new-session-seat.js";
+export type {
+  FirstTurnQueueCall,
+  NewSessionControlProps,
+} from "@renderer/features/sessions/new-session/new-session-control-contract.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
@@ -346,7 +359,7 @@ export { consoleRefusalFrom, servedValueOrRaise } from "./read/served-value.js";
 export {
   /** @consumedBy a surface that listens for one daemon event */
   subscribeDaemonEvent,
-} from "./read/wire-access.js";
+} from "@renderer/services/daemon/subscribe-daemon-event.js";
 
 // THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
 // composed surfaces and the schema-validated raw editor behind them. Here for the reason
@@ -388,4 +401,4 @@ export {
   schemaFormAnswerMount,
   schemaFormChunk,
   schemaFormPreviewMount,
-} from "./schema-form/schema-form-mounts.js";
+} from "@renderer/features/workflows/schema-form/schema-form-mounts.js";

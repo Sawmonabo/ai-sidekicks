@@ -26,28 +26,25 @@ import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../console-harness.js";
 
-import { registerBrowserPanes } from "../../../src/renderer/src/console/browser/index.js";
+import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
-import { fixtureSessionSnapshot } from "../../../src/renderer/src/console/bridge/fixture/session/session-snapshot.js";
+import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { unscriptedScenario } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
-import {
-  createFixtureBridge,
-  type ConsoleBridge,
-} from "../../../src/renderer/src/console/bridge/index.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
-import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
-import {
-  FrameStore,
-  SessionStore,
-  type ConsoleSessionEvent,
-} from "../../../src/renderer/src/console/store/index.js";
+import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { DraftStore } from "@renderer/store/draft-store.js";
+import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { FrameStore } from "@renderer/store/window/window-store.js";
+import { SessionStore } from "@renderer/store/session/session-store.js";
+import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { registerTerminalPanes } from "../../../src/renderer/src/console/terminal/index.js";
 import {
   type ConsolePaneContext,
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
-import { resolvedPaneBody } from "./pane-body-resolution.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+import { resolvedPaneBody } from "@test/helpers/feature-mounts/pane-body-resolution.js";
+import { COMPOSED_CONSOLE_PROJECTORS } from "@test/helpers/feature-mounts/projector-composition.js";
 
 /**
  * The browser or terminal pane body the deck holds for a kind, loaded.

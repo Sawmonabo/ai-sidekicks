@@ -29,17 +29,18 @@
 
 import { useEffect } from "react";
 
-import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "../../core/index.js";
-import { type UiStateStore } from "../../persistence/index.js";
-import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
+import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "@renderer/lib/refusal.js";
+import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type DeckLayout } from "../deck/model/deck-layout.js";
-import { paneAddressKey } from "../deck/model/deck-model.js";
-import { type DeckRestoreReport } from "../deck/model/deck-snapshot.js";
+import { paneAddressKey } from "@renderer/features/sessions/pane-layout/pane-layout.js";
+import { type DeckRestoreReport } from "@renderer/features/sessions/pane-layout/pane-layout-snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,
   type PersistedLayoutRecord,
-} from "./layout-writer.js";
+} from "@renderer/features/sessions/pane-layout/coalescing-layout-writer.js";
 /** The durable record the deck's arrangement is saved under, per session. */
 export const DECK_LAYOUT_RECORD_KEY = "deck-layout";
 

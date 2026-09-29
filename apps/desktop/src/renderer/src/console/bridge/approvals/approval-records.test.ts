@@ -15,7 +15,7 @@ import {
   readApprovalProjection,
   readRememberedRuleList,
   type ApprovalRecord,
-} from "./approval-records.js";
+} from "@renderer/services/approvals/approval-records.js";
 
 /** One row of `ApprovalProjectionReadResponse.approvals`, spelled as it is registered. */
 const REGISTERED_ROW = {

@@ -8,12 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "../../core/index.js";
+import {
+  SESSION_GOAL_MAX_LENGTH,
+  SESSION_GOAL_MIN_LENGTH,
+} from "@renderer/services/wire-shapes/session-goal-caps.js";
 import {
   isSendableGoalText,
   readGoalOriginKeys,
   readGoalPayloadText,
-} from "./session-goal-payloads.js";
+} from "@renderer/services/wire-shapes/session-goal-payloads.js";
 
 describe("what a sendable goal is", () => {
   it("accepts ordinary text and text at the ceiling", () => {

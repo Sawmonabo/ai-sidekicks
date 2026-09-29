@@ -34,19 +34,23 @@
 
 import { useCallback, useMemo } from "react";
 
-import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
-import { type ConsoleBridge } from "../bridge/index.js";
+import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { consoleCommandSurface } from "../palette/index.js";
-import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
-import { type FrameStore, type SessionStore } from "../store/index.js";
-import { type DraftStore, type UiStateStore } from "../persistence/index.js";
+import { routeSessionId } from "@renderer/routing/route-readers.js";
+import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type DraftStore } from "@renderer/store/draft-store.js";
+import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
-import { SessionHeader } from "./session-header/SessionHeader.js";
-import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
-import { Deck } from "./deck/Deck.js";
+import { SessionHeader } from "@renderer/features/sessions/session-header/components/SessionHeader.js";
+import { WorkspaceBannerRow } from "@renderer/features/sessions/components/SessionBannerRow.js";
+import { Deck } from "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
 import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/model/deck-layout.js";
-import type { DeckPane } from "./deck/model/deck-model.js";
+import type { DeckPane } from "@renderer/features/sessions/pane-layout/pane-layout.js";
 import { useDeckPersistence } from "./layout/layout-persistence.js";
 import {
   composerSeatRenderer,
@@ -62,7 +66,7 @@ import {
   raiseWorkspaceBanner,
   workspaceBannerKey,
   type WorkspaceBanner,
-} from "./banners/workspace-banners.js";
+} from "@renderer/features/sessions/session-banners.js";
 
 /**
  * The deck's five palette rows, contributed the moment this module is evaluated.

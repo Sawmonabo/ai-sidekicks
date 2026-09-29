@@ -28,7 +28,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from "react";
 
-import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 // The seat's own props type rather than a second declaration of the same two
 // members: this component IS a frame binding's mount, so its shape is the board's and
 // a local copy would be one more thing to keep in step.

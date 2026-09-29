@@ -4,7 +4,7 @@
 // these cases rank readings and not arrivals.
 
 import { describe, expect, it } from "vitest";
-import { foldSessionGoal } from "./session-goal.js";
+import { foldSessionGoal } from "@renderer/services/session-goal.js";
 import { TIED_INSTANT, event, goalClear, goalUpdate } from "./session-goal.test-support.js";
 
 describe("the fold answers what the log says", () => {

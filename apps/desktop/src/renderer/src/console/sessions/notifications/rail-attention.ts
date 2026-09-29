@@ -8,7 +8,7 @@
 // a healthy console, and a badge reading "0" on the most-seen surface in the product
 // would be permanent furniture reporting the absence of news.
 
-import type { AttentionReading } from "./attention-plane.js";
+import type { AttentionReading } from "@renderer/store/attention/attention-summary.js";
 
 /**
  * How many sessions the projection reported as needing a person.

@@ -7,9 +7,10 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
-import { LiveAnnouncer } from "./live-announcer.js";
-import { liveRegionText, politeText } from "./live-region.test-support.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
+import { ManualClock } from "@renderer/lib/clock.js";
+import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { liveRegionText, politeText } from "@test/helpers/live-region.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import {
   useAnnounceOncePerSentence,
@@ -17,9 +18,9 @@ import {
   useReadSettlementAnnouncement,
   type AnnouncementDedupeKey,
 } from "./reading-announcement.js";
-import { useSettlementAnnouncement } from "./settlement-announcement.js";
-import { uncheckedCoverageReading, type ReadingState } from "../reading/partial-read.js";
-import { PARSE_REFUSAL, READING_SUBJECT } from "../reading/partial-read.test-support.js";
+import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
+import { uncheckedCoverageReading, type ReadingState } from "@renderer/lib/partial-read.js";
+import { PARSE_REFUSAL, READING_SUBJECT } from "@test/helpers/partial-read.js";
 
 /** What one mounted surface hands back, whichever arity of the latch it drives. */
 interface AnnouncedRender<SurfaceProps> {

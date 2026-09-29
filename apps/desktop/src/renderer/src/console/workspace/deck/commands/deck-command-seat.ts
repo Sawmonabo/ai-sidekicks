@@ -36,13 +36,16 @@
 
 import { useEffect } from "react";
 
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   raiseConsoleActRefusal,
   type ConsoleCommand,
   type ConsoleCommandSurface,
 } from "../../../palette/index.js";
-import type { DeckActName, DeckActs } from "./deck-acts.js";
+import type {
+  DeckActName,
+  DeckActs,
+} from "@renderer/features/sessions/pane-layout/pane-layout-acts.js";
 
 /**
  * What an act says when no deck is mounted in this window.

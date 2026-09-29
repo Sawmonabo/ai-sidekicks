@@ -27,13 +27,13 @@
 // property the registrar had while it composed the pages itself: no second window
 // inherits this one's page set, and a suite renders against a registry it owns.
 
-import "./settings.css";
-import "./shared/settings-page.css";
-import "./shared/preference-toggle-row.css";
-import "./shared/account-plane-handoff/account-plane-handoff.css";
-import "./pages/appearance/appearance.css";
-import "./pages/keyboard/keyboard.css";
-import "./pages/mounts/mounts.css";
+import "@renderer/features/settings/settings-screen.css";
+import "@renderer/features/settings/settings-page.css";
+import "@renderer/features/settings/components/preference-toggle-row.css";
+import "@renderer/features/settings/pages/providers/components/account-plane-handoff.css";
+import "@renderer/features/settings/pages/appearance/appearance.css";
+import "@renderer/features/settings/pages/keyboard/keyboard.css";
+import "@renderer/features/settings/pages/runtime/mounted-folders/mounted-folders.css";
 
 import { createElement, useState } from "react";
 
@@ -46,9 +46,9 @@ import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
 import { registerBrowserSettingsPage } from "../browser-settings-page.js";
-import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
-import { SettingsPageRegistry } from "./settings-page-registry.js";
-import { SettingsSurface } from "./SettingsSurface.js";
+import { registerWorkspaceMountsPage } from "@renderer/features/settings/pages/runtime/mounted-folders/MountedFoldersBlock.js";
+import { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
+import { SettingsSurface } from "@renderer/features/settings/SettingsScreen.js";
 
 /**
  * The settings surface, with its pages composed for this mount.

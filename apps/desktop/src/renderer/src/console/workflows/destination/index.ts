@@ -15,6 +15,6 @@
 // directory made the reason another is styled at all — the shape the family sheet's
 // own header calls forbidden, and which its three sibling doors (`pane/builder/`,
 // `pane/run/`, `pane/run/phase-graph/`) already avoid by importing theirs.
-import "./workflows-destination.css";
+import "@renderer/features/workflows/WorkflowsScreen.css";
 
-export { WorkflowsDestination } from "./WorkflowsDestination.js";
+export { WorkflowsDestination } from "@renderer/features/workflows/WorkflowsScreen.js";

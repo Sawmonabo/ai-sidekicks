@@ -25,10 +25,10 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    // `rootDir` is `src/`, not `src/renderer/`, so the renderer may import
-    // `../shared/**` — a subtree BOTH processes compile (the wire-error reader and
-    // the composer chord). With `rootDir: "."` the first such import is TS6059 ("file is not under rootDir"), which would make the
-    // shared module importable in principle and a compile error in practice.
+    // `rootDir` is the package root, not `src/renderer/`, so the renderer may import
+    // `src/shared/**` (a subtree both processes compile) and `fixtures/**` (the
+    // scenario data the fixture implementations play). A narrower root makes the
+    // first such import TS6059 ("file is not under rootDir").
     //
     // `outDir` is NOT `../../out` and NOT `../../out/renderer`: the latter is the
     // directory `electron.vite.config.ts` gives the renderer BUNDLE, and the
@@ -41,13 +41,23 @@
     // renderer BUNDLE is built by `electron-vite`, not by this emit, so nothing
     // about the shipped tree depends on either path.
     "outDir": "../../out/tsc-renderer",
-    "rootDir": "..",
+    "rootDir": "../..",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
-  // `../shared/**/*` is listed explicitly because a composite project must list
-  // every file in its program (TS6307) — widening `rootDir` alone makes the
-  // import legal but still unlisted. Main compiles the same subtree under the
-  // package root config.
-  "include": ["**/*", "../shared/**/*"],
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
+  // `../shared/**/*` and `../../fixtures/**/*` are listed explicitly because a
+  // composite project must list every file in its program (TS6307); widening
+  // `rootDir` alone makes the import legal but still unlisted. Main compiles the
+  // shared subtree under the package root config.
+  //
+  // Tests and their support files are typechecked by `tsconfig.test.json`. An
+  // exclude pattern is anchored at this directory, so the fixtures' tests need
+  // their own line.
+  "include": ["**/*", "../shared/**/*", "../../fixtures/**/*"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test-support.ts",
+    "**/*.test-support.tsx",
+    "../../fixtures/**/*.test.ts"
+  ]
 }

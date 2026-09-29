@@ -32,7 +32,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-import { reportTripwire } from "../core/index.js";
+import { reportTripwire } from "@renderer/lib/tripwires.js";
 
 export interface SurfaceErrorBoundaryProps {
   /** What failed, in the person's words: "the timeline", "the approvals pane". */

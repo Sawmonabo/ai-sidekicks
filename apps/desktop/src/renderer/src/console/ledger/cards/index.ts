@@ -55,6 +55,6 @@
 // their own sheet there, because a door is what makes a directory an owner.
 import "./cards.css";
 
-export { projectFixtureShellRows } from "./shell/fixture-shell-projection.js";
+export { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 export { LedgerAskTerminalProvider } from "./bodies/AskTerminalProvider.js";
 export { deriveDriverAskTerminals, type DriverAskReading } from "./bodies/input-ask.js";

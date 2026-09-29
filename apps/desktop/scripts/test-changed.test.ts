@@ -252,12 +252,12 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   /**
    * A real `main-unit` test file, which the superseded selection could not run.
    *
-   * `src/shared/**` is owned by `main-unit`, and `main-unit` is exactly the
-   * project the fixed `--project=console-unit` excluded — so this file is the
-   * finding rather than an example of it. Small and dependency-free, so the case
-   * costs one short suite rather than a tier.
+   * `src/main/**` is owned by `main-unit`, and `main-unit` is exactly the
+   * project a fixed `--project=renderer` excludes — so this file is the finding
+   * rather than an example of it. Small and dependency-free, so the case costs one
+   * short suite rather than a tier.
    */
-  const MAIN_UNIT_FILE = "src/shared/wire-errors.test.ts";
+  const MAIN_UNIT_FILE = "src/main/services/missing-path.test.ts";
 
   /**
    * Vitest's own count line, which is the reading that says the file RAN.
@@ -269,7 +269,7 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   const TEST_FILE_COUNT = /Test Files\s+1 passed/;
 
   /** A real file owned by a tier this command deliberately does not run. */
-  const ELECTRON_TIER_FILE = "test/console/e2e/console-came-up-blank.test.ts";
+  const ELECTRON_TIER_FILE = "tests/e2e/window-came-up-blank.test.ts";
 
   /**
    * The usage line of vitest's own help, counted rather than merely found.

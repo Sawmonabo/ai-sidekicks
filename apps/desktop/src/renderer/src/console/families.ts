@@ -49,7 +49,7 @@ import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
 import { Workspace } from "./workspace/index.js";
-import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
+import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,

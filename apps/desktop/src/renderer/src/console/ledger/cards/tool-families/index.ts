@@ -15,8 +15,11 @@
 // in it.
 
 // The sheet this directory owns, imported by its own door.
-import "./tool-families.css";
+import "@renderer/features/transcript/rows/tool-kinds/tool-kinds.css";
 
-export { ToolSubFamilyBadge } from "./ToolSubFamilyBadge.js";
+export { ToolSubFamilyBadge } from "@renderer/features/transcript/rows/tool-kinds/ToolKindBadge.js";
 
-export { declaredToolSubFamily, type ToolSubFamilyRenderer } from "./tool-sub-families.js";
+export {
+  declaredToolSubFamily,
+  type ToolSubFamilyRenderer,
+} from "@renderer/features/transcript/rows/tool-kinds/tool-kinds.js";

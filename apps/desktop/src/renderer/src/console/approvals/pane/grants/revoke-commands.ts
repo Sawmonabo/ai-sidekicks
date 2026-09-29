@@ -17,7 +17,7 @@
 
 import { useMemo } from "react";
 
-import { type RememberedRule } from "../../../bridge/index.js";
+import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
 import { useLatestRef } from "../../../primitives/index.js";
 

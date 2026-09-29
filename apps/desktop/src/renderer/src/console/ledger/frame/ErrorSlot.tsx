@@ -23,7 +23,7 @@
 // module because it answers a different failure: this strip reports refusals the
 // pane COLLECTED, and that one catches a row that threw while being drawn.
 
-import { type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal, RefusalCard } from "../../primitives/index.js";
 
 /**

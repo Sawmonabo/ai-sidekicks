@@ -43,10 +43,7 @@ import { ExternalPackageIconLoader, FileSystemIconLoader } from "unplugin-icons/
 import Icons from "unplugin-icons/vite";
 import type { Plugin } from "vitest/config";
 
-import {
-  GLYPH_STROKE_WIDTH,
-  GLYPH_VIEWBOX_SIZE,
-} from "../src/renderer/src/console/tokens/glyphs.js";
+import { GLYPH_STROKE_WIDTH, GLYPH_VIEWBOX_SIZE } from "../src/renderer/src/styles/glyphs.js";
 
 /**
  * The `@svgr` JSX emitter as a VALUE, with the package's own mis-declaration corrected.
@@ -100,7 +97,7 @@ const TABLER_VIEWBOX_SIZE = 24;
 
 /** The directory holding one `.svg` per signature face. */
 const SIGNATURE_FACE_DIRECTORY = fileURLToPath(
-  new URL("../src/renderer/src/console/primitives/figures/glyph-faces/signature", import.meta.url),
+  new URL("../src/renderer/src/assets/icons/signature", import.meta.url),
 );
 
 /** The box each collection draws in, which is what the stroke scale divides by. */

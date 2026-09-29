@@ -29,17 +29,17 @@
 
 import { useEffect, useState } from "react";
 
-import type { ConsoleClock } from "../../core/index.js";
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleClock } from "@renderer/lib/clock.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { isCurrentSessionSubject, type SessionSubject } from "../../seats/index.js";
-import type { SessionStore } from "../../store/index.js";
+import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   createAgentRoster,
   createChildRunLinkage,
   type AgentConsoleCalls,
   type AgentRosterRead,
   type ChildRunLinkageRead,
-} from "./agent-console-reads.js";
+} from "@renderer/features/agents/agent-reads.js";
 
 /**
  * One holder's grant of a parent run's child-link read.

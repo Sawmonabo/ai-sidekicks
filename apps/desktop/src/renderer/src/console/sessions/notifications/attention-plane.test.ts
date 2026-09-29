@@ -10,8 +10,8 @@ import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
   type AttentionItem,
-} from "../../bridge/index.js";
-import { AttentionPlane } from "./attention-plane.js";
+} from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { AttentionPlane } from "@renderer/store/attention/attention-summary.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {

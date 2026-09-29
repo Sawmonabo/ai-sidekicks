@@ -42,16 +42,16 @@ import type { ReactNode } from "react";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import {
-  SCHEME_ATTRIBUTE,
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
   type SchemePreference,
-} from "../../../tokens/index.js";
-import type { SettingsPageRegistry } from "../../settings-page-registry.js";
+} from "@renderer/styles/tokens.js";
+import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
 
 /** The owner this page registers under. */
 const OWNER = "settings-appearance";

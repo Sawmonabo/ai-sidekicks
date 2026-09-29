@@ -46,11 +46,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ForwardingConsoleClock, type ConsoleClock } from "../core/index.js";
+import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
+import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/index.js";
-import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "./scenario/index.js";
+import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
+import { createLiveBridge, readInstalledBridge } from "@renderer/services/platform/live-bridge.js";
+import { consoleScenario } from "./scenario/manifest.js";
 import { DEFAULT_SCENARIO_ID, ScenarioFixtureControl } from "./scenario/selection.js";
 
 /** Why the console has no bridge at all. Rendered as the "error" kind of nothing. */

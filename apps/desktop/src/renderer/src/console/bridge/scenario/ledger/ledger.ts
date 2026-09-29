@@ -54,7 +54,7 @@
 //     served by no bridge namespace. The cards render the named absence, which is
 //     the true state of that wire today.
 
-import { scriptLedgerBeats } from "./ledger-script.js";
+import { scriptLedgerBeats } from "../../../../../../../fixtures/data/script-entries.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

@@ -29,10 +29,10 @@ import {
   describeViolations,
   plantAxeViolation,
   runTierAxe,
-} from "./axe-run.js";
+} from "@test/accessibility/axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
+import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {

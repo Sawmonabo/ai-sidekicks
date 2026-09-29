@@ -21,6 +21,6 @@
 // its renderer, and the door that imports it in one place.
 
 // The sheet this directory owns, imported by its own door.
-import "./seams.css";
+import "@renderer/features/transcript/system-messages/components/system-messages.css";
 
-export { SeamRow } from "./SeamRow.js";
+export { SeamRow } from "@renderer/features/transcript/system-messages/components/SystemMessage.js";

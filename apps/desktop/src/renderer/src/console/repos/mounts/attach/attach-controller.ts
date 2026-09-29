@@ -11,13 +11,11 @@ import { useCallback } from "react";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  ActController,
-  useActController,
-  type ActSettlementReading,
-} from "../../../store/index.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { ActController } from "@renderer/features/repos/acts/act-controller.js";
+import { useActController } from "@renderer/console/store/act/use-act-controller.js";
+import { type ActSettlementReading } from "@renderer/features/repos/acts/act-reading.js";
+import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
 
 /** What a finished attach carries: the mount the daemon minted for it. */
 export interface AttachSettlement {

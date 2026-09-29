@@ -30,13 +30,13 @@ import { cdp, server, userEvent } from "vitest/browser";
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import { crossMacrotaskBoundary } from "../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
-import { CONSOLE_DATABASE_NAME } from "../../src/renderer/src/console/persistence/indexeddb-adapter.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { CONSOLE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
 } from "../../src/renderer/src/console/seats/index.js";
-import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.js";
+import { type ConsoleScheme } from "@renderer/styles/tokens.js";
 
 /**
  * Load every deferred body the console's own boards are holding.

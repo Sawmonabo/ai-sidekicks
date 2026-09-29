@@ -14,9 +14,9 @@
 // accessory that arrived without its CSS and the bundler sees one edge into the sheet
 // rather than one per component.
 
-import "./accessories.css";
+import "@renderer/features/composer/components/ComposerToolbar.css";
 // `attachments/` carries no door, so its sheet is imported here, after the zone's own,
 // which declares the shared control shape those rules extend.
-import "./attachments/composer-attachments.css";
+import "@renderer/features/composer/attachments/AttachmentStrip.css";
 
-export { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
+export { ComposerAccessoryRail } from "@renderer/features/composer/components/ComposerToolbar.js";

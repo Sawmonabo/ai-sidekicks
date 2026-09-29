@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ConsoleRefusal } from "../../../core/index.js";
+import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   auditKeybindings,
   consoleCommands,
@@ -40,15 +40,15 @@ import {
   formatChordForPlatform,
   useAnnounce,
 } from "../../../primitives/index.js";
-import { KeybindingRowBody } from "./KeybindingRowBody.js";
-import { ResetAllChords } from "./ResetAllChords.js";
+import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
+import { ResetAllChords } from "@renderer/features/settings/pages/keyboard/components/ResetAllKeybindings.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
   type AppliedChordRecording,
   type KeybindingRow,
-} from "./keybinding-map.js";
-import type { SettingsPageRegistry } from "../../settings-page-registry.js";
+} from "@renderer/features/settings/pages/keyboard/keybinding-map.js";
+import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
 
 /** The owner this page registers under. */
 const OWNER = "settings-keyboard";

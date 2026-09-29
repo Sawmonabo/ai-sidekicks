@@ -49,22 +49,20 @@ import { useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError } from "../../core/index.js";
-import {
-  useConsoleBridge,
-  useConsoleClock,
-  type AttentionItem,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { useConsoleBridge, useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { type AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
-import { subscribeToOpenSessions, type SessionStoreRegistry } from "../../store/index.js";
-import { describeAttentionSettlement } from "./attention-sentences.js";
+import { subscribeToOpenSessions } from "@renderer/console/store/session/open-session-signal.js";
+import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { describeAttentionSettlement } from "@renderer/layout/NotificationsList/attention-sentences.js";
 import {
   AttentionPlane,
   type AttentionReading,
   type RefusedAttentionSession,
-} from "./attention-plane.js";
+} from "@renderer/store/attention/attention-summary.js";
 
 /**
  * What one fan-out over the session-scoped read produced.

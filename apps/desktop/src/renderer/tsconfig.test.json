@@ -1,7 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates renderer test files without emitting. The production
-  // renderer `tsconfig.json` excludes every `*.test.{ts,tsx}` so test files don't
+  // Type-validates renderer test files, their support files, the fixtures' tests and
+  // the scenario tests without emitting. The production renderer `tsconfig.json`
+  // excludes every `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}` so test files don't
   // ship in `out/renderer/`; this config covers them via a `noEmit` typecheck
   // pass. Tests sit beside the module they cover, which `apps/desktop/AGENTS.md`
   // binds. A test nothing typechecks is a test that can assert against a type that
@@ -38,11 +39,29 @@
   // files (e.g. `src/desktop-bridge.d.ts`, which types the `window.desktopBridge`
   // contextBridge global) would otherwise be absent from this config's program
   // — and the transitively-imported renderer source under test (e.g.
-  // `console/bridge/live-bridge.ts` reading `window.desktopBridge`) would lose the
+  // `services/platform/live-bridge.ts` reading `window.desktopBridge`) would lose the
   // augmentation and fail with TS2339 under this pass only. The glob is scoped
   // to `*.d.ts` so it pulls in ambient declarations only, never production
   // `.tsx`, preserving the hermetic "vitest globals don't leak into the
   // production typegraph" property documented above.
-  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.d.ts"],
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.test-support.ts",
+    "src/**/*.test-support.tsx",
+    "src/**/*.d.ts",
+    // The renderer unit tests outside `src/`, the list `vitest/tier-projects.ts`
+    // runs under the renderer project (`RENDERER_TESTS_OUTSIDE_SOURCE`).
+    "../../fixtures/**/*.test.ts",
+    "../../tests/scenarios/**/*.test.ts",
+    "../../tests/helpers/scenario-contract-check/**/*.test.ts",
+    "../../tests/helpers/fixture-bridge.test.ts",
+    "../../tests/helpers/CommittedFrameRecorder.test.tsx",
+    "../../tests/helpers/settle.test.tsx",
+    "../../tests/helpers/mount-app.test.ts",
+    "../../tests/helpers/live-region.test.ts",
+    "../../tests/endurance/streaming-lanes.test.ts",
+    "../../tests/endurance/transcript-endurance.test-support.test.ts"
+  ],
   "exclude": []
 }

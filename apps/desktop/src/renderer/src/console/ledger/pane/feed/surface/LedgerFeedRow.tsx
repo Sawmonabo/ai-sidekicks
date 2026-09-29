@@ -44,7 +44,7 @@ import { ChapterHeader, type LedgerChapter } from "../../../structure/index.js";
 // The seam row through its own directory's door rather than the family's: that door
 // owns the seam vocabulary this row draws AND the sheet that dresses it.
 import { SeamRow } from "../../../structure/seams/index.js";
-import { densityFor } from "../model/index.js";
+import { densityFor } from "../model/ledger-chapter-fold.js";
 import { Nothing } from "../../../../primitives/index.js";
 import {
   timelineRowFooterRenderer,
@@ -52,8 +52,8 @@ import {
   type TimelineRowRenderer,
   type TimelineRowSlotProps,
 } from "../../../../seats/index.js";
-import { TimelineRowFooter } from "./TimelineRowFooter.js";
-import { type ActorHueAssignment } from "../../../../tokens/index.js";
+import { TimelineRowFooter } from "@renderer/features/transcript/feed/components/TranscriptRowFooter.js";
+import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
 import { type LedgerWindowModel } from "../../window/index.js";
 
 /** Everything the dispatch below reads. Each member is stable except the window. */

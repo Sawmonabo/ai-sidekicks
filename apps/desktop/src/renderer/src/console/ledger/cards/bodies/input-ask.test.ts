@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { sampleGeneralRow, sampleRunRow } from "../row-samples.test-support.js";
+import { sampleGeneralRow, sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 import {
   askSettledBy,
   askTerminalIn,

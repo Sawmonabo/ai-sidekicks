@@ -28,13 +28,16 @@
 // nothing on nearly every launch would put this whole directory on every launch. The
 // root names `./pane/window/LedgerGapFill.js` directly.
 
-import "./window.css";
+import "@renderer/features/transcript/window/components/transcript-window.css";
 
-export { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
-export { LedgerWindowReadState } from "./LedgerWindowReadState.js";
-export { useLedgerFirstReadSettled } from "./ledger-first-read.js";
-export { useVisibleLedgerWindow, type VisibleLedgerWindow } from "./ledger-visible-window.js";
-export { LedgerRowRetention } from "./ledger-row-retention.js";
+export { LedgerWindowAbsences } from "@renderer/features/transcript/window/components/TranscriptWindowNotices.js";
+export { LedgerWindowReadState } from "@renderer/features/transcript/window/components/TranscriptReadState.js";
+export { useLedgerFirstReadSettled } from "@renderer/features/transcript/window/hooks/useTranscriptFirstReadSettled.js";
+export {
+  useVisibleLedgerWindow,
+  type VisibleLedgerWindow,
+} from "@renderer/features/transcript/window/hooks/useVisibleTranscriptWindow.js";
+export { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
 export {
   NO_ROWS_REMOVED,
   chapterKeyFor,

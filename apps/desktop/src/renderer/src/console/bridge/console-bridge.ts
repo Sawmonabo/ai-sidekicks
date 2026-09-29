@@ -11,9 +11,9 @@
 // neither of them is this file.
 
 import type { DesktopBridge, Unsubscribe } from "@ai-sidekicks/contracts";
-import { RealClock, type ConsoleClock } from "../core/index.js";
+import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import type { ScenarioEngine } from "./scenario/runtime/index.js";
-import type { TransportReconnectSignal } from "./transport/transport-reconnect.js";
+import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
 export type ConsoleBridgeSource = "live" | "fixture";

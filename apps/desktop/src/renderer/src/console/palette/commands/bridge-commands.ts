@@ -24,9 +24,10 @@
 // what a person pastes into an issue.
 
 import { useMemo } from "react";
-import { useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import type { ConsoleCommand } from "./contributions.js";
+import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 
 /** Why a bridge-backed command could not complete. */
 export const BRIDGE_COMMAND_REFUSAL_CODES = [

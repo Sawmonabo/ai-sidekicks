@@ -23,7 +23,10 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 import { startTransition, type ReactElement } from "react";
 
-import type { SubjectKey, SubjectScopedHolder } from "./subject-scoped-holder.js";
+import type {
+  SubjectKey,
+  SubjectScopedHolder,
+} from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 
 /**
  * A promise nothing ever settles, so the pass that suspends on it never resumes.

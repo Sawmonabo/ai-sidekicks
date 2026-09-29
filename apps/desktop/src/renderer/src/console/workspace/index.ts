@@ -36,8 +36,8 @@
 // exactly that. A view family that needs one adds its line in the commit that imports it.
 
 import "./workspace.css";
-import "./session-header/session-header.css";
-import "./deck/deck.css";
+import "@renderer/features/sessions/session-header/components/SessionHeader.css";
+import "@renderer/features/sessions/pane-layout/components/pane-layout.css";
 
 // "+ New" is a control on the all-sessions list rather than inside a session, so it
 // leaves the family through the same door the workspace itself does. The frame sits
@@ -50,11 +50,11 @@ import "./deck/deck.css";
 export {
   /** @consumedBy the all-sessions list, which mounts "+ New" */
   NewSessionControl,
-} from "./new-session/NewSessionControl.js";
+} from "@renderer/features/sessions/new-session/components/NewSessionControl.js";
 
 export {
   /** @consumedBy the session header's title */
   useSessionHeaderIdentity,
-} from "./session-header/model/session-header-readings.js";
+} from "@renderer/features/sessions/session-header/hooks/useSessionIdentity.js";
 
 export { Workspace } from "./Workspace.js";

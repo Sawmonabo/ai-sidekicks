@@ -16,11 +16,14 @@
 import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
-import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
+import {
+  ConsoleEntityProjectorRegistry,
+  consoleEntityProjectorRegistry,
+} from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 // The registry's own refusal, from the module that declares it: the core door
 // deliberately publishes no line for it, because a family consumes it by calling
 // `register` rather than by naming the class.
-import { DuplicateRegistrationError } from "./core/keyed-registry.js";
+import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
   FRAME_BINDING_SLOTS,
   mountFrameBindings,
@@ -39,11 +42,11 @@ import {
 // The pane probe by its own specifier, for the reason below it: a door cannot
 // publish a fixture helper, because the barrel census fails a door line no
 // production module reads.
-import { registerFreePaneKindProbe } from "./seats/pane/pane-probe.test-support.js";
+import { registerFreePaneKindProbe } from "@renderer/registries/panes/pane-probe.test-support.js";
 // The slot tuple by its own specifier: the seats door does not publish it, because
 // this suite is its only reader and a door line no production module reaches is one
 // the barrel census fails.
-import { CONSOLE_SURFACE_SLOTS } from "./seats/surface/surface-registry.js";
+import { CONSOLE_SURFACE_SLOTS } from "@renderer/registries/screens/screen-registry.js";
 
 /** The four boards a case owns outright, so nothing it composes reaches production. */
 function ownedRegistries(): {

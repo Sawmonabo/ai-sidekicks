@@ -13,33 +13,16 @@
 // (older) or the very end (newer) of the text, which is the one position where the
 // arrow has nothing else to do.
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
-
-/**
- * The placeholder the line shows.
- *
- * The same for every send, because Send is one button with no mode: what the message
- * does is the target's, and nothing on the line says which path it will take.
- */
-export function composeDirectivePlaceholder(): string {
-  return "Message this session";
-}
+import {
+  COMPOSER_HISTORY_RECALL_CAP,
+  COMPOSER_RETAINED_ADDRESS_CAP,
+} from "@renderer/features/composer/composer-bounds.js";
 
 /** Where the caret sits, which is what decides whether an arrow recalls. */
 export interface DirectiveCaret {
   readonly selectionStart: number;
   readonly selectionEnd: number;
   readonly textLength: number;
-}
-
-/** True when the caret is collapsed at the very start of the text. */
-export function caretAtStart(caret: DirectiveCaret): boolean {
-  return caret.selectionStart === 0 && caret.selectionEnd === 0;
-}
-
-/** True when the caret is collapsed at the very end of the text. */
-export function caretAtEnd(caret: DirectiveCaret): boolean {
-  return caret.selectionStart === caret.textLength && caret.selectionEnd === caret.textLength;
 }
 
 /**
@@ -202,4 +185,24 @@ export class AddressedDirectiveHistories {
       this.#byAddress.delete(leastRecent.value);
     }
   }
+}
+
+/**
+ * The placeholder the line shows.
+ *
+ * The same for every send, because Send is one button with no mode: what the message
+ * does is the target's, and nothing on the line says which path it will take.
+ */
+export function composeDirectivePlaceholder(): string {
+  return "Message this session";
+}
+
+/** True when the caret is collapsed at the very start of the text. */
+export function caretAtStart(caret: DirectiveCaret): boolean {
+  return caret.selectionStart === 0 && caret.selectionEnd === 0;
+}
+
+/** True when the caret is collapsed at the very end of the text. */
+export function caretAtEnd(caret: DirectiveCaret): boolean {
+  return caret.selectionStart === caret.textLength && caret.selectionEnd === caret.textLength;
 }

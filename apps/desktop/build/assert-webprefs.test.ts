@@ -21,10 +21,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "assert-webprefs.ts");
-const realWindowSourcePath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../src/main/window.ts",
-);
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const realWindowSourcePath = path.join(packageRoot, "src/main/windows/window.ts");
 
 let fixtureDirectory: string;
 
@@ -315,11 +313,18 @@ describe("assert-webprefs", () => {
       expect(run.stderr).toContain("could not scan");
     });
 
-    it("scans the shipped main-process tree by default", () => {
-      const run = runAssertion(realWindowSourcePath);
+    it("scans the whole main-process tree when run with no arguments", () => {
+      // The shipped factory sits in `src/main/windows/`, so a scan rooted at its own
+      // directory would miss a construction in `services/`, `probes/` or `index.ts`.
+      const result = spawnSync(process.execPath, ["--experimental-strip-types", scriptPath], {
+        cwd: packageRoot,
+        encoding: "utf8",
+      });
 
-      expect(run.status).toBe(0);
-      expect(run.stdout).toContain("constructs a BrowserWindow");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(
+        `under ${path.join("src", "main")} constructs a BrowserWindow`,
+      );
     });
   });
 });

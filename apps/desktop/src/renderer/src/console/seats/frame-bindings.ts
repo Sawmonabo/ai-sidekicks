@@ -32,9 +32,10 @@
 // a family writes rather than something this module can check, and it is the same
 // rule every other seat here carries.
 
-import { KeyedRegistry } from "../core/index.js";
-import { type ConsoleBridge } from "../bridge/index.js";
-import { type FrameStore, type SessionStoreRegistry } from "../store/index.js";
+import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
+import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { ReactNode } from "react";
 
 /**

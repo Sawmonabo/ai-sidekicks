@@ -56,15 +56,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { normalizeWireRejection, type WireRefusal } from "../../../../core/index.js";
+import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
 import { Nothing, RefusalBanner } from "../../../../primitives/index.js";
 import {
   phaseGraphLoader,
   type PhaseGraphLoader,
   type PhaseGraphModule,
-} from "./phase-graph-loader.js";
-import { PhaseSequenceLayoutCache, type PhaseSequenceLayout } from "./phase-sequence-layout.js";
-import type { PhaseGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
+} from "@renderer/features/workflows/run-page/run-graph/run-graph-loader.js";
+import {
+  PhaseSequenceLayoutCache,
+  type PhaseSequenceLayout,
+} from "@renderer/features/workflows/run-page/run-graph/phase-sequence-layout.js";
+import type {
+  PhaseGraphNode,
+  PhaseTopology,
+  PhaseTopologyAbsence,
+} from "@renderer/features/workflows/run-page/run-graph/phase-topology.js";
 
 export interface PhaseGraphProps {
   /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */

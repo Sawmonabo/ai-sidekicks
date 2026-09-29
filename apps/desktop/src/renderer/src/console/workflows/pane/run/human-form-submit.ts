@@ -49,14 +49,14 @@
 // rendering the old park and its form indefinitely, saying in the same breath that the
 // answer had been recorded.
 
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   useGenerationLatch,
-  useSubjectScopedState,
   type GenerationClaim,
-} from "../../../store/index.js";
+} from "@renderer/console/store/read/generation-latch.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
-import type { HumanFormPhase } from "./slots/human-form-mount.js";
+import type { HumanFormPhase } from "@renderer/features/workflows/run-page/human-form-mount.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";

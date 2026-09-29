@@ -52,8 +52,8 @@
 import { useState } from "react";
 
 import { Nothing } from "../../primitives/index.js";
-import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
-import { paneHarnessInstances } from "./pane-harness-instances.js";
+import { PaneHarnessFrame } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
+import { paneHarnessInstances } from "@renderer/app/pane-harness/pane-harness-instances.js";
 import { parseConsolePaneAddress, type ConsolePaneRegistry } from "../../seats/index.js";
 import { type ConsoleSurfaceContext, type ConsoleSurfaceRegistry } from "../../seats/index.js";
 

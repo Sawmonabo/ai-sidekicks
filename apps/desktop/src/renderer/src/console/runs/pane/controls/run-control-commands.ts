@@ -28,11 +28,11 @@ import { useMemo } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
 import { useLatestRef } from "../../../primitives/index.js";
-import { type DriverCapabilityReadout } from "../../../bridge/index.js";
+import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
 import type { RunState } from "@ai-sidekicks/contracts";
-import { RUN_CONTROL_PRESENTATION } from "./control-presentation.js";
-import { type RunControl } from "./run-control-dispatch.js";
-import { offeredRunControls } from "./run-control-gating.js";
+import { RUN_CONTROL_PRESENTATION } from "@renderer/features/composer/run-controls/run-control-presentation.js";
+import { type RunControl } from "@renderer/features/composer/run-controls/services/run-control-dispatch.js";
+import { offeredRunControls } from "@renderer/features/composer/run-controls/run-control-gating.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */

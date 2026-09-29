@@ -21,11 +21,12 @@ import {
   pressOpenRun,
   probeRunPane,
   type ComposedWindow,
-} from "./WorkflowsPaneHost.test-support.js";
-import { settle } from "./workflows-probe.test-support.js";
+} from "@renderer/features/workflows/WorkflowsScreen.test-support.js";
+import { settle } from "@renderer/features/workflows/workflows-probe.test-support.js";
 
 vi.mock("./destination/index.js", async () => {
-  const { stubDestinationModule } = await import("./workflows-probe.test-support.js");
+  const { stubDestinationModule } =
+    await import("@renderer/features/workflows/workflows-probe.test-support.js");
   return stubDestinationModule();
 });
 

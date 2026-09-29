@@ -17,8 +17,8 @@
 import { useCallback } from "react";
 
 import type { ConsolePaneAddress, ConsoleSurfaceContext } from "../seats/index.js";
-import { useSubjectScopedState } from "../store/index.js";
-import { OpenPaneBody } from "./OpenPaneBody.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { OpenPaneBody } from "@renderer/features/workflows/components/OpenPaneBody.js";
 import { WorkflowsDestination } from "./destination/index.js";
 
 /** What the surface seat hands the workflows slot. */

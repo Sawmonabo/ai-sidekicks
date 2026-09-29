@@ -16,7 +16,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "../../test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron-mock.js";
 
 // The one shared `electron` mock (`test/helpers/electron-mock.ts`), with its
 // ordered log on — sequence is the whole subject of this file. Its

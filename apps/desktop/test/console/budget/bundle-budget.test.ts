@@ -37,7 +37,7 @@ import {
   rendererBundleAssetClassOf,
   type RendererBundleMeasurement,
 } from "../../../scripts/budget/measure-bundle.mjs";
-import { TemporaryDirectoryTrail } from "../temporary-directory.js";
+import { TemporaryDirectoryTrail } from "@test/helpers/temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
 

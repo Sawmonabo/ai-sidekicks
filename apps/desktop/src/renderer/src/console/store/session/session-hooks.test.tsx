@@ -13,19 +13,19 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
+import { ManualClock } from "@renderer/lib/clock.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "../entities/entities.js";
 import {
   useOpenSessionStore,
   useSessionEntity,
   useSessionPartition,
   useSessionStore,
-} from "./session-hooks.js";
-import { type SessionSnapshotReader } from "./open-session-entry.js";
-import { useSessionInitialised } from "./session-projection-hooks.js";
-import { eventOfKind } from "../session-event.test-support.js";
-import { SessionStoreRegistry } from "./session-store-registry.js";
-import type { SessionStore } from "./session-store.js";
+} from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import { useSessionInitialised } from "@renderer/store/session/hooks/useSessionInitialized.js";
+import { eventOfKind } from "@test/helpers/session-events.js";
+import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { SessionStore } from "@renderer/store/session/session-store.js";
 
 const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 

@@ -20,7 +20,7 @@ import {
   WORKTREE_STATE_PRESENTATION,
   worktreeDiskDisposition,
   type WorktreeStatusRecord,
-} from "./worktree-model.js";
+} from "@renderer/features/repos/mounts/execution-root-model.js";
 import {
   COLUMN_ABSENT_FALLBACK,
   WORKTREE_ABSENT_COLUMN_COPY,
@@ -28,8 +28,8 @@ import {
   WORKTREE_DETAIL_COLUMNS,
   WORKTREE_SUMMARY_COLUMNS,
   worktreeColumnCell,
-} from "./worktree-columns.js";
-import { worktreeRecord } from "./repo-mounts.test-support.js";
+} from "@renderer/features/repos/mounts/execution-root-columns.js";
+import { worktreeRecord } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 
 /**
  * Does a summary/detail split cover a labels table exactly once each?

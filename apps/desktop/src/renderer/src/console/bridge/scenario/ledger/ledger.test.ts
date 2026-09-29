@@ -14,16 +14,16 @@
 import { describe, expect, it } from "vitest";
 
 import { RUN_ARCHITECT_CHILD, RUN_IMPLEMENTER, SUBAGENT_REVIEWER } from "./ledger-cast.js";
-import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
-import { findScenarioWireTruthDefects } from "../wire-truth/wire-truth.js";
+import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 import type { ConsoleScenario, ScenarioBeat } from "../runtime/index.js";
 // The ledger family's own readers, reached deeply rather than through its door: this
 // is a claim about what THIS SCENARIO reaches, so the three treatments it has to
 // reach are named by the modules that derive them.
-import { projectFixtureShellRows } from "../../../ledger/cards/shell/fixture-shell-projection.js";
-import { ChildRunIndex } from "../../../ledger/structure/child-runs/child-run-entries.js";
-import { deriveSupersededBands } from "../../../ledger/structure/seams/superseded-bands.js";
+import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
+import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
+import { deriveSupersededBands } from "@renderer/features/transcript/superseded/superseded-bands.js";
 
 const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [LEDGER_SCENARIO, LEDGER_QUIET_SCENARIO];
 

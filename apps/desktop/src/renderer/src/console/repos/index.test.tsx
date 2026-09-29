@@ -8,7 +8,7 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../core/index.js";
+import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import {
   ConsolePaneRegistry,

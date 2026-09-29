@@ -34,7 +34,7 @@
 
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 
-import { type Unsubscribe } from "../../../core/index.js";
+import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /** How a row body reaches the text one lane of the reveal engine is publishing. */
 export interface LedgerRowRevealChannel {

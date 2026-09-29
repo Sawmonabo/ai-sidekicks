@@ -28,12 +28,13 @@ import {
   describeBridgeShape,
   diffBridgeShapes,
   type BridgeShape,
-} from "./bridge-shape.js";
+} from "@renderer/services/platform/bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
-import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { CONSOLE_SCENARIOS, consoleScenario } from "./scenario/index.js";
-import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
+import { createLiveBridge, readInstalledBridge } from "@renderer/services/platform/live-bridge.js";
+import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
+import { consoleScenario } from "./scenario/manifest.js";
+import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 
 /**
  * Install a bridge the way the preload does, and hand back the live `ConsoleBridge`

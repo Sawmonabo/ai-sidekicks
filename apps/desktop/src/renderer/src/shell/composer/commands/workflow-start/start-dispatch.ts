@@ -26,20 +26,20 @@
 
 import { useMemo } from "react";
 
-import type { CommandOutcome, DirectiveLine } from "../../router/command-executor.js";
-import { clientCommandRefusal } from "../client-command-recognizer.js";
-import type { DirectiveLineHandlers } from "../directive-line-handlers.js";
+import type { CommandOutcome, DirectiveLine } from "@renderer/features/composer/types.js";
+import { clientCommandRefusal } from "@renderer/features/composer/command-list/client-command-recognizer.js";
+import type { DirectiveLineHandlers } from "@renderer/features/composer/command-list/composer-command-line-handlers.js";
 import {
   readWorkflowDefinitions,
   type ReadWorkflowDefinitionPage,
-} from "./definition-enumeration.js";
-import { matchWorkflowDefinition } from "./definition-match.js";
+} from "@renderer/features/composer/command-list/workflow-command/definition-enumeration.js";
+import { matchWorkflowDefinition } from "@renderer/features/composer/command-list/workflow-command/definition-match.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_COMMAND_VERBS,
   WORKFLOW_START_DIRECTIVE_PREFILL,
   readWorkflowCommandLine,
-} from "./grammar.js";
+} from "@renderer/features/composer/command-list/workflow-command/workflow-command-grammar.js";
 
 /** The pinned version a start is issued against, and the session it starts in. */
 export interface WorkflowStartRequest {

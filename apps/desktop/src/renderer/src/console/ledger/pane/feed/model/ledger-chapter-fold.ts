@@ -20,9 +20,9 @@ import { useCallback, useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge } from "../../../../bridge/index.js";
+import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { type LedgerViewportRow } from "../../../frame/index.js";
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../../../core/index.js";
+import { CHAPTER_VISIBLE_ROW_CAP } from "@renderer/features/transcript/structure/structure-caps.js";
 import { ChapterCollapseState, type LedgerChapter } from "../../../structure/index.js";
 import { useSessionScopedState, type TimelineRowDensity } from "../../../../seats/index.js";
 import {

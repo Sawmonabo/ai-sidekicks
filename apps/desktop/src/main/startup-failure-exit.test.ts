@@ -13,8 +13,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "../../test/helpers/electron-mock.js";
-import type { MainDiagnosticEntry, MainDiagnosticLog } from "./diagnostic-log.js";
+import { createElectronMock } from "@test/helpers/electron-mock.js";
+import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
 
 // The shared `electron` mock, with its ordered log on: `app.exit` is recorded there
 // as well as in `exitCodes`, and a suite about what runs after a failure wants both.
@@ -31,8 +31,8 @@ vi.mock("electron", () => electronMock.moduleExports);
  */
 const STARTUP_FAILURE = new Error("the main window could not be created");
 
-vi.mock("./window.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./window.js")>()),
+vi.mock("./windows/window.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./windows/window.js")>()),
   createMainWindow: vi.fn(() => {
     throw STARTUP_FAILURE;
   }),
@@ -44,8 +44,8 @@ const writtenEntries: MainDiagnosticEntry[] = [];
 /** What `reportUnwrittenDiagnostics` does on the case currently running. */
 let reportUnwrittenDiagnosticsOutcome: () => Promise<void> = async () => {};
 
-vi.mock("./diagnostic-log.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./diagnostic-log.js")>()),
+vi.mock("./services/diagnostic-log.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./services/diagnostic-log.js")>()),
   createMainDiagnosticLog: vi.fn(
     () =>
       ({

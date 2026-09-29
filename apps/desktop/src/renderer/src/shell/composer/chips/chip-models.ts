@@ -10,10 +10,10 @@
 // the honest answer; defaulting a missing field is how a console starts asserting facts
 // nobody established.
 
-import { readWireNumber, readWireString } from "../../../console/core/index.js";
-import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
+import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
+import type { ConsoleEntity, ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
-import { resolveAddressedRun } from "./addressed-run.js";
+import { resolveAddressedRun } from "@renderer/features/composer/addressed-run.js";
 
 /**
  * The two paths a composed message can travel: the session, or a bound provider.

@@ -37,8 +37,11 @@ import {
   UNREPORTED_SHELL_NOTICE,
   describeShellConnection,
   type ShellState,
-} from "../../../store/index.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
+} from "@renderer/store/window/main-process-state.js";
+import type {
+  SettingsPageContext,
+  SettingsPageRegistry,
+} from "@renderer/features/settings/settings-pages.js";
 import {
   useDaemonControl,
   useDaemonStatus,

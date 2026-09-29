@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Typechecks the whole of `src/`, tests included, without emitting.
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./src",
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of
+    // the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

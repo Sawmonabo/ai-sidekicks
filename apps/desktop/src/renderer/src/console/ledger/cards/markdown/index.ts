@@ -26,18 +26,21 @@
 // the caches are the pipeline's own internals and stop at this line.
 
 // The sheet this module owns, imported by its own door.
-import "./markdown.css";
+import "@renderer/features/transcript/rows/markdown/markdown.css";
 
-export { MarkdownNodes, type MarkdownRenderContext } from "./nodes/MarkdownNodes.js";
-export { MarkdownBlockSegmenter } from "./parse/block-segmenter.js";
-export { collectFootnoteDefinitions } from "./footnotes/footnote-collection.js";
+export {
+  MarkdownNodes,
+  type MarkdownRenderContext,
+} from "@renderer/features/transcript/rows/markdown/nodes/MarkdownNodes.js";
+export { MarkdownBlockSegmenter } from "@renderer/features/transcript/rows/markdown/parse/block-segmenter.js";
+export { collectFootnoteDefinitions } from "@renderer/features/transcript/rows/markdown/footnotes/footnote-collection.js";
 export {
   /** @consumedBy the definition drawn at the foot of a reply */
   DefinitionBody,
-} from "./footnotes/DefinitionBody.js";
-export { FootnoteRegistry } from "./footnotes/footnote-registry.js";
+} from "@renderer/features/transcript/rows/markdown/footnotes/DefinitionBody.js";
+export { FootnoteRegistry } from "@renderer/features/transcript/rows/markdown/footnotes/footnote-registry.js";
 export {
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-} from "./parse/markdown-parse.js";
+} from "@renderer/features/transcript/rows/markdown/parse/markdown-parse.js";

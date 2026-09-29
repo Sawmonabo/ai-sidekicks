@@ -34,15 +34,14 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import type { TransportReconnectObservable } from "../core/index.js";
+import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  useSubjectRead,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-  type RefreshReason,
-  type SubjectReadProjection,
-} from "../store/index.js";
+} from "@renderer/console/store/read/read-triggers.js";
+import { useSubjectRead, type SubjectReadProjection } from "@renderer/hooks/useSubjectRead.js";
+import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 
 /** One session the node lists. A session with no title is shown by its identifier. */
 export interface SessionDirectoryEntry {

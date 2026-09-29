@@ -37,7 +37,7 @@ import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 export {
   /** @consumedBy the General settings page's crash-reporting block */
   CrashReportingBlock,
-} from "./pages/application/crash-reporting/CrashReportingBlock.js";
+} from "@renderer/features/settings/pages/general/components/CrashReportingBlock.js";
 export {
   /** @consumedBy the inspector's cost section */
   BILLING_MODE_CLAUSES,
@@ -47,7 +47,7 @@ export {
   type CostReceipt,
   /** @consumedBy the inspector's cost section */
   type ReceiptPartitionVerdicts,
-} from "./pages/cost/cost-receipt-model.js";
+} from "@renderer/features/inspector/cost/cost-receipt-model.js";
 
 /**
  * Claim the settings surface slot.

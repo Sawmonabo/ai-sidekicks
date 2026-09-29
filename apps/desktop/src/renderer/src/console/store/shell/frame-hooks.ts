@@ -6,8 +6,8 @@
 
 import { useStore } from "zustand";
 
-import type { FrameStore, FrameStoreState } from "./frame-store.js";
-import type { ShellState } from "./shell-state.js";
+import type { FrameStore, FrameStoreState } from "@renderer/store/window/window-store.js";
+import type { ShellState } from "@renderer/store/window/main-process-state.js";
 
 /**
  * What the shell says about itself, subscribed rather than sampled.

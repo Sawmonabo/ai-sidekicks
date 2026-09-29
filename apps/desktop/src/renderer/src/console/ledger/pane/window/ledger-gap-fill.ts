@@ -30,8 +30,11 @@
 // store already submits on its next read, so a replay asks with that or asks with
 // nothing.
 
-import { useSubjectRead } from "../../../store/index.js";
-import type { TimelineResubscribeRequest, TimelineSubscribeCall } from "../../../bridge/index.js";
+import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
+import type {
+  TimelineResubscribeRequest,
+  TimelineSubscribeCall,
+} from "@renderer/services/daemon/session-reads.js";
 
 /**
  * Whether this window can ask for a replay, and what it would ask with.

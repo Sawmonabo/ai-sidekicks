@@ -8,20 +8,23 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  useSubjectScopedState,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "../../../store/index.js";
-import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./shell-preferences-store.js";
+} from "@renderer/console/store/read/read-triggers.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import {
+  ShellPreferenceStore,
+  type ShellPreferenceCarrier,
+} from "@renderer/features/settings/machine-settings/machine-settings-store.js";
 import {
   NOTHING_CHOSEN,
   effectivePreference,
   type ShellPreferenceKey,
   type ShellPreferenceSnapshot,
-} from "./shell-preference-snapshot.js";
+} from "@renderer/features/settings/machine-settings/machine-settings-snapshot.js";
 
 /** What a page reads and what it presses. One object, so a row takes one prop set. */
 export interface ShellPreferenceBinding {

@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
+import {
+  COMPOSER_HISTORY_RECALL_CAP,
+  COMPOSER_RETAINED_ADDRESS_CAP,
+} from "@renderer/features/composer/composer-bounds.js";
 import {
   AddressedDirectiveHistories,
   DirectiveHistory,

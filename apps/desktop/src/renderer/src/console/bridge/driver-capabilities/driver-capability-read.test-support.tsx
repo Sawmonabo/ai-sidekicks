@@ -6,7 +6,7 @@
 // stand for "nothing was read". Written once so the two files cannot drift into
 // disagreeing about what a report looks like.
 
-import { type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import {
   bridgeAnswering,

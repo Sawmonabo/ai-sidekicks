@@ -20,17 +20,17 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { Unsubscribe } from "../../core/index.js";
+import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import {
   useSessionStoreRebind,
-  type SessionStore,
   type SessionStoreScoped,
-} from "../session/index.js";
+} from "@renderer/features/repos/acts/hooks/useSessionStoreRebind.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-  type SubjectKey,
-} from "../subject-scoped/index.js";
+} from "../subject-scoped/subject-scoped-resource.js";
+import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 
 /**
  * The lifecycle an act controller offers a surface, and the whole of what these hooks

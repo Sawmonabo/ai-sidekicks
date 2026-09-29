@@ -19,10 +19,13 @@ import {
   WireFigure,
   formatByteQuantity,
 } from "../../primitives/index.js";
-import { type ArtifactManifestRow } from "../artifacts/artifact-model.js";
-import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifacts/artifact-copy.js";
+import { type ArtifactManifestRow } from "@renderer/features/inspector/artifacts/artifact-model.js";
+import {
+  ARTIFACT_STATE_PRESENTATION,
+  artifactProducerLabel,
+} from "@renderer/features/inspector/artifacts/artifact-copy.js";
 import type { InlineCardSeatRegistry, ArtifactInlineCardProps } from "../../seats/index.js";
-import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
+import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ARTIFACT_CARD_OWNER = "repos";

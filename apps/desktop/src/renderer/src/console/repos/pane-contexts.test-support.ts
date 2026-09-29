@@ -1,15 +1,6 @@
-/**
- * The context this family's pane suites mount a pane under.
- *
- * AT THE FAMILY ROOT rather than in the shared surfaces tier, because a suite
- * co-located with its component cannot import from `test/` — nothing under
- * `src/renderer/src/console/` does — while the surfaces tier already reaches into
- * `src/`.
- */
-
-import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ConsolePaneAddress, ConsolePaneContext } from "../seats/index.js";
-import { type SessionStore } from "../store/index.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
  * A pane context at one address, with whichever collaborators the case reaches.

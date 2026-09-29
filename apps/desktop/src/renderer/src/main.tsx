@@ -22,7 +22,7 @@
 
 import { createRoot } from "react-dom/client";
 
-import { App } from "./App.js";
+import { App } from "@renderer/app/App.js";
 
 /** The mount point `apps/desktop/src/renderer/index.html` declares. */
 const ROOT_ELEMENT_ID = "root";

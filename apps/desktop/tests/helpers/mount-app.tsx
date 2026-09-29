@@ -1,0 +1,108 @@
+// Mounting the composed window, once, for every suite that drives it.
+//
+// The `ConsoleRoot` suites each drive the REAL composition root against the
+// fixture bridge the `console-unit` project compiles in, so the mount is the one
+// piece of scaffolding all of them share — and a second copy of it would be a
+// second answer to "when has the console settled", which is exactly the question
+// the two flushes below exist to answer once.
+
+import { act, render, type RenderResult } from "@testing-library/react";
+
+import { ConsoleRoot } from "@renderer/console/frame/composition/ConsoleRoot.js";
+import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
+
+/** Where a window with no particular address lands. */
+export const SESSIONS_HASH = "#/sessions";
+
+/**
+ * Mount and let the settled promises land.
+ *
+ * `ConsoleRoot` starts the persistence open on mount and swaps the durable adapter
+ * in when it settles, so a test that asserted straight after `render` would assert
+ * against a half-settled tree and leave a state update landing outside `act`. Two
+ * flushes rather than one: the open resolves a promise whose continuation schedules
+ * another.
+ */
+export async function mountConsole(): Promise<RenderResult> {
+  let mounted: RenderResult | undefined;
+  openWindowAt();
+  await act(async () => {
+    mounted = render(<ConsoleRoot />);
+    await crossMacrotaskBoundary();
+  });
+  if (mounted === undefined) {
+    throw new Error("the console never mounted");
+  }
+  return mounted;
+}
+
+/**
+ * Let every registered SURFACE body finish arriving.
+ *
+ * THE ONE ANSWER TO "HAS THE DESTINATION LANDED", for every suite that drives the
+ * composed window. A family's destination is a dynamic import behind the surface board,
+ * so the frame commits the reserved region first and the body one or more macrotasks
+ * later; a case that counted boundaries instead would be asserting how many turns a
+ * chunk takes to arrive, and it would start failing the day a family gained an import.
+ * Awaiting the board's own `preload` is the deterministic wait — the same call the idle
+ * warm walk and the rail's press make — so the assertions below it are about what the
+ * surface renders and never about timing.
+ *
+ * THE PANE BOARD IS DELIBERATELY NOT WALKED HERE. A surface is what a rail destination
+ * mounts, and that is what these suites drive; the pane board holds every kind a deck
+ * can seat, including ones whose modules stand up an emulator or a hosted view, and
+ * loading all of them at every `ConsoleRoot` mount stands up machinery no case asked
+ * for. The pane side has its own answer next door — `test/console/console-harness.tsx`
+ * preloads the pane board inside `renderSettled`, where a case is actually seating one.
+ *
+ * EVERY REGISTERED SLOT, NOT THE UNLOADED ONES. `unloadedKeys()` reports the slots
+ * nothing has ASKED for yet, and the press this helper follows is itself an ask: it warms
+ * its destination before it navigates, so by the time a case waits the slot it is waiting
+ * on has already left that list and a walk over it would await nothing at all and return
+ * while the body was still in flight. Whether the assertion then passed came down to how
+ * many macrotasks the mount happened to take, which is the timing dependence this helper
+ * exists to remove — it showed up as a case that passed alone and failed in a full tier
+ * run. `preload` settles immediately for a body already in hand and joins the one promise
+ * for a body in flight, so walking the registered slots is idempotent and is the wait.
+ *
+ * CALLED WHERE A CASE REACHES A LOADER-BACKED DESTINATION, and deliberately not from
+ * {@link mountConsole} itself. A window opens on the sessions route, whose surface is
+ * registered in component form, so a blanket walk at every mount would compile and
+ * evaluate every other family's chunk to settle a body no case is about to read — cost
+ * paid fifteen times over for the one navigation that needs it. The call belongs at the
+ * press that warms the destination, which is where the wait is real.
+ */
+export async function settleRegisteredBodies(): Promise<void> {
+  await act(async () => {
+    await Promise.all(
+      consoleSurfaceRegistry.registeredSlots().map((slot) => consoleSurfaceRegistry.preload(slot)),
+    );
+    await crossMacrotaskBoundary();
+  });
+}
+
+/**
+ * Put this window's opening address in place, before anything reads it.
+ *
+ * WRITTEN ONTO THE WINDOW RATHER THAN PASSED AS A PROP, because that is where the
+ * console reads it from: the frame store parses `window.location.hash` in its own
+ * constructor and the first-launch rule is decided on the same value, so an address
+ * handed through a prop would be an address neither of them consults.
+ *
+ * THAT DEFAULT IS LOAD-BEARING RATHER THAN TIDY. A window born at no address is an
+ * install's first launch, and a fixture build opens one into the demonstration
+ * session instead of the sessions list — a different composition, whose deck pulls
+ * its pane chunks in while the mount is still settling, so the mount settles in
+ * hundreds of milliseconds rather than tens and the window's own idle warm walk
+ * reaches the surface board inside it. A unit suite is not an install's first
+ * launch and does not become one by saying nothing, so an empty address is given the
+ * sessions list's. An address a case set for itself is left exactly as the case set
+ * it, or a helper that overwrote it would be the second writer `hash-route-binding.ts`
+ * exists to keep off this value.
+ */
+function openWindowAt(): void {
+  if (window.location.hash === "") {
+    window.location.hash = SESSIONS_HASH;
+  }
+}

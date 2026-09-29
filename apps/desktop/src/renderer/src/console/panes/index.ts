@@ -86,8 +86,8 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerAgentConsolePane } from "../agents/index.js";
-import { registerBrowserPanes } from "../browser/index.js";
-import { registerInspectorPane } from "../inspector/index.js";
+import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
+import { registerInspectorPane } from "@renderer/features/inspector/contributions/panes.js";
 import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";

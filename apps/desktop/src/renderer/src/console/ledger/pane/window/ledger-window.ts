@@ -53,10 +53,10 @@ import { useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge } from "../../../bridge/index.js";
+import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { projectFixtureShellRows } from "../../cards/index.js";
 import { type LedgerViewportRow } from "../../frame/index.js";
-import { LedgerRowRetention } from "./ledger-row-retention.js";
+import { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
 import {
   ChildRunIndex,
   LedgerChapterIndex,
@@ -69,11 +69,9 @@ import {
   type SupersededBand,
 } from "../../structure/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
-import {
-  useSessionStore,
-  type ConsoleSessionEvent,
-  type SessionStore,
-} from "../../../store/index.js";
+import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
  * What one pipeline stage admitted, and the rows it removed on the way.

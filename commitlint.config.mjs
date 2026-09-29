@@ -14,6 +14,7 @@ export default {
         "contracts",
         "crypto-paseto",
         "client-sdk",
+        "search-ranking",
         "daemon",
         "control-plane",
         "desktop",

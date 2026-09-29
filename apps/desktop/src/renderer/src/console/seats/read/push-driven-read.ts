@@ -65,9 +65,12 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { Emitter, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
-import { RefreshScheduler, type ReadRound, type RefreshReason } from "../../store/index.js";
-import { SUBSCRIBE_FAILED } from "./read-failure-codes.js";
+import { Emitter } from "@renderer/lib/emitter.js";
+import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
 import { consoleRefusalFrom } from "./served-value.js";
 
 /** What a push-driven read has to show. Total; every arm renders something. */

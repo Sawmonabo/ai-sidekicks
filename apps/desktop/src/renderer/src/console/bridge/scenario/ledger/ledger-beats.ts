@@ -14,8 +14,14 @@
 // beat in any scenario, so the child-run summary and the handoff row were reachable
 // from hand-written fixtures and from nothing a session could play.
 
-import { ledgerCastMember, ledgerOpeningEntries } from "./ledger-opening-entries.js";
-import { createLedgerLaneEntries, type LedgerScriptEntry } from "./ledger-script.js";
+import {
+  ledgerCastMember,
+  ledgerOpeningEntries,
+} from "../../../../../../../fixtures/data/opening-entries.js";
+import {
+  createLedgerLaneEntries,
+  type LedgerScriptEntry,
+} from "../../../../../../../fixtures/data/script-entries.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

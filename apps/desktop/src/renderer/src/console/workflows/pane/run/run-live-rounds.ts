@@ -53,21 +53,18 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   WORKFLOW_EVENT_TYPES,
-  consoleClockFor,
   workflowRunIdOfEventPayload,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
-import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
-import {
-  CONTROLLER_DISPOSAL,
-  RefreshScheduler,
-  SessionRefreshTriggers,
-  useSubjectScopedResource,
-  type ConsoleSessionEvent,
-  type RefreshReason,
-  type ReadTriggerTarget,
-  type SessionStore,
-} from "../../../store/index.js";
+} from "@renderer/services/wire-shapes/workflow-events.js";
+import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
+import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
+import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What one live-round reading is opened against. */
 export interface WorkflowRunLiveRoundsOptions {

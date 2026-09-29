@@ -16,7 +16,7 @@ import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
-import { SUBJECT_ONE, SUBJECT_TWO } from "../subject-scoped/subject-fixtures.test-support.js";
+import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 
 describe("GenerationLatch — single flight, per subject and per key", () => {
   it("admits the first claim on a key and refuses the second", () => {
