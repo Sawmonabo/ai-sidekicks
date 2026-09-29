@@ -6,7 +6,7 @@
 // joins two windows' module graphs.
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
+import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
 
 /**
  * Who owns this window's preference store.
@@ -29,7 +29,7 @@ import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./machine-set
  */
 class ShellPreferenceStoreHolder {
   #bridge: ConsoleBridge | undefined;
-  #store: ShellPreferenceStore | undefined;
+  #store: MachineSettingsStore | undefined;
 
   /**
    * The live store for `bridge`, or `undefined` when this holder is on another
@@ -38,7 +38,7 @@ class ShellPreferenceStoreHolder {
    * PURE — a field read and a comparison, nothing else — because this is the call a
    * render body makes, and a render body may run for a pass React discards.
    */
-  public storeIfCurrent(bridge: ConsoleBridge): ShellPreferenceStore | undefined {
+  public storeIfCurrent(bridge: ConsoleBridge): MachineSettingsStore | undefined {
     return this.#bridge === bridge ? this.#store : undefined;
   }
 
@@ -51,7 +51,7 @@ class ShellPreferenceStoreHolder {
    * invoke the acquiring effect twice without the second invocation superseding
    * what the first one minted.
    */
-  public acquire(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier): ShellPreferenceStore {
+  public acquire(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier): MachineSettingsStore {
     const held = this.storeIfCurrent(bridge);
     if (held !== undefined) {
       return held;
@@ -59,7 +59,7 @@ class ShellPreferenceStoreHolder {
     // The only disposal there is: the store a DIFFERENT bridge supersedes. A page
     // unmounting disposes nothing, because this store's lifetime is the window's.
     this.#store?.dispose();
-    const minted = new ShellPreferenceStore(bridge, carrier);
+    const minted = new MachineSettingsStore(bridge, carrier);
     this.#bridge = bridge;
     this.#store = minted;
     return minted;
@@ -74,4 +74,4 @@ class ShellPreferenceStoreHolder {
  * way: an auxiliary window is its own renderer process, so no channel joins two
  * windows' module graphs.
  */
-export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPreferenceStoreHolder();
+export const machineSettingsHolder: ShellPreferenceStoreHolder = new ShellPreferenceStoreHolder();

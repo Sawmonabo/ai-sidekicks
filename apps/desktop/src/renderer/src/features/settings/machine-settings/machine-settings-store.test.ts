@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
+import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
 import { effectivePreference } from "./machine-settings-snapshot.js";
 
 /** The bridge the store takes its clock from; nothing is scripted and nothing needs to be. */
@@ -26,7 +26,7 @@ function carrierHolding(
 describe("shell preferences — a carrier that answers", () => {
   it("prefers the carrier's stored value over the default", async () => {
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(
+    const store = new MachineSettingsStore(
       bridge,
       carrierHolding({ "diagnostics.crashReports": false }),
     );
@@ -38,7 +38,7 @@ describe("shell preferences — a carrier that answers", () => {
   it("applies an accepted write into the carrier's own record", async () => {
     const write = vi.fn(async () => await Promise.resolve(undefined));
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(bridge, carrierHolding({}, write));
+    const store = new MachineSettingsStore(bridge, carrierHolding({}, write));
     store.start();
     await settleScheduledRead(bridge);
     await store.choose("notifications.osToastsMuted", true);
@@ -48,7 +48,7 @@ describe("shell preferences — a carrier that answers", () => {
 
   it("negative control: a rejected write leaves the stored value and stops pending", async () => {
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(
+    const store = new MachineSettingsStore(
       bridge,
       carrierHolding({ "updates.automatic": true }, () => Promise.reject(new Error("read-only"))),
     );
@@ -91,7 +91,7 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // before the choice — so the switch reverted moments after it was saved.
     const opening = heldRead();
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(bridge, {
+    const store = new MachineSettingsStore(bridge, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
@@ -109,7 +109,7 @@ describe("shell preferences — the opening read never lands on a newer choice",
   it("installs a read that settled with no choice against it", async () => {
     const opening = heldRead();
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(bridge, {
+    const store = new MachineSettingsStore(bridge, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
@@ -130,7 +130,7 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // carrier's record unreachable rather than merely superseded.
     const opening = heldRead();
     const bridge = fixtureBridge();
-    const store = new ShellPreferenceStore(bridge, {
+    const store = new MachineSettingsStore(bridge, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
@@ -189,7 +189,7 @@ describe("shell preferences — one key's write never discards another's", () =>
     // this store reads once and never refreshes, so the window showed A's old value
     // for the rest of its life.
     const write = heldWrite();
-    const store = new ShellPreferenceStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(fixtureBridge(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -211,7 +211,7 @@ describe("shell preferences — one key's write never discards another's", () =>
 
   it("clears only the settled key's spinner, not every key writing", async () => {
     const write = heldWrite();
-    const store = new ShellPreferenceStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(fixtureBridge(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -233,7 +233,7 @@ describe("shell preferences — one key's write never discards another's", () =>
     // superseding at all — which would let a stale reply for one key land over the
     // value a person chose for it a moment later.
     const write = heldWrite();
-    const store = new ShellPreferenceStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(fixtureBridge(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -253,7 +253,7 @@ describe("shell preferences — one key's write never discards another's", () =>
     // The two writes are answered newest first, so the older continuation runs AFTER the
     // newer one has settled and would put its own value over the one chosen later.
     const answers: (() => void)[] = [];
-    const store = new ShellPreferenceStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(fixtureBridge(), {
       read: async () => await Promise.resolve({}),
       write: async () =>
         await new Promise<void>((resolve) => {

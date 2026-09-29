@@ -12,20 +12,20 @@
  * declaration: the defaults table below is keyed by the derived union, so a fourth
  * key without a default is a compile error rather than a silently-`false` toggle.
  */
-export const SHELL_PREFERENCE_KEYS = [
+export const MACHINE_SETTING_KEYS = [
   "notifications.osToastsMuted",
   "updates.automatic",
   "diagnostics.crashReports",
 ] as const;
 
 /** One shell preference. Derived from the enumeration, never restated beside it. */
-export type ShellPreferenceKey = (typeof SHELL_PREFERENCE_KEYS)[number];
+export type MachineSettingKey = (typeof MACHINE_SETTING_KEYS)[number];
 
 /**
  * The latch key the opening read is on, in a space the preference keys share.
  *
  * Not a preference key, and checkably so rather than by inspection: every member of
- * {@link SHELL_PREFERENCE_KEYS} is a dotted `group.control` name and this one carries
+ * {@link MACHINE_SETTING_KEYS} is a dotted `group.control` name and this one carries
  * no dot, so it collides with none of them however that enumeration grows. The store
  * asserts it.
  */
@@ -39,25 +39,25 @@ export const OPENING_READ_KEY = "opening-read";
  * out via settings" — and the toast mute is OFF because muting by default would
  * silence attention nobody asked to silence.
  */
-export const SHELL_PREFERENCE_DEFAULTS: Readonly<Record<ShellPreferenceKey, boolean>> = {
+export const MACHINE_SETTING_DEFAULTS: Readonly<Record<MachineSettingKey, boolean>> = {
   "notifications.osToastsMuted": false,
   "updates.automatic": true,
   "diagnostics.crashReports": true,
 };
 
 /** What the one carrier read answered. */
-export type ShellPreferenceReading =
+export type MachineSettingReading =
   | { readonly kind: "not-read" }
   | { readonly kind: "read"; readonly values: Readonly<Record<string, boolean>> };
 
 /** Everything a toggle row needs, rebuilt on transition and held by identity. */
-export interface ShellPreferenceSnapshot {
-  readonly reading: ShellPreferenceReading;
+export interface MachineSettingsSnapshot {
+  readonly reading: MachineSettingReading;
   /**
    * Every key whose write is in flight. A SET, because the carrier updates one key
    * per call and two keys chosen in quick succession are two independent acts.
    */
-  readonly pendingKeys: ReadonlySet<ShellPreferenceKey>;
+  readonly pendingKeys: ReadonlySet<MachineSettingKey>;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
 }
@@ -70,7 +70,7 @@ export interface ShellPreferenceSnapshot {
  * opens on, and a second literal there would be a second answer to "nothing has
  * happened yet" that nothing keeps equal to this one.
  */
-export const NOTHING_CHOSEN: ShellPreferenceSnapshot = {
+export const NOTHING_CHOSEN: MachineSettingsSnapshot = {
   reading: { kind: "not-read" },
   pendingKeys: new Set(),
   revision: 0,
@@ -78,8 +78,8 @@ export const NOTHING_CHOSEN: ShellPreferenceSnapshot = {
 
 /** The value a row shows: the carrier's, then the default. */
 export function effectivePreference(
-  snapshot: ShellPreferenceSnapshot,
-  key: ShellPreferenceKey,
+  snapshot: MachineSettingsSnapshot,
+  key: MachineSettingKey,
 ): boolean {
   if (snapshot.reading.kind === "read") {
     const stored = snapshot.reading.values[key];
@@ -87,15 +87,15 @@ export function effectivePreference(
       return stored;
     }
   }
-  return SHELL_PREFERENCE_DEFAULTS[key];
+  return MACHINE_SETTING_DEFAULTS[key];
 }
 
 /** The carrier's own record, with one key applied. Never a second copy beside it. */
 export function appliedReading(
-  reading: ShellPreferenceReading,
-  key: ShellPreferenceKey,
+  reading: MachineSettingReading,
+  key: MachineSettingKey,
   enabled: boolean,
-): ShellPreferenceReading {
+): MachineSettingReading {
   return reading.kind === "read"
     ? { kind: "read", values: { ...reading.values, [key]: enabled } }
     : { kind: "read", values: { [key]: enabled } };

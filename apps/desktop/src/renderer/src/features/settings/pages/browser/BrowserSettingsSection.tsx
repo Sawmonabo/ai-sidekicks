@@ -2,9 +2,9 @@
 
 import type { ReactNode } from "react";
 
-import { BrowserSettingsPage } from "./BrowserPage.js";
+import { BrowserPage } from "./BrowserPage.js";
 
 /** The browser section of settings: the page heading alone. */
 export function BrowserSettingsSection(): ReactNode {
-  return <BrowserSettingsPage />;
+  return <BrowserPage />;
 }

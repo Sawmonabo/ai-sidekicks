@@ -14,7 +14,7 @@
 import type { ReactNode } from "react";
 
 /** The browser settings page: its heading, and whatever section the caller composes under it. */
-export function BrowserSettingsPage(props: { readonly children?: ReactNode }): React.JSX.Element {
+export function BrowserPage(props: { readonly children?: ReactNode }): React.JSX.Element {
   return (
     <section
       className="meridian-browser-settings"

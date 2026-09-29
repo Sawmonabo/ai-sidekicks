@@ -1,8 +1,7 @@
 /* The one preference row, and the switch it draws.
  *
  * The component's own sheet, imported by the component: a page that draws a
- * preference row gets these styles because it rendered the row, rather than because
- * the family door happened to load a sheet holding them.
+ * preference row gets these styles because it rendered the row.
  */
 
 /* --- One preference row -------------------------------------------------- */

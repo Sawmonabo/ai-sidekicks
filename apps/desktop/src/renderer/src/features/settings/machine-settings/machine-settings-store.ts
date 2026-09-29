@@ -18,8 +18,8 @@ import {
   NOTHING_CHOSEN,
   OPENING_READ_KEY,
   appliedReading,
-  type ShellPreferenceKey,
-  type ShellPreferenceSnapshot,
+  type MachineSettingKey,
+  type MachineSettingsSnapshot,
 } from "./machine-settings-snapshot.js";
 
 /**
@@ -28,7 +28,7 @@ import {
 export interface ShellPreferenceCarrier {
   readonly read: () => Promise<Readonly<Record<string, boolean>>>;
   readonly write: (request: {
-    readonly key: ShellPreferenceKey;
+    readonly key: MachineSettingKey;
     readonly enabled: boolean;
   }) => Promise<unknown>;
 }
@@ -40,12 +40,12 @@ export interface ShellPreferenceCarrier {
  * it owns a read, a write generation, and a teardown. {@link useShellPreferences} is
  * the React binding and holds nothing of its own.
  */
-export class ShellPreferenceStore implements ReadTriggerTarget {
+export class MachineSettingsStore implements ReadTriggerTarget {
   /** No terminal event refreshes this read; the window triggers are the whole story. */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #carrier: ShellPreferenceCarrier;
   readonly #changes = new Emitter<void>("shell preference change");
-  #snapshot: ShellPreferenceSnapshot = NOTHING_CHOSEN;
+  #snapshot: MachineSettingsSnapshot = NOTHING_CHOSEN;
   #started = false;
   #disposed = false;
   /**
@@ -73,7 +73,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
    * says which rows show a spinner while it has not. The latch bounds its own keys
    * and cannot name them, so a surface that renders per row needs the set.
    */
-  readonly #pendingWriteKeys = new Set<ShellPreferenceKey>();
+  readonly #pendingWriteKeys = new Set<MachineSettingKey>();
   readonly #scheduler: RefreshScheduler;
 
   public constructor(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier) {
@@ -86,7 +86,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
     });
   }
 
-  public snapshot(): ShellPreferenceSnapshot {
+  public snapshot(): MachineSettingsSnapshot {
     return this.#snapshot;
   }
 
@@ -141,7 +141,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
    * one is in flight supersedes it rather than queueing behind it. A rejected write is
    * not caught; the key stops pending and the stored value stands.
    */
-  public async choose(key: ShellPreferenceKey, enabled: boolean): Promise<void> {
+  public async choose(key: MachineSettingKey, enabled: boolean): Promise<void> {
     this.#acts.supersede(this, OPENING_READ_KEY);
     const write = this.#acts.supersedeAndClaim(this, key);
     this.#pendingWriteKeys.add(key);
@@ -169,7 +169,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   }
 
   /** Whether this settled write is still its key's latest, and retire it if it is. */
-  #settle(key: ShellPreferenceKey, write: GenerationClaim): boolean {
+  #settle(key: MachineSettingKey, write: GenerationClaim): boolean {
     if (this.#disposed || !write.isCurrent) {
       return false;
     }
@@ -179,7 +179,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   }
 
   /** The keys still in flight, copied so a published snapshot never changes under a reader. */
-  #pendingKeys(): ReadonlySet<ShellPreferenceKey> {
+  #pendingKeys(): ReadonlySet<MachineSettingKey> {
     return new Set(this.#pendingWriteKeys);
   }
 
@@ -207,7 +207,7 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
     });
   }
 
-  #publish(next: ShellPreferenceSnapshot): void {
+  #publish(next: MachineSettingsSnapshot): void {
     this.#snapshot = next;
     this.#changes.emit();
   }

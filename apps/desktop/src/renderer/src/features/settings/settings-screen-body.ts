@@ -14,7 +14,7 @@ import { createElement, useState } from "react";
 
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 import { composeSettingsPages } from "./settings-pages.js";
-import { SettingsSurface } from "./SettingsScreen.js";
+import { SettingsScreen } from "./SettingsScreen.js";
 
 /**
  * The Settings screen, with its pages composed for this mount.
@@ -24,5 +24,5 @@ import { SettingsSurface } from "./SettingsScreen.js";
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
   const [pages] = useState(composeSettingsPages);
-  return createElement(SettingsSurface, { context, pages });
+  return createElement(SettingsScreen, { context, pages });
 }

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SessionAct } from "./useSingleFlightAct.js";
+import { SingleFlightAct } from "./useSingleFlightAct.js";
 
 /** An attempt whose settlement the case releases when it chooses. */
 function heldAttempt(): {
@@ -27,7 +27,7 @@ function heldAttempt(): {
 
 describe("one act's settlement", () => {
   it("starts unattempted, which is not the same as settled with nothing", () => {
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async () => await Promise.resolve("answered"),
       describeWhat: "The act",
     });
@@ -36,7 +36,7 @@ describe("one act's settlement", () => {
   });
 
   it("runs, then settles with the answer", async () => {
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async (request) => await Promise.resolve(request),
       describeWhat: "The act",
     });
@@ -48,7 +48,7 @@ describe("one act's settlement", () => {
 
   it("is running between the press and the settlement", async () => {
     const held = heldAttempt();
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: held.attempt,
       describeWhat: "The act",
     });
@@ -64,7 +64,7 @@ describe("one act's settlement", () => {
   it("answers a second press instead of sending it", async () => {
     const held = heldAttempt();
     let attemptCount = 0;
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async (request) => {
         attemptCount += 1;
         return await held.attempt(request);
@@ -92,7 +92,7 @@ describe("one act's settlement", () => {
     // then saw a settled state, re-enabled its control, and admitted a press whose
     // call raced the first to overwrite the settlement.
     const held = heldAttempt();
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: held.attempt,
       describeWhat: "The join",
     });
@@ -121,7 +121,7 @@ describe("one act's settlement", () => {
     // The same two presses with nothing in flight: the second one IS put, settles,
     // and answers no refusal — so the reading above is a single-flight reading
     // rather than a class that refuses every second call for any reason.
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async (request) => await Promise.resolve(request),
       describeWhat: "The join",
     });
@@ -138,7 +138,7 @@ describe("one act's settlement", () => {
     // send two calls, so the count above is a real single-flight reading rather than
     // a class that never calls twice for any reason.
     let attemptCount = 0;
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async () => {
         attemptCount += 1;
         return await Promise.resolve("answered");
@@ -153,7 +153,7 @@ describe("one act's settlement", () => {
   });
 
   it("clears back to unattempted, and says nothing new when already there", () => {
-    const act = new SessionAct<string, string>({
+    const act = new SingleFlightAct<string, string>({
       attempt: async () => await Promise.resolve("answered"),
       describeWhat: "The act",
     });

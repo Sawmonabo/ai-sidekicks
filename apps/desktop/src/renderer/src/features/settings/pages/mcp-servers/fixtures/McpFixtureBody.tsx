@@ -64,7 +64,7 @@ export interface McpShellOperations {
 }
 
 /** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
-export function McpShell(props: {
+export function McpFixtureBody(props: {
   readonly bridge: ConsoleBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
   readonly operations: McpShellOperations;

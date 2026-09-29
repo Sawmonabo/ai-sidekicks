@@ -1,9 +1,8 @@
-/* The MCP shell's own styles: one card per binding, and the five lists inside it.
+/* The MCP fixture body's own styles: one card per binding, and the five lists inside it.
  *
- * A page-local sheet: these rules serve one shell, and a shared settings sheet would
- * carry every page's rules at once. It enters through this directory's own door and not
- * through the settings chunk root, so the rules load only with a composition that mounts
- * the shell.
+ * A page-local sheet: these rules serve one body, and a shared settings sheet would carry
+ * every page's rules at once. `McpFixtureBody.tsx` imports it, so the rules load only
+ * with a composition that mounts the body.
  *
  * Nothing outside `meridian-mcp__` appears here: a rule this sheet added to a shared class
  * would outlive the shell.

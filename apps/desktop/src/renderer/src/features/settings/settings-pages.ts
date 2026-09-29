@@ -14,14 +14,14 @@ import { createElement } from "react";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
-import { PendingSettingsPageBody } from "./components/PendingSettingsPage.js";
+import { PendingSettingsPage } from "./components/PendingSettingsPage.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
-import { ApplicationPage } from "./pages/general/GeneralPage.js";
+import { GeneralPage } from "./pages/general/GeneralPage.js";
 import { KeyboardPage } from "./pages/keyboard/KeyboardPage.js";
 import { McpServersPage } from "./pages/mcp-servers/McpServersPage.js";
 import { NotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { ProvidersPage } from "./pages/providers/ProvidersPage.js";
-import { DaemonPage } from "./pages/runtime/RuntimePage.js";
+import { RuntimePage } from "./pages/runtime/RuntimePage.js";
 import type { SettingsPageBody, SettingsPageContext } from "./types.js";
 import {
   SETTINGS_SECTION_IDS,
@@ -78,7 +78,7 @@ export type SettingsPageRegistration =
     });
 
 /** One ranked search hit: the entry, the text that matched, and its score. */
-export interface SettingsEntryMatch {
+export interface SettingsPageMatch {
   readonly descriptor: SettingsPageDescriptor;
   /** The label or alias the score was earned on, so the result can say why. */
   readonly matchedText: string;
@@ -141,7 +141,7 @@ export class SettingsPageRegistry {
     // by the generic machinery: what a settings page reserves while it loads is a
     // settings-shaped question, and the pane above it has already drawn the heading.
     const loadedBody = new LoadedLazyBody(registration.body, () =>
-      createElement(PendingSettingsPageBody, { section: registration.section }),
+      createElement(PendingSettingsPage, { section: registration.section }),
     );
     this.#descriptorsBySection.register(registration.section, {
       ...descriptorBase,
@@ -222,10 +222,10 @@ export class SettingsPageRegistry {
  * Ties break on rail order, because the input is already in it and `Array.sort` is
  * stable — so two equally-good hits never swap places between keystrokes.
  */
-export function matchSettingsEntries(
+export function matchSettingsPages(
   entries: readonly SettingsPageDescriptor[],
   query: string,
-): readonly SettingsEntryMatch[] {
+): readonly SettingsPageMatch[] {
   const trimmedQuery = query.trim();
   if (trimmedQuery === "") {
     return entries.map((descriptor) => ({
@@ -234,14 +234,14 @@ export function matchSettingsEntries(
       score: 0,
     }));
   }
-  const matches: SettingsEntryMatch[] = [];
+  const matches: SettingsPageMatch[] = [];
   for (const descriptor of entries) {
     const candidates = [
       descriptor.label,
       SETTINGS_SECTION_LABELS[descriptor.section],
       ...descriptor.keywords,
     ];
-    let best: SettingsEntryMatch | undefined;
+    let best: SettingsPageMatch | undefined;
     for (const candidate of candidates) {
       const scored = scoreSubsequence(candidate, trimmedQuery);
       if (scored !== undefined && (best === undefined || scored.score > best.score)) {
@@ -285,7 +285,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "about",
       "build",
     ],
-    render: (context) => createElement(ApplicationPage, { context }),
+    render: (context) => createElement(GeneralPage, { context }),
   },
   {
     section: "accounts",
@@ -373,7 +373,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     owner: "settings-daemon",
     label: "Runtime",
     keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
-    render: (context) => createElement(DaemonPage, { context }),
+    render: (context) => createElement(RuntimePage, { context }),
   },
 ];
 

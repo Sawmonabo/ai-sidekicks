@@ -125,6 +125,8 @@ const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissio
  * Keyed on the bridge because the subject is the machine, not a session or a user.
  * The clock comes from the bridge, not the provider, because a settings page is handed
  * a bridge directly.
+ *
+ * @consumedBy the Notifications page's permission notice
  */
 export function useOsNotificationPermission(
   bridge: ConsoleBridge,

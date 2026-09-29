@@ -10,7 +10,7 @@ import {
 } from "@renderer/console/primitives/index.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import type { SettingsPageContext } from "../../../types.js";
-import { MountRow } from "./MountedFolderRow.js";
+import { MountedFolderRow } from "./MountedFolderRow.js";
 import { type PushDrivenReadState } from "@renderer/console/seats/index.js";
 import {
   createMountInventoryRead,
@@ -25,7 +25,7 @@ import {
  * constructed on the session it reads, started in an effect, and disposed when the
  * pane leaves.
  */
-export function MountInventoryList(props: {
+export function MountedFolderList(props: {
   readonly bridge: SettingsPageContext["bridge"];
   readonly calls: MountInventoryCalls;
   readonly sessionId: string;
@@ -143,7 +143,7 @@ export function MountInventoryList(props: {
       <ul className="meridian-mount-list">
         {state.value.readings.map((mount) => (
           <li key={mount.id} className="meridian-mount-list__item">
-            <MountRow mount={mount} />
+            <MountedFolderRow mount={mount} />
           </li>
         ))}
       </ul>
@@ -170,9 +170,7 @@ export function MountInventoryList(props: {
  * own: the card on screen renders those words, and the announcement is the spoken half
  * of the same fact rather than a second, friendlier account of it.
  */
-export function mountSettlementSentence(
-  state: PushDrivenReadState<MountInventory>,
-): string | undefined {
+function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
   if (state.kind === "not-loaded") {
     return undefined;
   }

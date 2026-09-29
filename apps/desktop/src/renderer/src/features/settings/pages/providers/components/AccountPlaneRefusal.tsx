@@ -25,7 +25,7 @@ import {
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
-import { ACCOUNT_PLANE_ACT_SENTENCES } from "../account-plane-sentences.js";
+import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 
 export function AccountPlaneRefusal(props: {
   readonly refusal: ConsoleRefusal;
@@ -49,7 +49,7 @@ export function AccountPlaneRefusal(props: {
       {handoff === undefined ? null : (
         <p className="meridian-account-handoff">
           <span className="meridian-account-handoff__sentence">
-            {ACCOUNT_PLANE_ACT_SENTENCES[handoff.remedyKind]}
+            {ACCOUNT_PLANE_HANDOFF_SENTENCES[handoff.remedyKind]}
           </span>
           {isAlreadyThere ? null : (
             <button

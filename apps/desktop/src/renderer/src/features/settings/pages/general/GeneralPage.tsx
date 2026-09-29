@@ -14,7 +14,7 @@ import { WireFigure } from "@renderer/console/primitives/index.js";
 import type { SettingsPageContext } from "../../types.js";
 
 /** The General page: the running version, platform, architecture and locale. */
-export function ApplicationPage(props: { readonly context: SettingsPageContext }): ReactNode {
+export function GeneralPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge } = props.context;
   const { app } = bridge.desktopBridge;
   return (

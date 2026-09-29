@@ -2,13 +2,13 @@
 // can be handed, and the page's rail entry.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { OsPermissionNotice } from "./components/NotificationPermissionNotice.js";
+import { NotificationPermissionNotice } from "./components/NotificationPermissionNotice.js";
 import { composeSettingsPages } from "../../settings-pages.js";
 
 describe("the notifications page — what the operating system allows", () => {
   it("names a denied permission and promises in-app attention survives it", () => {
     const { container } = render(
-      <OsPermissionNotice reading={{ kind: "read", state: "denied" }} />,
+      <NotificationPermissionNotice reading={{ kind: "read", state: "denied" }} />,
     );
     const text = container.textContent ?? "";
     expect(text).toContain("not permitting desktop notifications");
@@ -17,7 +17,9 @@ describe("the notifications page — what the operating system allows", () => {
 
   it("says nothing unless the machine denied", () => {
     for (const state of ["granted", "not-determined"] as const) {
-      const { container } = render(<OsPermissionNotice reading={{ kind: "read", state }} />);
+      const { container } = render(
+        <NotificationPermissionNotice reading={{ kind: "read", state }} />,
+      );
       expect(container.textContent ?? "").toBe("");
     }
   });

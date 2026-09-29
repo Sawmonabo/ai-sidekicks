@@ -25,7 +25,7 @@ import {
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
 
-export interface SettingsSectionPageProps {
+export interface SettingsPageContentProps {
   readonly section: SettingsSectionId;
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
@@ -46,7 +46,7 @@ export interface SettingsSectionPageProps {
  * absence arms stay hook-free, which is what makes that safe by construction
  * rather than by an early-return convention.
  */
-export function SettingsSectionPage(props: SettingsSectionPageProps): React.JSX.Element {
+export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.Element {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [isSettling, setIsSettling] = useState(false);
   const { settleOrdinal } = props;

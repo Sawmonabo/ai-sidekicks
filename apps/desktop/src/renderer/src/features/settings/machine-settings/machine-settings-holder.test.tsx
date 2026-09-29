@@ -19,9 +19,9 @@ import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
-import { consoleShellPreferences } from "./machine-settings-holder.js";
-import { useShellPreferences } from "./hooks/useMachineSettings.js";
-import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./machine-settings-snapshot.js";
+import { machineSettingsHolder } from "./machine-settings-holder.js";
+import { useMachineSettings } from "./hooks/useMachineSettings.js";
+import { MACHINE_SETTING_DEFAULTS, effectivePreference } from "./machine-settings-snapshot.js";
 import type { ShellPreferenceCarrier } from "./machine-settings-store.js";
 
 /** A carrier whose read and write never answer. */
@@ -43,7 +43,7 @@ function freshBridge(): ConsoleBridge {
 
 /** The smallest page there is: it binds the preferences and renders the reading. */
 function PreferenceProbe(props: { readonly bridge: ConsoleBridge }): React.JSX.Element {
-  const preferences = useShellPreferences(props.bridge, UNANSWERING_CARRIER);
+  const preferences = useMachineSettings(props.bridge, UNANSWERING_CARRIER);
   return <span data-testid="reading">{preferences.snapshot.reading.kind}</span>;
 }
 
@@ -80,7 +80,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
     // Strict mode invokes the acquiring effect twice; the second invocation finds
     // the store the first one minted rather than superseding it, which is the
     // property that lets the effect carry no teardown.
-    const acquired = consoleShellPreferences.storeIfCurrent(bridge);
+    const acquired = machineSettingsHolder.storeIfCurrent(bridge);
     expect(acquired).toBeDefined();
     expect(acquired?.isDisposed).toBe(false);
     // The carrier never answers, so the read stays open.
@@ -91,7 +91,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
     const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
     await settle(firstBridge);
-    const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
+    const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
     const disposals = vi.spyOn(firstStore as { dispose: () => void }, "dispose");
 
@@ -100,7 +100,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
     await settle(secondBridge);
 
     expect(disposals).toHaveBeenCalledTimes(1);
-    expect(consoleShellPreferences.storeIfCurrent(secondBridge)?.isDisposed).toBe(false);
+    expect(machineSettingsHolder.storeIfCurrent(secondBridge)?.isDisposed).toBe(false);
   });
 
   it("leaves the committed store live when a render is abandoned", async () => {
@@ -110,7 +110,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
     const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
     await settle(firstBridge);
-    const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
+    const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
 
     const abandonedBridge = freshBridge();
@@ -130,8 +130,8 @@ describe("shell preferences binding — acquisition happens after the commit", (
     consoleErrors.mockRestore();
 
     expect(firstStore?.isDisposed).toBe(false);
-    expect(consoleShellPreferences.storeIfCurrent(firstBridge)).toBe(firstStore);
-    expect(consoleShellPreferences.storeIfCurrent(abandonedBridge)).toBeUndefined();
+    expect(machineSettingsHolder.storeIfCurrent(firstBridge)).toBe(firstStore);
+    expect(machineSettingsHolder.storeIfCurrent(abandonedBridge)).toBeUndefined();
   });
 });
 
@@ -142,9 +142,9 @@ describe("shell preferences — the store belongs to the window, not to a page",
     // gone by the time the notifications section asked for it — while the row said
     // it was held for the window.
     const bridge = freshBridge();
-    const firstPagesStore = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
+    const firstPagesStore = machineSettingsHolder.acquire(bridge, UNANSWERING_CARRIER);
 
-    const secondPagesStore = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
+    const secondPagesStore = machineSettingsHolder.acquire(bridge, UNANSWERING_CARRIER);
 
     expect(secondPagesStore).toBe(firstPagesStore);
   });
@@ -156,21 +156,21 @@ describe("shell preferences — the store belongs to the window, not to a page",
     // rather than returning a terminal one whose replies write nothing.
     const firstBridge = freshBridge();
     const secondBridge = freshBridge();
-    const firstStore = consoleShellPreferences.acquire(firstBridge, UNANSWERING_CARRIER);
+    const firstStore = machineSettingsHolder.acquire(firstBridge, UNANSWERING_CARRIER);
     // Counted rather than read off the flag: `dispose` is idempotent, so a holder
     // that disposed the same store on every ask would leave `isDisposed` looking
     // exactly as it does here.
     const disposals = vi.spyOn(firstStore, "dispose");
 
-    const secondStore = consoleShellPreferences.acquire(secondBridge, UNANSWERING_CARRIER);
-    consoleShellPreferences.acquire(secondBridge, UNANSWERING_CARRIER);
+    const secondStore = machineSettingsHolder.acquire(secondBridge, UNANSWERING_CARRIER);
+    machineSettingsHolder.acquire(secondBridge, UNANSWERING_CARRIER);
 
     expect(secondStore).not.toBe(firstStore);
     expect(disposals).toHaveBeenCalledTimes(1);
     expect(firstStore.isDisposed).toBe(true);
     expect(secondStore.isDisposed).toBe(false);
 
-    const rebuilt = consoleShellPreferences.acquire(firstBridge, UNANSWERING_CARRIER);
+    const rebuilt = machineSettingsHolder.acquire(firstBridge, UNANSWERING_CARRIER);
     expect(rebuilt).not.toBe(firstStore);
     expect(rebuilt.isDisposed).toBe(false);
   });
@@ -180,14 +180,14 @@ describe("shell preferences — a superseded store", () => {
   it("negative control: a superseded store's own reply writes nothing", async () => {
     // Without this, the disposal above would be a flag nobody reads: a reply landing after
     // the swap would publish the old bridge's answer over the new bridge's store.
-    const firstStore = consoleShellPreferences.acquire(freshBridge(), ACCEPTING_CARRIER);
-    consoleShellPreferences.acquire(freshBridge(), ACCEPTING_CARRIER);
+    const firstStore = machineSettingsHolder.acquire(freshBridge(), ACCEPTING_CARRIER);
+    machineSettingsHolder.acquire(freshBridge(), ACCEPTING_CARRIER);
 
     await firstStore.choose("updates.automatic", false);
 
     expect(firstStore.snapshot().reading.kind).toBe("not-read");
     expect(effectivePreference(firstStore.snapshot(), "updates.automatic")).toBe(
-      SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
+      MACHINE_SETTING_DEFAULTS["updates.automatic"],
     );
   });
 });
@@ -195,9 +195,9 @@ describe("shell preferences — a superseded store", () => {
 describe("shell preferences — the lookup a render body performs", () => {
   it("answers the live store for the bridge it is on", () => {
     const bridge = freshBridge();
-    const acquired = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
+    const acquired = machineSettingsHolder.acquire(bridge, UNANSWERING_CARRIER);
 
-    expect(consoleShellPreferences.storeIfCurrent(bridge)).toBe(acquired);
+    expect(machineSettingsHolder.storeIfCurrent(bridge)).toBe(acquired);
   });
 
   it("answers nothing for a bridge the holder is not on, and disposes nothing", () => {
@@ -206,21 +206,21 @@ describe("shell preferences — the lookup a render body performs", () => {
     // The acquiring form disposed the committed store and installed a successor
     // right here, so an abandoned render left the mounted pages on a disposed store.
     const committedBridge = freshBridge();
-    const committed = consoleShellPreferences.acquire(committedBridge, UNANSWERING_CARRIER);
+    const committed = machineSettingsHolder.acquire(committedBridge, UNANSWERING_CARRIER);
     const replacementBridge = freshBridge();
 
-    expect(consoleShellPreferences.storeIfCurrent(replacementBridge)).toBeUndefined();
+    expect(machineSettingsHolder.storeIfCurrent(replacementBridge)).toBeUndefined();
     expect(committed.isDisposed).toBe(false);
-    expect(consoleShellPreferences.storeIfCurrent(committedBridge)).toBe(committed);
+    expect(machineSettingsHolder.storeIfCurrent(committedBridge)).toBe(committed);
   });
 
   it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
     // Without this, the case above would pass over a holder that never disposed
     // anything at all — and the lookup would be pure because nothing was.
     const committedBridge = freshBridge();
-    const committed = consoleShellPreferences.acquire(committedBridge, UNANSWERING_CARRIER);
+    const committed = machineSettingsHolder.acquire(committedBridge, UNANSWERING_CARRIER);
 
-    consoleShellPreferences.acquire(freshBridge(), UNANSWERING_CARRIER);
+    machineSettingsHolder.acquire(freshBridge(), UNANSWERING_CARRIER);
 
     expect(committed.isDisposed).toBe(true);
   });

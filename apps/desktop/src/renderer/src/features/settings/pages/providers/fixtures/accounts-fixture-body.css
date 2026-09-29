@@ -1,9 +1,8 @@
-/* The account shell's own styles: a registry list, a quota table, and two cards.
+/* The accounts fixture body's own styles: a registry list, a quota table, and two cards.
  *
- * A page-local sheet: these rules serve one shell, and a shared settings sheet would
- * carry every page's rules at once. It enters through this directory's own door and not
- * through the settings chunk root, so the rules load only with a composition that mounts
- * the shell.
+ * A page-local sheet: these rules serve one body, and a shared settings sheet would carry
+ * every page's rules at once. `AccountsFixtureBody.tsx` imports it, so the rules load
+ * only with a composition that mounts the body.
  *
  * Nothing outside `meridian-accounts__` appears here: a rule this sheet added to a shared
  * class would outlive the shell.
@@ -175,9 +174,8 @@
 }
 
 /* The prose and the button each span both columns: neither is a field, and a control
-   sitting in the value column would read as one. The outcome line spans with them,
-   asked for through `settings/shared/settings-page.css`'s own door rather than by
-   declaring that sheet's class here. */
+   sitting in the value column would read as one. The outcome line spans with them
+   through a class `settings-page.css` declares, rather than by redeclaring it here. */
 .meridian-accounts__register > p,
 .meridian-accounts__register > button {
   grid-column: 1 / -1;

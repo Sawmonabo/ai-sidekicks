@@ -1,8 +1,8 @@
 // What a watcher of the account-plane reading sees, and the parts it is made of.
 //
 // THE SHAPE, NOT THE WIRE. This module declares what every surface in the window
-// renders from the account plane: the quota readings, the registry's whole account
-// list and its readiness projection — three folds of one reply. It opens no tail and
+// renders from the account plane: the quota rows, the registry's whole account list and
+// its readiness projection — three folds of one reply. It opens no tail and
 // takes no read.
 //
 // PURE, AND THAT IS THE POINT. Composition takes the fold, the delivery arm, the read
@@ -19,10 +19,7 @@ import type {
 import type { UnreadableDeliveryReading } from "@renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "@renderer/services/wire-reads/read-lifecycle.js";
 import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import type {
-  ProviderQuotaFold,
-  ProviderQuotaReading,
-} from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderQuotaFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
 /**
  * The empty projection, named once so an unread registry shares one frozen array.
@@ -32,13 +29,11 @@ import type {
 export const NO_READINESS: readonly ProviderReadiness[] = Object.freeze([]);
 
 /** What the account plane answered, and why it did not where it did not. */
-export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireReadState {
-  /** One reading per `(accountId, limitId)`, ordered by account then limit label. */
-  readonly readings: readonly ProviderQuotaReading[];
+export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireReadState {
   /**
    * Every account the registry carries, `accountId` to `displayLabel`.
    *
-   * The same read and the same tail that feed the readings, folded a second way
+   * The same read and the same tail that feed the quota rows, folded a second way
    * rather than fetched a second time: any surface that names a paying account holds
    * the daemon-minted handle and needs the operator's word for it, and this window
    * has exactly one reader of the account plane. Empty until the read has served,
@@ -74,9 +69,8 @@ export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireRea
   /**
    * The quota rows the fold currently holds, one per `(accountId, limitId)`.
    *
-   * The wire rows rather than {@link readings}, for the surface that renders a
-   * window's own members — its source, its reset horizon, the generation it was
-   * observed under. SUPERSEDED ALREADY, which is a contract and not a convenience: a
+   * The wire rows, for the surface that renders a window's own members — its source, its
+   * reset horizon, the generation it was observed under. SUPERSEDED ALREADY, which is a contract and not a convenience: a
    * consumer renders these as they came and folds them no further, because a second
    * supersession rule downstream of the first does not stay in step with it and the
    * disagreement is invisible — both surfaces render.
@@ -95,7 +89,7 @@ export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireRea
 }
 
 /** What the tail contributes to a readout, beside the fold it has been applied to. */
-export interface ProviderQuotaDeliveryReading {
+export interface ProviderAccountDeliveryReading {
   /** What the tail could not read. */
   readonly unreadable: UnreadableDeliveryReading;
   /** The newest brokered sign-in the tail reported finished. */
@@ -103,7 +97,7 @@ export interface ProviderQuotaDeliveryReading {
 }
 
 /** The four things a readout is composed from, named so no caller passes a reading. */
-export interface ProviderQuotaReadoutParts {
+export interface ProviderAccountReadoutParts {
   /** Which reading is current for each key, and every account the registry carries. */
   readonly fold: ProviderQuotaFold;
   /**
@@ -114,7 +108,7 @@ export interface ProviderQuotaReadoutParts {
    * one of them would have to be widened by every later one — and the composer would
    * then be the place a reader has to look to find out what a tail can say.
    */
-  readonly deliveries: ProviderQuotaDeliveryReading;
+  readonly deliveries: ProviderAccountDeliveryReading;
   /** How the newest read went, from the reading's own lifecycle. */
   readonly readState: WireReadState;
   /** The projection the newest SERVED read carried. Never folded from the tail. */
@@ -130,14 +124,13 @@ export interface ProviderQuotaReadoutParts {
  *
  * @consumedBy the Providers settings page's quota readout
  */
-export function composeProviderQuotaReadout(
-  parts: ProviderQuotaReadoutParts,
-): ProviderQuotaReadout {
+export function composeProviderAccountReadout(
+  parts: ProviderAccountReadoutParts,
+): ProviderAccountReadout {
   const { fold, deliveries, readState, readiness } = parts;
   return {
     ...deliveries.unreadable,
     ...readState,
-    readings: fold.readings(),
     accountLabels: fold.accountLabels(),
     accounts: fold.accounts(),
     readiness,

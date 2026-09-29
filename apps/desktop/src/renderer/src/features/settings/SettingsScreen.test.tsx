@@ -28,7 +28,7 @@ import {
   CHUNK_WARM_TIMEOUT_MS,
   renderSurface,
   searchFor,
-  shippedSurfaceRender,
+  shippedScreenRender,
   windowAt,
 } from "./SettingsScreen.test-support.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
@@ -36,7 +36,7 @@ import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 // The settings chunk, warmed in a hook rather than inside whichever case reached it
 // first — the reason the holder it goes through records.
 beforeAll(async () => {
-  await shippedSurfaceRender();
+  await shippedScreenRender();
 }, CHUNK_WARM_TIMEOUT_MS);
 
 /**

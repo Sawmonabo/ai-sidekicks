@@ -22,7 +22,7 @@ import { ChordHint, Nothing, WireFigure, formatCount } from "@renderer/console/p
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 
-export interface ResetAllChordsProps {
+export interface ResetAllKeybindingsProps {
   /** Every row whose chord is a person's rather than the console's. */
   readonly changedRows: readonly KeybindingRow[];
   readonly onResetAll: () => void;
@@ -35,7 +35,7 @@ export interface ResetAllChordsProps {
  * choose between two shapes: the two arms are one question — is anything changed —
  * and answering it in two places is how they come to disagree.
  */
-export function ResetAllChords(props: ResetAllChordsProps): ReactNode {
+export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode {
   if (props.changedRows.length === 0) {
     return (
       <Nothing kind="empty" placement="inline" title="Every chord is the one the console ships." />

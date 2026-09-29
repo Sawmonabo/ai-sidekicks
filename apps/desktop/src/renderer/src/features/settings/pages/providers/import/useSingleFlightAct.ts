@@ -15,7 +15,7 @@ import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal this module raises carries. */
-export const SESSION_ACT_REFUSAL_ORIGIN = "session-act";
+export const IMPORT_REFUSAL_ORIGIN = "session-act";
 
 /**
  * The code a press refused for arriving while the act it repeats is unsettled.
@@ -49,7 +49,7 @@ const NOTHING_ATTEMPTED: ActSettlement<never> = { status: "unattempted" };
  * because `useSyncExternalStore` compares snapshot identity with `Object.is` and a
  * getter minting a fresh object renders forever.
  */
-export class SessionAct<TRequest, TAnswer> {
+export class SingleFlightAct<TRequest, TAnswer> {
   readonly #attempt: ActAttempt<TRequest, TAnswer>;
   readonly #describeWhat: string;
   readonly #changes = new Emitter<ActSettlement<TAnswer>>("session act settlement");
@@ -103,7 +103,7 @@ export class SessionAct<TRequest, TAnswer> {
   public async run(request: TRequest): Promise<ConsoleRefusal | undefined> {
     if (this.#settlement.status === "running") {
       return refuse(
-        SESSION_ACT_REFUSAL_ORIGIN,
+        IMPORT_REFUSAL_ORIGIN,
         ACT_IN_FLIGHT_CODE,
         `${this.#describeWhat} was not put: the last one is still running, and only one runs at a time. Wait for it to settle, then press again.`,
       );
@@ -128,8 +128,8 @@ export class SessionAct<TRequest, TAnswer> {
 }
 
 /** Read one act's settlement inside a component. */
-export function useSessionAct<TRequest, TAnswer>(
-  act: SessionAct<TRequest, TAnswer>,
+export function useSingleFlightAct<TRequest, TAnswer>(
+  act: SingleFlightAct<TRequest, TAnswer>,
 ): ActSettlement<TAnswer> {
   const subscribe = useCallback((onStoreChange: () => void) => act.subscribe(onStoreChange), [act]);
   const read = useCallback(() => act.settlement(), [act]);

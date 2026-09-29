@@ -19,17 +19,17 @@ import { settle } from "@test/helpers/settle.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
 import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
-import { getButton, renderPage } from "./runtime-page.test-support.js";
+import { getButton, renderRuntimePage } from "./runtime-page.test-support.js";
 
 describe("DaemonPage — the supervisor's numbers", () => {
   it("says nothing was reported rather than inventing a state", () => {
-    const { container } = renderPage({});
+    const { container } = renderRuntimePage({});
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.textContent).not.toContain("Local runtime connected");
   });
 
   it("shows the attempt count while the ladder is running", () => {
-    const { container } = renderPage({
+    const { container } = renderRuntimePage({
       shellState: {
         ...UNREPORTED_SHELL_STATE,
         connection: { kind: "reconnecting", attempt: 3, attemptLimit: 5 },
@@ -42,14 +42,14 @@ describe("DaemonPage — the supervisor's numbers", () => {
   it("shows no attempt row on a connected window — the control", () => {
     // A row reading "attempt — of 5" on a healthy window would be a field with
     // nothing in it pretending to be a measurement.
-    const { container } = renderPage({
+    const { container } = renderRuntimePage({
       shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
     });
     expect(container.textContent).not.toContain("Attempt");
   });
 
   it("shows the last heartbeat where one was reported, and its absence where none was", () => {
-    const withBeat = renderPage({
+    const withBeat = renderRuntimePage({
       shellState: {
         ...UNREPORTED_SHELL_STATE,
         connection: { kind: "connected" },
@@ -58,7 +58,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
     });
     expect(withBeat.container.textContent).toContain("2026-01-01T10:00:00.000Z");
 
-    const withoutBeat = renderPage({
+    const withoutBeat = renderRuntimePage({
       shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
     });
     expect(withoutBeat.container.textContent).toContain("No heartbeat reported");
@@ -67,7 +67,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
 
 describe("DaemonPage — the reported status", () => {
   it("renders what the read answered", async () => {
-    const { container } = renderPage({});
+    const { container } = renderRuntimePage({});
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-1");
     });
@@ -77,7 +77,7 @@ describe("DaemonPage — the reported status", () => {
     // The defect this pins: a stop that was accepted changes what the runtime would
     // answer, and a page holding the pre-control reply shows a stopped supervisor
     // beside its own `Reported state: connected` for the rest of the visit.
-    const { container, ledger } = renderPage({});
+    const { container, ledger } = renderRuntimePage({});
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-1");
     });
@@ -92,7 +92,7 @@ describe("DaemonPage — the reported status", () => {
   });
 
   it("asks the runtime again when the supervisor moves under the window", async () => {
-    const { container, ledger, showShellState } = renderPage({
+    const { container, ledger, showShellState } = renderRuntimePage({
       shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
     });
     await waitFor(() => {
@@ -111,7 +111,7 @@ describe("DaemonPage — the reported status", () => {
     // satisfy the two cases above and put a call on the wire per pass — and keying the
     // read on the whole connection would put one per attempt of the supervisor's
     // ladder, which is interval polling arriving by the back door.
-    const { ledger, showShellState } = renderPage({
+    const { ledger, showShellState } = renderRuntimePage({
       shellState: {
         ...UNREPORTED_SHELL_STATE,
         connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
@@ -134,14 +134,14 @@ describe("DaemonPage — the reported status", () => {
 
 describe("DaemonPage — the two controls", () => {
   it("does not call anything until the consequence has been read", () => {
-    const { container, ledger } = renderPage({});
+    const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     expect(ledger.calls).toStrictEqual([]);
     expect(container.textContent).toContain("Work in flight on this machine stops");
   });
 
   it("calls only after the confirm", async () => {
-    const { container, ledger } = renderPage({});
+    const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
@@ -152,7 +152,7 @@ describe("DaemonPage — the two controls", () => {
   it("releases the dispatch once a call settles, so the same control works again", async () => {
     // The single-flight latch must clear when the call ends. A latch that stayed held
     // would leave the runtime's controls dead for the rest of the visit.
-    const { container, ledger } = renderPage({});
+    const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
@@ -195,7 +195,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("dispatches once when the confirmation is answered twice in one frame", async () => {
-    const { container, ledger } = renderPage({ holdsControls: true });
+    const { container, ledger } = renderRuntimePage({ holdsControls: true });
     fireEvent.click(getButton(container, "Stop"));
     const confirmAction = getButton(container, "Stop");
 
@@ -215,7 +215,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("refuses both confirmation actions until the dispatch settles, and says why", () => {
-    const { container } = renderPage({ holdsControls: true });
+    const { container } = renderRuntimePage({ holdsControls: true });
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Restart"));
 
@@ -227,7 +227,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("offers both confirmation actions before it has been answered — the control", () => {
-    const { container } = renderPage({ holdsControls: true });
+    const { container } = renderRuntimePage({ holdsControls: true });
     fireEvent.click(getButton(container, "Restart"));
 
     expect(getButton(container, "Restart").disabled).toBe(false);
@@ -235,7 +235,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("backs out on cancel without calling — the control", () => {
-    const { container, ledger } = renderPage({});
+    const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Cancel"));
     expect(ledger.calls).toStrictEqual([]);
@@ -243,7 +243,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("says a control was sent rather than that it succeeded", async () => {
-    const { container } = renderPage({});
+    const { container } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
@@ -253,7 +253,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("offers no start control — starting is a shell act and not a call", () => {
-    const { container } = renderPage({
+    const { container } = renderRuntimePage({
       shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "stopped" } },
     });
     const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);

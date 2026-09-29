@@ -13,7 +13,7 @@ import type { OsNotificationPermissionReading } from "../os-notification-permiss
  * Not an error: a person who declined made a choice, and the copy says the console
  * still reaches them.
  */
-export function OsPermissionNotice(props: {
+export function NotificationPermissionNotice(props: {
   readonly reading: OsNotificationPermissionReading;
 }): ReactNode {
   const { reading } = props;

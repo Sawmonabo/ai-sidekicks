@@ -12,7 +12,7 @@ import {
 } from "@renderer/console/settings/settings-sections.js";
 import {
   SettingsPageRegistry,
-  matchSettingsEntries,
+  matchSettingsPages,
   type SettingsPageDescriptor,
   type SettingsPageRegistration,
 } from "./settings-pages.js";
@@ -137,28 +137,28 @@ describe("settings search — one matcher, shared with the palette", () => {
   ];
 
   it("answers every entry in rail order for an empty query", () => {
-    expect(matchSettingsEntries(entries, "   ").map((match) => match.descriptor.section)).toContain(
+    expect(matchSettingsPages(entries, "   ").map((match) => match.descriptor.section)).toContain(
       "keyboard",
     );
-    expect(matchSettingsEntries(entries, "").length).toBe(entries.length);
+    expect(matchSettingsPages(entries, "").length).toBe(entries.length);
   });
 
   it("finds an entry by an alias its label does not carry", () => {
     // The reason entries declare aliases at all: "shortcuts" appears nowhere in
     // the word "Keyboard", and a matcher over labels alone would answer nothing.
-    const found = matchSettingsEntries(entries, "shortc");
+    const found = matchSettingsPages(entries, "shortc");
     expect(found.map((match) => match.descriptor.section)).toStrictEqual(["keyboard"]);
     expect(found[0]?.matchedText).toBe("shortcuts");
   });
 
   it("answers nothing for a query no entry embeds", () => {
-    expect(matchSettingsEntries(entries, "zzzz")).toStrictEqual([]);
+    expect(matchSettingsPages(entries, "zzzz")).toStrictEqual([]);
   });
 
   it("negative control: the ranking is the scorer's and not insertion order", () => {
     // Without this the alias case would pass over a matcher that returned every
     // entry it was given, in the order it was given them.
-    const ranked = matchSettingsEntries(entries, "mounts");
+    const ranked = matchSettingsPages(entries, "mounts");
     expect(ranked[0]?.descriptor.section).toBe("mounts");
   });
 });

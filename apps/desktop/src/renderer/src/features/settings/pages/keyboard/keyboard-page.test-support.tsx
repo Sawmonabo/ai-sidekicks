@@ -36,7 +36,7 @@ export const TEST_COMMAND_IDS = [
  */
 export const RECORDED_PRESS = { key: "j", code: "KeyJ", altKey: true } as const;
 
-export function renderPage(): ReturnType<typeof render> {
+export function renderKeyboardPage(): ReturnType<typeof render> {
   return render(
     <LiveAnnouncerProvider>
       <KeyboardPage />
@@ -64,7 +64,7 @@ export function recorderOf(container: HTMLElement, commandId: string): HTMLEleme
 }
 
 /** Arm the recorder on a row and press one chord into it. */
-export async function recordOnto(
+export async function recordChordOnto(
   container: HTMLElement,
   commandId: string,
   press: Record<string, unknown>,

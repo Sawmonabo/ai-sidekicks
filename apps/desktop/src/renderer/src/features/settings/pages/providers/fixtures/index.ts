@@ -2,5 +2,5 @@
 
 export {
   /** @consumedBy the fixture composition's Providers page */
-  AccountsShell,
+  AccountsFixtureBody,
 } from "./AccountsFixtureBody.js";

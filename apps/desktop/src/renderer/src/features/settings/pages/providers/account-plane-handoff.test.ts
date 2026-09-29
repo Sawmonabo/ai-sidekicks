@@ -14,7 +14,7 @@ import {
   accountPlaneHandoffFor,
   isAccountPlaneRefusalCode,
 } from "./account-plane-handoff.js";
-import { ACCOUNT_PLANE_ACT_SENTENCES } from "./account-plane-sentences.js";
+import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "./account-plane-sentences.js";
 
 describe("the account-plane router", () => {
   it("records a decision for every code it declares", () => {
@@ -32,11 +32,11 @@ describe("the account-plane router", () => {
         .map((handoff) => handoff.remedyKind),
     );
     for (const kind of kinds) {
-      expect(ACCOUNT_PLANE_ACT_SENTENCES[kind]).toBeTypeOf("string");
+      expect(ACCOUNT_PLANE_HANDOFF_SENTENCES[kind]).toBeTypeOf("string");
     }
     // And every declared kind is reachable, so no sentence is written for a kind
     // nothing routes to.
-    expect([...kinds].sort()).toStrictEqual(Object.keys(ACCOUNT_PLANE_ACT_SENTENCES).sort());
+    expect([...kinds].sort()).toStrictEqual(Object.keys(ACCOUNT_PLANE_HANDOFF_SENTENCES).sort());
   });
 
   it("answers nothing for a code that is not the account plane's", () => {
@@ -73,14 +73,14 @@ describe("the account-plane router", () => {
     // The rule the accounts page states in terms: the remedy's CONTENT is the
     // daemon's and travels on the readiness entry. A sentence here that named a
     // command or a home would be this console composing one.
-    for (const sentence of Object.values(ACCOUNT_PLANE_ACT_SENTENCES)) {
+    for (const sentence of Object.values(ACCOUNT_PLANE_HANDOFF_SENTENCES)) {
       expect(sentence).not.toMatch(/\//u);
       expect(sentence).not.toMatch(/\b(?:claude|codex|npx|login|--)\b/iu);
     }
     // A control: the health vocabulary the daemon does send is not smuggled in here
     // either, so no sentence is a paraphrase of a state the wire already names.
     for (const state of PROVIDER_ACCOUNT_HEALTH_STATES) {
-      for (const sentence of Object.values(ACCOUNT_PLANE_ACT_SENTENCES)) {
+      for (const sentence of Object.values(ACCOUNT_PLANE_HANDOFF_SENTENCES)) {
         expect(sentence).not.toContain(state);
       }
     }

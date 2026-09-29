@@ -12,11 +12,11 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/li
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";
 import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
 import { MOUNT_A, MOUNT_B, mountIdAt } from "./mounted-folders.test-support.js";
-import { contextReading, renderSettledPage } from "./mounted-folders-block.test-support.js";
+import { contextReading, renderSettledBlock } from "./mounted-folders-block.test-support.js";
 
 describe("workspace mounts page", () => {
   it("renders the mount's path and both health axes, never folded together", async () => {
-    const { page: container } = await renderSettledPage(
+    const { page: container } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
         mountOverrides: {
@@ -38,7 +38,7 @@ describe("workspace mounts page", () => {
     // at" is read precisely to tell how stale the reachability chip is.
     const probedToday = "2026-09-02T10:00:00.000Z";
     const probedLastWeek = "2026-08-26T10:00:00.000Z";
-    const { page: container } = await renderSettledPage(
+    const { page: container } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
@@ -58,7 +58,7 @@ describe("workspace mounts page", () => {
   });
 
   it("keeps an unreachable mount listed rather than hiding it", async () => {
-    const { page: container } = await renderSettledPage(
+    const { page: container } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
@@ -70,13 +70,13 @@ describe("workspace mounts page", () => {
   });
 
   it("reports an empty session as empty and not as unread", async () => {
-    const { page: container } = await renderSettledPage(contextReading({ mountIds: [] }));
+    const { page: container } = await renderSettledBlock(contextReading({ mountIds: [] }));
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.textContent ?? "").toContain("mounted no repositories");
   });
 
   it("offers no detach control and no control at all on a row", async () => {
-    const { page: container } = await renderSettledPage(contextReading({ mountIds: [MOUNT_A] }));
+    const { page: container } = await renderSettledBlock(contextReading({ mountIds: [MOUNT_A] }));
     expect(container.querySelectorAll("button, input, select, textarea")).toHaveLength(0);
   });
 
@@ -94,7 +94,7 @@ describe("workspace mounts page", () => {
 
 describe("workspace mounts page — the read says it landed, once", () => {
   it("announces what was read and how many", async () => {
-    const { politeText } = await renderSettledPage(
+    const { politeText } = await renderSettledBlock(
       contextReading({ mountIds: [MOUNT_A, MOUNT_B] }),
     );
     expect(politeText()).toBe("Mounts read for this session: 2.");
@@ -104,14 +104,14 @@ describe("workspace mounts page — the read says it landed, once", () => {
     const overCap = Array.from({ length: MOUNT_INVENTORY_READ_CAP + 3 }, (_unused, index) =>
       mountIdAt(index),
     );
-    const { politeText } = await renderSettledPage(contextReading({ mountIds: overCap }));
+    const { politeText } = await renderSettledBlock(contextReading({ mountIds: overCap }));
     expect(politeText()).toBe(
       `Mounts read for this session: ${String(MOUNT_INVENTORY_READ_CAP)}, with 3 more not read.`,
     );
   });
 
   it("announces a refused read in the words the refusal arrived in", async () => {
-    const { page, politeText } = await renderSettledPage(
+    const { page, politeText } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
         rejectWith: "that node is not attached",
@@ -127,7 +127,7 @@ describe("workspace mounts page — the read says it landed, once", () => {
     // Without this, a page that announced on every settlement would speak the same
     // sentence every time the window regained focus.
     const methodsAsked: string[] = [];
-    const { clock, politeText, settle } = await renderSettledPage(
+    const { clock, politeText, settle } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A, MOUNT_B],
         onCall: (method) => methodsAsked.push(method),

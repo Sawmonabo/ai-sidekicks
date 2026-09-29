@@ -43,7 +43,7 @@ import {
   useAnnounce,
 } from "@renderer/console/primitives/index.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
-import { ResetAllChords } from "./components/ResetAllKeybindings.js";
+import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
@@ -217,7 +217,7 @@ export function KeyboardPage(): ReactNode {
             row, naming the command that holds it; Reset puts a row back to the shipped chord.
           </p>
         </div>
-        <ResetAllChords
+        <ResetAllKeybindings
           changedRows={changedRows}
           onResetAll={() => {
             void resetEveryRow();

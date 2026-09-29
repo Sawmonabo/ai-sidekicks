@@ -37,17 +37,17 @@ import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
 import {
-  IDLE_SIGN_IN_FLOW,
+  IDLE_PROVIDER_SIGN_IN_FLOW,
   SIGN_IN_ENDED_BY_REGISTRY,
-  isSignInPlaneHeld,
-  signInPlaneHolderAccountId,
+  isSignInRunning,
+  readSignInAccountId,
   type SignInCancelOutcome,
   type SignInFlowState,
   type SignInStartOutcome,
 } from "./sign-in-flow.js";
 
 /** The subsystem name the one refusal this module raises on its own carries. */
-export const SIGN_IN_PLANE_REFUSAL_ORIGIN = "provider-account-signin";
+export const SIGN_IN_REFUSAL_ORIGIN = "provider-account-signin";
 
 /** Why this plane declined a start it never sent. Its own code, never a daemon's. */
 const START_ALREADY_RUNNING_CODE = "signin-already-running";
@@ -63,7 +63,7 @@ const START_ALREADY_RUNNING_CODE = "signin-already-running";
 const SIGN_IN_FLOW_KEY = "brokered-sign-in";
 
 /** Everything the accounts shell renders the sign-in plane from, in one value. */
-export interface SignInPlaneSnapshot {
+export interface SignInFlowTrackerSnapshot {
   /** The flow this window is running, where it is running one. */
   readonly flow: SignInFlowState;
   /** The last refused start per account, dropped when that account is tried again. */
@@ -72,13 +72,13 @@ export interface SignInPlaneSnapshot {
   readonly revision: number;
 }
 
-const NOTHING_STARTED: SignInPlaneSnapshot = {
-  flow: IDLE_SIGN_IN_FLOW,
+const NOTHING_STARTED: SignInFlowTrackerSnapshot = {
+  flow: IDLE_PROVIDER_SIGN_IN_FLOW,
   refusalByAccountId: new Map(),
   revision: 0,
 };
 
-export interface SignInPlaneOptions {
+export interface SignInFlowTrackerOptions {
   /** Start one brokered sign-in. Supplied by the caller, never held here. */
   readonly startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
   /** Cancel the flow this plane is tracking. Likewise supplied by the caller. */
@@ -101,7 +101,7 @@ export interface SignInPlaneOptions {
  * rule that decides which of their settlements installs. The React binding lives in
  * `AccountsShell.tsx` and holds nothing.
  */
-export class SignInPlane {
+export class SignInFlowTracker {
   readonly #startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
   readonly #cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
   readonly #onFlowSettled: () => void;
@@ -125,16 +125,16 @@ export class SignInPlane {
    * newest completion is the only one a seating attempt could be.
    */
   #completedAttemptId: string | undefined = undefined;
-  #snapshot: SignInPlaneSnapshot = NOTHING_STARTED;
+  #snapshot: SignInFlowTrackerSnapshot = NOTHING_STARTED;
   #isDisposed = false;
 
-  public constructor(options: SignInPlaneOptions) {
+  public constructor(options: SignInFlowTrackerOptions) {
     this.#startSignIn = options.startSignIn;
     this.#cancelSignIn = options.cancelSignIn;
     this.#onFlowSettled = options.onFlowSettled;
   }
 
-  public snapshot(): SignInPlaneSnapshot {
+  public snapshot(): SignInFlowTrackerSnapshot {
     return this.#snapshot;
   }
 
@@ -258,7 +258,7 @@ export class SignInPlane {
 
   /** Whether the account asking is the one already holding the plane. */
   #isHolder(accountId: ProviderAccountId): boolean {
-    return signInPlaneHolder(this.#snapshot) === accountId;
+    return findRunningSignInAccountId(this.#snapshot) === accountId;
   }
 
   #refusalsWith(
@@ -280,7 +280,7 @@ export class SignInPlane {
    * The snapshot is HELD rather than composed per read, because `useSyncExternalStore`
    * compares identity: a getter returning a fresh object every call renders forever.
    */
-  #publish(changes: Partial<Omit<SignInPlaneSnapshot, "revision">>): void {
+  #publish(changes: Partial<Omit<SignInFlowTrackerSnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit();
   }
@@ -294,9 +294,11 @@ export class SignInPlane {
  * would be a second reading of the same fact with no guarantee the two agree in one
  * render. The plane's own guard calls it too, so the derivation has one spelling.
  */
-export function signInPlaneHolder(snapshot: SignInPlaneSnapshot): ProviderAccountId | undefined {
+export function findRunningSignInAccountId(
+  snapshot: SignInFlowTrackerSnapshot,
+): ProviderAccountId | undefined {
   const { flow } = snapshot;
-  return isSignInPlaneHeld(flow) ? signInPlaneHolderAccountId(flow) : undefined;
+  return isSignInRunning(flow) ? readSignInAccountId(flow) : undefined;
 }
 
 /**
@@ -308,7 +310,7 @@ export function signInPlaneHolder(snapshot: SignInPlaneSnapshot): ProviderAccoun
  * degrades to "another account" where it does not — which is what a refusal has to say,
  * being raised on the row that asked rather than beside the registry the label is in.
  */
-export function signInHeldSentence(options: {
+export function describeRunningSignIn(options: {
   readonly isTheSameAccount: boolean;
   readonly holdingAccountLabel: string | undefined;
 }): string {
@@ -329,8 +331,8 @@ export function signInHeldSentence(options: {
  */
 function startAlreadyRunning(isTheSameAccount: boolean): ConsoleRefusal {
   return refuse(
-    SIGN_IN_PLANE_REFUSAL_ORIGIN,
+    SIGN_IN_REFUSAL_ORIGIN,
     START_ALREADY_RUNNING_CODE,
-    signInHeldSentence({ isTheSameAccount, holdingAccountLabel: undefined }),
+    describeRunningSignIn({ isTheSameAccount, holdingAccountLabel: undefined }),
   );
 }

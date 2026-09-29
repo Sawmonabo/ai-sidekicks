@@ -22,9 +22,9 @@ import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import type { SettingsPageContext } from "../../../types.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounted-folders.test-support.js";
-import { MountInventoryList } from "./MountedFolderList.js";
+import { MountedFolderList } from "./MountedFolderList.js";
 import type { MountInventoryCalls } from "./mount-inventory.js";
-import { WorkspaceMountsPage } from "./MountedFoldersBlock.js";
+import { MountedFoldersBlock } from "./MountedFoldersBlock.js";
 
 /**
  * A settings context on a clock the test owns, and the two calls the inventory reads
@@ -93,7 +93,7 @@ export function contextReading(options: {
 }
 
 /** The page's own element, so a case never reads the announcer's regions by accident. */
-export function mountsPageOf(root: HTMLElement): HTMLElement {
+export function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
   const page = root.querySelector<HTMLElement>(".meridian-settings-page");
   if (page === null) {
     throw new Error("the mounts page did not render");
@@ -109,7 +109,7 @@ export function mountsPageOf(root: HTMLElement): HTMLElement {
  * because the number of ticks a fan-out takes is a function of how many mounts the
  * fixture named.
  */
-export async function renderSettledPage(reading: {
+export async function renderSettledBlock(reading: {
   readonly context: SettingsPageContext;
   readonly clock: ManualClock;
   readonly calls: MountInventoryCalls;
@@ -132,14 +132,14 @@ export async function renderSettledPage(reading: {
   const { container } = render(
     <DesktopBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
-        <WorkspaceMountsPage>
-          <MountInventoryList
+        <MountedFoldersBlock>
+          <MountedFolderList
             bridge={context.bridge}
             calls={calls}
             sessionId={SESSION_ID}
             sessionStore={context.retainedSessionStore}
           />
-        </WorkspaceMountsPage>
+        </MountedFoldersBlock>
       </LiveAnnouncerProvider>
     </DesktopBridgeProvider>,
   );
@@ -153,7 +153,7 @@ export async function renderSettledPage(reading: {
   };
   await settle();
   return {
-    page: mountsPageOf(container),
+    page: mountedFoldersBlockOf(container),
     clock,
     politeText: () => politeText(container),
     settle,

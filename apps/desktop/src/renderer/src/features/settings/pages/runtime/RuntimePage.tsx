@@ -49,7 +49,7 @@ import {
   type DaemonControl,
   type DaemonControlSettlement,
 } from "./hooks/useDaemonControl.js";
-import { WorkspaceMountsPage } from "./mounted-folders/MountedFoldersBlock.js";
+import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.
@@ -79,7 +79,7 @@ const CONTROL_COPY: Readonly<
   },
 };
 
-export interface DaemonPageProps {
+export interface RuntimePageProps {
   readonly context: SettingsPageContext;
   /** What sits under the supervisor's facts: the blocks that call the daemon. */
   readonly children?: ReactNode;
@@ -92,7 +92,7 @@ export interface DaemonOperationsBlocksProps {
 }
 
 /** The page: the lede, what the supervisor reports about the runtime, and its folders. */
-export function DaemonPage(props: DaemonPageProps): ReactNode {
+export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
       <p className="meridian-settings-page__lede">
@@ -109,7 +109,7 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
 
       {props.children}
 
-      <WorkspaceMountsPage />
+      <MountedFoldersBlock />
     </section>
   );
 }

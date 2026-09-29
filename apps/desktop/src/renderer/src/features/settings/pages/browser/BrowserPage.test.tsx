@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BrowserSettingsPage } from "./BrowserPage.js";
+import { BrowserPage } from "./BrowserPage.js";
 import {
   BrowserPolicySettings,
   type BrowserPolicySettingsProps,
@@ -16,9 +16,9 @@ const READ_SWITCHES: BrowserPolicySettingsProps["positions"] = {
 
 function renderPage(): HTMLElement {
   const { container } = render(
-    <BrowserSettingsPage>
+    <BrowserPage>
       <BrowserPolicySettings positions={READ_SWITCHES} onToggle={() => undefined} />
-    </BrowserSettingsPage>,
+    </BrowserPage>,
   );
   const page = container.querySelector("section");
   if (!(page instanceof HTMLElement)) {

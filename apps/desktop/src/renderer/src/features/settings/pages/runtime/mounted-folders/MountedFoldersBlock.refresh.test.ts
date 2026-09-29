@@ -14,7 +14,7 @@ import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
 import { MOUNT_A, SESSION_ID } from "./mounted-folders.test-support.js";
-import { contextReading, renderSettledPage } from "./mounted-folders-block.test-support.js";
+import { contextReading, renderSettledBlock } from "./mounted-folders-block.test-support.js";
 
 describe("the page's refresh signals", () => {
   it("re-reads the inventory when the retained session reports a run terminal", async () => {
@@ -31,7 +31,7 @@ describe("the page's refresh signals", () => {
         listMethods.push(method);
       },
     });
-    const { clock, settle } = await renderSettledPage(context);
+    const { clock, settle } = await renderSettledBlock(context);
     const listReadsBefore = listMethods.filter((method) => method === "workspaceList").length;
     expect(listReadsBefore).toBe(1);
 
@@ -56,7 +56,7 @@ describe("the page's refresh signals", () => {
         listMethods.push(method);
       },
     });
-    const { settle } = await renderSettledPage(reading);
+    const { settle } = await renderSettledBlock(reading);
     expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(1);
 
     await act(async () => {
@@ -82,7 +82,7 @@ describe("the page's refresh signals", () => {
         listMethods.push(method);
       },
     });
-    const { settle } = await renderSettledPage(reading);
+    const { settle } = await renderSettledBlock(reading);
 
     await act(async () => {
       reading.context.bridge.transportReconnect.observe("reachable");
@@ -104,7 +104,7 @@ describe("the page's refresh signals", () => {
         listMethods.push(method);
       },
     });
-    const { clock, settle } = await renderSettledPage(context);
+    const { clock, settle } = await renderSettledBlock(context);
 
     await act(async () => {
       sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
@@ -122,7 +122,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     // nothing else — so a refusal that clears a moment later stood on screen until
     // one of the two happened to fire. The control is the third way back, and it is
     // the only one a person can reach on purpose.
-    const { page, settle } = await renderSettledPage(
+    const { page, settle } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
         rejectWith: "that node is not attached",
@@ -144,7 +144,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
   it("negative control: the list offers no such control once it has read", async () => {
     // Without this, the case above would hold for a page that drew the control on
     // every arm — a re-read offered beside an inventory that is already current.
-    const { page } = await renderSettledPage(contextReading({ mountIds: [MOUNT_A] }));
+    const { page } = await renderSettledBlock(contextReading({ mountIds: [MOUNT_A] }));
 
     expect(page.querySelector(".meridian-nothing button")).toBeNull();
   });
@@ -153,7 +153,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     // Without this, the first case would hold for a control that cleared the refused
     // arm on press whatever the daemon then said — reporting a recovery that did not
     // happen, which is worse than the state it replaced.
-    const { page, settle } = await renderSettledPage(
+    const { page, settle } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
         rejectWith: "that node is not attached",

@@ -25,7 +25,7 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import type { ProviderQuotaReadout } from "../provider-account-readout.js";
+import type { ProviderAccountReadout } from "../provider-account-readout.js";
 import { instantMilliseconds } from "./frozen-instant.test-support.js";
 import {
   accountQuotaRowsFrom,
@@ -78,10 +78,9 @@ function usageWindow(
  */
 function registryHolding(
   usageWindows: readonly ProviderAccountUsageWindow[],
-): ProviderQuotaReadout {
+): ProviderAccountReadout {
   return {
     usageWindows,
-    readings: [],
     accounts: [],
     accountLabels: new Map(),
     readiness: [],

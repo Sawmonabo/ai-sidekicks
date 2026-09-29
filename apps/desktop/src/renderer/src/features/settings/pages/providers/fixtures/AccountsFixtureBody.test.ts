@@ -16,7 +16,10 @@ import {
   selectAccount,
   startControls,
 } from "./accounts-fixture-body.test-support.js";
-import { accountPlaneCalls, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
+import {
+  accountPlaneCalls,
+  PROVIDER_SIGN_IN_ATTEMPT,
+} from "./account-plane-bridge.test-support.js";
 
 afterEach(() => {
   cleanup();
@@ -102,7 +105,7 @@ describe("AccountsShell", () => {
   it("stops offering a start while a sign-in is running, and says what is holding it", async () => {
     const { container } = mountShell({
       registry: ACCOUNT_REGISTRY,
-      operations: accountPlaneCalls({ login: SIGN_IN_ATTEMPT }),
+      operations: accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }),
     });
     await act(async () => {
       pressFirstStartControl(container);

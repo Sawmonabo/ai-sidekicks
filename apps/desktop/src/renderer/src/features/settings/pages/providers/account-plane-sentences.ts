@@ -13,7 +13,7 @@
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
-export const ACCOUNT_PLANE_ACT_SENTENCES: Readonly<Record<ProviderRemedy["kind"], string>> = {
+export const ACCOUNT_PLANE_HANDOFF_SENTENCES: Readonly<Record<ProviderRemedy["kind"], string>> = {
   register: "No account is registered for that provider. Registering one closes this.",
   choose_default:
     "Accounts are registered and the request could not resolve to one of them. Choosing which account answers for that provider closes this.",

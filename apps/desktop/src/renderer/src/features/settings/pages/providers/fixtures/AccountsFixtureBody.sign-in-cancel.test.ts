@@ -11,7 +11,10 @@ import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { accountPlaneCalls, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
+import {
+  accountPlaneCalls,
+  PROVIDER_SIGN_IN_ATTEMPT,
+} from "./account-plane-bridge.test-support.js";
 import {
   ACCOUNT_REGISTRY,
   mountShell,
@@ -31,7 +34,10 @@ const SIGN_IN_CARD = '[aria-label="Sign-in in progress"]';
 async function mountWithLiveSignIn(): Promise<MountedShell> {
   const mounted = mountShell({
     registry: ACCOUNT_REGISTRY,
-    operations: accountPlaneCalls({ login: SIGN_IN_ATTEMPT, cancel: { status: "cancelled" } }),
+    operations: accountPlaneCalls({
+      login: PROVIDER_SIGN_IN_ATTEMPT,
+      cancel: { status: "cancelled" },
+    }),
   });
   await act(async () => {
     pressFirstStartControl(mounted.container);
@@ -60,7 +66,7 @@ describe("the sign-in card, when a flow ends", () => {
     const { container, requestRegistryRead, showRegistry } = await mountWithLiveSignIn();
 
     act(() => {
-      showRegistry(registryReportingCompleted(SIGN_IN_ATTEMPT.attemptId));
+      showRegistry(registryReportingCompleted(PROVIDER_SIGN_IN_ATTEMPT.attemptId));
     });
 
     expect(container.querySelector(SIGN_IN_CARD)).toBeNull();
@@ -77,7 +83,7 @@ describe("the sign-in card, when a flow ends", () => {
       showRegistry(registryReportingCompleted("an-attempt-another-window-started"));
     });
 
-    expect(container.textContent).toContain(SIGN_IN_ATTEMPT.verificationUri);
+    expect(container.textContent).toContain(PROVIDER_SIGN_IN_ATTEMPT.verificationUri);
     expect(screen.getAllByRole("button", { name: /cancel sign-in/iu })).toHaveLength(1);
     expect(requestRegistryRead).not.toHaveBeenCalled();
   });

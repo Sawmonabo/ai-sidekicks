@@ -8,11 +8,14 @@ import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sid
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 
-import { accountPlaneCalls, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
+import {
+  accountPlaneCalls,
+  PROVIDER_SIGN_IN_ATTEMPT,
+} from "./account-plane-bridge.test-support.js";
 import {
   cancelSignIn,
   readRegistrationFields,
-  startSignIn,
+  startProviderSignIn,
   submitTokenRegistration,
   TOKEN_REGISTRATION_REFUSAL_ORIGIN,
   type RegistrationFieldReading,
@@ -45,14 +48,18 @@ function endedBecause(state: SignInFlowState): string {
 
 describe("startSignIn", () => {
   it("answers a live flow carrying the attempt and the account it is for", async () => {
-    const state = await startSignIn(
-      accountPlaneCalls({ login: SIGN_IN_ATTEMPT }).login,
+    const state = await startProviderSignIn(
+      accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }).login,
       ACCOUNT_ID,
     );
     // The account rides the outcome because the plane is what disables the OTHER rows,
     // and a flow that recorded only its own progress could say something was running
     // without saying which account was running it.
-    expect(state).toEqual({ kind: "live", accountId: ACCOUNT_ID, attempt: SIGN_IN_ATTEMPT });
+    expect(state).toEqual({
+      kind: "live",
+      accountId: ACCOUNT_ID,
+      attempt: PROVIDER_SIGN_IN_ATTEMPT,
+    });
   });
 });
 
@@ -60,7 +67,7 @@ describe("cancelSignIn", () => {
   it("says the sign-in was cancelled when the daemon cancelled one", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
-      SIGN_IN_ATTEMPT,
+      PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("was cancelled");
   });
@@ -68,7 +75,7 @@ describe("cancelSignIn", () => {
   it("says there was nothing to cancel when the daemon found none", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
-      SIGN_IN_ATTEMPT,
+      PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("no sign-in left to cancel");
   });
@@ -79,7 +86,7 @@ describe("cancelSignIn", () => {
   it("does not report a notFound as a cancellation", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
-      SIGN_IN_ATTEMPT,
+      PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toContain("was cancelled");
   });
@@ -87,7 +94,7 @@ describe("cancelSignIn", () => {
   it("never claims the account is authenticated", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
-      SIGN_IN_ATTEMPT,
+      PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toMatch(/authenticated/iu);
   });

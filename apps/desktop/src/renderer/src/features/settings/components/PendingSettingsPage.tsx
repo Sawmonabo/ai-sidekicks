@@ -24,12 +24,12 @@
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/console/seats/index.js";
 import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
 
-export interface PendingSettingsPageBodyProps {
+export interface PendingSettingsPageProps {
   /** The rail section whose page is loading, so a refusal can name it. */
   readonly section: SettingsSectionId;
 }
 
 /** The settings page's region, before its body. */
-export function PendingSettingsPageBody(props: PendingSettingsPageBodyProps): React.JSX.Element {
+export function PendingSettingsPage(props: PendingSettingsPageProps): React.JSX.Element {
   return <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: props.section }} />;
 }

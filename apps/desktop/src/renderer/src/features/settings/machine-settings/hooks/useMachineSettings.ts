@@ -9,22 +9,22 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/console/store/read/read-triggers.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { ShellPreferenceStore, ShellPreferenceCarrier } from "../machine-settings-store.js";
+import type { MachineSettingsStore, ShellPreferenceCarrier } from "../machine-settings-store.js";
 import {
   NOTHING_CHOSEN,
   effectivePreference,
-  type ShellPreferenceKey,
-  type ShellPreferenceSnapshot,
+  type MachineSettingKey,
+  type MachineSettingsSnapshot,
 } from "../machine-settings-snapshot.js";
-import { consoleShellPreferences } from "../machine-settings-holder.js";
+import { machineSettingsHolder } from "../machine-settings-holder.js";
 
 /** What a page reads and what it presses. One object, so a row takes one prop set. */
-export interface ShellPreferenceBinding {
-  readonly snapshot: ShellPreferenceSnapshot;
+export interface MachineSettingsBinding {
+  readonly snapshot: MachineSettingsSnapshot;
   /** The effective value: what the carrier holds, or the default. */
-  readonly isEnabled: (key: ShellPreferenceKey) => boolean;
-  readonly isPending: (key: ShellPreferenceKey) => boolean;
-  readonly choose: (key: ShellPreferenceKey, enabled: boolean) => void;
+  readonly isEnabled: (key: MachineSettingKey) => boolean;
+  readonly isPending: (key: MachineSettingKey) => boolean;
+  readonly choose: (key: MachineSettingKey, enabled: boolean) => void;
 }
 
 /**
@@ -55,27 +55,27 @@ const NO_STORE_HELD: ReadTriggerTarget = {
  * disposed store: the store answered is this mount's own only while the holder still
  * holds it for this bridge.
  */
-export function useShellPreferences(
+export function useMachineSettings(
   bridge: ConsoleBridge,
   carrier: ShellPreferenceCarrier,
-): ShellPreferenceBinding {
+): MachineSettingsBinding {
   // Held against the TRANSPORT, through the console's one holder. The seed reads the
   // pure lookup so the SECOND page to bind in a window opens on the store the first
   // one acquired rather than on one frame of the opening arm — and because the seed
   // is re-read in the render that first sees a new bridge, a page carried across a
   // scenario switch never reads the retired bridge's store even for a frame.
   const { value: acquiredStore, publish: publishAcquiredStore } = useSubjectScopedState<
-    ShellPreferenceStore | undefined
-  >(bridge, undefined, () => consoleShellPreferences.storeIfCurrent(bridge));
+    MachineSettingsStore | undefined
+  >(bridge, undefined, () => machineSettingsHolder.storeIfCurrent(bridge));
 
   useEffect(() => {
-    const store = consoleShellPreferences.acquire(bridge, carrier);
+    const store = machineSettingsHolder.acquire(bridge, carrier);
     // Idempotent, so strict mode's second invocation asks nothing twice.
     store.start();
     publishAcquiredStore(store);
   }, [bridge, carrier, publishAcquiredStore]);
 
-  const liveStore = consoleShellPreferences.storeIfCurrent(bridge);
+  const liveStore = machineSettingsHolder.storeIfCurrent(bridge);
   const store = acquiredStore === liveStore ? acquiredStore : undefined;
 
   // The window half only: the preferences are per user rather than per session, so
@@ -100,7 +100,7 @@ export function useShellPreferences(
       // rather than reads: a press must move a store rather than be swallowed by
       // the frame before the effect ran, and the handler settles on the same store
       // that effect acquired because a press cannot outrun a passive effect.
-      void consoleShellPreferences.acquire(bridge, carrier).choose(key, enabled);
+      void machineSettingsHolder.acquire(bridge, carrier).choose(key, enabled);
     },
   };
 }

@@ -2,5 +2,5 @@
 
 export {
   /** @consumedBy the fixture composition's MCP servers page */
-  McpShell,
+  McpFixtureBody,
 } from "./McpFixtureBody.js";

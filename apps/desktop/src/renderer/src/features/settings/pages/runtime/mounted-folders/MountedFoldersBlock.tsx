@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  *
  * The list is `children` because it is built on calls this block does not hold.
  */
-export function WorkspaceMountsPage(props: { readonly children?: ReactNode }): ReactNode {
+export function MountedFoldersBlock(props: { readonly children?: ReactNode }): ReactNode {
   return (
     <section className="meridian-settings-page__block" aria-label="Mounted repositories">
       <h3 className="meridian-settings-page__block-title">Mounted repositories</h3>

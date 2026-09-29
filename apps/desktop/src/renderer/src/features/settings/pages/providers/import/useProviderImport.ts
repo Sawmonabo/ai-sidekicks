@@ -29,7 +29,7 @@
 // once here rather than at each control, because two controls deriving it separately
 // would eventually disagree about which frame an import ends on.
 
-import { SessionAct, useSessionAct } from "./useSingleFlightAct.js";
+import { SingleFlightAct, useSingleFlightAct } from "./useSingleFlightAct.js";
 import {
   isImportUnderway,
   type ImportProgressReading,
@@ -87,12 +87,12 @@ export function useProviderImport(
     begin,
     undefined,
     () =>
-      new SessionAct<ProviderImportRequest, ProviderImportAnswer>({
+      new SingleFlightAct<ProviderImportRequest, ProviderImportAnswer>({
         attempt: begin,
         describeWhat: "The import",
       }),
   ).value;
-  const settlement = useSessionAct(act);
+  const settlement = useSingleFlightAct(act);
   const importId = settlement.status === "settled" ? settlement.answer.importId : undefined;
   const progress = useImportProgress(subscribe, importId);
   const isBeginning = settlement.status === "running";
