@@ -33,8 +33,6 @@ export interface WorkflowStartCandidatesProps {
 
 /**
  * The candidate list, for the caller to mount while a `/workflow start` argument is open.
- *
- * @consumedBy the composer's workflow command
  */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
