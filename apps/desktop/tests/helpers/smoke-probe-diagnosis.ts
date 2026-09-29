@@ -18,22 +18,7 @@ import {
   xdpyinfoMissing,
 } from "./display-readiness.js";
 import type { SpawnResult } from "./smoke-probe-harness.js";
-
-// Tagged-stdout marker emitted by the main-process smoke branch
-// (`apps/desktop/src/main/index.ts` constant `SMOKE_PROBE_TAG`). The
-// matching string here MUST stay in sync; if it drifts, the line
-// scanner below silently times out instead of producing a clear
-// diagnostic. The marker is deliberately uppercase + bracketed so it
-// can't collide with normal Electron / Chromium log output.
-export const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
-
-// Tagged-stderr marker for the corroborating readiness breadcrumbs
-// (`apps/desktop/src/main/index.ts` constant `READINESS_BREADCRUMB_TAG`).
-// `did-finish-load` remains the ONLY asserted signal — `dom-ready` and
-// `ready-to-show` are recorded so a timeout says WHERE the boot stopped rather
-// than only that it did. Kept off stdout so the probe-line scanner above sees
-// exactly one tagged line.
-export const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
 // Wall bound for the WHOLE at-deadline diagnostic collection, and the per-probe
 // bound inside it.

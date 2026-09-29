@@ -62,11 +62,11 @@ import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fix
 // takes the whole reply down and names the reply rather than the value. Parsing at
 // declaration fails the module instead, naming the constant. `AGENT_*` stays
 // unbranded: the corpus registers no `AgentId` brand to mint one through.
-export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
-export const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
-export const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
-export const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
-export const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
+const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
+const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
+const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
+const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
+const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
 
 /**
  * The two agents, as one table feeding the `agent.attached` beats.
@@ -79,7 +79,7 @@ export const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c115
  * carried here rather than composed at the beat, so the two beats the map emits are
  * distinct rows rather than one id repeated.
  */
-export interface ComposerAgentFixture {
+interface ComposerAgentFixture {
   readonly agentId: string;
   readonly name: string;
   readonly driverName: string;
@@ -91,7 +91,7 @@ export interface ComposerAgentFixture {
   readonly eventId: string;
 }
 
-export const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
+const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
@@ -113,7 +113,7 @@ export const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
 ];
 
 /** The sequence the first `agent.attached` beat takes. One beat precedes it. */
-export const FIRST_AGENT_SEQUENCE: number = 2;
+const FIRST_AGENT_SEQUENCE: number = 2;
 
 // What the scenario ANSWERS, as opposed to what it plays.
 //
@@ -183,7 +183,7 @@ const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
 ];
 
 /** Every call the composer scenario answers, and what it answers with. */
-export const COMPOSER_REPLIES: readonly ScenarioReply[] = [
+const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   {
     // The discovery popover's dispatch, agent-addressed within the session. The
     // reply is the GROUP LIST the wire declares and never a flat entry array: the

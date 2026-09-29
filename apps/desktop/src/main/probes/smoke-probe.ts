@@ -18,21 +18,9 @@
 
 import { app, net, type BrowserWindow } from "electron";
 
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+
 import { RENDERER_INDEX_URL } from "../services/renderer-scheme.js";
-
-/** The stdout marker `apps/desktop/tests/launch.smoke.test.ts` parses. */
-export const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
-
-/**
- * The stderr marker for the corroborating readiness breadcrumbs.
- *
- * `did-finish-load` stays the ONLY signal the smoke test asserts on. These
- * record how far the boot got when the probe line never arrives, which turns
- * one indistinguishable timeout into several distinguishable ones. Kept off
- * stdout so the harness's probe-line scanner still sees exactly one tagged
- * line there.
- */
-export const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
 
 /** Per-invocation opt-in for the breadcrumb trail. */
 const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";

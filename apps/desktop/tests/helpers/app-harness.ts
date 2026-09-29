@@ -117,7 +117,7 @@ export async function emulateSystemScheme(scheme: ConsoleScheme): Promise<void> 
  * so naming it here would export a type no caller's `RenderResult` matches. The
  * three tiers use the container and nothing else.
  */
-export interface AppMount {
+interface AppMount {
   /** The viewport-sized element the console was rendered into. */
   readonly container: HTMLElement;
 }
@@ -183,7 +183,7 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
  * reset below are its second and third callers and `apps/desktop/AGENTS.md` hoists a
  * helper on its second use.
  */
-export async function settleOneTurn(): Promise<void> {
+async function settleOneTurn(): Promise<void> {
   await act(async () => {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);

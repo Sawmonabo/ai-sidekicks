@@ -72,15 +72,13 @@ import process from "node:process";
 
 import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { GC_PROBE_TAG } from "@shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./smoke-probe-harness.js";
 import { needsXvfb } from "./display-readiness.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
-
-/** The line prefix the probe tags its single JSON reading with. */
-export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 
 // K=20 iterations × ~150 ms each ≈ 3 s probe runtime. Plus Electron boot
 // (typically 1-2 s on Linux runners). 30 s is a generous backstop.

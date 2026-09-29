@@ -29,7 +29,7 @@ export interface ScenarioAgent {
 }
 
 /** Who is in the room before any run starts. */
-export interface OpeningEntriesInput {
+interface OpeningEntriesInput {
   readonly sessionId: string;
   /** The user who opened the session, and whose window this is. */
   readonly openedBy: string;

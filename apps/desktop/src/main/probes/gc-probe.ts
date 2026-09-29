@@ -31,8 +31,7 @@ import { BrowserWindow, type App } from "electron";
 import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
-/** The stdout marker `apps/desktop/tests/lifecycle.gc.test.ts` parses. */
-export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
+import { GC_PROBE_TAG } from "@shared/probe-tags.js";
 
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */
 const PROBE_ITERATIONS = 20;

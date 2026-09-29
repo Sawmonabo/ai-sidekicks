@@ -119,6 +119,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+
 import {
   BOOT_TEST_TIMEOUT_MS,
   ELECTRON_BIN,
@@ -137,7 +139,6 @@ import {
   DIAGNOSTIC_BUDGET_MS,
   DIAGNOSTIC_COLLECTION_CEILING_MS,
   renderReadinessFailure,
-  SMOKE_PROBE_TAG,
 } from "./helpers/smoke-probe-diagnosis.js";
 import {
   FORCED_DISPLAY_ENV,

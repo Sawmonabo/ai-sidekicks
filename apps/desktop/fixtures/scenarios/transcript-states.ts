@@ -84,13 +84,13 @@ export const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
  * answering.
  */
 export const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
-export const USER_YOU = "019b793b-7b60-79a4-8110-cca0117a0410";
-export const AGENT_ARCHITECT = "019b793b-7b60-7a6e-8110-d1a4c1150101";
-export const AGENT_IMPLEMENTER = "019b793b-7b60-7a6e-8120-d1a4c1150102";
-export const AGENT_REVIEWER = "019b793b-7b60-7a6e-8130-d1a4c1150103";
+const USER_YOU = "019b793b-7b60-79a4-8110-cca0117a0410";
+const AGENT_ARCHITECT = "019b793b-7b60-7a6e-8110-d1a4c1150101";
+const AGENT_IMPLEMENTER = "019b793b-7b60-7a6e-8120-d1a4c1150102";
+const AGENT_REVIEWER = "019b793b-7b60-7a6e-8130-d1a4c1150103";
 export const RUN_IMPLEMENTER = "019b793b-7b60-740e-8110-d1a4c1150111";
-export const RUN_REVIEWER = "019b793b-7b60-740e-8120-d1a4c1150112";
-export const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
+const RUN_REVIEWER = "019b793b-7b60-740e-8120-d1a4c1150112";
+const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 
 /**
  * The child run the architect's turn opens, and the only run here with a parent.
@@ -126,7 +126,7 @@ export const SUBAGENT_REVIEWER = "sub_01k9wq4m2h";
  */
 export const startedAtMs: number = Date.UTC(2026, 0, 1, 11, 5);
 
-export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
+const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 
 /**
  * The three lanes, as the `agents` projection carries them.
@@ -136,7 +136,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  * fixture whose whole cast runs one provider cannot show a surface what a two-provider
  * session looks like.
  */
-export const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
+const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
@@ -197,7 +197,7 @@ const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REV
 /** The four entry builders, with this scenario's session bound in. */
 const lane = createRunEntryBuilders(SESSION_ID);
 
-export const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
+const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   ...composeOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: USER_YOU,

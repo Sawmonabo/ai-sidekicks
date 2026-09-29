@@ -39,7 +39,7 @@ import {
 } from "../../fixtures/data/script-entries.js";
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 
-export const LEDGER_ENDURANCE_SCENARIO_ID = "ledger-endurance";
+const TRANSCRIPT_ENDURANCE_SCENARIO_ID = "transcript-endurance";
 
 /** The UUID v7 time prefix every generated identifier shares. */
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";
@@ -109,7 +109,7 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
 const ENDURANCE_BODY_CYCLE_LENGTH = 8;
 
 /** What the generator needs to know. */
-export interface TranscriptEnduranceFixtureOptions {
+interface TranscriptEnduranceFixtureOptions {
   /** Exactly how many beats the generated scenario plays. */
   readonly rowCount: number;
   /** How many run chapters those beats are spread across. Defaults to 24. */
@@ -133,12 +133,12 @@ export function createTranscriptEnduranceFixture(
   const runCount = options.runCount ?? DEFAULT_ENDURANCE_RUN_COUNT;
   if (!Number.isInteger(runCount) || runCount < 1) {
     throw new RangeError(
-      `a ledger endurance scenario needs a whole, positive run count; received ${String(runCount)}.`,
+      `a transcript endurance scenario needs a whole, positive run count; received ${String(runCount)}.`,
     );
   }
   if (!Number.isInteger(options.rowCount)) {
     throw new RangeError(
-      `a ledger endurance scenario needs a whole row count; received ${String(options.rowCount)}.`,
+      `a transcript endurance scenario needs a whole row count; received ${String(options.rowCount)}.`,
     );
   }
   const { bodyPerRun, lastRunExtraBody } = planRunBodies(options.rowCount, runCount);
@@ -212,9 +212,9 @@ export function createTranscriptEnduranceFixture(
   }
 
   return {
-    id: LEDGER_ENDURANCE_SCENARIO_ID,
+    id: TRANSCRIPT_ENDURANCE_SCENARIO_ID,
     label: "Endurance",
-    purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the ledger at scale.`,
+    purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the transcript at scale.`,
     sessionId: SESSION_ID,
     userIdsInJoinOrder: [USER_YOU, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
     callerUserId: USER_YOU,
@@ -239,7 +239,7 @@ export function createTranscriptEnduranceFixture(
               startedAtMs + entries.length * ENDURANCE_BEAT_INTERVAL_MS,
             ).toISOString(),
           },
-          timelineCursors: { latest: `ledger-endurance-cursor-${String(entries.length)}` },
+          timelineCursors: { latest: `transcript-endurance-cursor-${String(entries.length)}` },
         },
       },
     ],
@@ -327,7 +327,7 @@ function planRunBodies(
   const minimumRowCount = rowCount - bodyBudget + runCount;
   if (bodyBudget < runCount) {
     throw new RangeError(
-      `a ledger endurance scenario of ${String(runCount)} runs needs at least ` +
+      `a transcript endurance scenario of ${String(runCount)} runs needs at least ` +
         `${String(minimumRowCount)} rows — ${String(OPENING_BEAT_COUNT)} to open the session, ` +
         `${String(RUN_LIFECYCLE_BEAT_COUNT)} per run for its lifecycle, and one body row each. ` +
         `Received ${String(rowCount)}.`,

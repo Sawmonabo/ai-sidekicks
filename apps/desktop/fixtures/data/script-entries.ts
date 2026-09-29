@@ -63,7 +63,7 @@ export interface ScriptEntry {
 }
 
 /** What a script needs beyond its entries to become beats. */
-export interface ScriptOptions {
+interface ScriptOptions {
   readonly sessionId: string;
   /**
    * The scenario's own stem for the row ids it mints — a UUID's first four groups
@@ -81,7 +81,7 @@ export interface ScriptOptions {
 }
 
 /** What one run-lifecycle transition says. */
-export interface RunTransitionInput {
+interface RunTransitionInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -146,7 +146,7 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
 const RUN_BIRTH_STATE = "queued";
 
 /** What one assistant-output beat says. */
-export interface AssistantOutputInput {
+interface AssistantOutputInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -159,7 +159,7 @@ export interface AssistantOutputInput {
 }
 
 /** What one tool-activity beat says. */
-export interface ToolActivityInput {
+interface ToolActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -174,7 +174,7 @@ export interface ToolActivityInput {
 }
 
 /** What one provider-native subagent beat says. */
-export interface SubagentActivityInput {
+interface SubagentActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
@@ -189,7 +189,7 @@ export interface SubagentActivityInput {
 }
 
 /** The four entry builders one session's script uses, with its session bound in. */
-export interface RunEntryBuilders {
+interface RunEntryBuilders {
   readonly transition: (
     runId: string,
     input: Omit<RunTransitionInput, "sessionId" | "runId">,
@@ -294,7 +294,7 @@ export function toolActivityEntry(input: ToolActivityInput): ScriptEntry {
  * providers. One builder is what makes the two beats carry the same triple; two
  * literals are how a fixture ships a completion that pairs with nothing.
  */
-export function subagentActivityEntry(input: SubagentActivityInput): ScriptEntry {
+function subagentActivityEntry(input: SubagentActivityInput): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,

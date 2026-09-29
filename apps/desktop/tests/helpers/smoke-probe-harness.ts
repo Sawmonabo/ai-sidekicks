@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
@@ -32,7 +33,6 @@ import {
   DIAGNOSTIC_BUDGET_MS,
   DIAGNOSTIC_COLLECTION_CEILING_MS,
   ReadinessLineScanner,
-  SMOKE_PROBE_TAG,
   captureDiagnostics,
 } from "./smoke-probe-diagnosis.js";
 
@@ -205,7 +205,7 @@ export const FORCED_STALL_TEST_TIMEOUT_MS: number =
   TERMINATION_GRACE_MS +
   TEST_TIMEOUT_SLACK_MS;
 
-export interface SmokeProbe {
+interface SmokeProbe {
   readonly ok: boolean;
   readonly windowMs: number;
   readonly probe: {

@@ -88,7 +88,7 @@ import { type ScenarioAgent, composeOpeningEntries } from "../data/opening-entri
 // Wire identifiers, spelled as the wire spells them. UUID v7 values, whose leading
 // bytes are the scenario's own start instant, so a reader scanning a rendered id
 // can still tell one fixture apart from another.
-export const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
+const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 
 /**
  * The stem this scenario's row ids are minted from — its own namespace, not its
@@ -99,17 +99,17 @@ export const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
  * the sequence would let a projection that stopped carrying the real one keep
  * answering.
  */
-export const EVENT_ID_STEM = "019b79ee-0280-7ea1-8110-e5e0d115";
+const EVENT_ID_STEM = "019b79ee-0280-7ea1-8110-e5e0d115";
 export const USER_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
-export const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
-export const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
-export const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
-export const AGENT_SCOUT = "019b79ee-0280-7a6e-8140-d1a4c1150004";
-export const RUN_IMPLEMENTER = "019b79ee-0280-740e-8110-d1a4c1150011";
-export const RUN_REVIEWER = "019b79ee-0280-740e-8120-d1a4c1150012";
-export const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
-export const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
-export const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
+const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
+const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
+const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
+const AGENT_SCOUT = "019b79ee-0280-7a6e-8140-d1a4c1150004";
+const RUN_IMPLEMENTER = "019b79ee-0280-740e-8110-d1a4c1150011";
+const RUN_REVIEWER = "019b79ee-0280-740e-8120-d1a4c1150012";
+const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
+const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
+const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
 
 /**
  * The base instant, minted from its fields rather than read back out of a string.
@@ -121,9 +121,9 @@ export const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
  * every reply carries is derived from it, so the two can never disagree. The name
  * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
  */
-export const startedAtMs: number = Date.UTC(2026, 0, 1, 14, 20);
+const startedAtMs: number = Date.UTC(2026, 0, 1, 14, 20);
 
-export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
+const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 
 /**
  * The four lanes, as the `agents` projection carries them.
@@ -138,7 +138,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  * one provider cannot show a surface what a two-provider session looks like, and
  * that is the session this console is for.
  */
-export const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
+const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
@@ -183,7 +183,7 @@ export const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
  * taxonomy-leg rule exists to prevent and which the code leg cannot see: no strict
  * variant is registered for this type yet.
  */
-export function costUpdateEntry(input: {
+function costUpdateEntry(input: {
   readonly atMs: number;
   readonly runId: string;
   readonly costCents: number;
@@ -213,10 +213,10 @@ export function costUpdateEntry(input: {
 const APPROVAL_REQUEST_ID = "019b79ee-0280-7b12-8150-a11a0c150001";
 
 /** What was asked for, in the vocabulary the approval contract types as free text. */
-export const APPROVAL_SCOPE = "run";
+const APPROVAL_SCOPE = "run";
 
 /** The provider account this session's lanes are admitted against. */
-export const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
+const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
 
 /**
  * One approval row, in the shape the approval-flow family registers.
@@ -226,7 +226,7 @@ export const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
  * request and `approver` and `effectiveScope` present on the resolution, and a row
  * carrying the other pair would be a shape no emitter produces.
  */
-export function approvalEntry(input: {
+function approvalEntry(input: {
   readonly atMs: number;
   readonly kind: string;
   readonly actorId?: string;
@@ -254,7 +254,7 @@ export function approvalEntry(input: {
 /** The four entry builders, with this scenario's session bound in. */
 const lane = createRunEntryBuilders(SESSION_ID);
 
-export const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
+const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   // The opening, unchanged in shape: the room, the cast in join order, and the
   // implementer's run opened by the signed-in user. Every surface built against this
   // scenario reads these eight beats, so they stay first and stay as they were.

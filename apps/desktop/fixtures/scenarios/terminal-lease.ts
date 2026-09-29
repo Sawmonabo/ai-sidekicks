@@ -46,14 +46,14 @@ const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /** The session whose one shared shell this scenario is about. */
-export const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
+const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 
 /**
  * The agent's run, here rather than implied: `auto_released_run_idle` releases the
  * lease when THE ACQUIRING RUN leaves its running state, so the reason cannot be
  * scripted without a run to bind it to.
  */
-export const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
+const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
 /**
  * The scenario's cast, by role, for the surfaces that render one of them.
@@ -64,7 +64,7 @@ export const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
  * gives the family's tests the wire-declared id AND the role it plays, which an
  * index does not, and keeps the ids declared exactly once.
  */
-export interface TerminalScenarioRoles {
+interface TerminalScenarioRoles {
   /** The session's owner. Holds the lease first, and holds it at the end. */
   readonly owner: string;
   /** The other device the lease changes hands to. */
@@ -106,13 +106,13 @@ export const TERMINAL_SCENARIO_CAST: TerminalScenarioRoles = {
  * HOST's zone the moment its spelling loses its `Z`, which makes this a different
  * scenario on a machine east of London.
  */
-export const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
+const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
 
 /**
  * The same instant as the text the wire carries, derived from tick zero through the
  * permitted `new Date(<sum>)` form, so the two spellings cannot disagree.
  */
-export const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantAt(0);
+const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantAt(0);
 
 /** The scenario's own event-id prefix, shared by every beat's opaque row id. */
 const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
@@ -121,7 +121,7 @@ const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
 const LEASE_TRANSITION_KIND = "pty.control_changed";
 
 /** What one beat says beyond the envelope this module stamps. */
-export interface TerminalScenarioBeatInput {
+interface TerminalScenarioBeatInput {
   /** The tick this beat is due at, measured from scenario start. */
   readonly atMs: number;
   readonly sequence: number;
@@ -133,7 +133,7 @@ export interface TerminalScenarioBeatInput {
 }
 
 /** What one lease transition says. The payload members are the wire's own. */
-export interface TerminalLeaseTransitionBeatInput {
+interface TerminalLeaseTransitionBeatInput {
   readonly atMs: number;
   readonly sequence: number;
   /**
@@ -158,17 +158,12 @@ export interface TerminalLeaseTransitionBeatInput {
  * zero: hoisting is what lets the one derivation sit beside the number it derives
  * from rather than below the table that reads it.
  */
-export function terminalScenarioInstantAt(atMs: number): string {
+function terminalScenarioInstantAt(atMs: number): string {
   return new Date(TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
 }
 
 /**
  * The opaque row id the daemon would have minted for the beat at this position.
- *
- * Exported because a suite that appends a beat AFTER the script — a second host
- * attaching once everything scripted has played — has to give it a row id, and one
- * spelled any other way would be the single row in that log a reader could tell was
- * not the daemon's.
  */
 function terminalScenarioEventId(sequence: number): string {
   return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
@@ -182,7 +177,7 @@ function terminalScenarioEventId(sequence: number): string {
  * on every beat, the instant is `atMs` in the other spelling, and the row id is
  * the scenario's prefix with this beat's own position on the end.
  */
-export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
+function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
   return {
     atMs: beat.atMs,
     event: {
@@ -205,9 +200,7 @@ export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioB
  * what a reader comes to the script for. Written as a table, the hand-off sequence
  * reads off the page; written as payload literals, it did not.
  */
-export function terminalLeaseTransitionBeat(
-  transition: TerminalLeaseTransitionBeatInput,
-): ScenarioBeat {
+function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInput): ScenarioBeat {
   return terminalScenarioBeat({
     atMs: transition.atMs,
     sequence: transition.sequence,

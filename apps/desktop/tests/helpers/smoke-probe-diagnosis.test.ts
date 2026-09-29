@@ -5,6 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+
 import { DISPLAY_READY_TIMEOUT_MS } from "./display-readiness.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
@@ -13,9 +15,7 @@ import {
   DIAGNOSTIC_COLLECTION_CEILING_MS,
   DIAGNOSTIC_PROBE_TIMEOUT_MS,
   diagnoseMissingProbe,
-  READINESS_BREADCRUMB_TAG,
   ReadinessLineScanner,
-  SMOKE_PROBE_TAG,
 } from "./smoke-probe-diagnosis.js";
 import {
   BOOT_TEST_TIMEOUT_MS,
