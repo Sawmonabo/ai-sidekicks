@@ -56,13 +56,7 @@ export interface WindowCommandsInput {
 export function useWindowCommands(
   input: WindowCommandsInput,
 ): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const {
-    route,
-    lastOpenedSessionId,
-    windowStore: frameStore,
-    uiStateStore,
-    surfaceRegistry,
-  } = input;
+  const { route, lastOpenedSessionId, windowStore, uiStateStore, surfaceRegistry } = input;
 
   // Derived from the route rather than stored, so the palette cannot disagree with the
   // rail about where the window is.
@@ -91,9 +85,9 @@ export function useWindowCommands(
   // which the store composes.
   const raiseRefusalBanner = useCallback(
     (refusal: ConsoleRefusal) => {
-      frameStore.raiseRefusalBanner(refusal);
+      windowStore.raiseRefusalBanner(refusal);
     },
-    [frameStore],
+    [windowStore],
   );
 
   // Memoized on that stable sink, so the registration effect below runs once.
@@ -115,7 +109,7 @@ export function useWindowCommands(
   // duplicate adds none of the list and the cleanup cannot remove another mount's command.
   useEffect(() => {
     const windowCommands: readonly ConsoleCommand[] = [
-      ...buildNavigationCommands(frameStore, surfaceRegistry),
+      ...buildNavigationCommands(windowStore, surfaceRegistry),
       ...bridgeCommands,
     ];
     registerCommands(windowCommands);
@@ -135,7 +129,7 @@ export function useWindowCommands(
         consoleCommands.unregister(command.id);
       }
     };
-  }, [bridgeCommands, frameStore, raiseRefusalBanner, surfaceRegistry]);
+  }, [bridgeCommands, windowStore, raiseRefusalBanner, surfaceRegistry]);
 
   // The overrides a person authored, read back once per window. Not awaited:
   // `hydrateFrom` absorbs a failed read, so a rejection escaping here is a defect.
