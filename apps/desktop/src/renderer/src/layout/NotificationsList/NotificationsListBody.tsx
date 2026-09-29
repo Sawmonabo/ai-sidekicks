@@ -1,27 +1,26 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
-import { NOTHING_NEEDS_YOU, uncheckedSessionsSentence } from "./attention-sentences.js";
+import { uncheckedSessionsSentence } from "./attention-sentences.js";
 import { ReadCompleteness } from "./ReadCompleteness.js";
 import { SessionNotificationGroup } from "./SessionNotificationGroup.js";
 
 export function NotificationsListBody(props: {
   readonly reading: AttentionReading;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   if (props.reading.phase === "reading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading what needs you." />;
   }
   const { plane, droppedCount, refusedSessions } = props.reading;
   if (plane.groups.length === 0) {
-    // Nothing survived the boundary. WHY nothing survived decides which absence
-    // this is, and there are now three reasons rather than two: a read that
-    // answered for every session with an empty projection is an all-clear; a read
-    // some session never answered is coverage this console does not have; and a
-    // read every member of which the boundary rejected is the console failing to
-    // recognize an answer it did receive. Reporting either of the last two as the
-    // first is the conflation the five kinds of nothing exist to prevent — it tells
-    // a person they are free on the strength of a question that went unanswered.
+    // Nothing survived the boundary. WHY nothing survived decides what is drawn: a
+    // read that answered for every session with an empty projection draws nothing
+    // under the heading, because nothing waiting is shown by absence; a read some
+    // session never answered is coverage this console does not have; and a read every
+    // member of which the boundary rejected is the console failing to recognize an
+    // answer it did receive. Drawing either of the last two as the first would tell a
+    // person they are free on the strength of a question that went unanswered.
     if (refusedSessions.length > 0) {
       return (
         <>
@@ -35,14 +34,10 @@ export function NotificationsListBody(props: {
         </>
       );
     }
-    return droppedCount === 0 ? (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title={NOTHING_NEEDS_YOU}
-        detail="Approvals, questions, finished runs, and mentions all appear here while they are unresolved."
-      />
-    ) : (
+    if (droppedCount === 0) {
+      return null;
+    }
+    return (
       <>
         <Nothing
           kind="not-checked"

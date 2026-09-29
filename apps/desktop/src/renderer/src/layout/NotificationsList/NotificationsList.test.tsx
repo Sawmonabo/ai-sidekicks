@@ -190,19 +190,8 @@ describe("members the boundary refused", () => {
         }}
       />,
     );
-    const text = container.textContent ?? "";
-    expect(text).not.toContain("Nothing needs you.");
-    expect(text).toContain("2 deliveries could not be read");
+    expect(container.textContent ?? "").toContain("2 deliveries could not be read");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("negative control: a read that answered nothing AND dropped nothing is the all-clear", () => {
-    // Without this, the case above would pass over a center that had simply lost
-    // its empty state, which is a different defect wearing the same green tick.
-    const { container } = render(<NotificationsList reading={readingOf([])} />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Nothing needs you.");
-    expect(text).not.toContain("in that read");
   });
 });
 
@@ -216,19 +205,18 @@ describe("a read that did not cover every session", () => {
     const { container } = render(
       <NotificationsList reading={readingOf([], [refusedSession("session-b")])} />,
     );
-    const text = container.textContent ?? "";
-    expect(text).not.toContain("Nothing needs you.");
-    expect(text).toContain("One session could not be checked.");
+    expect(container.textContent ?? "").toContain("One session could not be checked.");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
-  it("negative control: the same empty read with every session answered IS the all-clear", () => {
-    // Without this, the case above would pass over a center that had simply lost its
-    // empty state, which is a different defect wearing the same warning.
+  it("negative control: the same empty read with every session answered draws only the heading", () => {
+    // Nothing waiting is shown by absence, so the list keeps its heading and draws
+    // nothing under it. Without this, the not-checked cases here would pass over a
+    // center that drew its warning for every empty read.
     const { container } = render(<NotificationsList reading={readingOf([])} />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Nothing needs you.");
-    expect(text).not.toContain("could not be checked");
+    expect(container.querySelector(".meridian-attention__title")?.textContent).toBe("Needs you");
+    expect(container.querySelector(".meridian-nothing")).toBeNull();
+    expect(container.querySelector(".meridian-attention__groups")).toBeNull();
   });
 
   it("keeps the dropped-member line beside the coverage warning", () => {
@@ -411,7 +399,7 @@ describe("what makes the attention read run again", () => {
     const { container } = mount(bridge, read, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
-    expect(container.textContent ?? "").toContain("Nothing needs you.");
+    expect(container.textContent ?? "").not.toContain("An approval is waiting.");
 
     served.items = [item()];
     act(() => {
