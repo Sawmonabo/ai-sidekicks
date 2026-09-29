@@ -262,12 +262,14 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 }
 
 /**
- * The classes one action wears: the block, its own modifier, the shared action
- * button, and — on the primary action alone — the primitives' filled-accent face.
+ * The classes one action wears: the block, the shared action button at its regular
+ * size, and a face — the filled accent on the primary action, the outline on the rest.
  */
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action} meridian-action-button`;
-  return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
+  const base = `${APPROVAL_CARD_ACTION_CLASS} meridian-action-button meridian-action-button--regular`;
+  return action === PRIMARY_ACTION
+    ? `${base} ${ACCENT_FILL_CLASS}`
+    : `${base} meridian-action-button--outline`;
 }
 
 /** Arrow and vim movement, and nothing else. `0` means this key is not ours. */

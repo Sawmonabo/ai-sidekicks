@@ -137,7 +137,7 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
           <div className="meridian-schema-answer__act">
             <button
               type="submit"
-              className="meridian-schema-answer__submit"
+              className="meridian-schema-answer__submit meridian-action-button meridian-action-button--regular"
               disabled={isAwaitingVerdict}
             >
               {SUBMIT_LABEL}

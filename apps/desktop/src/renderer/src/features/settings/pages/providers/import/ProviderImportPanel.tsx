@@ -92,7 +92,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       </label>
       <button
         type="submit"
-        className="meridian-session-import__submit"
+        className="meridian-session-import__submit meridian-action-button meridian-action-button--regular meridian-action-button--outline"
         disabled={disabledReason !== undefined}
         title={disabledReason}
       >

@@ -93,7 +93,7 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
       />
       <button
         type="submit"
-        className="meridian-input-ask__send"
+        className="meridian-input-ask__send meridian-action-button"
         disabled={draft.length === 0 || props.isClosed}
       >
         Send answer

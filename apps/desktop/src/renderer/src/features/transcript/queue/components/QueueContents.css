@@ -1,24 +1,9 @@
-/* The waiting queue's rows. The cancel button wears the shared action button class
-   from `styles/action-buttons.css`; this sheet adds its size, face, hover and the
-   pending state the queue alone has.
+/* The waiting queue's rows. The cancel button wears the shared action button at its
+   small size in the raised face, from `styles/action-buttons.css`; this sheet adds
+   only the pending state the queue alone has.
 
    Every value here is a Meridian token: the palette lives in one place, and a sheet that
    hard-coded one would be a second palette nobody could re-theme. */
-
-.meridian-queue__cancel {
-  display: inline-flex;
-  gap: var(--meridian-space-1);
-  align-items: center;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border-color: var(--meridian-edge);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-queue__cancel:hover:enabled {
-  border-color: var(--meridian-edge-strong);
-}
 
 .meridian-queue__cancel:disabled {
   color: var(--meridian-text-muted);

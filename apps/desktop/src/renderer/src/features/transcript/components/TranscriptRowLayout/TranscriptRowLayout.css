@@ -156,7 +156,11 @@
   opacity: 1;
 }
 
-.meridian-transcript-row-layout :focus-visible {
+/* A control that wears a shared treatment from `styles/action-buttons.css` takes the
+   focus ring from there, so the row's rule leaves it alone. The exclusion sits inside
+   `:where()` so this rule keeps its specificity for every other control. */
+.meridian-transcript-row-layout
+  :focus-visible:not(:where(.meridian-action-button, .meridian-disclosure-trigger)) {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

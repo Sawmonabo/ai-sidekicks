@@ -207,7 +207,7 @@ function renderAnswerArms(
             <li key={option.value}>
               <button
                 type="button"
-                className="meridian-input-ask__option"
+                className="meridian-input-ask__option meridian-action-button"
                 disabled={isSettling}
                 onClick={() => {
                   onAnswer(option.value);

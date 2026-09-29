@@ -62,7 +62,7 @@ export function SavedDefinitionRow(props: {
           <p className="meridian-saved-definition-row__question">{describeDeletionQuestion(row)}</p>
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive"
+            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive meridian-action-button"
             onClick={() => {
               void view.confirmDeletion(row.definitionId);
             }}
@@ -72,7 +72,7 @@ export function SavedDefinitionRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-saved-definition-row__action"
+            className="meridian-saved-definition-row__action meridian-action-button"
             onClick={() => {
               view.cancelDeletion();
             }}
@@ -84,7 +84,7 @@ export function SavedDefinitionRow(props: {
         <div className="meridian-saved-definition-row__actions">
           <button
             type="button"
-            className="meridian-saved-definition-row__action"
+            className="meridian-saved-definition-row__action meridian-action-button"
             onClick={() => {
               view.openEditor({ kind: "stored", definitionId: row.definitionId });
             }}
@@ -95,7 +95,7 @@ export function SavedDefinitionRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive"
+            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive meridian-action-button"
             onClick={() => {
               view.armDeletion(row.definitionId);
             }}
@@ -113,7 +113,7 @@ export function SavedDefinitionRow(props: {
           action={
             <button
               type="button"
-              className="meridian-saved-definition-row__action"
+              className="meridian-saved-definition-row__action meridian-action-button"
               onClick={() => {
                 view.dismissRefusal(row.definitionId);
               }}

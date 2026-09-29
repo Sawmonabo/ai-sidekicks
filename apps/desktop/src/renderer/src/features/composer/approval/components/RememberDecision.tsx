@@ -119,7 +119,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           }}
         >
           <Select.Trigger
-            className="meridian-approval-card__scope-trigger meridian-action-button"
+            className="meridian-approval-card__scope-trigger meridian-action-button meridian-action-button--regular meridian-action-button--outline"
             aria-label="Remembered scope"
             disabled={!intent.isRemembering}
           >

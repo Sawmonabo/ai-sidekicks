@@ -118,7 +118,7 @@ export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
       actions={
         <button
           type="button"
-          className="meridian-agent-library__new"
+          className="meridian-agent-library__new meridian-action-button meridian-action-button--raised"
           // Pressed rather than merely styled: which subject is selected is state a
           // person has to be able to read.
           aria-pressed={snapshot.editorSubject?.kind === "new"}

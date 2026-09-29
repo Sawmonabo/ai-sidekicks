@@ -1,22 +1,38 @@
 /*
  * Two button treatments several features share, each declared once as a class a
- * control wears beside its own.
+ * control wears beside its own, and the one focus ring every control shows.
  *
  * `meridian-action-button` is a button that does something: approve and reject, a
  * scope choice, revoke and cancel, a queue item's cancel, a steer's send and cancel, a
- * settings page's actions and the composer's send. It holds only what every one of
- * those controls has in common: the inherited font, a one-pixel solid edge, the small
- * corner, the pointer and the focus ring. Size, face, edge color and hover differ from
- * control to control, so each control's own class carries them.
+ * settings page's actions, the composer's send, a saved sidekick's actions and the
+ * new-sidekick control, a question's options and send, a schema answer's submit, the
+ * session import, the keyboard page's record and reset controls, and the terminal's take
+ * control. The base holds only what every one of those has in common: the inherited
+ * font, a one-pixel solid edge, the small corner and the pointer.
+ *
+ * Its modifiers are a size and a face that several controls share, each written once:
+ *
+ *   --regular  the regular size: the small text step with a roomy side padding.
+ *   --small    the small size: the smallest text step with a tight padding, laid out
+ *              for a glyph beside the label.
+ *   --outline  the outline face: the page surface under the strong edge.
+ *   --raised   the raised face: the raised surface under the quiet edge, which
+ *              strengthens on hover.
+ *
+ * A control whose size or face no other control shares keeps it in its own class.
  *
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the
  * content beside it: a details toggle, a schema toggle, a message's Copy. It holds
  * the whole treatment, so a control that wears it needs no rules of its own.
  *
- * The action button's base sits inside `:where()`, which gives it no specificity. A
- * control's own class then wins over it whichever sheet loads first, so a control's
- * `font-size` is never reset by the base's `font` shorthand. The focus ring keeps
- * its specificity, above a control's own class, which declares no focus rule.
+ * The base and the modifiers sit inside `:where()`, which gives them no specificity.
+ * A control's own class, state and variant then win over them whichever sheet loads
+ * first, so a control's `font-size` is never reset by the base's `font` shorthand and
+ * a destructive variant's red edge is never repainted by a face.
+ *
+ * The focus ring keeps its specificity, above a control's own class, which declares
+ * no focus rule. It is the product's one focus ring: every control that wears either
+ * treatment shows exactly this ring, and no sheet declares another for them.
  *
  * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
  */
@@ -31,9 +47,33 @@
   cursor: pointer;
 }
 
-.meridian-action-button:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
+:where(.meridian-action-button--regular) {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-size: var(--meridian-text-sm);
+}
+
+:where(.meridian-action-button--small) {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+:where(.meridian-action-button--outline) {
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border-color: var(--meridian-edge-strong);
+}
+
+:where(.meridian-action-button--raised) {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border-color: var(--meridian-edge);
+}
+
+:where(.meridian-action-button--raised:hover:enabled) {
+  border-color: var(--meridian-edge-strong);
 }
 
 /* --- the disclosure trigger -------------------------------------------------- */
@@ -53,6 +93,9 @@
   color: var(--meridian-text);
 }
 
+/* --- the focus ring ---------------------------------------------------------- */
+
+.meridian-action-button:focus-visible,
 .meridian-disclosure-trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;

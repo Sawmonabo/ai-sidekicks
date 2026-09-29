@@ -45,11 +45,8 @@
   gap: var(--meridian-space-2);
   width: 100%;
   background: none;
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
+  border-color: var(--meridian-edge);
   color: inherit;
-  cursor: pointer;
-  font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-2);
   text-align: start;
 }
@@ -90,11 +87,8 @@
 
 .meridian-input-ask__send {
   background: none;
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
+  border-color: var(--meridian-edge);
   color: inherit;
-  cursor: pointer;
-  font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-2);
 }
 
