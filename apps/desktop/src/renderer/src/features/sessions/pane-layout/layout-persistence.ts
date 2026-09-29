@@ -80,9 +80,9 @@ export class RestoreProgress {
 export function refusePaneLayoutSave(
   code: PaneLayoutSaveRefusalCode,
   detail: string,
-): WorkspaceRefusal {
+): PaneLayoutSaveRefusal {
   return refuse(PANE_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
-/** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-type WorkspaceRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;
+/** A typed pane layout save refusal — `core`'s one refusal shape, narrowed on `code`. */
+type PaneLayoutSaveRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;
