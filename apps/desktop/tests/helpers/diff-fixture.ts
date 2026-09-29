@@ -1,4 +1,4 @@
-// Diff models the surfaces are built and measured against, until a wire makes one.
+// Diff models the diff views are built and measured against, until a wire makes one.
 //
 // THE FIXTURE SHELL FOR AN ABSENT OWNER. Nothing in the running console produces a
 // `DiffModel`, because no daemon method returns patch bytes. This module is the

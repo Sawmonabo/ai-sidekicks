@@ -4,7 +4,7 @@
 // history state and the tabs are drawn from the page list, both handed in as readings,
 // and every control dispatches through the acts it is handed, so the component holds no
 // subscription and no second copy of either. `PreviewPane.tsx` is what the pane layout mounts;
-// this is the body that goes inside `seats/PaneFrame`, which draws the section,
+// this is the body that goes inside `components/PaneFrame`, which draws the section,
 // its accessible name and the actor's hue.
 //
 // The close-tab chord is claimed here: left alone, the platform chord closes the window.

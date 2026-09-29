@@ -6,7 +6,7 @@
 // The fact is stamped with the `(bridge, sessionId)` subject and compared during render,
 // so a pane rebound to another session never inherits the previous session's disabled
 // control. The single-flight register is keyed on the visit (the publisher the holder
-// re-mints on each re-seed), so a session visited twice starts with a free slot.
+// re-mints on each re-seed), so a session visited twice starts with a free register.
 
 import { useCallback } from "react";
 

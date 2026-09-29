@@ -9,18 +9,18 @@
 //      attribute on any path, so no future edit can quietly add the gate back by
 //      widening a condition.
 //   2. **Resume never waits for an armed instant to elapse.** An `autoResumeAt` is
-//      a schedule the engine armed, not a lock on the operator; this surface never
+//      a schedule the engine armed, not a lock on the operator; this component never
 //      reads one, so it cannot come to depend on one.
 //   3. **The re-pin is explicit or absent.** It rides resume's optional member and
 //      names a target the operator chose from the chain. There is no "latest"
 //      option, because a server-resolved latest would race the definition's own
 //      edits and leave the audited from-and-to pair unverifiable against what the
 //      operator saw. An empty chain means no target can be named, so the picker is
-//      absent rather than empty — "absent, not disabled", the family's own rule.
+//      absent rather than empty, and never drawn disabled.
 //   4. **Eligibility is the daemon's.** Both controls are OFFERED; this file reads no
 //      run status and computes no permission, and it never decides in advance that an
 //      act is unreachable. The press puts the question and the answer — a served
-//      settlement, or a refusal from this family's own single flight or reason bound —
+//      settlement, or a refusal from the controls' own single flight or reason bound —
 //      renders INLINE beside the button: nothing changed, the act did not happen, and
 //      the control stays beside its refusal. `RunControlOutcome.tsx` draws it.
 //
@@ -43,9 +43,9 @@
 // live beside the field it is about, inside the collapsible region — so an operator
 // who typed a long reason, collapsed the disclosure, and pressed Cancel got a button
 // that did nothing and no visible word about why. A refusal a person cannot see is
-// indistinguishable from a control that is broken, which is the one failure rule 9
-// exists to prevent. The refusal therefore stands in the control's own body where the
-// button is, and the rejected submission ALSO opens the disclosure and puts the
+// indistinguishable from a control that is broken. The refusal therefore stands in the
+// control's own body where the button is, and the rejected submission ALSO opens the
+// disclosure and puts the
 // operator back on the field they have to shorten: one says what happened, the other
 // says where to fix it, and neither substitutes for the other.
 //
@@ -167,12 +167,12 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
  * The held re-pin target, or no re-pin where the chain on screen does not offer it.
  *
  * The fallback is `NO_REPIN` rather than the chain's first entry, and that is the
- * substance of it: falling back to a version would be this surface choosing a target
+ * substance of it: falling back to a version would be this component choosing a target
  * the operator never named, which is the "no server-resolved latest" rule with the
  * server swapped out for the renderer. Every reader of this value already handles the
  * no-re-pin arm — the picker shows "Keep the pinned version", the target line is
  * absent, and the submit sends `undefined` — so an unofferable id resolves to a state
- * the surface can render honestly instead of one it can only render wrongly.
+ * the picker can render honestly instead of one it can only render wrongly.
  *
  * The CHAIN and not the whole control, because resolving a held id against the
  * offered targets is all this does: handed the control it would be free to read the
@@ -222,13 +222,13 @@ function revealReasonField(fields: CancelFieldState): void {
 /**
  * Cancel, with its optional reason one disclosure away.
  *
- * The reason is behind a `<details>` because rule 7 puts the secondary thing one
- * click away and because canceling without a reason is the common act — a field
+ * The reason is behind a `<details>` because a secondary control sits one click away
+ * rather than always open, and because canceling without a reason is the common act — a field
  * always open would make the empty case look unfinished. `<details>` is the
  * platform's own disclosure, so it is keyboard-reachable and announced without this
  * file inventing a toggle.
  *
- * THE REFUSAL IS NOT BEHIND IT. Rule 7 puts the secondary CONTROL one click away; a
+ * THE REFUSAL IS NOT BEHIND IT. Only a secondary CONTROL goes one click away; a
  * refusal is not secondary and is not a control, and hiding one behind a disclosure
  * the operator has already closed is how this button came to look broken. The live
  * budget stays inside, because it is only legible while the field it counts is.
@@ -245,8 +245,8 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
         // opens the disclosure onto the field it names — so a refused act is visibly
         // refused however the operator had arranged the form, which is the whole
         // difference between this and a button that appears to do nothing. It is why
-        // the button is never disabled either: rule 9 keeps the control beside its
-        // refusal rather than removing it.
+        // the button is never disabled either: a refused press leaves the control in
+        // place, with the reason beside it.
         if (pastBound) {
           revealReasonField(fields);
           return;

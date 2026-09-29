@@ -1,8 +1,8 @@
 // The diff pane once it holds a change set.
 //
-// SPLIT FROM `DiffPane.test.tsx` ON THE PANE'S OWN SEAM. That file is about a pane
+// APART FROM `DiffPane.test.tsx` ON THE PANE'S OWN SEAM. That file is about a pane
 // holding no model — the chrome it wears and the absence it owes every subject. What
-// follows is the surface `DiffPane.tsx` describes once a model exists: the compared
+// follows is the view `DiffPane.tsx` describes once a model exists: the compared
 // states, the changed-file list and the rows, what survives the pane being reused for a
 // different diff, and the toolbar. The two halves mount the same pane and share nothing
 // else, which is why the contexts and the layout discipline they do share live in

@@ -2,14 +2,14 @@
 // in the log position the store reconciles against.
 //
 // Beside the aggregate entry for the reason its sibling run-beat file is: the cases
-// drive `findScenarioContractDefects`, which is the surface every scenario is
+// drive `findScenarioContractDefects`, which is the one function every scenario is
 // measured through. Both halves of the rule are here — the position a script OPENS
 // at, which needs a real multi-beat script to be shifted as a whole, and the tick and
 // contiguity claims over a beat and the one in front of it.
 //
 // EVERY CASE IS BUILT FROM A SHIPPED SCRIPT, on the sibling file's precedent: what a
-// case varies is the one member it is about, and every other member is one the seat
-// board already carries and the predicate already accepts.
+// case varies is the one member it is about, and every other member is one the shipped
+// scenarios already carry and the predicate already accepts.
 
 import { describe, expect, it } from "vitest";
 
@@ -83,8 +83,8 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
    * The concurrent-streaming scenario's opening PAIR as a script of its own, each beat revised by index.
    *
    * Two beats is the smallest script the tick and contiguity claims are stated over —
-   * both are about a beat and its predecessor — and taking the seat board's own first
-   * two means every member a case does not touch is one the predicate already accepts,
+   * both are about a beat and its predecessor — and taking the shipped scenario's own
+   * first two means every member a case does not touch is one the predicate already accepts,
    * so a case that reports one defect reports it for the reason the case is about.
    */
   function openingPairScenario(
@@ -130,8 +130,8 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // The two claims pulled apart. Sharing a tick is ordinary — an event and the
     // transition it triggers land together, so the tick rule is nondecreasing rather
     // than strictly increasing — and it does NOT make them share a position, so a rule
-    // that relaxed contiguity for equal ticks would let the gap below back in through
-    // the door this case guards.
+    // that relaxed contiguity for equal ticks would let the gap below back in by
+    // the route this case guards.
     expect(
       findScenarioContractDefects([
         openingPairScenario("shares-one-tick", (beat) => dueAt(beat, 40)),
@@ -182,7 +182,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     expect(defects[0]?.reason).toContain("steps backwards");
   });
 
-  it("negative control: the opening pair the seat board ships is clean", () => {
+  it("negative control: the opening pair the shipped scenario carries is clean", () => {
     // Without it every case above would hold over a rule that reported every pair, and
     // no scenario could be scripted at all.
     expect(

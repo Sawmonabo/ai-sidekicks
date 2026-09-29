@@ -4,25 +4,25 @@
  * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal color,
  * every value read back out of a custom property.
  *
- * One of the terminal family's three sheets, one per sub-module directory and named
+ * One of the terminal feature's three sheets, one per sub-module directory and named
  * for that directory. Every one is imported from `pane/terminal-pane-body.ts` and from
  * nowhere else, so the bundler sees exactly one edge into each — which is what keeps
- * this family out of the document the operator waits for.
+ * this feature out of the document the operator waits for.
  */
 
 /*
- * The pane's BODY, inside the body slot `seats/pane-chrome.css` leaves. The frame,
- * its surface, and its boundary are that sheet's; what is left here is the padding
- * this family wants inside it and the column the lease line and the host sit in.
+ * The pane's BODY, inside the body region `components/PaneFrame/PaneFrame.css` leaves. The
+ * frame, its background, and its boundary are that sheet's; what is left here is the padding
+ * this feature wants inside it and the column the lease line and the host sit in.
  *
  * `box-sizing` is stated here for the reason `primitives/figures/chip.css` states it on every
  * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
- * global `border-box` reset, so a padded box that also has to fill its slot sizes its
- * CONTENT to the slot and adds the padding outside it. In a fixed-height pane layout slot the
- * pane was therefore taller than its slot by twice `--meridian-space-3`, which pushes
+ * global `border-box` reset, so a padded box that also has to fill its region sizes its
+ * CONTENT to the region and adds the padding outside it. In a fixed-height pane slot the
+ * pane would be taller than its region by twice `--meridian-space-3`, which pushes
  * the emulator's bottom rows out of view or introduces a scrollbar nothing asked for.
- * The fill is now `flex: 1 1 auto` against the chrome's own column rather than
- * `block-size: 100%` against a parent that no longer has a stated height, and the
+ * The fill is `flex: 1 1 auto` against the chrome's own column rather than
+ * `block-size: 100%` against a parent with no stated height, and the
  * hazard is the same one: the padding has to be inside whatever the box grows to.
  */
 .meridian-terminal-pane {

@@ -1,6 +1,6 @@
 // Who owns the Agents pane's reads, and for how long.
 //
-// Two lifetime claims are checked here, because both are claims a rendered surface
+// Two lifetime claims are checked here, because both are claims a rendered pane
 // cannot make on its own:
 //
 //   • **A model never belongs to a session it is not for.** State replaced from an

@@ -128,7 +128,7 @@ describe("a rejected document load", () => {
       // The whole claim. `app.exit` skips `before-quit` and `will-quit`, so an
       // exit here would silently bypass the sidecar drain on an ordinary close.
       expect(electronMock.exitCodes).toEqual([]);
-      // No second load was attempted: there is no surface left to show one on.
+      // No second load was attempted: there is no window left to show one in.
       expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
       expect(consoleWarn.mock.calls.flat().join(" ")).toContain(
         "closed while its load was failing",

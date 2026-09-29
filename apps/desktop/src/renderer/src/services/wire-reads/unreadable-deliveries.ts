@@ -22,7 +22,7 @@
 // rule is `refusedMemberPaths`', which stays in `core/` and is CALLED from the
 // composer below rather than restated by it. There is deliberately no
 // derived `isPartial` flag beside the count: a boolean whose whole body is
-// `count > 0` is a second reading of one fact, and the surfaces compose their notice
+// `count > 0` is a second reading of one fact, and the views compose their notice
 // from the count and the refusal together through the partial-read primitive.
 
 import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
@@ -33,7 +33,7 @@ export interface UnreadableDeliveryReading {
    * Deliveries that parsed as no registered shape on this stream.
    *
    * One vocabulary for every stream that tails a registered union — the queue's, the
-   * account plane's, the run-state feed's — so a surface rendering two of them is not
+   * account plane's, the run-state feed's — so a view rendering two of them is not
    * reading two words for one fact.
    */
   readonly unreadableDeliveryCount: number;
@@ -60,7 +60,7 @@ export type UnreadableDeliveryIssues = readonly { readonly path: readonly Proper
  * The composer one stream hands its ledger: an issue list in, that stream's refusal out.
  *
  * Named because the shape is written at three places — the ledger's field, its
- * constructor, and each family's own bound composer — and a signature spelled out at
+ * constructor, and each stream's own bound composer — and a signature spelled out at
  * each of them is three places for one contract to drift.
  */
 export type UnreadableDeliveryRefusalComposer = (issues: UnreadableDeliveryIssues) => Refusal;
@@ -78,8 +78,8 @@ const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
  *
  * The refusal COMPOSER is a constructor parameter rather than a sentence this module
  * builds. What a person needs to read is which stream refused and what it was
- * reading, and only that stream's own family knows either — which is why
- * `unreadableDeliveryRefusalComposerFor` takes those words from the family and
+ * reading, and only the module that owns that stream knows either — which is why
+ * `unreadableDeliveryRefusalComposerFor` takes those words from that module and
  * returns a composer, rather than the ledger growing an origin of its own.
  */
 export class UnreadableDeliveryCounter {
@@ -117,7 +117,7 @@ export class UnreadableDeliveryCounter {
  *
  * ONE FUNCTION FOR EVERY TAILED UNION, like the ledger below it. What differs between two streams
  * is what a person reads, and that is what `stream` carries; what is the same is the CODE and the
- * shape of the sentence, and those belong here rather than in however many families tail a
+ * shape of the sentence, and those belong here rather than in however many modules tail a
  * registered union next.
  *
  * NAMES THE FAILING MEMBER PATHS AND NEVER THE PAYLOAD. The payload is a frame this

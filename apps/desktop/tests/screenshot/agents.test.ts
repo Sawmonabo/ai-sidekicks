@@ -1,14 +1,14 @@
-// The screenshot tier for the agents family: the console pane.
+// The screenshot tier for the agents feature: the console pane.
 //
 // `settled-capture.ts` owns the mechanism this file rides: every capture is written
 // into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether the surface can be captured at all.
+// gates on whether the pane can be captured at all.
 //
 // WHAT IS PINNED, AND WHY IT IS A PICTURE RATHER THAN AN ASSERTION. The console pane
 // draws a served roster as cards under one tool-grant line, and how those read together is
 // a layout claim: a DOM assertion reading nodes cannot see it; an image can.
 //
-// The pane carries this family's palette — cards, chips, refusals, rules — and is worth
+// The pane carries this feature's palette — cards, chips, refusals, rules — and is worth
 // pinning in both schemes.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
@@ -43,7 +43,7 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("screenshot — the agents family's surfaces", () => {
+describe("screenshot — the agents pane", () => {
   for (const capture of PINNED_CAPTURES) {
     it(`renders ${capture.captureName}`, async () => {
       // Through the system preference rather than a stamped attribute: the token

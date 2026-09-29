@@ -1,7 +1,7 @@
 // The reading anchor's three states, and the promise underneath them.
 //
 // Geometry is supplied as values rather than measured, because the anchor's whole
-// surface is a fold over geometry samples: what it does with a sample is the
+// interface is a fold over geometry samples: what it does with a sample is the
 // subject, and where the sample came from is the chokepoint's test.
 
 import { describe, expect, it } from "vitest";

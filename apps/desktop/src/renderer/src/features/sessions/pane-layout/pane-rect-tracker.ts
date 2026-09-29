@@ -94,7 +94,7 @@ export class PaneRectTracker {
     // FILTERED TO THE TRANSITION, because the registry reports every change and this
     // consumer reads only whether the count is above zero. A second overlay opening
     // above the first, and any registered overlay MOVING, are changes the registry is
-    // right to publish — the browser family's publisher re-samples rectangles on
+    // right to publish — the preview feature's geometry publisher re-samples rectangles on
     // exactly those — and re-measuring every tracked pane for them would spend the
     // whole pane layout on an answer that cannot differ.
     this.#releaseAirspace = options.airspace.subscribeToChanges(() => {
@@ -116,8 +116,8 @@ export class PaneRectTracker {
    * Measurements taken while a flush was running.
    *
    * Counted rather than ignored: a host that mutates layout from inside `onFlush`
-   * re-enters measurement, which is the loop rule 1 forbids, and a count is how it
-   * becomes visible instead of being felt as a stutter.
+   * re-enters measurement, which is the loop the reads-in-the-callback rule above
+   * forbids, and a count is how it becomes visible instead of being felt as a stutter.
    */
   public get reentrantMeasurementCount(): number {
     return this.#writesDuringMeasurement;
@@ -163,9 +163,9 @@ export class PaneRectTracker {
       (this.#invalidationCountBySource.get(source) ?? 0) + 1,
     );
     // COUNT and not intersection, which is this module's rule rather than an
-    // approximation of the browser family's: the native-view policy is to hide the
+    // approximation of the preview feature's: the native-view policy is to hide the
     // view while an overlay is open. The per-pane intersection reading belongs to
-    // `browser/geometry/`'s publisher, which owns a pane's own box; a tracker that
+    // `features/preview/geometry/`'s publisher, which owns a pane's own box; a tracker that
     // re-derived it here would be a second answer to one question.
     const isAirspaceOccupied = this.#airspace.registeredCount > 0;
     this.#wasAirspaceOccupied = isAirspaceOccupied;

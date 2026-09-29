@@ -11,7 +11,7 @@ export interface SettingsSearchFieldProps {
  *
  * A plain `<input type="search">` with a visible label association rather than a
  * combobox: the results below are a navigable list of links, not an autocomplete
- * popover, and announcing them as one would promise a keyboard grammar this surface
+ * popover, and announcing them as one would promise a keyboard grammar this field
  * does not implement.
  */
 export function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.Element {

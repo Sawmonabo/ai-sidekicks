@@ -22,12 +22,10 @@ import {
 
 describe("the reason bound is measured on the encoding", () => {
   // Read through the budget rather than through a measurement function of this
-  // module's own: there is no such function any more. This surface had its own
-  // `utf8ByteLength`, commented as the console's first — `persistence/` had been
-  // measuring the durable path's cap with `measureUtf8ByteLength` since before it —
-  // and the two agreed on ASCII while each was free to grow a surrogate-pair or
-  // normalization rule the other did not. The budget is what a caller consumes, so
-  // asserting on it checks the bound AND the fact that it is reached through the one
+  // module's own: the bound is measured by the renderer's one `measureUtf8ByteLength`,
+  // and a second measurement would agree with it on ASCII while each was free to grow a
+  // surrogate-pair or normalization rule the other did not. The budget is what a caller
+  // consumes, so asserting on it checks the bound AND the fact that it is reached through the one
   // measurement the chokepoint rule in `apps/desktop/AGENTS.md` gives every cap.
   it("counts UTF-8 bytes and not code units", () => {
     expect(cancelReasonBudget("abc").byteLength).toBe(3);
@@ -75,7 +73,7 @@ describe("the reason bound is measured on the encoding", () => {
   });
 });
 
-describe("the refusals this surface raises itself", () => {
+describe("the refusals the run controls raise themselves", () => {
   it("names the bound and never the refused value", () => {
     const reason = "a-user-sentence-that-must-not-be-echoed";
     const refusal = reasonPastBoundRefusal(cancelReasonBudget(reason.repeat(400)));

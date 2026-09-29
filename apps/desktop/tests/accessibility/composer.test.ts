@@ -1,16 +1,16 @@
-// The accessibility tier over every surface the composer family mounts.
+// The accessibility tier over every view the composer feature mounts.
 //
-// `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
-// it, and it runs each surface scoped to itself rather than scanning the document,
-// so a violation names the surface that owns it.
+// `app-frame.test.tsx` runs the frame; this file runs what the feature mounts INTO
+// it, and it runs each view scoped to itself rather than scanning the document,
+// so a violation names the view that owns it.
 //
-// Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family renders something the
+// Both schemes, for `app-frame.test.tsx`'s reason: contrast is the rule most likely
+// to pass in one and fail in the other, and this feature renders something the
 // palette's own contrast test cannot reach.
 //
-// THE COMPOSER IS THE CASE WORTH HAVING. It is the one surface in the console that
+// THE COMPOSER IS THE CASE WORTH HAVING. It is the one view in the console that
 // is always on screen while a person is typing, and it carries the most controls per
-// pixel of anything the family ships. Its addresses differ in which of those are
+// pixel of anything the feature ships. Its addresses differ in which of those are
 // offered, so a name or a label lost on one address is invisible on the others.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,8 +32,8 @@ import {
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
-/** The surfaces this family ships, each named as a reader would name it. */
-const AUDITED_SURFACES: readonly {
+/** The views this feature ships, each named as a reader would name it. */
+const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
@@ -51,12 +51,12 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("accessibility — the composer surfaces", () => {
-  for (const surface of AUDITED_SURFACES) {
+describe("accessibility — the composer views", () => {
+  for (const view of AUDITED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
-      it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
+      it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
-        const mounted = await surface.mount();
+        const mounted = await view.mount();
 
         expect(describeViolations(await runTierAxe(mounted.element))).toStrictEqual([]);
       });

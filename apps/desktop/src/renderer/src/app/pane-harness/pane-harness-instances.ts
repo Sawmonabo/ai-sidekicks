@@ -2,13 +2,13 @@
 //
 // The harness holds a VARIABLE number of registered pane bodies, and everything that
 // varies per instance — the identity React reconciles by, and the context the body
-// reads its stores from — is decided here. The surface beside this module maps the
+// reads its stores from — is decided here. The harness screen beside this module maps the
 // result to elements and decides nothing.
 //
 // Held apart for two reasons. The first is the ordinary one: a per-instance identity
 // rule and a context-composition rule are both testable without a DOM, and neither
 // needs React to state. The second is the rule the harness itself rests on — the
-// thing being measured is what the PANE LAYOUT would mount, which is the descriptor a family
+// thing being measured is what the PANE LAYOUT would mount, which is the descriptor a feature
 // registered, so this module takes `PaneDescriptor` and never a pane component,
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
@@ -47,9 +47,9 @@ export function paneInstanceId(
 }
 
 /**
- * What a pane body is handed here, and why each member is the surface's own.
+ * What a pane body is handed here, and why each member is the harness screen's own.
  *
- * Every store comes off the surface context rather than being minted here: the
+ * Every store comes off the screen context rather than being minted here: the
  * budget's subject is a pane in a RUNNING console, so the pane reads the window's
  * own bridge, frame store, session store, durable UI state, and drafts — the same
  * five a pane layout would hand it. The two members a pane layout decides and this harness does
@@ -79,7 +79,7 @@ export function paneContextFor(
 /**
  * The `openInstanceCount` instances of one registered kind, in mount order.
  *
- * The count is the only input that changes while the surface is open, and it is read
+ * The count is the only input that changes while the harness screen is open, and it is read
  * as a floor of zero rather than trusted: a negative count would ask `Array.from` for
  * a negative length, which throws, and a control that had gone one step past its own
  * guard would take the window's error boundary for an arithmetic slip.

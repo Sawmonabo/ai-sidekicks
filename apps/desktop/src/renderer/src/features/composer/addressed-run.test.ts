@@ -20,7 +20,7 @@ const AGENT_ID = "agent-implementer";
  * union rather than a hand-written set beside it: a member the wire does not carry
  * fails `typecheck` here, and the totality of the record below is the annotation's
  * own. So the pair proves both directions — no key missing, no key invented — with
- * neither half reading a parser into a surface's suite.
+ * neither half reading a parser into a view's suite.
  */
 const WIRE_RUN_STATES = [
   "queued",

@@ -14,7 +14,7 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *
  * `ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
  * kinds on purpose — a definition is authored, versioned and scoped and outlives
- * every run of it — and this surface edits the first. A binding rather than a
+ * every run of it — and this pane edits the first. A binding rather than a
  * literal at the guard, so the kind the pane accepts and the kind its refusal names
  * cannot come apart.
  */
@@ -29,7 +29,7 @@ export const WORKFLOW_BUILDER_SUBJECT_KIND: EntityRef["kind"] = "workflow-defini
  * replaces — the pane would compose a read for a definition that does not exist and
  * present whatever came back as the definition a person asked to edit.
  *
- * The sentence is `workflows/pane/pane-addressing.ts`'s, bound here to this surface's
+ * The sentence is `workflows/pane-addressing.ts`'s, bound here to this pane's
  * origin and to the one kind it authors: the run view raises the same refusal about
  * its own kind, and two copies of one sentence are two sentences the day either is
  * reworded.

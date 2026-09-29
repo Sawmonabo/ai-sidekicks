@@ -1,37 +1,27 @@
-// The schema form kit's chunk root: the one module an `import()` names, and everything
-// the kit publishes to the console reached through it.
+// The schema form's chunk root: the one module an `import()` names, and everything the
+// form offers the rest of the renderer reached through it.
 //
-// WHY IT EXISTS. Nothing on the flagship first paint draws a schema. The three surfaces
-// that do — the run pane's waiting-phase form, the builder's phase preview, and the
-// input-ask card's structured arm behind them — all arrive as loader-backed bodies of
-// their own, so every module in this directory is reached from a lazy chunk and from
-// nowhere else. It rode the initial graph anyway, because the seats door re-exported the
-// two composed surfaces statically and the module-shape rule in
-// `apps/desktop/AGENTS.md` states exactly what that costs: a symbol reachable both
-// statically and dynamically is assigned to the STATIC chunk, so a door line for a body
-// only a lazy chunk reads defeats the boundary while looking tidy. Measured, it put
-// thirty-one modules of this directory and the JSON-Schema validator behind them on the
-// document every session downloads, whether or not a form was ever drawn.
+// WHY IT EXISTS. Nothing on the first paint draws a schema. The views that do — the run
+// page's waiting-phase form and a definition's phase preview — are loader-backed bodies
+// of their own, so every module in this directory is needed only once one of them
+// mounts. A symbol reachable both statically and dynamically is assigned to the STATIC
+// chunk, so exporting the two forms statically from `console/seats/index.ts`, which the
+// initial graph reaches, would put this whole directory and the JSON-Schema validator
+// behind it on the document every session downloads, whether or not a form is ever drawn.
 //
-// So the seats door publishes `schema-form-mounts.ts` instead, and that module reaches
-// this one through `import()` and through nothing else. This module is therefore the
-// bundler's split point: everything only it reaches is emitted as its own chunk and
+// So `console/seats/index.ts` exports `schema-form-mounts.ts` instead, and that module
+// reaches this one through `import()` and through nothing else. This module is therefore
+// the bundler's split point: everything only it reaches is emitted as its own chunk and
 // fetched the first time a form mounts.
 //
-// AND THE STYLESHEET ENTERS HERE. `apps/desktop/AGENTS.md` admits a sheet through the
-// barrel of the directory that OWNS it, and a directory carrying a lazily-loaded chunk
-// has an owner of its own — so `schema-form.css` left the seats door with the code it
-// styles and enters at this root, which is the module the chunk is rooted at. It loads
-// with the first schema form and never before.
+// AND THE STYLESHEET ENTERS HERE, at the module the chunk is rooted at, so it loads with
+// the first schema form and never before.
 //
-// WHAT IT PUBLISHES IS WHAT THE DOOR PUBLISHED, unchanged: the two composed surfaces.
-// `useSchemaForm` and `planSchemaForm` stay inside for the reason `seats/index.ts`
-// gives — a caller assembling them itself would be a second answer to what a schema
-// draws. The schema COMPILER is not one of them and never was one of this kit's
-// exports: it lives in `bridge/`, which is the family that may hold a validator, and
-// this kit reaches it through the loader that door publishes — a second chunk fetched
-// when a form is first drawn, which is why the module list this root pulls onto the
-// initial graph never included the schema library.
+// IT EXPORTS THE TWO COMPOSED FORMS AND NOTHING ELSE. `useSchemaForm` and
+// `planSchemaForm` stay inside: a caller assembling them itself would be a second answer
+// to what a schema draws. The schema COMPILER is not exported either: the form reaches
+// it through `json-schema-validator-loader.ts`, a second chunk fetched when a form first
+// compiles a schema, so the schema library never rides this root.
 
 import "./schema-form.css";
 

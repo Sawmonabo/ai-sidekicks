@@ -9,16 +9,16 @@
 // source.
 //
 // A named kind cannot survive the board filling up. `pane-kinds.ts` closes the set at
-// eight members, six view families are landing at once, and once they have all
+// eight members, six features are landing at once, and once they have all
 // landed every member is owned. A hard-coded kind is claimed twice the moment the
-// family that owns it lands — the registry refuses a second owner rather than letting
+// feature that owns it lands — the registry refuses a second owner rather than letting
 // import order decide, which is correct and which turns the probe into a throw — and
 // when the last one lands there is no kind left to name at all.
 //
 // So the kind is DERIVED from what the composition left free, and the probe is
 // registered AFTER the composition rather than before it. That makes the instrument
-// order-independent and family-independent at once: it names no kind, it holds no
-// opinion about which family owns what, and it goes on working as the board fills.
+// order-independent and feature-independent at once: it names no kind, it holds no
+// opinion about which feature owns what, and it goes on working as the board fills.
 //
 // AND WHEN NOTHING IS FREE, THE COMPOSITION IS THE PROBE. The seam a suite is
 // proving is that the caller's board holds bodies and the singleton does not. A
@@ -35,7 +35,7 @@ import { type PaneRegistry } from "./pane-registry.js";
  *
  * Declaration order rather than any order of its own, so the kind a suite probes on
  * is a property of the closed set and of what the composition claimed — never of
- * which family's module happened to evaluate first.
+ * which feature's module happened to evaluate first.
  */
 export function firstFreePaneKind(claimed: readonly PaneKind[]): PaneKind | undefined {
   return PANE_KINDS.find((kind) => !claimed.includes(kind));

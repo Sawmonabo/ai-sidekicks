@@ -3,7 +3,7 @@
 // The visuals are OWN-BUILT, which the console's library policy requires of the
 // node and edge treatment: the library supplies the box's position, its focus
 // handling and its handle geometry, and everything a reader looks at is this file's
-// and this family's sheet. Nothing here reads a library color — the treatment comes
+// and `run-graph.css`'s. Nothing here reads a library color — the treatment comes
 // off Meridian tokens through data attributes, so light and dark are one rule.
 //
 // THE SAME WORDS, LOOKING AND LISTENING. The state line below prints exactly the
@@ -11,11 +11,11 @@
 // accessible name is a rendering of what is on screen rather than a second, drifting
 // description of it.
 //
-// WHY THE HANDLES ARE HERE AT ALL ON A READ-ONLY SURFACE. The renderer draws an edge
+// WHY THE HANDLES ARE HERE AT ALL ON A READ-ONLY CANVAS. The renderer draws an edge
 // between two handles and not between two boxes: a node with none is a node no edge
 // can reach, and the sequence would render as a column of disconnected cards. They
 // are declared unconnectable, so they are geometry and never a drag origin — there
-// is no connect mode on this surface and no path that creates an edge.
+// is no connect mode on this canvas and no path that creates an edge.
 //
 // PARK IS READ FROM THE PARK MEMBER. The phase-state vocabulary carries no suspended
 // arm, and park is live-scoped — true for exactly the phases parked when the caller
@@ -23,7 +23,7 @@
 // would be asserting something the run never said.
 //
 // THREE OF THE FOUR THINGS ON THIS BOX CAME OFF THE WIRE, AND THEY LOOK LIKE IT.
-// Rule 4 gives every wire-true figure the mono provenance signature, and the phase
+// Every figure the daemon sent renders in mono, the sign of where it came from, and the phase
 // id, the state and the gate state are all strings a daemon sent. They were drawn as
 // ordinary interface prose, which read worst on the id: with no authored name
 // available to any read this console can put, the id stood in the name's place, in

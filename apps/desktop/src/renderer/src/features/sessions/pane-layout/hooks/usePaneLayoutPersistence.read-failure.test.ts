@@ -2,7 +2,7 @@
 //
 // A separate story from `layout-persistence.restore-order.test.tsx`, which is about
 // the ORDER the restore and the save happen in — both of which assume the read
-// answered. Here it does not, and the failure is the quietest one this surface has:
+// answered. Here it does not, and the failure is the quietest one the pane layout has:
 // `UiStateStore.read` resolved `undefined` for a record that was never written AND for
 // a read the adapter could not perform, so a transient failure read as a first run.
 // The hook opened its fallback transcript pane, counted zero restored panes, and filed
@@ -38,8 +38,8 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     mountPersistence(layout, store);
     await drain();
 
-    // The fallback is still OPENED — a window with no panes is not a state this
-    // surface has — and simply not saved: the three-pane record is untouched, where
+    // The fallback is still OPENED — a window with no panes is not a state the
+    // pane layout has — and simply not saved: the three-pane record is untouched, where
     // the one-pane fallback would have replaced it.
     expect(paneKinds(layout)).toStrictEqual(["transcript"]);
     adapter.stopFailingReads();

@@ -1,11 +1,10 @@
-// What a geometry sample means, driven directly rather than through a surface.
+// What a geometry sample means, driven directly rather than through a scroll container.
 //
-// THE RULES HERE ARE THE ONES THAT MOVED OFF `scroll-chokepoint.ts`: the tail
-// arithmetic, the replay, and the decision about which sample is worth waking a
-// subscriber for. Each of them used to be reachable only by attaching a stand-in
-// surface and scrolling it, which meant a case about the ARITHMETIC had to arrange a
-// listener, a batch and a clock first. The publisher takes three numbers, so a case
-// about three numbers hands it three numbers.
+// THE RULES HERE ARE THE PUBLISHER'S: the tail arithmetic, the replay, and the decision
+// about which sample is worth waking a subscriber for. Reaching them by attaching a
+// stand-in scroll container and scrolling it would make a case about the ARITHMETIC
+// arrange a listener, a batch and a clock first. The publisher takes three numbers, so a
+// case about three numbers hands it three numbers.
 //
 // The module under test is imported and driven; nothing here restates its rule.
 
@@ -41,8 +40,6 @@ function readingAt(
 
 describe("the transcript geometry publisher — the tail", () => {
   it("calls the viewport at the tail once it is within the tolerance", () => {
-    // MOVED FROM `scroll-chokepoint.test.ts`, where it attached a recording surface and
-    // scrolled it to reach the same three numbers. The arithmetic is the publisher's now.
     const geometry = publisher.publish(readingAt(4500), "scroll");
     expect(geometry.isAtTail).toBe(true);
     expect(geometry.distanceFromTailPx).toBe(0);
@@ -111,7 +108,7 @@ describe("the transcript geometry publisher — who is woken", () => {
 
   it("records a suppressed sample and returns it, so no caller reads twice", () => {
     // The suppression is about waking subscribers and not about holding the reading:
-    // a caller handed `undefined` here would go back to the surface for numbers the
+    // a caller handed `undefined` here would go back to the scroll container for numbers the
     // publisher already had.
     publisher.publish(readingAt(120), "scroll");
     const suppressed = publisher.publish(readingAt(120), "resize");

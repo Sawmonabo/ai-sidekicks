@@ -12,7 +12,7 @@
  * `min-height: 0` lets a flex child shrink; it does not stop one from GROWING. With
  * no ceiling the pane layout took the height of whatever its panes wanted, so a pane whose
  * body overflowed pushed the pane layout past the session screen region and the pane's own
- * scroller never engaged — the surface below it laid out in full, off the bottom of
+ * scroller never engaged — the body below it laid out in full, off the bottom of
  * the window, and every list inside it mounted every row it held. `.meridian-session-screen-shell`
  * carries the same ceiling one level up, and its rule states the measurement.
  *
@@ -137,12 +137,12 @@
  * spent on content rather than on padding.
  *
  * SET AS CUSTOM PROPERTIES ON THE PANE LAYOUT, AND NEVER AS RULES ON THE PANE'S OWN CLASSES.
- * `meridian-pane__head` is the seats family's, and a second family writing a rule
- * against it makes the head's padding a question the CASCADE answers — whichever of
+ * `meridian-pane__head` is `components/PaneFrame/PaneFrame.css`'s, and a second sheet
+ * writing a rule against it makes the head's padding a question the CASCADE answers — whichever of
  * the two sheets the bundler emits last wins, and that order is a property of the
  * import graph rather than of either file. The pane layout states its rhythm as VALUES and
- * `seats/pane-chrome.css` spends them, so one family declares the class and one
- * family decides the number, with nothing to order.
+ * `PaneFrame.css` spends them, so one sheet declares the class and one
+ * sheet decides the number, with nothing to order.
  */
 .meridian-pane-layout[data-density="comfortable"] {
   --meridian-pane-head-padding-block: var(--meridian-space-3);

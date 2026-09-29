@@ -73,9 +73,8 @@ export function sentMethod(call: RecordedDaemonCall): string {
  * A draft over the fixture bridge, with `daemon.call` recorded on the way past.
  *
  * Through `withDaemonCall`, the console's one shared arm for this, rather than a
- * spread written here: `daemon-reply-chokepoint` scans source text and does not care
- * which tier wrote the reach, so a suite that spelled its own would be the second
- * implementation of the door every other suite already drives.
+ * spread written here: a suite that spelled its own would be a second implementation
+ * of the `callDaemon` path every other suite already drives.
  *
  * The answer is `CREATE_REPLY` or a rejection, which is the two states the scenario
  * itself puts the fixture in — what these cases assert is what the DRAFT does with
@@ -134,7 +133,7 @@ function scenario(options: ScriptedLegs): Scenario {
  * A reply to `session.create` the registered response schema refuses.
  *
  * Short of `state`, which `SessionCreateResponseSchema` requires — so the call FULFILLS and
- * the call door answers `reply-unreadable`. That distinction is the whole subject of the
+ * `callDaemon` answers `reply-unreadable`. That distinction is the whole subject of the
  * ambiguous arm: the daemon was reached, ran, and answered, and only this build's reading
  * of what it said failed.
  */

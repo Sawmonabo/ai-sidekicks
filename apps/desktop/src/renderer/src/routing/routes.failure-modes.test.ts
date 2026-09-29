@@ -13,10 +13,10 @@
 // session than the link names.
 //
 // They live in `routing/` because a route is a value parsed from a string and
-// rendered back to one — this family holds no state, reads no DOM, and knows no
-// store exists, so the whole failure surface is the parse. The window that mounts
-// the result and the store that keys off it fail in their own ways, in their own
-// families.
+// rendered back to one — this folder holds no state, reads no DOM, and knows no
+// store exists, so the parse is the only thing here that can fail. The window that
+// mounts the result and the store that keys off it fail in their own ways, in their
+// own folders.
 
 import { describe, expect, it } from "vitest";
 

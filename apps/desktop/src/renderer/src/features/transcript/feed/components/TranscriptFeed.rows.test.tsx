@@ -1,11 +1,11 @@
-// What a ROW is, in the mounted feed: a run group header, a seam line, or the seat.
+// What a ROW is, in the mounted feed: a run group header, a seam line, or the row renderer's.
 //
 // The feed's other subjects are the `TranscriptFeed.<subject>.test` files beside this one,
 // and this one holds the three dispatches the row renderer performs and the one piece of state it
-// keeps for a row body. Every case drives the composed feed, because each defect it
-// pins was a correct model that reached no component: the run group fold, the seam
-// metadata, and the window's lease table were all derived on every pass and drawn by
-// nothing.
+// keeps for a row body. Every case drives the composed feed, because each thing it
+// pins is a correct model that has to reach a component: the run group fold, the seam
+// metadata, and the window's lease table are each derived on every pass and must be
+// drawn.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,9 +32,9 @@ afterEach(() => {
 
 const RUN_GROUP_HEADER = ".meridian-run-group-header";
 const RUN_GROUP_DISCLOSURE = ".meridian-run-group-header__disclosure";
-const SEAT_ROW = ".meridian-transcript-viewport__row";
+const VIEWPORT_ROW = ".meridian-transcript-viewport__row";
 
-/** A row seat mount with no transcript around it — the refusal case's input. */
+/** A row renderer's props with no transcript around them — the refusal case's input. */
 function outsideTranscriptRowProps(): TranscriptRowProps {
   return {
     row: {
@@ -82,11 +82,11 @@ describe("the transcript feed — a finished run folds to a header and its recei
     // The terminal row survives the fold: "header and receipt" is what folded means.
     expect(drawn).toContain("run.completed");
     // And the rows above it do not. `run.paused` is the discriminator because it is
-    // a seam AND a member of the folded run group, so a fold that only hid the seat's
+    // a seam AND a member of the folded run group, so a fold that only hid the renderer's
     // rows would still leak it.
     expect(drawn).not.toContain("run.paused");
     // The live run group is untouched: every row of it is still mounted.
-    expect(feed.querySelectorAll(SEAT_ROW).length).toBeGreaterThan(0);
+    expect(feed.querySelectorAll(VIEWPORT_ROW).length).toBeGreaterThan(0);
   });
 
   it("opens the fold when the header's disclosure is pressed", () => {
@@ -105,7 +105,7 @@ describe("the transcript feed — a finished run folds to a header and its recei
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithSystemMessage());
     expect(feed.querySelectorAll(RUN_GROUP_HEADER)).toHaveLength(0);
-    expect(feed.querySelectorAll(SEAT_ROW).length).toBeGreaterThan(0);
+    expect(feed.querySelectorAll(VIEWPORT_ROW).length).toBeGreaterThan(0);
   });
 
   it("folds an opened run group back when the palette's collapse row is run", () => {
@@ -117,8 +117,6 @@ describe("the transcript feed — a finished run folds to a header and its recei
       expect(feed.textContent).toContain("run.paused");
 
       dispatchCommand("transcript.collapseTerminalRunGroups");
-      // The act used to raise a typed refusal saying every finished run group was
-      // already folded and no control opened one. Both halves are false now.
       expect(feed.querySelector(RUN_GROUP_DISCLOSURE)?.getAttribute("aria-expanded")).toBe("false");
       expect(feed.textContent).not.toContain("run.paused");
     } finally {
@@ -128,8 +126,8 @@ describe("the transcript feed — a finished run folds to a header and its recei
 
   it("counts a folded run group as one row against the window cap", () => {
     // The cap's own unit test pins the counting rule; this pins that the feed feeds
-    // it the shape that rule is written for. A run-only log — every row naming its
-    // run and no row being it — counted every row, so a long single-run session was
+    // it the shape that rule is written for. In a run-only log — every row naming its
+    // run and no row being it — counting every row would put a long single-run session
     // over cap before it had many run groups at all.
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
@@ -140,32 +138,32 @@ describe("the transcript feed — a finished run folds to a header and its recei
 });
 
 describe("the transcript feed — a seam is the transcript's own row", () => {
-  it("draws a compaction as a seam line rather than delegating it to the seat", () => {
+  it("draws a compaction as a seam line rather than delegating it to the row renderer", () => {
     withLaidOutViewport();
-    const seatRowSummaries: string[] = [];
+    const rendererRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
-      seatRowSummaries.push(mount.row.type);
+      rendererRowTypes.push(mount.row.type);
     });
     const seamLine = feed.querySelector(".meridian-system-message");
     expect(seamLine).not.toBeNull();
     expect(seamLine?.textContent).toContain("Context compacted");
     // The boundary is the row's own run-scoped position, which the projection
-    // resolved — the payload member the old read reached for is registered nowhere.
+    // resolved.
     expect(seamLine?.textContent).toContain("Boundary");
-    // And the seat never saw it, which is the dispatch this case is about.
-    expect(seatRowSummaries).not.toContain("usage.context_compacted");
+    // And the row renderer never saw it, which is the dispatch this case is about.
+    expect(rendererRowTypes).not.toContain("usage.context_compacted");
   });
 
-  it("negative control: an ordinary row still reaches the seat renderer unchanged", () => {
+  it("negative control: an ordinary row still reaches the row renderer unchanged", () => {
     // Without this the case above would pass over a feed that had stopped delegating
     // anything, which would replace every row body in the transcript with a seam line.
     withLaidOutViewport();
-    const seatRowTypes: string[] = [];
+    const rendererRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
-      seatRowTypes.push(mount.row.type);
+      rendererRowTypes.push(mount.row.type);
     });
-    expect(seatRowTypes).toContain("assistant.message");
-    expect(feed.querySelectorAll(SEAT_ROW).length).toBeGreaterThan(0);
+    expect(rendererRowTypes).toContain("assistant.message");
+    expect(feed.querySelectorAll(VIEWPORT_ROW).length).toBeGreaterThan(0);
   });
 });
 

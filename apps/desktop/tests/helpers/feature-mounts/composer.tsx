@@ -1,13 +1,12 @@
-// The composer family's surfaces, mounted once for the two tiers that look at them.
+// The composer feature's views, mounted once for the two tiers that look at them.
 //
-// Not a test file — no `include` glob reaches it as one. It lives under `surfaces/`
+// Not a test file — no `include` glob reaches it as one. It lives in `feature-mounts/`
 // rather than beside the tier harnesses, because the two tiers that mount it are two
-// directories and a module named for one family belongs in the directory that holds
-// the family mounts, not in the drawer that holds everything. The screenshot tier and the
-// accessibility tier need the same compositions, and a per-tier copy of the mount
-// would be two chances to compose them differently and then read the results as if
-// they were comparable. `app-harness.ts` owns HOW the app is mounted, one
-// level down; this owns WHAT of this family is mounted into it.
+// directories and a module named for one feature belongs with the other feature mounts.
+// The screenshot tier and the accessibility tier need the same compositions, and a
+// per-tier copy of the mount would be two chances to compose them differently and then
+// read the results as if they were comparable. `app-harness.ts` owns HOW the app is mounted, one
+// level down; this owns WHAT of this feature is mounted into it.
 //
 // THE COMPOSER STATES ARE ADDRESSES, NOT VARIANTS. `chip-models.ts` resolves the send
 // path from the FOCUSED PANE and the session store's own partitions, so the composer
@@ -25,10 +24,10 @@
 // EVERY PARTITION IS THE REAL ONE, because every store here opens with the fold the
 // window composes — {@link COMPOSED_ENTITY_PROJECTORS}, and never a registrar this
 // file picked. A mount that named its own would be deciding which partitions its
-// surface can read.
+// view can read.
 //
-// AND EVERY SURFACE HERE READS, SO EVERY SURFACE HERE SETTLES ITS READS —
-// {@link mountSurfaceSettled} is the one seam that does it, rather than each mount
+// AND EVERY VIEW HERE READS, SO EVERY VIEW HERE SETTLES ITS READS —
+// {@link mountViewSettled} is the one seam that does it, rather than each mount
 // remembering to. Each of these compositions arms at least one `RefreshScheduler` on
 // the fixture's frozen clock, and `renderSettled` moves no clock: without the advance
 // the scheduled reads never perform at all, and both tiers photograph an in-flight
@@ -78,7 +77,7 @@ function composerAgentId(): string {
 /**
  * A store holding the scenario's beats up to and including the named kind.
  *
- * A PREFIX rather than the whole log, because the two provider-bound surfaces differ
+ * A PREFIX rather than the whole log, because the two provider-bound views differ
  * only in how far the run has got: feeding both the whole log would capture the same
  * composition twice under two names and report the pair as covering two states.
  */
@@ -103,18 +102,18 @@ function composerSessionStore(throughKind: string): SessionStore {
 }
 
 /**
- * Mount one surface, let its scheduled reads answer, and prove that they did.
+ * Mount one view, let its scheduled reads answer, and prove that they did.
  *
  * THE SEAM RATHER THAN EACH MOUNT, because "remember to advance the clock" is a rule
- * a sixth surface added to this file would not know about. `renderSettled` owns the
+ * a sixth view added to this file would not know about. `renderSettled` owns the
  * promise flush and moves no clock; every composition here arms a `RefreshScheduler`
  * on the scenario's frozen one, so the advance is not an option a mount takes but the
- * second half of what settling MEANS for a surface that reads.
+ * second half of what settling MEANS for a view that reads.
  *
  * The absolute deadline is `settleScheduledRead`'s to spend, not this file's — which
  * is why the constant it advances by is not imported here any more.
  */
-async function mountSurfaceSettled(
+async function mountViewSettled(
   fixture: FixtureBridge,
   element: ReactElement,
 ): Promise<HTMLElement> {
@@ -134,8 +133,8 @@ async function mountSurfaceSettled(
  * this asks the tree the same question a screen reader does rather than restating a
  * class name the primitive composes. A capture taken while one is up photographs a
  * skeleton under a name that claims to be the answered composition, and both tiers
- * that mount these surfaces would pass on it — the screenshot tier by minting the
- * skeleton as its reference, the accessibility tier by auditing a surface whose
+ * that mount these views would pass on it — the screenshot tier by minting the
+ * skeleton as its reference, the accessibility tier by auditing a view whose
  * controls have not been offered yet.
  */
 function requireNoReadInFlight(container: HTMLElement): void {
@@ -144,7 +143,7 @@ function requireNoReadInFlight(container: HTMLElement): void {
     return;
   }
   throw new Error(
-    `${String(inFlight.length)} read(s) were still in flight after the surface settled: ${inFlight
+    `${String(inFlight.length)} read(s) were still in flight after the view settled: ${inFlight
       .map((element) => element.textContent ?? element.className)
       .join(" | ")}`,
   );
@@ -157,7 +156,7 @@ async function mountComposerAt(options: {
 }): Promise<MountedView> {
   const fixture = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const { bridge } = fixture;
-  const container = await mountSurfaceSettled(
+  const container = await mountViewSettled(
     fixture,
     <MessageComposer
       sessionStore={composerSessionStore(options.throughKind)}
@@ -193,10 +192,10 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedView> 
 }
 
 /**
- * Find the one element a surface renders itself as.
+ * Find the one element a view renders itself as.
  *
  * Scoped by accessible name rather than by class, because that is what a person
- * using assistive technology navigates by — a surface that lost its accessible name
+ * using assistive technology navigates by — a view that lost its accessible name
  * would still match a class selector and would still be captured as if nothing had
  * changed.
  */

@@ -2,7 +2,7 @@
 //
 // COMPOSITION — the three lanes really do end in three different conditions, and the
 // rewind boundary really is followed by rows it supersedes. These are what the transcript
-// frame is built against, so a scenario that quietly lost one would leave a surface
+// frame is built against, so a scenario that quietly lost one would leave a view
 // untested and green. Whether each beat is one a daemon can emit is the catalog-wide
 // contract check's question.
 
@@ -14,8 +14,8 @@ import {
   SUBAGENT_REVIEWER,
 } from "../../fixtures/scenarios/transcript-states.js";
 import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
-// The transcript's own readers, reached deeply rather than through a door: this is a
-// claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
+// The transcript's own readers, reached deeply rather than through the feature's public
+// entry: this is a claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
 // named by the modules that derive them.
 import { projectTranscriptRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
@@ -56,7 +56,7 @@ describe("the transcript-states scenario", () => {
   it("scripts no reply for a call the method registry does not carry", () => {
     // `session.list` reads exactly like a real method: the registry carries
     // `session.read` and no list verb, so a scripted answer to it puts a call in front
-    // of a surface that has nowhere to send it.
+    // of a view that has nowhere to send it.
     const calls = TRANSCRIPT_STATES_SCENARIO.replies.map((reply) => reply.call);
     expect(calls).not.toContain("session.list");
     expect(calls).toContain("session.read");

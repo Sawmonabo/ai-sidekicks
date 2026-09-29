@@ -7,17 +7,16 @@
 // question — a person has been asked something and is answering it — so it carries a
 // submit control and the preview deliberately does not.
 //
-// AND IT LIVES IN THE SEAT RATHER THAN BESIDE ITS MOUNT, which is this seat's own rule.
-// `useSchemaForm` and `planSchemaForm` do not leave the form stack, because a caller
-// assembling them itself would be a second answer to what a schema draws — and the
-// schema compiler they use does not leave the BRIDGE except through a loader, so a
-// caller assembling its own would also be fetching a chunk the form already has. A
-// composer therefore lives WITH them and leaves through the seats door, exactly as the
-// preview does — and the sheet every control below draws against enters through that
-// same door, so a surface that deep-imported the parts would have rendered the controls
-// unstyled.
+// AND IT LIVES IN THE FORM'S DIRECTORY RATHER THAN BESIDE ITS MOUNT. `useSchemaForm`
+// and `planSchemaForm` do not leave this directory, because a caller assembling them
+// itself would be a second answer to what a schema draws — and the schema compiler they
+// use arrives only through a loader, so a caller assembling its own would also be
+// fetching a chunk the form already has. A composer therefore lives WITH them and leaves
+// through `schema-form-mounts.ts`, exactly as the preview does — and the sheet every
+// control below draws against loads with the same chunk, so a caller that deep-imported
+// the parts would render the controls unstyled.
 //
-// WHICH IS THE BOUNDARY BETWEEN THIS AND THE BODY THAT MOUNTS IT. The seat owns what a
+// WHICH IS THE BOUNDARY BETWEEN THIS AND THE BODY THAT MOUNTS IT. The form owns what a
 // schema draws and the one act that sends what the controls composed; the mounting body
 // owns where that act goes, which run and revision it carries, and what the daemon said
 // back. A body re-authoring the form would be a second drawing of one schema.
@@ -59,7 +58,7 @@
 // CARRY. `schema-root-shape.ts` states the rule: an answer travels as a set of named
 // values, so a root declaring a single string or number describes an answer the request
 // has no member for. The mapper is right to hand that schema to the raw editor — it
-// cannot DRAW it — but this surface is the one that offers the act, and an editor whose
+// cannot DRAW it — but this component is the one that offers the act, and an editor whose
 // every schema-valid answer settles as `answer-not-composed` is a control that cannot
 // work. So the refusal is rendered here, at the moment the form is composed, and no
 // submit control is offered beside it. The plan itself is unchanged and still never
@@ -108,8 +107,8 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
       className="meridian-schema-answer"
       aria-busy={isAwaitingVerdict ? true : undefined}
       onSubmit={(event) => {
-        // The page must not navigate: this is a console surface and the answer goes to
-        // `onSubmit`, never to a form post. A button outside a form would lose the
+        // The page must not navigate: the answer goes to `onSubmit`, never to a form
+        // post. A button outside a form would lose the
         // Enter key that submitting a form gives every control inside it for free.
         event.preventDefault();
         props.onSubmit(form.answer);

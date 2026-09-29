@@ -1,7 +1,7 @@
 // The one ordering this state has to get right: a durable read that settles after a
 // person has already acted.
 //
-// Both surfaces built on it hydrate from an effect and mutate from a click, and the
+// Both views built on it hydrate from an effect and mutate from a click, and the
 // two are not ordered by anything — a person can pin a session or flip the auto-pin
 // switch while the first read is still in flight. Installing the record that then
 // arrives puts their change back the way it was, with nothing on screen to say why,
@@ -15,7 +15,7 @@
 // The write cases below need the same window on the OTHER side of the seam — a
 // second act while the first write is still at the store — and the memory adapter
 // answers in the turn it is asked, which closes that window before a case can act in
-// it. So they drive a store that holds each write at the door until the case lets it
+// it. So they drive a store that holds each write until the case lets it
 // through, and the store is the REAL one with its write path subclassed rather than
 // a stand-in: what is under test is how this state orders its writes, and a fake
 // store would be asserting the fake.
@@ -39,9 +39,9 @@ const COMMITTED_IDS: readonly string[] = ["committed-only"];
 /**
  * Narrow a stored record back into the value.
  *
- * The caller's own, as the option is: what a record narrows to is the surface's
- * decision and not this state's, so a case that borrowed one surface's narrower
- * would be asserting that surface's rule here.
+ * The caller's own, as the option is: what a record narrows to is the view's
+ * decision and not this state's, so a case that borrowed one view's narrower
+ * would be asserting that view's rule here.
  */
 function narrowIdList(raw: unknown): readonly string[] | undefined {
   return Array.isArray(raw)
@@ -193,9 +193,9 @@ describe("a refusal this state has recovered from", () => {
   });
 
   it("tells its subscribers the failure has cleared", async () => {
-    // The defect: the recovery cleared `lastRefusal` and emitted nothing, so the
-    // pin list and the preference switch kept rendering a failure a person had
-    // already fixed — until something unrelated re-rendered the surface.
+    // A recovery that cleared `lastRefusal` and emitted nothing would leave the
+    // pin list and the preference switch rendering a failure a person had
+    // already fixed — until something unrelated re-rendered the view.
     const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
     await state.commit([...STORED_IDS]);
     const observed = recordRefusalsSeenBy(state);
@@ -234,9 +234,9 @@ describe("a refusal this state has recovered from", () => {
 });
 
 /**
- * The real store, with every global write stopped at the door until a case admits it.
+ * The real store, with every global write held until a case admits it.
  *
- * `writeGlobal` is overridden rather than the adapter's `write`, because the door has
+ * `writeGlobal` is overridden rather than the adapter's `write`, because the hold has
  * to be exactly the seam `DurableViewState` calls: holding the adapter would let the
  * chokepoint's own validation and trim run before the case had a chance to act, and
  * the ordering under test is the ordering of calls INTO the chokepoint.
@@ -244,7 +244,7 @@ describe("a refusal this state has recovered from", () => {
 class HeldWriteStore extends UiStateStore {
   /** Every value handed to `writeGlobal`, in call order. The ordering assertion. */
   public readonly valuesWritten: unknown[] = [];
-  readonly #writesAtDoor: (() => void)[] = [];
+  readonly #heldWrites: (() => void)[] = [];
   readonly #arrivalWatchers: (() => void)[] = [];
 
   public override async writeGlobal(
@@ -254,7 +254,7 @@ class HeldWriteStore extends UiStateStore {
   ): Promise<PersistenceWriteOutcome> {
     this.valuesWritten.push(value);
     const admitted = new Promise<void>((admit) => {
-      this.#writesAtDoor.push(admit);
+      this.#heldWrites.push(admit);
     });
     for (const watcher of this.#arrivalWatchers.splice(0)) {
       watcher();
@@ -263,16 +263,16 @@ class HeldWriteStore extends UiStateStore {
     return await super.writeGlobal(key, valueClass, value);
   }
 
-  /** Let the write at the door through, waiting for one to arrive if none has yet. */
+  /** Let the held write through, waiting for one to arrive if none has yet. */
   public async admitOneWrite(): Promise<void> {
-    if (this.#writesAtDoor.length === 0) {
+    if (this.#heldWrites.length === 0) {
       await new Promise<void>((announce) => {
         this.#arrivalWatchers.push(announce);
       });
     }
-    const admit = this.#writesAtDoor.shift();
+    const admit = this.#heldWrites.shift();
     if (admit === undefined) {
-      throw new Error("no write is at the door");
+      throw new Error("no write is held");
     }
     admit();
   }
@@ -310,7 +310,7 @@ describe("a durable view state whose writes overlap", () => {
 
   it("spends no write on a snapshot a later act replaced before it was sent", async () => {
     // Three acts, two writes: the middle snapshot was never at the store, so writing
-    // it would spend a write on a state no surface shows any more.
+    // it would spend a write on a state no view shows any more.
     const store = heldWriteStore();
     const state = stateOver(store);
 

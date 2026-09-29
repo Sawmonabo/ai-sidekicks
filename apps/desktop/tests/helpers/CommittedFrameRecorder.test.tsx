@@ -3,7 +3,7 @@
 // A recorder that reported the final text once per render would pass every case a
 // suite writes with it and prove nothing, because the thing those cases are looking
 // for is a frame that has already been replaced by the time anyone can look. So the
-// control here is the DOM itself: the same surface, the same interaction, asserted
+// control here is the DOM itself: the same component, the same interaction, asserted
 // after `act` — which is exactly the reading that cannot see the defect.
 
 import { act, render } from "@testing-library/react";
@@ -13,13 +13,13 @@ import { describe, expect, it } from "vitest";
 import { CommittedFrameRecorder } from "./CommittedFrameRecorder.js";
 
 /**
- * A surface with the defect the recorder exists for, written out.
+ * A component with the defect the recorder exists for, written out.
  *
  * It holds an answer for the subject it was given and clears it inside an effect, so
  * the commit that renames the subject paints the PREVIOUS subject's answer under the
  * new name. One committed frame long, and gone before `act` returns.
  */
-function StaleAnswerSurface(props: { readonly subject: string }): React.JSX.Element {
+function StaleAnswerReadout(props: { readonly subject: string }): React.JSX.Element {
   const [answer, setAnswer] = useState("one's answer");
   useEffect(() => {
     setAnswer(`${props.subject}'s answer`);
@@ -35,7 +35,7 @@ describe("the committed-frame recorder", () => {
         id="committed-frame-recorder-suite"
         onFrame={(committedText) => frames.push(committedText)}
       >
-        <StaleAnswerSurface subject="one" />
+        <StaleAnswerReadout subject="one" />
       </CommittedFrameRecorder>,
     );
     expect(frames).toStrictEqual(["one: one's answer"]);
@@ -46,7 +46,7 @@ describe("the committed-frame recorder", () => {
           id="committed-frame-recorder-suite"
           onFrame={(committedText) => frames.push(committedText)}
         >
-          <StaleAnswerSurface subject="two" />
+          <StaleAnswerReadout subject="two" />
         </CommittedFrameRecorder>,
       );
     });
@@ -61,9 +61,9 @@ describe("the committed-frame recorder", () => {
     // instrument. It holds the settled text alone, so the frame above is invisible to
     // it — and a recorder that merely echoed the final render would be indistinguishable
     // from this.
-    const view = render(<StaleAnswerSurface subject="one" />);
+    const view = render(<StaleAnswerReadout subject="one" />);
     act(() => {
-      view.rerender(<StaleAnswerSurface subject="two" />);
+      view.rerender(<StaleAnswerReadout subject="two" />);
     });
     expect(document.body.textContent).toBe("two: two's answer");
     expect(document.body.textContent).not.toContain("two: one's answer");

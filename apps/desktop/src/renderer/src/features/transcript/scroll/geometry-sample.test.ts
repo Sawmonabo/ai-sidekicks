@@ -1,7 +1,7 @@
 // The geometry value's own two rules, asserted rather than driven.
 //
 // Both are about the VALUE — which causes exist, and when two samples say the same
-// thing — so neither needs a surface, a listener or a frame. The machinery that
+// thing — so neither needs a scroll container, a listener or a frame. The machinery that
 // produces samples is `scroll-chokepoint.test.ts`'.
 
 import { describe, expect, it } from "vitest";

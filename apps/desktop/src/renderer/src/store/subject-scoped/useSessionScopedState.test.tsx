@@ -1,15 +1,15 @@
-// The session-named door, and the pair predicate beside it.
+// The session-keyed hook, and the pair predicate beside it.
 //
-// A door earns two tests and no more: that it FORWARDS — the guarantee it names is
+// This hook earns two tests and no more: that it FORWARDS — the guarantee it names is
 // the one the holder makes, not a second one spelled here — and that its vocabulary
 // is the session's. Anything else asserted here would be a second copy of
-// `hooks/subject-scoped/useSubjectScopedState.test.tsx`, which is the drift this door exists to
+// `hooks/subject-scoped/useSubjectScopedState.test.tsx`, which is the drift this hook exists to
 // prevent.
 //
-// The bridges are real fixture bridges rather than shaped objects: the door's whole
-// subject is bridge IDENTITY, and two casts of `{}` would prove the door compares
+// The bridges are real fixture bridges rather than shaped objects: the hook's whole
+// subject is bridge IDENTITY, and two casts of `{}` would prove the hook compares
 // references without proving it compares the reference a caller actually holds. They
-// come from `bridge/`'s own test-support module rather than from a builder written
+// come from `tests/helpers/fixture-bridge.ts` rather than from a builder written
 // here — a suite that wraps `createFixtureBridge` itself is a second answer to what
 // "the fixture bridge" is, and the two drift the day the scenario default moves.
 
@@ -22,13 +22,13 @@ import { SessionStore } from "../session/session-store.js";
 import { isCurrentSessionSubject } from "./session-subject.js";
 import { useSessionScopedState } from "./useSessionScopedState.js";
 
-interface DoorProbeProps {
+interface SessionScopedValueProbeProps {
   readonly bridge: object;
   readonly sessionId: string | undefined;
   readonly onRender: (value: string, publish: (next: string) => void) => void;
 }
 
-function DoorProbe(props: DoorProbeProps): ReactElement {
+function SessionScopedValueProbe(props: SessionScopedValueProbeProps): ReactElement {
   const { value, publish } = useSessionScopedState<string>(
     props.bridge,
     props.sessionId,
@@ -38,13 +38,13 @@ function DoorProbe(props: DoorProbeProps): ReactElement {
   return <output>{value}</output>;
 }
 
-describe("useSessionScopedState — the session-named door forwards, and holds nothing", () => {
+describe("useSessionScopedState — the session-keyed hook forwards, and holds nothing", () => {
   it("keeps a value across a re-render and discards it when the session moves", () => {
     const bridge = createFixture().bridge;
     let latest = "";
     let publishInto: (next: string) => void = () => {};
     const view = render(
-      <DoorProbe
+      <SessionScopedValueProbe
         bridge={bridge}
         sessionId="session-one"
         onRender={(value, publish) => {
@@ -59,7 +59,7 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
     expect(latest).toBe("session one's answer");
 
     view.rerender(
-      <DoorProbe
+      <SessionScopedValueProbe
         bridge={bridge}
         sessionId="session-two"
         onRender={(value, publish) => {
@@ -72,7 +72,7 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
   });
 
   it("discards it when the BRIDGE moves under an unchanged session", () => {
-    // The reason the door's subject is the bridge and not the id: a reconnect, a
+    // The reason the hook's subject is the bridge and not the id: a reconnect, a
     // second window's own instance, or the fixture's scenario switch replaces the
     // transport while the session on the address stays exactly what it was.
     let latest = "";
@@ -82,7 +82,11 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
       publishInto = publish;
     };
     const view = render(
-      <DoorProbe bridge={createFixture().bridge} sessionId="session-one" onRender={record} />,
+      <SessionScopedValueProbe
+        bridge={createFixture().bridge}
+        sessionId="session-one"
+        onRender={record}
+      />,
     );
     act(() => {
       publishInto("answered through the retired transport");
@@ -90,7 +94,11 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
     expect(latest).toBe("answered through the retired transport");
 
     view.rerender(
-      <DoorProbe bridge={createFixture().bridge} sessionId="session-one" onRender={record} />,
+      <SessionScopedValueProbe
+        bridge={createFixture().bridge}
+        sessionId="session-one"
+        onRender={record}
+      />,
     );
     expect(latest).toBe("seed");
   });

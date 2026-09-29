@@ -7,7 +7,7 @@
 // takes the same frame rather than a second one, and takes it EMPTY.
 //
 // EMPTY, AND NOT ONE OF THE FIVE KINDS OF NOTHING. `PendingPaneBody`'s module states the
-// reasoning and it holds here without change: rule 8's five absences are claims about
+// reasoning and it holds here without change: the five absences are claims about
 // the entity, and none of them is true of a module that has not landed. `not loaded`
 // would say the route's data had not arrived, which is a different sentence and a false
 // one — no read has been attempted.
@@ -28,7 +28,7 @@ export interface PendingScreenBodyProps {
 /**
  * The route's frame, before its screen.
  *
- * The marker's VALUE is the route kind rather than a screen slot, so a refusal to
+ * The marker's VALUE is the route kind rather than a screen name, so a refusal to
  * capture names the address a person would recognize. It is the same attribute a pending
  * pane stamps, because the question a capture asks is one question — is anything on this
  * page still loading — and two attributes would be two sweeps that agree until one is

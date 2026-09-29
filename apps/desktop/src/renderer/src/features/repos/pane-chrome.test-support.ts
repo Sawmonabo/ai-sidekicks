@@ -1,15 +1,15 @@
-// What the seats chrome drew around a pane body, read back the way a person meets it.
+// What the pane frame drew around a pane body, read back the way a person meets it.
 //
-// BOTH OF THIS FAMILY'S PANES WEAR ONE CHROME, so both suites ask it the same two
+// BOTH OF THIS FEATURE'S PANES WEAR ONE CHROME, so both suites ask it the same two
 // questions — what the trail says, and which crumb is the subject the pane is a view
 // of — and the reader is hoisted here on the second use rather than written twice.
-// It sits at the family root because the two sub-modules that read it are siblings and
+// It sits at the feature root because the two sub-modules that read it are siblings and
 // neither owns the other.
 //
 // IT READS THE DOM AND NEVER THE CHROME'S SOURCE. The claim a suite makes with it is
 // that the body reached the chrome and handed it the address — a claim that has to
 // fail on a body drawing its own header, which is exactly what these selectors do:
-// nothing in a family-drawn frame carries `meridian-pane__crumb`.
+// nothing in a feature-drawn frame carries `meridian-pane__crumb`.
 
 /** The class the chrome puts on every crumb, its own current one included. */
 const CRUMB_SELECTOR = ".meridian-pane__crumb";

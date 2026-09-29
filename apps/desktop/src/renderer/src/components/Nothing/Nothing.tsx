@@ -1,6 +1,6 @@
 // The five kinds of nothing, in the two shapes an absence can take.
 //
-// The console's design language, rule 8: five absences render differently because the
+// The console's design language: five absences render differently because the
 // operator's next move differs for each, and a renderer that collapses two of these
 // into one is wrong. The rule is enforced structurally here — the kind set is closed,
 // the traits table below is total over it, and each kind supplies copy, a glyph, and a
@@ -10,8 +10,8 @@
 //                     operator waits. It says nothing, because there is nothing yet
 //                     to say, and a sentence would be replaced a beat later.
 //   • `empty`       — a quiet line with the escape hatch. The read succeeded and
-//                     found none. The next move is to create one, so the action
-//                     slot is where that control goes.
+//                     found none. The next move is to create one, so the `action`
+//                     prop is where that control goes.
 //   • `error`       — the daemon's own message text under an alert glyph on a red
 //                     edge. The read failed; the next move depends on what the
 //                     daemon said, so the console does not paraphrase it.
@@ -34,10 +34,10 @@
 //   • `inline` — a badge, sitting beside the value it qualifies.
 //   • `block`  — a block, standing in for the content of a region that is not there.
 //
-// Every kind renders in both. Rule 8 stays exactly as written, because it names the
-// treatment each kind carries — dotted for `not-checked`, a clock for `computing` —
-// and the kind carries that treatment into either shape. What the placement decides
-// is the box it is carried in, which rule 8 does not speak to.
+// Every kind renders in both. The design language names the treatment each kind
+// carries — dotted for `not-checked`, a clock for `computing` — and the kind carries
+// that treatment into either shape. What the placement decides is the box it is
+// carried in, which the design language does not speak to.
 //
 // The default reproduces the placement each kind was previously hard-wired to, so a
 // call site that names none renders exactly what it rendered before.
@@ -52,9 +52,9 @@ import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
 /**
- * Closed. Adding a sixth kind is a deliberate edit here and in rule 8.
+ * Closed. Adding a sixth kind is a deliberate edit here and in the design language.
  *
- * The tuple is the declaration and the union is derived from it: rule 8's claim is
+ * The tuple is the declaration and the union is derived from it: the design language's claim is
  * that FIVE absences render differently, and a claim about a count has to be
  * countable at runtime for a test to hold it.
  */
@@ -86,7 +86,7 @@ export interface NothingProps {
   readonly title: string;
   /**
    * The second line. For `error` this is the daemon's message text, rendered
-   * verbatim — never paraphrased, shortened, or explained (rule 9 puts the code in
+   * verbatim — never paraphrased, shortened, or explained (the refusal grammar puts the code in
    * mono and the message verbatim, and a paragraph set in mono is a paragraph
    * nobody reads). For every other kind it is the console's own prose.
    *

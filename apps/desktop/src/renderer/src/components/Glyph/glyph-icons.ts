@@ -1,17 +1,17 @@
 // Which face draws each glyph — one line per name, with the reason it is there.
 //
-// `tokens/glyphs.ts` owns the NAMES and the geometry every face is held to; this
+// `styles/glyphs.ts` owns the NAMES and the geometry every face is held to; this
 // module owns the answer to "what is this name drawn by". It sits in
-// `primitives/` rather than beside the names because a face is a React component
-// and `tokens/` is below `primitives/` on the console DAG — and because the
+// `components/` rather than beside the names because a face is a React component
+// and `styles/` sits below `components/` in the import layering — and because the
 // split is what makes the set's closedness checkable: {@link GLYPH_ICONS} is a
 // `Record<GlyphName, …>`, so a name added to `GLYPH_NAMES` with no row here
 // fails the typecheck rather than rendering nothing at runtime.
 //
 // THE RULE THAT DECIDED EACH ROW, stated once so the rows can be one line each. The
 // design language's layout grammar reserves our own faces for users, runs, and
-// provenance kinds; `tokens/glyphs.ts` rule 2 fixes the vocabulary of parts the rest of
-// the family is drawn from. So a name takes the Tabler face when Tabler publishes the
+// provenance kinds; `styles/glyphs.ts` fixes the vocabulary of parts the rest of
+// the set is drawn from. So a name takes the Tabler face when Tabler publishes the
 // same picture out of those parts, and stays signature when the governing text reserves
 // it, when Tabler softens a corner with an explicit radius instead of with the stroke
 // join, or when Tabler's icon of that name is a different picture. Ten names are
@@ -32,7 +32,7 @@ import type { GlyphName } from "@renderer/styles/glyphs.js";
 // --- The top-level destinations.
 // Rail destination; Tabler stacks the same plate and two chevrons out of the same lines.
 import SessionsFace from "~icons/tabler/stack-2";
-// Rail destination; sliders rather than the gear the family rejects, drawn as rules and handles.
+// Rail destination; sliders rather than the gear the set rejects, drawn as rules and handles.
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
 // --- Entity and pane kinds — the breadcrumb's kind glyph.
@@ -42,36 +42,36 @@ import AgentFace from "~icons/signature/agent";
 import RunFace from "~icons/signature/run";
 // The shield is built from straight sides; Tabler's is a twelve-unit arc construction.
 import ApprovalFace from "~icons/signature/approval";
-// A provenance kind, and a container: Tabler's file rounds its corners with an explicit radius (rule 2).
+// A provenance kind, and a container: Tabler's file rounds its corners with an explicit radius, not the join.
 import ArtifactFace from "~icons/signature/artifact";
-// A workspace, the checkout a chat works in: a folder whose corners are the family's, not
-// Tabler's two-unit radius (rule 2).
+// A workspace, the checkout a chat works in: a folder whose corners are softened by the join,
+// not Tabler's two-unit radius.
 import WorkspaceFace from "~icons/signature/workspace";
-// A provenance kind; Tabler's `git-branch` adds an arrow head this family does not draw.
+// A provenance kind; Tabler's `git-branch` adds an arrow head this set does not draw.
 import WorktreeFace from "~icons/signature/worktree";
-// A provenance kind, and a container Tabler rounds at two units (rule 2).
+// A provenance kind, and a container Tabler rounds with a two-unit radius rather than the join.
 import RepoFace from "~icons/signature/repo";
 // A picture of the pane it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
 import TranscriptIcon from "~icons/signature/transcript";
-// A container; Tabler rounds its frame at two units (rule 2).
+// A container; Tabler rounds its frame with a two-unit radius rather than the join.
 import TerminalFace from "~icons/signature/terminal";
 // A container, for the reason `terminal` is one.
 import PreviewIcon from "~icons/signature/preview";
-// Two containers and a connector; Tabler's `sitemap` rounds every node (rule 2).
+// Two containers and a connector; Tabler's `sitemap` rounds every node with an explicit radius.
 import WorkflowFace from "~icons/signature/workflow";
-// A container with a split; Tabler's layout frames round their corners (rule 2).
+// A container with a split; Tabler's layout frames round their corners with an explicit radius.
 import InspectorFace from "~icons/signature/inspector";
 // A provenance kind; Tabler's `git-compare` and `file-diff` are different pictures.
 import DiffFace from "~icons/signature/diff";
 
 // --- State marks.
-// A circle and two hands, built from the parts rule 2 names.
+// A circle and two hands, built from the set's own parts.
 import ClockFace from "~icons/tabler/clock";
-// A triangle closed by the join; Tabler's rounds each corner with an explicit arc (rule 2).
+// A triangle closed by the join; Tabler's rounds each corner with an explicit arc.
 import AlertFace from "~icons/signature/alert";
 // One polyline; the borrowed one is the same three points.
 import CheckFace from "~icons/tabler/check";
-// A circle drawn as two half-arcs, which is rule 2's own construction.
+// A circle drawn as two half-arcs, which is the set's own construction.
 import DotFace from "~icons/tabler/point";
 // The compaction boundary's own mark; Tabler's `fold` is arrows over a dotted rule.
 import FoldFace from "~icons/signature/fold";
@@ -85,21 +85,21 @@ import CloseFace from "~icons/tabler/x";
 import ChevronRightFace from "~icons/tabler/chevron-right";
 // One polyline.
 import ChevronDownFace from "~icons/tabler/chevron-down";
-// Two strokes; Tabler's `player-pause` is two rounded rectangles (rule 2).
+// Two strokes; Tabler's `player-pause` is two rectangles rounded with an explicit radius.
 import PauseFace from "~icons/signature/pause";
 // One of the run-control triad, and the other two stay ours, so the three read from one hand.
 import PlayFace from "~icons/signature/play";
-// A square softened by the join; Tabler's `player-stop` rounds at two units (rule 2).
+// A square softened by the join; Tabler's `player-stop` rounds with a two-unit radius.
 import StopFace from "~icons/signature/stop";
 // A solid open ring with the head on its own start; Tabler's `rotate-2` dots half the ring.
 import RewindFace from "~icons/signature/rewind";
-// Two square-cornered rectangles; Tabler rounds both with an explicit radius (rule 2).
+// Two square-cornered rectangles; Tabler rounds both with an explicit radius.
 import CopyFace from "~icons/signature/copy";
-// Straight sides throughout; Tabler closes its eraser end with an arc (rule 2).
+// Straight sides throughout; Tabler closes its eraser end with an arc.
 import PencilFace from "~icons/signature/pencil";
-// A container plus an arrow, and the frame is the rounded half of Tabler's (rule 2).
+// A container plus an arrow; Tabler rounds the frame's corners with a radius rather than the join.
 import ExternalFace from "~icons/signature/external";
-// Three dots as zero-length segments under round caps, which is rule 2's construction; Tabler draws three circles.
+// Three dots as zero-length segments under round caps, which is the set's own dot construction; Tabler draws three circles.
 import MoreFace from "~icons/signature/more";
 // Two lines.
 import PlusFace from "~icons/tabler/plus";

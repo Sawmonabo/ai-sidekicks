@@ -45,7 +45,7 @@ import {
 /**
  * Whether a run group is still being written.
  *
- * Two values, and the distinction is the whole of rule 7's collapse behavior: a
+ * Two values, and the distinction is the whole of the transcript's collapse behavior: a
  * terminal run group folds to one line and a live one stays open.
  */
 export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;

@@ -16,7 +16,7 @@
 //     to run in a tree that is not clean, and the consent is a separate act from
 //     naming the candidate, which is why the wire carries two members and not one.
 //   • AN INCOMPATIBLE CANDIDATE. Live and unusable. There is NO override: the daemon
-//     will not bind it under any acknowledgement, so a surface that offered one would
+//     will not bind it under any acknowledgement, so a form that offered one would
 //     be offering a control that cannot work.
 //
 // COLLAPSING THE LAST TWO IS THE FAILURE MODE. Both are "there is a checkout and you
@@ -186,7 +186,7 @@ export const REUSE_UNANSWERED_COPY =
  *
  * THE BRANCH NAME IS REQUIRED HERE THOUGH THE WIRE MAKES IT OPTIONAL, and the
  * difference is the caller: `branchName` is optional on `ExecutionRootPrepareRequest`
- * because a prepare made by a RUN can derive one, and a prepare made from this surface
+ * because a prepare made by a RUN can derive one, and a prepare made from this form
  * is pre-run by definition and has nothing to derive it from. Sending without one
  * is rejected with `workspace.branch_name_required`, which a person cannot act on
  * without being told what to type.

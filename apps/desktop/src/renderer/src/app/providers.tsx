@@ -9,7 +9,7 @@
 // a store folds with every claimed event kind from its first event.
 //
 // The tripwire route is armed first: a registrar can report during composition (a
-// second owner on one slot, a colliding projector claim), and a route armed below
+// second owner on one name, a colliding projector claim), and a route armed below
 // would record none of those breaches.
 
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";

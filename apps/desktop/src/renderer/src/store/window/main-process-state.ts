@@ -8,10 +8,10 @@
 // process — and three slices would be three chances for a window to render a
 // connection state from one report beside a keystore state from another.
 //
-// IT LIVES IN `store/` RATHER THAN IN `frame/`, and the reason is who reads it. The
-// settings pages read it for the supervisor detail, and every view family sits ABOVE
-// `frame/` or below it in the console DAG, so a vocabulary declared there is one none
-// of them may import. `store/` is the lowest family that owns the frame store this
+// IT LIVES IN `store/` RATHER THAN IN `layout/`, and the reason is who reads it. The
+// settings pages read it for the supervisor detail, and a feature may not import
+// `layout/`, which sits above every feature, so a vocabulary declared there is one they
+// could not reach. `store/` sits below every feature and holds the window store this
 // value is published into.
 //
 // NOTHING HERE READS A CLOCK, A TIMER, OR A WIRE. This module is the vocabulary and
@@ -50,7 +50,7 @@ export interface MainProcessNegotiation {
  * Where this window stands with its local runtime.
  *
  * THE ONLY ENUMERATION OF THE SUPERVISOR'S STATES. A tuple beside this union would be a
- * second closed set free to disagree with it, and the union is the one a surface actually
+ * second closed set free to disagree with it, and the union is the one a view actually
  * narrows on. The daemon supervision lifecycle numbers six steps and these are its arms:
  * `probing` is step 1's startup probe, `starting` step 2's spawn and ten-second readiness
  * wait, `version-incompatible` step 3, `connected` step 4's live heartbeat,
@@ -60,7 +60,7 @@ export interface MainProcessNegotiation {
  *
  * A discriminated union rather than a state plus optional fields, because the fields
  * are not optional per state: a reconnecting window HAS an attempt and a connected
- * one does not, and a shape carrying `attempt?: number` would let a surface render
+ * one does not, and a shape carrying `attempt?: number` would let a view render
  * "attempt 3 of 5" beside "connected".
  */
 export type DaemonConnection =
@@ -101,7 +101,7 @@ export interface MainProcessState {
    * Beside the connection rather than inside its refused arm, because the daemon
    * answers `protocolVersion` on the ACCEPTED ack too and the daemon page names the
    * version a connected runtime speaks. One home for the handshake's facts means a
-   * surface never has to ask which arm it may read the version from.
+   * reader never has to ask which arm it may read the version from.
    */
   readonly negotiation: MainProcessNegotiation | undefined;
   /** The last heartbeat the supervisor observed, verbatim from the wire. */
@@ -145,9 +145,9 @@ export function mainProcessReportsAreEqual(
 /**
  * One supervisor state in a person's words.
  *
- * HERE RATHER THAN IN THE FRAME because the local-runtime settings page renders it
- * and the console's family DAG runs one way, so a sentence declared in `frame/` is one
- * a view family cannot reach without a second spelling of it.
+ * HERE RATHER THAN IN `layout/` because the local-runtime settings page renders it
+ * and imports point one way, so a sentence declared in `layout/` is one a feature
+ * cannot reach without a second spelling of it.
  */
 export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {

@@ -9,9 +9,9 @@
 // which: either the privileged scheme registration landed and there is a durable
 // store, or it did not and every preference resets when the window closes. The
 // second case is a real degradation and gets a real disclosure — `describe()`
-// returns a sentence the diagnostics surface renders, `durable` is false so a
+// returns a sentence the diagnostics view renders, `durable` is false so a
 // caller can render "not checked" rather than pretending a write stuck, and the
-// quota gauge carries the same reason so a surface reading only the gauge cannot
+// quota gauge carries the same reason so a view reading only the gauge cannot
 // report a silent nothing where a degradation belongs.
 
 import { RefusalError } from "@renderer/lib/refusal.js";
@@ -72,7 +72,7 @@ export interface PartitionSummary {
  * zero — the five kinds of nothing are a design rule, not a nicety.
  *
  * `unavailableReason` is on the gauge rather than only on the adapter because the
- * gauge is what a storage surface reads, and a gauge that reported three absent
+ * gauge is what a storage view reads, and a gauge that reported three absent
  * numbers with no reason would be exactly the failing opaquely that rule forbids:
  * a person would see nothing measured and could not tell an unmeasurable browser
  * quota from a window that has no durable store at all. It is required rather than
@@ -93,7 +93,7 @@ export interface PersistenceAdapter {
   readonly durable: boolean;
   /** Present only when `durable` is false. Names what went wrong. */
   readonly unavailableReason: PersistenceUnavailableReason | undefined;
-  /** A sentence for the diagnostics surface. Complete and non-technical enough to act on. */
+  /** A sentence for the diagnostics view. Complete and non-technical enough to act on. */
   describe(): string;
 
   read(partition: string, key: string): Promise<StoredRecord | undefined>;
@@ -144,9 +144,9 @@ export class PersistenceAdapterError extends RefusalError {
  * The operator-facing sentence for a gauge whose storage is not durable, or
  * `undefined` when it is.
  *
- * Beside the gauge type so a surface renders the reason through the table that
+ * Beside the gauge type so a view renders the reason through the table that
  * defines it rather than writing its own sentence per reason — which is how two
- * surfaces come to disagree about what `open-timed-out` means.
+ * views come to disagree about what `open-timed-out` means.
  */
 export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefined {
   return gauge.unavailableReason === undefined

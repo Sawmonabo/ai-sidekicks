@@ -62,7 +62,7 @@ export interface QueuedCreates {
  * A first-turn call that resolves, and the requests it was asked to queue.
  *
  * Its resolving is what makes a COMPLETED send reachable at all: with the rejecting call
- * every send in this family settles `partial`, which is the state the settlement arm is
+ * every send in these suites settles `partial`, which is the state the settlement arm is
  * deliberately not reached from.
  */
 export function completingFirstTurn(): {
@@ -84,7 +84,7 @@ export function completingFirstTurn(): {
  *
  * The fixture bridge rather than a hand-written stub: the draft calls through
  * `bridge.daemon.call`, and a stub of that member would be a second
- * implementation of the one door this family's tests already have.
+ * implementation of the one daemon call these suites already drive.
  */
 export function bridgeFor(options: { readonly scriptsCreate: boolean }): PlatformBridge {
   const scenario: Scenario = {
@@ -138,7 +138,7 @@ export function renderControl(options: { readonly scriptsCreate: boolean }): HTM
 /**
  * A bridge whose `session.create` fulfills with a reply the registered schema refuses.
  *
- * Short of `state`, so the call door answers
+ * Short of `state`, so `callDaemon` answers
  * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
  * build's reading of what it said failed. That is the state a session may exist in
  * with no name this window holds.
@@ -159,9 +159,8 @@ export function bridgeAnsweringCreateUnreadably(): PlatformBridge {
  * registered response every other case here reads.
  *
  * Through `withDaemonCall` rather than a spread written here, because a test reaches
- * `daemon.call` on the same terms production does — `daemon-reply-chokepoint` scans
- * source text and does not care which tier wrote it — and one shared arm is what
- * keeps every suite driving the same door.
+ * `daemon.call` on the same terms production does, and one shared arm is what keeps
+ * every suite driving the same `callDaemon` path.
  */
 export function bridgeHoldingCreate(): HeldCreate {
   let answer = (): void => {};
@@ -265,7 +264,7 @@ export async function typeFirstTurn(firstTurn: string): Promise<void> {
  * Compose and send the one draft whose send COMPLETES — a first message, with a
  * first-turn call that resolves.
  *
- * Both calls land, so this is the only path in this family that reaches the
+ * Both calls land, so this is the only path in these suites that reaches the
  * settlement: `sendNewSessionDraft` reports `sent` exactly when neither leg refused.
  */
 export async function composeAndCompleteASend(): Promise<void> {
@@ -279,7 +278,7 @@ export async function composeAndCompleteASend(): Promise<void> {
  * A pass-through arm rather than an answering one: what a case reads here is what the
  * control ASKED for, and a bridge that answered on its own would be recording requests
  * nothing ever sent. `withDaemonCall` is the console's one seam for that, so a case
- * asserting over request bodies drives the same door production does.
+ * asserting over request bodies drives the same `callDaemon` path production does.
  */
 export function bridgeRecordingASend(): BridgeUnderTest {
   return withDaemonCall(

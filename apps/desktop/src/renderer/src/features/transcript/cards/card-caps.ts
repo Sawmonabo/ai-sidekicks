@@ -83,8 +83,8 @@ export const TOOL_SUMMARY_MAX_CHARACTERS = 96;
  * entries than lines. The cap is on the mapped spans rather than on the source bytes
  * because the spans are what become DOM nodes.
  *
- * IT IS THE FIRST RENDER'S CAP AND NOT THE BLOCK'S CEILING. The rules every console
- * surface obeys are why: the fold has to be recoverable, and `AnsiOutput` is what makes
+ * IT IS THE FIRST RENDER'S CAP AND NOT THE BLOCK'S CEILING. Every fold in the console
+ * can be opened past, so this one has to be recoverable too, and `AnsiOutput` is what makes
  * it so — the notice carries both figures and a control that re-parses the same source
  * under a cap that admits every run. A cap with no way past it would put the tail of a
  * color-heavy command beyond reach, since reopening the card re-parses exactly the same

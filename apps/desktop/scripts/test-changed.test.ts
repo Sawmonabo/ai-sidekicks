@@ -217,12 +217,12 @@ describe("test:changed refuses a base ref that resolves to no commit", () => {
   const UNRESOLVABLE_REF = "no-such-ref/test-changed-guard";
 
   it("exits with the misuse code and names the ref it could not resolve", () => {
-    // THE SECOND SILENT-GREEN DOOR. The empty-ref guard above passes a NONEMPTY
+    // THE SECOND WAY TO A SILENT GREEN. The empty-ref guard above passes a NONEMPTY
     // ref straight through, and `--changed=<unknown>` is not an error to vitest:
     // it resolves no revision, selects no file, reports "No test files found" and
     // exits 0. A lane holding a typo or a deleted remote branch therefore read a
     // green result as "my changes are covered" — byte for byte the false success
-    // the argument-position fix removed, arriving through the other door.
+    // the argument-position fix removed, arriving another way.
     const refused = runScript(UNRESOLVABLE_REF);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);

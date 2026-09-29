@@ -1,4 +1,4 @@
-// The producer half of the diff family: unified patch text in, `DiffModel`
+// The producer half of the diff viewer: unified patch text in, `DiffModel`
 // out, plus the intraline word diff one changed line pair is segmented by.
 //
 // The diff viewer splits in two and this file is the ADOPTED half: `diff` 9.0.0
@@ -24,7 +24,7 @@
 // obligation this file discharges: the module that turns a unified patch into the
 // model "lands with the first caller that has patch bytes to give it, in the PR that
 // adds that dependency". The dependency is added here. No daemon method returns patch
-// bytes, so the callers are `tests/helpers/diff-fixture.ts`, which builds the surfaces'
+// bytes, so the callers are `tests/helpers/diff-fixture.ts`, which builds the diff views'
 // and the endurance tier's subjects THROUGH this module rather than beside it, and this
 // module's own tests. That ordering is the point: when a wire lands it calls a parser
 // the tiers have already been exercising, rather than a second one written to match
@@ -41,11 +41,11 @@
 //   • The compared refs are the caller's own answer, so they are parameters here rather
 //     than anything scraped out of the patch's headers.
 //
-// AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE USED TO THROW AWAY. A git patch
+// AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE KEEPS TOO. A git patch
 // states a rename, a copy, a mode change, and a binary change in the extended headers
 // ABOVE the hunks, so a change that is only one of those parses into a file with no
-// textual hunks at all. The mapping kept the selected path and `hunks` and nothing
-// else, so such a file reached both surfaces as `+0 −0` under a bare path — the
+// textual hunks at all. A mapping that kept only the selected path and `hunks` would
+// show such a file in both diff views as `+0 −0` under a bare path — the
 // console reporting that nothing happened to a file something happened to, and, for a
 // rename, losing the name a reader is looking for. `parsePatch` retains all four
 // facts on `StructuredPatch` (`isRename`, `isCopy`, `oldMode` / `newMode`,
@@ -99,7 +99,7 @@ const ABSENT_FILE_NAME = "/dev/null";
 const GIT_PATH_PREFIXES = ["a/", "b/"] as const;
 
 /**
- * Turn unified patch text into the model both diff surfaces render.
+ * Turn unified patch text into the model both diff views render.
  *
  * `parsePatch` handles the multi-file case, the git extended headers v9 added
  * (create / delete / rename / mode), and the malformed-input rejection this console
@@ -279,7 +279,7 @@ function patchFilePath(structuredPatch: StructuredPatch): string {
 }
 
 /**
- * One side's path as a surface draws it.
+ * One side's path as a diff view draws it.
  *
  * The prefix strip lives here rather than inside `patchFilePath` because the OLD side
  * is rendered too — a rename names where the file came from — and two copies of this

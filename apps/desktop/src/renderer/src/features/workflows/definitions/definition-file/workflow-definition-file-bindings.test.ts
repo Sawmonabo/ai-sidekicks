@@ -53,7 +53,7 @@ describe("tool bindings in the file form", () => {
 
   it("refuses a binding carrying a governance facet, and says whose setting it is", () => {
     // The rule the refusal exists for: `enabled`, `approvalMode` and `idempotencyClass`
-    // are node-operator surface, so a definition exported from one machine cannot import
+    // are node-operator settings, so a definition exported from one machine cannot import
     // a weakened posture onto another.
     for (const facet of ["enabled", "approvalMode", "idempotencyClass"]) {
       const reading = readToolBindings(

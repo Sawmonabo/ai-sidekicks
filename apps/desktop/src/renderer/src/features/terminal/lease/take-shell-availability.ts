@@ -8,7 +8,7 @@
 // one person using this machine, so nothing here asks what they are allowed to do —
 // every device that can say which device it is may take the shell. What the fold still
 // needs is the IDENTITY, because it is how `held-by-this-device` is told from a hold this device
-// does not have: a control offered without it would be one whose outcome the surface
+// does not have: a control offered without it would be one whose outcome the lease line
 // cannot report, since a take would come back as a hold it could not recognize as its
 // own.
 //
@@ -22,7 +22,7 @@ import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.j
 export type TakeShellAvailability = { readonly control: "acquire" } | { readonly control: "none" };
 
 /**
- * Resolve the one control this surface allows, from the holding and the identity read.
+ * Resolve the one control the lease line allows, from the holding and the identity read.
  *
  * With no identity read there is no control and no sentence about one.
  */

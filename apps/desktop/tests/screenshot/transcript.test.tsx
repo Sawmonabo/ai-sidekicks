@@ -1,16 +1,16 @@
-// The screenshot tier's transcript arm: the app's signature surface, captured.
+// The screenshot tier's transcript arm: the app's signature view, captured.
 //
 // Two captures. The whole window with the concurrent-streaming session loaded, in both
 // schemes: its claim is a composition (the rail, the session header, the pane layout,
 // the run groups and the agent hues all true at once), which a shot cropped to the
 // transcript's box would miss. It is that scenario because it carries every signature
-// surface at one tick: several runs streaming in their own hues, an approval asked and
+// state at one tick: several runs streaming in their own hues, an approval asked and
 // granted mid-stream, a run parked on a provider quota with its reset instant, a child
 // run threaded to the turn that spawned it, and the committed cost figure.
 //
 // And the empty-session transcript's own region: a session with a roster and an empty
 // log is the one kind of nothing a scripted stream can never reach, and its claim is
-// the copy and shape of an absence, a surface rather than a composition.
+// the copy and shape of an absence, a single view rather than a composition.
 //
 // Each capture is preceded by assertions, because a screenshot of an empty transcript
 // is a perfectly stable image. The loaded arm asserts the window plays the named
@@ -20,7 +20,7 @@
 //
 // `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
 // `__screenshots__/` and compared against nothing, so this file gates on whether each
-// surface can be captured at all.
+// view can be captured at all.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -61,7 +61,7 @@ interface TranscriptMount {
    *
    * The SAME element the mount wait above observes, rather than a second selector
    * for the same box: a capture element resolved independently of the wait could
-   * name a surface the wait never guaranteed had arrived, and the two would drift.
+   * name an element the wait never guaranteed had arrived, and the two would drift.
    */
   readonly transcriptBody: Element;
 }
@@ -197,7 +197,7 @@ describe("the transcript mount wait", () => {
 
   // The negative control for the deadline above. Every capture in this file is
   // taken through a wait that reports an absent body, and a wait that cannot
-  // report one is a wait that reports every surface as present — so this drives
+  // report one is a wait that reports every body as present — so this drives
   // the real `awaitSessionRouteMounted` against a route that mounts none and
   // asserts the refusal, which is the one path the three captures never take.
   //
@@ -216,7 +216,7 @@ describe("the transcript mount wait", () => {
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
       "the session directory mounted a transcript body, so this control is asserting the refusal of a " +
-        "route that in fact reaches the surface and would pass whatever the wait did",
+        "route that in fact reaches the transcript body and would pass whatever the wait did",
     ).toBeNull();
 
     vi.useFakeTimers({ toFake: ["Date"] });

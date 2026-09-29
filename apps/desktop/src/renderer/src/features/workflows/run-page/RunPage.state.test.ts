@@ -1,7 +1,7 @@
 // What the pane stands on for each address it is given.
 //
 // The pane tests assert the KIND modifiers and the mounted regions rather than the
-// sentences, because the copy is this family's to reword and what the arms owe is a rule:
+// sentences, because the copy is the workflows feature's to reword and what the arms owe is a rule:
 // an empty pane offers the start affordance, and an addressed run draws its summary line
 // with no absence and no competing start.
 

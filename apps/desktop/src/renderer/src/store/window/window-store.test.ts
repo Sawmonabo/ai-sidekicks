@@ -15,7 +15,7 @@
 //     one producer raised banners. It stopped being unambiguous when a second one
 //     did, and two subsystems sharing a code word would have overwritten each
 //     other's sentence.
-//   • **The modal-surface cell.** The frame inerts its background for a modal
+//   • **The modal-dialog cell.** The frame inerts its background for a modal
 //     overlay's lifetime, and it can only ask itself about the palette: the frame
 //     imports no feature, so a card a feature renders is one it cannot name at all.
 //     So the card takes a CLAIM here and the frame reads the one
@@ -102,12 +102,12 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   });
 });
 
-describe("WindowStore — a family-owned modal surface publishes whether it is up", () => {
-  it("reports no modal surface in a window that has just opened", () => {
+describe("WindowStore — a feature's modal dialog publishes whether it is up", () => {
+  it("reports no modal dialog in a window that has just opened", () => {
     expect(new WindowStore().getState().isModalDialogOpen).toBe(false);
   });
 
-  it("publishes the open surface and clears it again, through the readable", () => {
+  it("publishes the open dialog and clears it again, through the readable", () => {
     // Read through `readable` rather than through `getState`, because that is the
     // face the frame actually holds: a cell the class could set and the read-only
     // face never reported would leave the background reachable with the card up.

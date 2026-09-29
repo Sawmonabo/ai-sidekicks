@@ -1,12 +1,11 @@
 // Everything the palette DECIDES, so the component beside it only renders.
 //
 // The state-and-views rule in `apps/desktop/AGENTS.md`: effects, subscriptions and
-// derivations live in a hook and never in a render body. All four of the palette's
-// were in one, and each of them is a claim worth reading on its own rather than
-// between two JSX blocks: the capture that freezes the scope, the dormancy that
-// makes a closed palette walk nothing, the clear that runs after the commit, and
-// the one chord this surface listens for before any family has registered a
-// command.
+// derivations live in a hook and never in a render body. The palette has four, and
+// each of them is a claim worth reading on its own rather than between two JSX
+// blocks: the capture that freezes the scope, the dormancy that makes a closed
+// palette walk nothing, the clear that runs after the commit, and the one chord this
+// component listens for before any feature has registered a command.
 //
 // THE HOOK TAKES THE PROPS WHOLE. The component destructures nothing before calling
 // it — a hook that took eleven positional arguments would put the props' own order
@@ -135,7 +134,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   const results = useMemo(
     // Gated on `open`: a closed palette walks no command list, ranks nothing, and
     // answers from one frozen array — so the frame can re-render as often as the
-    // route and the command context move without paying for a surface nobody has
+    // route and the command context move without paying for a palette nobody has
     // summoned. The same array every time, so the memo below it never recomputes
     // either. Against the CAPTURED context, which is also what makes that dormancy
     // hold: the capture does not move while the route does.

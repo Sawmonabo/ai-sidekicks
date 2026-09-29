@@ -6,7 +6,7 @@
 // read, and search across sessions is a separate feature, not a widening of this.
 //
 // THE BOUNDARY IS A MEMBER OF THE RESULT — `searchedRowCount` — rather than a caption
-// the surface remembers to add, so a find that searched what it had cannot be read as
+// the find box remembers to add, so a find that searched what it had cannot be read as
 // a statement about the whole session.
 //
 // WHAT IS SEARCHED. A row's `summary`, which is the human-readable line the daemon
@@ -21,13 +21,10 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 /**
  * Which way a walk through the matches moves. Closed.
  *
- * Declared here because this is where the walk is, and declared at all because it
- * was the family's one closed set restated inline: ten bare unions across six
- * modules and two directories, in a family where every other closed set — the seam
- * kinds, the row offers, the run group lifecycles — is an `as const` with a
- * derived type. A third direction (a find that jumps to the head) would have meant
- * editing ten declarations with nothing reporting a missed one; from here it is a
- * compile error at every consumer.
+ * Declared here because this is where the walk is, and as an `as const` with a derived
+ * type like every other closed set in the transcript feature — the seam kinds, the row
+ * offers, the run group lifecycles. A third direction (a find that jumps to the head)
+ * is then a compile error at every consumer rather than a hunt for bare unions.
  */
 export const FIND_STEP_DIRECTIONS = ["next", "previous"] as const;
 

@@ -26,7 +26,7 @@
 //     that render may itself be the one React discards.
 //
 // EVERY RESOURCE THE HOLDER LETS GO OF IS THE FIRST OF THE TWO, reached by one of
-// three doors. An `open` that settles after the surface has been re-addressed
+// three paths. An `open` that settles after the component has been re-addressed
 // publishes into a visit that is over, and the holder installs nothing. A caller that
 // publishes twice before the effect runs — two direct settlements in one batched
 // event — installs the first and replaces it, and no commit reaches it either. And a
@@ -69,10 +69,10 @@
 // re-runs nothing and is not re-minted: that arm is terminal on purpose, and a caller
 // wanting a fresh one publishes it.
 //
-// WHAT THIS IS NOT. It is not a second holder — there is one, next door, and this
-// hook addresses it. It is not a pool or a cache: nothing here survives the subject it
-// was opened for, and a resource is opened again when a subject the surface left is
-// returned to.
+// WHAT THIS IS NOT. It is not a second holder — there is one, `SubjectScopedHolder`,
+// and this hook addresses it. It is not a pool or a cache: nothing here survives the
+// subject it was opened for, and a resource is opened again when a subject the
+// component left is returned to.
 
 import { useEffect, useLayoutEffect, useState } from "react";
 
@@ -113,7 +113,7 @@ import type { SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  * caller whose disposal releases has no closed value to recognize, and one whose
  * disposal ends the resource cannot fail to say how a closed one is recognized. The
  * reading is supplied beside the `dispose` it belongs with rather than demanded of the
- * resource, so a value another family owns needs no shape from this one — and it is
+ * resource, so a value another module owns needs no shape from this hook — and it is
  * read only where the lifetime effect RUNS, so a resource that disposes itself while
  * nothing moves stays disposed.
  *
@@ -209,9 +209,9 @@ class SubjectScopedResourceLifetime<TResource> {
    *
    * A bound property rather than a method, so it is handed to the holder once at
    * construction rather than minted per render for a call that almost never happens.
-   * One property serves every door — a refused publish, a value a later publish
+   * One property serves every path — a refused publish, a value a later publish
    * replaced, and the seed of a pass that never committed — because a value no commit
-   * saw is closed whichever door it arrived at, and the committed check is not
+   * saw is closed whichever path it arrived by, and the committed check is not
    * redundant on any of them. A caller may publish the resource it is already holding;
    * a refusal is no reason to tear down what the frame on screen is reading through;
    * and a publish that replaces the COMMITTED resource hands this the value a live

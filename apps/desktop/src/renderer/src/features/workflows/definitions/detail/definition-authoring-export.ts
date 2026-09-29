@@ -14,7 +14,7 @@
 // `dispatching` while the write is outstanding and only the FULFILLED promise says the
 // version was copied.
 //
-// THE FILE IS PUBLISHED ON EVERY ARM, and that is the whole design: the surface renders
+// THE FILE IS PUBLISHED ON EVERY ARM, and that is the whole design: the detail renders
 // it in a read-only box, so a host that hung or refused leaves the bytes selectable
 // rather than leaving the person with nothing.
 //
@@ -22,7 +22,7 @@
 // — the parser is charged to the launches that use it and to no others — and the only
 // way it fails is a chunk that did not load. That is a fact about the install rather
 // than about the definition, so it lands on the same rejection seam the clipboard's own
-// refusal does rather than inventing a second refusal for this surface.
+// refusal does rather than inventing a second refusal for this act.
 //
 // THE LATCH IS `supersedeAndClaim` AND NOT `claim`, which is the one place this act
 // differs from the import, which submits. A second press means the same bytes again — there

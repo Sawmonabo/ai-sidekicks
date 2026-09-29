@@ -1,14 +1,14 @@
-// The composer's refusal vocabulary, and the two ways a refusal reaches the surface.
+// The composer's refusal vocabulary, and the two ways a refusal reaches the composer.
 //
 // Split from `send-router.ts` because it is a second job: that module decides which
 // wire call a send resolves to, and this one decides what the console says when it
 // resolves to none. The split is what keeps either file readable, and it gives the
-// surface one import for the vocabulary it renders without pulling in the router.
+// composer's views one import for the vocabulary they render without pulling in the router.
 //
 // TWO PRODUCERS, ONE SHAPE. A composer-side refusal is minted here from the closed
 // code set below; a daemon-side one is the daemon's own, and this module does not
 // read a rejection to build it. Every call the composer makes goes through
-// `callDaemon`, whose door normalizes a rejection once for the whole console
+// `callDaemon`, which normalizes a rejection once for the whole console
 // (`core/wire-rejection.ts`) — so a rejection reader here would be a second reading
 // of one seam, and the code `session.not_found` arrived under would become whichever
 // word this file chose. What survives is the one refusal the daemon ANSWERED with:
@@ -68,7 +68,7 @@ export function unparseableIdentifier(subject: string): Refusal {
 /**
  * The refusal for an intervention the daemon answered and did not admit.
  *
- * DAEMON-ORIGIN, because the daemon is who declined it. The code slot carries the
+ * DAEMON-ORIGIN, because the daemon is who declined it. The code field carries the
  * response's own machine-readable `rejectionReason` where it sent one — that member is
  * the cause, and a refusal code is rendered in mono — and the lifecycle state where it
  * did not, which is the daemon's own word for what happened and never a category this

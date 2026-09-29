@@ -31,7 +31,7 @@ const OPEN_PHASE: HumanFormPhase = {
 };
 
 /** Each mount point's unfilled rendering, as one table so a third cannot skip a case. */
-const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
+const UNFILLED_MOUNT_POINTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailMountPoint key="run-detail" workflowRunId="wfr-01" />],
   [
     "human form",
@@ -43,7 +43,7 @@ const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
 beforeAll(resolveSchemaFormChunks);
 
 describe("an unfilled mount point draws only its frame", () => {
-  it.each(UNFILLED_SLOTS)("%s stands as one empty frame", (_name, element) => {
+  it.each(UNFILLED_MOUNT_POINTS)("%s stands as one empty frame", (_name, element) => {
     const { container } = render(element);
     const frames = container.querySelectorAll(".meridian-workflow__mount-point");
     expect(frames).toHaveLength(1);
@@ -89,9 +89,9 @@ describe("a filled mount point receives exactly what the mount promised", () => 
     expect(body.mock.calls[0]?.[0].snapshot).toBe(PARKED_RUN);
   });
 
-  it("hands the human form the open phase, revision included, and the seat's submit", async () => {
+  it("hands the human form the open phase, revision included, and the bound submit", async () => {
     // The resolved phase VERBATIM, plus the one member the pane cannot resolve: the
-    // bound submit the seat keeps. `toStrictEqual` is what makes that exact — a body
+    // bound submit the pane keeps. `toStrictEqual` is what makes that exact — a body
     // handed a member this mount point did not promise is as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
     await renderSwitchableMountPoint({ phase: OPEN_PHASE, body });
@@ -167,11 +167,11 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
       readonly phase: HumanFormPhase | undefined;
     }): React.JSX.Element {
       const openForm = props.phase === undefined ? null : body(props.phase);
-      const [slotLabel] = useState("human form");
+      const [mountPointLabel] = useState("human form");
       return (
         <div>
           {openForm}
-          {slotLabel}
+          {mountPointLabel}
         </div>
       );
     };

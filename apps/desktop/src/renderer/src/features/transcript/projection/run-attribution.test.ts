@@ -58,7 +58,7 @@ describe("the run-attribution table — a compile gate, and a dormant runtime ar
 
 describe("reading the run a payload names", () => {
   it("answers on either attributing spelling the contract lists", () => {
-    // `runId` on every run-attributed family, `targetRunId` on interventions —
+    // `runId` on every run-attributed event kind, `targetRunId` on interventions —
     // both decided `this-run`, so both answer.
     expect(attributedRunIdOf({ runId: RUN_ONE })).toBe(RUN_ONE);
     expect(attributedRunIdOf({ targetRunId: RUN_ONE })).toBe(RUN_ONE);

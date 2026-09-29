@@ -24,7 +24,7 @@
 // screen costs one more entry in a set the predicate scans; a modal in no airspace
 // costs a native view painted over it.
 //
-// NON-MODAL FAMILIES DO NOT COME HERE. A menu, a select, and a combobox
+// NON-MODAL OVERLAY KINDS DO NOT COME HERE. A menu, a select, and a combobox
 // are anchored boxes that cover what they cover, and a popup that claimed the whole
 // window would suppress every native view in it for the length of a menu press.
 
@@ -49,9 +49,10 @@ export interface ModalOverlayAirspace {
 /**
  * Register a modal's backdrop and popup as airspace of `kind`, for its lifetime.
  *
- * Both registrations carry the same kind, because 12.3's enumeration names what a
- * thing IS on screen and both of these are parts of one dialog — a backdrop is not a
- * second kind of overlay, it is the half of this one that covers the window.
+ * Both registrations carry the same kind, because the closed set of overlay kinds
+ * (`AIRSPACE_OVERLAY_KINDS`) names what a thing IS on screen and both of these are
+ * parts of one dialog — a backdrop is not a second kind of overlay, it is the half of
+ * this one that covers the window.
  */
 export function useModalOverlayAirspace(kind: AirspaceOverlayKind): ModalOverlayAirspace {
   const backdropRef = useAirspaceRegistration(kind);

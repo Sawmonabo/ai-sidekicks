@@ -1,11 +1,12 @@
 // What one session's transcript viewport is showing, and the registry that carries the
-// reading across the family DAG.
+// reading from the transcript feature down to the services that report it.
 //
-// WHY THIS SITS AT THE FLOOR. The producer is the transcript — a VIEW family, the top of
-// the DAG — and the consumer is `services/session-events/session-event-subscriber.ts`,
-// which composes the session diagnostics a driver process reads and sits BELOW every
-// feature. The consumer therefore cannot import the producer. `lib/` is the only home
-// both can reach, which is `transport-reconnect.ts`' reason with the two ends swapped.
+// WHY THIS SITS AT THE FLOOR. The producer is the transcript feature, near the top of
+// the import layering, and the consumer is
+// `services/session-events/session-event-subscriber.ts`, which composes the session
+// diagnostics a driver process reads and sits BELOW every feature. The consumer
+// therefore cannot import the producer. `lib/` is the only home both can reach, which
+// is `transport-reconnect.ts`' reason with the two ends swapped.
 //
 // WHY A LIVE READER AND NOT A PUBLISHED VALUE. Every figure below is scroll geometry
 // or a virtualizer computation over it, and the transcript deliberately keeps both off
@@ -42,7 +43,7 @@ export interface TranscriptWindowReading {
   /** Rows the virtualizer INTENDS on screen: `getVirtualItems().length`. */
   readonly virtualItemCount: number;
   /**
-   * Rows actually in the document, counted under the scroll surface.
+   * Rows actually in the document, counted under the scroll container.
    *
    * Not the same question as `virtualItemCount` and the pair is the point: the view
    * maps a virtual item to a row and renders NOTHING where it cannot index one, so a

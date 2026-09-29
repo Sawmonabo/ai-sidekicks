@@ -2,8 +2,8 @@
 //
 // The class: the bridge is the only place the console reaches something it does not
 // own, and it can lie. A scenario engine can outlive the store it feeds and deliver a
-// tick into a torn-down subscriber, and a surface above then reads a plausible answer
-// that is not true, which is the one failure this family exists to make impossible.
+// tick into a torn-down subscriber, and a view above then reads a plausible answer
+// that is not true, which is the one failure the bridge exists to make impossible.
 //
 // They live in `bridge/` because the subject is what crosses the seam: the engine's
 // lifecycle. The store that receives the delivered events asserts its own admission
@@ -36,7 +36,7 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     // BOTH sinks the engine holds, because a dropped tick has to be dropped for both:
     // the beat emitter carries the session log, and the advance emitter carries the
     // clock a scripted fact with no beat to ride is scheduled against. A teardown that
-    // cleared one would leave the other delivering into the same torn-down surface.
+    // cleared one would leave the other delivering into the same torn-down subscriber.
     const advanceTicks: number[] = [];
     engine.subscribeToAdvances((elapsedMs) => {
       advanceTicks.push(elapsedMs);

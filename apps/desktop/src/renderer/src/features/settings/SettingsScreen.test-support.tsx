@@ -2,9 +2,9 @@
 // keystroke into its search field.
 //
 // HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsScreen.test.tsx`
-// holds the four rules the surface is the enforcement of, and
+// holds the four rules the settings screen enforces, and
 // `SettingsScreen.page-warm.test.ts` holds when this board's deferred pages are
-// fetched — two disjoint claims about one surface, and both need the same window, the
+// fetched — two disjoint claims about one screen, and both need the same window, the
 // same mount, and the same way of typing into the field. Written twice they would drift
 // the first time either grew a member.
 
@@ -19,8 +19,8 @@ import { registerSettingsScreen } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
 import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The descriptor type by its own specifier: no production module names it, so the
-// seats door publishes no line for it and the barrel census would fail one written
-// for this harness alone.
+// registries' shared entry does not export it, and the barrel census would fail an
+// export written for this harness alone.
 import type { ScreenDescriptor } from "@renderer/registries/screens/screen-registry.js";
 
 /**
@@ -29,12 +29,12 @@ import type { ScreenDescriptor } from "@renderer/registries/screens/screen-regis
  * Driven THROUGH `registerSettingsScreen` rather than around it. The page set that
  * function composes is closed over and is not a value a suite may reach for, and
  * composing a second one here would be a copy that agrees with the shipped list until
- * someone adds a page to one of them — so claiming the slot and calling back the render
+ * someone adds a page to one of them — so claiming the screen and calling back the render
  * it registered is the only reading of "the pages a window renders" that cannot drift.
- * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
+ * It also makes the screen claim itself a covered fact: a registrar that claimed nothing
  * fails here rather than rendering an empty rail.
  */
-async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
+async function loadShippedScreenRender(): Promise<ScreenDescriptor["render"]> {
   const screens = new ScreenRegistry();
   registerSettingsScreen(screens);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
@@ -45,7 +45,7 @@ async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
   await screens.preload("settings");
   const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no screen slot");
+    throw new Error("the settings registrar claimed no screen");
   }
   return descriptor.render;
 }
@@ -67,20 +67,20 @@ async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
  * A class with a private field rather than a module-level `let`, per
  * `apps/desktop/AGENTS.md`.
  */
-class ShippedSurfaceRenderHolder {
+class ShippedScreenRenderHolder {
   #fetched: Promise<ScreenDescriptor["render"]> | undefined;
 
   public fetch(): Promise<ScreenDescriptor["render"]> {
-    this.#fetched ??= loadShippedSurfaceRender();
+    this.#fetched ??= loadShippedScreenRender();
     return this.#fetched;
   }
 }
 
-const shippedSurfaceRenderHolder = new ShippedSurfaceRenderHolder();
+const shippedScreenRenderHolder = new ShippedScreenRenderHolder();
 
 /** The shipped render, fetched on the first ask and handed back on every one after it. */
 export function shippedScreenRender(): Promise<ScreenDescriptor["render"]> {
-  return shippedSurfaceRenderHolder.fetch();
+  return shippedScreenRenderHolder.fetch();
 }
 
 /**
@@ -105,7 +105,7 @@ export interface SettingsWindow {
  *
  * The frame store is the REAL one rather than a stub: the retained session is state a
  * route transition writes, so a hand-built object would let a case assert a contract the
- * shipped store does not have — and the projection this surface must NOT read is a getter
+ * shipped store does not have — and the projection this screen must NOT read is a getter
  * on that same store, which is what makes the negative control mean something.
  */
 export function windowAt(
@@ -123,7 +123,7 @@ export function windowAt(
       route: frameStore.getState().route,
       bridge: { source: "fixture" },
       frameStore,
-      // The REAL registry rather than a stub: the surface resolves the retained
+      // The REAL registry rather than a stub: the screen resolves the retained
       // session's store through it, so a hand-built object would let a case assert a
       // resolution the shipped registry does not perform. No session is opened on it
       // here — a settings window that has opened none is the ordinary case, and it is
@@ -135,18 +135,18 @@ export function windowAt(
 }
 
 /**
- * Render the surface the way a window mounts it.
+ * Render the settings screen the way a window mounts it.
  *
  * The announcer is part of that mount: a settings page that settles an act says so, and
  * `useAnnounce` throws outside the provider deliberately — so a harness that omitted it
  * would fail inside a page and report a missing live region as a broken settings pane.
  *
  * Omitting `pages` renders the shipped composition; passing one renders over the page set
- * the case chose. The two arms are the same surface — the shipped arm reaches it through
+ * the case chose. The two arms are the same screen — the shipped arm reaches it through
  * the registrar, which is the only way the closed-over set is reachable at all.
  *
  * AND IT SETTLES, because the shipped arm is loader-backed. The registrar hands the board
- * an `import()` rather than a component, so what the first commit renders is the surface's
+ * an `import()` rather than a component, so what the first commit renders is the screen's
  * reserved frame and the pages arrive a macrotask later. The wait is the console's own
  * boundary rather than a counted number of turns, for the reason
  * `core/settle.test-support.ts` records: a chain that grows one link deeper stops being
@@ -156,13 +156,13 @@ export async function renderSettingsScreen(
   context: ScreenContext,
   pages?: SettingsPageRegistry,
 ): Promise<ReturnType<typeof render>> {
-  const surface =
+  const screenElement =
     pages === undefined ? (
       (await shippedScreenRender())(context)
     ) : (
       <SettingsScreen context={context} pages={pages} />
     );
-  const rendered = render(<LiveAnnouncerProvider>{surface}</LiveAnnouncerProvider>);
+  const rendered = render(<LiveAnnouncerProvider>{screenElement}</LiveAnnouncerProvider>);
   // Even with the module already in hand, the lazy component suspends on its first render
   // and resumes on the resolved promise, so the body lands one boundary later.
   await settle();

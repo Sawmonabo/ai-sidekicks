@@ -21,10 +21,10 @@
 // mount types are what keep them from being confused for each other.
 //
 // THE KEY SPACE IS FLAT AND ITS NAMESPACE IS NOT MINTED HERE. The draft store is
-// keyed by whichever surface owns the composer, and no console family has landed a
-// key convention yet. Rather than mint one that nothing else follows, the mount
-// hands over the definition the drafts belong to and the body composes its keys
-// under it; the convention lands with the first family that has two writers.
+// keyed by whichever view owns the composer, and no feature has settled a key
+// convention yet. Rather than mint one that nothing else follows, the mount hands
+// over the definition the drafts belong to and the body composes its keys under it;
+// the convention lands with the first feature that has two writers.
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";

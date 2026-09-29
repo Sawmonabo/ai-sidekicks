@@ -58,7 +58,7 @@ export function mountDraftLine(options: {
   const frameStore = new WindowStore();
   const result = render(
     <LineAndSend
-      seat={{
+      composerProps={{
         sessionStore: options.sessionStore,
         bridge: inertBridge(),
         draftStore: options.draftStore,
@@ -109,15 +109,15 @@ function inertBridge(): PlatformBridge {
 
 /** The line beside Send, over one draft store. */
 function LineAndSend(props: {
-  readonly seat: ComposerProps;
+  readonly composerProps: ComposerProps;
   readonly calls: ComposerSendCalls;
   readonly commandEnumeration: ProviderCommandEnumeration;
 }): React.JSX.Element {
   return (
     <>
-      <DraftLine {...props.seat} />
+      <DraftLine {...props.composerProps} />
       <SendButton
-        {...props.seat}
+        {...props.composerProps}
         calls={props.calls}
         commandEnumeration={props.commandEnumeration}
       />
@@ -205,7 +205,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
   const bridge = inertBridge();
   const barFor = (agentId: string): React.JSX.Element => (
     <LineAndSend
-      seat={{
+      composerProps={{
         sessionStore,
         bridge,
         draftStore,

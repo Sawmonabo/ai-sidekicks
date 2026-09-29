@@ -29,7 +29,7 @@
 //
 // The updater namespace rather than the whole bridge: this holder reads a state and
 // a subscription and touches neither control, so taking the bridge would be taking
-// a surface it has no business reaching — and would make its own test build a bridge
+// capabilities it has no business reaching — and would make its own test build a bridge
 // to exercise a race that has nothing to do with one.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { UpdateState } from "@shared/preload-api.js";

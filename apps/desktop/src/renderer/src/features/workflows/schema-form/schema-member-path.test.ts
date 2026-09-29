@@ -1,14 +1,14 @@
 // Addressing, on its own, because it is read on its own.
 //
-// The validator's suite next door checks that a finding CARRIES a member path; this one
-// checks what that representation guarantees, which is what six modules of the schema form
-// seat rely on before any schema has been compiled: that a path becomes a string
+// `json-schema-validator.test.ts` checks that a finding CARRIES a member path; this one
+// checks what that representation guarantees, which is what the schema form's modules
+// rely on before any schema has been compiled: that a path becomes a string
 // reversibly, and that two paths are the same member only when every segment matches by
 // identity.
 //
 // BOTH PROPERTIES ARE ABOUT ONE FAILURE. A dotted join is not injective — a property named
 // `items.0` and the first entry of an array named `items` collapse onto one string — so a
-// surface keyed on the join draws one member's verdict under another member's control. The
+// control keyed on the join draws one member's verdict under another member's control. The
 // pointer encoding escapes rather than collapses; the comparison keeps a numeric position
 // apart from a property whose name reads like one.
 

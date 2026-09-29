@@ -62,7 +62,7 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  *
  * The bridge is resolved from context rather than taken as an argument, for the
  * reason `useSessionStoreRegistry` states one level over: every caller then gets
- * the clock the rest of the frame is running on, and no surface has to thread one
+ * the clock the rest of the frame is running on, and no component has to thread one
  * through.
  */
 export function useUiStateStore(): UiStateStore {

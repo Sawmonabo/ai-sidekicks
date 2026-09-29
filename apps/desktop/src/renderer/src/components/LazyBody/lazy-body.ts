@@ -1,25 +1,25 @@
 // A registered body that is not on the initial import graph, and everything that
 // follows from saying so.
 //
-// WHY THE BOUNDARY IS AT THE REGISTRY AND NOT IN THE FAMILIES
+// WHY THE BOUNDARY IS AT THE REGISTRY AND NOT IN THE FEATURES
 //
-// Every view family registers what it draws through one of the console's boards — the
-// pane layout's pane registry and the frame's screen registry — by static import, so every
-// family's body code sits in the entry chunk whether or not that pane or that route is
-// ever reached. Measured on the `renderer-initial-bundle` budget (≤ 450 kB gzip): four
-// landed families spend it to about 79 %, and two more families each carry it past the
-// ceiling on their own. The budget is fixed, so what has to change is the registration.
+// Every feature registers what it draws through one of the console's boards — the
+// pane registry and the screen registry — by static import, so every feature's body
+// code sits in the entry chunk whether or not that pane or that route is ever reached.
+// Measured on the `renderer-initial-bundle` budget (≤ 450 kB gzip): four features
+// spend it to about 79 %, and either of two more carries it past the ceiling on its
+// own. The budget is fixed, so what has to change is the registration.
 //
-// It changes ONCE, here, rather than per family and rather than per board. A family
+// It changes ONCE, here, rather than per feature and rather than per board. A feature
 // supplies a `body` loader instead of a `render` function; the board normalizes it into
 // the same resolved descriptor every mount site already reads. That is what keeps
 // `PaneHarnessScreen`'s claim true — the thing it measures is what the PANE LAYOUT would
-// mount — and what lets a family that has not landed yet take this form verbatim.
+// mount — and what lets a feature not yet built take this form verbatim.
 //
 // WHY PRELOAD RATHER THAN A STATIC IMPORT
 //
 // The two are the same eventual code. A static import pays for it on every launch, in
-// the entry graph, for every surface nobody opens; a loader pays for it once, off the
+// the entry graph, for every pane and screen nobody opens; a loader pays for it once, off the
 // critical path, on an idle callback after the first frame — and by the time a person
 // can have reached the control that opens it, the module is already resolved. So the
 // first open is warm either way and only one of them is charged to the launch.
@@ -35,7 +35,7 @@ import { LazyBody } from "./LazyBody.js";
 /**
  * The module a lazily loaded body is loaded from.
  *
- * The export name is fixed by this contract rather than left to the family, so a board
+ * The export name is fixed by this contract rather than left to the feature, so a board
  * composes one specifier shape and a body module is recognizable as one by reading its
  * exports. `Body` and not `default`: the package admits `export default` only for tool
  * configuration at the root, and a default export here would be the one place in the
@@ -49,7 +49,7 @@ export interface LazyBodyModule<TContext extends object> {
  * How a registration reaches its body.
  *
  * Written at the call site as `body: () => import("../../repos/diff-pane/diff-pane-body.js")`, which is
- * what makes the boundary visible in the family's own registrar: the module specifier is
+ * what makes the boundary visible in the feature's own registration: the module specifier is
  * right there, and the bundler's chunk split follows it.
  */
 export type LazyBodyLoader<TContext extends object> = () => Promise<LazyBodyModule<TContext>>;
@@ -171,7 +171,7 @@ export class LoaderBackedBody<TContext extends object> {
    * a damaged install re-fetching a chunk in a loop — off this path. Nothing here
    * re-asks; the clear only decides what the next ASK does. The one caller that walks a
    * board unasked is `lazy-body-warm.ts`, and it takes each key at most once per walk,
-   * so a chunk that will not load is re-requested when a person opens that surface again
+   * so a chunk that will not load is re-requested when a person opens that pane or screen again
    * and at no other moment.
    */
   public async load(): Promise<LazyBodyModule<TContext>> {

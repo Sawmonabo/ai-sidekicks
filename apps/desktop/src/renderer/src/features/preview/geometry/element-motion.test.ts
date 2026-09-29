@@ -146,9 +146,9 @@ describe("hasRunningDocumentMotion", () => {
   });
 
   it("a loading skeleton's opacity pulse is not motion, however long it runs", () => {
-    // The finding. Every `not-loaded` skeleton runs an infinite opacity pulse, so one
-    // loading surface anywhere on screen held this predicate true forever — and the
-    // position sampler re-armed on every frame for as long as it did.
+    // Every `not-loaded` skeleton runs an infinite opacity pulse, so if it counted, one
+    // loading skeleton anywhere on screen would hold this predicate true forever — and
+    // the position sampler would re-arm on every frame for as long as it did.
     const { element } = attachedPair();
     const skeleton = document.createElement("div");
     document.body.append(skeleton);

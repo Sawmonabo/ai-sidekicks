@@ -32,7 +32,7 @@ const INLINE_CARD_ORIGIN = "inline-cards";
  * Every kind of card a transcript row can carry. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `seats/pane/pane-kinds.ts` gives about its own set.
+ * `routing/panes/pane-kinds.ts` gives about its own set.
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 

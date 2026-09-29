@@ -14,7 +14,7 @@
 // the service — the same service that will install the result — and this module
 // only joins the answers to rows a person reads. The reserved-chord table lives
 // there too: it was here, and the frame's override store became its second reader,
-// so it moved DOWN to the lowest family both readers already import rather than
+// so it moved DOWN to the lowest folder both readers already import rather than
 // being copied into one of them.
 //
 // THE RECORDER'S HALF IS HERE BECAUSE THE RECORDER IS

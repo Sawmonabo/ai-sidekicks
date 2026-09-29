@@ -1,4 +1,4 @@
-// The discovery surface, driven through the whole composer: when it opens, what it
+// The command list, driven through the whole composer: when it opens, what it
 // offers, and what a selection does to the line.
 //
 // Mounted as `MessageComposer` rather than as the popover alone, because the claim
@@ -76,7 +76,7 @@ describe("CommandList", () => {
 
     // The draft store is keyed by the composer's ADDRESS, so re-addressing does not
     // carry text under a target the person did not write it for — the line the
-    // popover watches is empty again, and a discovery surface that outlived the
+    // popover watches is empty again, and a command list that outlived the
     // slash that opened it would be offering entries against a line that has none.
     // That the enumeration itself is discarded rather than filtered is
     // `provider-command-read.test.tsx`'s claim, where the read is driven directly.
@@ -233,7 +233,7 @@ describe("CommandList", () => {
     expect(ranCount).toBe(1);
   });
 
-  it("reads the command registry when the surface opens, not when the composer mounted", async () => {
+  it("reads the command registry when the command list opens, not when the composer mounted", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
       focusedPane: agentPane(composerAgentIds()[0]!),
@@ -261,7 +261,7 @@ describe("CommandList", () => {
     await typeIntoLine(mounted.line, "/");
     const list = mounted.container.querySelector('[role="listbox"]');
     if (!(list instanceof HTMLElement)) {
-      throw new Error("the surface rendered no listbox");
+      throw new Error("the command list rendered no listbox");
     }
     const firstActive = list.getAttribute("aria-activedescendant");
 
@@ -288,7 +288,7 @@ describe("CommandList", () => {
     await typeIntoLine(mounted.line, "/");
     const list = mounted.container.querySelector('[role="listbox"]');
     if (!(list instanceof HTMLElement)) {
-      throw new Error("the surface rendered no listbox");
+      throw new Error("the command list rendered no listbox");
     }
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "ArrowDown" });

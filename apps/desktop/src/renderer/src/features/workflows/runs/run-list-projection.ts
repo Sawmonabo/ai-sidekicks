@@ -3,7 +3,7 @@
 //
 // A run list has to answer three questions that no single wire field answers, and
 // answering them in a component would answer them once per render and differently
-// per surface. So they are answered here, once, as a value:
+// per component. So they are answered here, once, as a value:
 //
 //   1. **Is anything parked, and why?** Not from the phase's `state`. The phase-run
 //      status union carries no suspended arm — that is deliberate — and the park
@@ -36,7 +36,7 @@
 // answer and `Array.prototype.sort` may read as anything it likes.
 //
 // ONE PARSE OF THE START, AND EVERY READER TAKES IT. The reading rides the row, so the
-// sort and the surface that PRINTS the start look at the same value. Two readings would
+// sort and the row that PRINTS the start look at the same value. Two readings would
 // split this plane's `"utc-only"` policy from the figure chokepoint's default
 // `"any-offset"` one: a start spelled with a numeric offset is legible to the second and
 // malformed to the first, so the list would sort that run last and still print a
@@ -51,12 +51,12 @@
 //
 // THE CLASSIFICATION RIDES THE PARKED PHASE, NOT THE ROW. Whether a park resumes
 // itself is `run-list-rows.ts`'s three-arm `WorkflowParkSchedule`, attached to each
-// parked phase as it is projected — because the surface that says which kind of park
-// this is renders ONE park at a time, and a row-level "something here is unscheduled"
+// parked phase as it is projected — because the park badge, which says which kind of
+// park this is, renders ONE park at a time, and a row-level "something here is unscheduled"
 // cannot tell it which.
 //
-// THE SHAPES ARE NEXT DOOR. `run-list-rows.ts` derives the run and phase rows from
-// `bridge/wire-shapes/workflow-projection.ts`, which declares the statuses and park
+// THE SHAPES ARE IN THE SIBLING MODULE. `run-list-rows.ts` derives the run and phase
+// rows from `services/wire-shapes/workflow-projection.ts`, which declares the statuses and park
 // reasons; this module holds the reading — order, the parked flag, and the counts a
 // header shows. It re-exports none of those shapes: every consumer names the declaring
 // module directly.
@@ -80,7 +80,7 @@ export interface WorkflowRunListRow {
   /**
    * The run's start as this plane reads it, malformed included.
    *
-   * The READING rather than the string, because the surface that prints it and the
+   * The READING rather than the string, because the row that prints it and the
    * comparator that orders it must not read the wire's spelling twice under two
    * grammars. `run.startedAt` is still on the snapshot for the title a figure carries
    * — the wire's own bytes, which is what a person pastes into a search.
@@ -165,10 +165,10 @@ export class RunListProjection {
   }
 
   /**
-   * Every live park as the attention surface reads it: correlated waits folded into
+   * Every live park as the run list's attention list reads it: correlated waits folded into
    * one entry each, uncorrelated ones standing alone.
    *
-   * On the projection rather than computed by the surface, for the reason every other
+   * On the projection rather than computed by the list, for the reason every other
    * derivation here is: the fold and the count read off it are one computation with
    * two consumers, and a header that counted separately from the body it heads is how
    * the two come to disagree.
@@ -183,7 +183,7 @@ export class RunListProjection {
    *
    * That distinction is the whole point of the fold. Six runs parked on one spent
    * provider account are one thing to look at, and a badge reading `6` would undo the
-   * fold on the surface most likely to be glanced at rather than read — while an
+   * fold on the figure most likely to be glanced at rather than read — while an
    * operator comparing it against the list would find six rows and one line and have
    * no way to tell which number was wrong.
    */
@@ -211,7 +211,7 @@ export class RunListProjection {
 /**
  * Every phase of one run that is parked, classified, in the order they arrived.
  *
- * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
+ * THE PARK PROJECTION, AND THE ONLY ONE. Three components draw a park — the run row's
  * badges, the run pane's stack of cards, and the phase node above that stack — and each
  * takes the discriminator, the schedule rule and the phase's name from here, so no two
  * of them can draw the same park differently.
@@ -266,7 +266,7 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
     // The start is read ONCE per run, here, rather than once per comparison and again
     // at the row. A key function called from inside the comparator parses the same
     // string on the order of `n log n` occasions, and — the reason that matters — gives
-    // the sort a place to disagree with itself and with the surface above it.
+    // the sort a place to disagree with itself and with the row that prints it.
     startedAt: workflowInstant(run.startedAt),
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&

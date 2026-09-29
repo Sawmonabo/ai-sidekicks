@@ -31,8 +31,8 @@ describe("repos — the pane kinds", () => {
     expect(registry.registeredPaneKinds()).toStrictEqual([...REPOS_PANE_KINDS]);
   });
 
-  it("negative control: a registry the door was not given claims nothing", () => {
-    // The door takes a registry rather than reaching for the module-scope
+  it("negative control: a registry `registerReposPanes` was not given claims nothing", () => {
+    // `registerReposPanes` takes a registry rather than reaching for the module-scope
     // singleton. A registrar that reached for the singleton would leave this one
     // empty while still appearing to work in the case above.
     const claimed = new PaneRegistry();
@@ -55,7 +55,7 @@ describe("repos — the pane kinds", () => {
         {descriptor?.render(contextForPane())}
       </LiveAnnouncerProvider>,
     );
-    // The name is a pattern and not the whole name, because `seats/PaneFrame`
+    // The name is a pattern and not the whole name, because `components/PaneFrame`
     // names a pane by its address trail and the kind is the crumb the trail ends on.
     const region = within(container).getByRole("region", { name: /Review$/u });
     // And the trail really is a trail: the subject the descriptor was handed is in the

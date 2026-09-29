@@ -8,7 +8,8 @@
 // it re-derives every list from the contracts census, which is the proof this file
 // takes as given.
 //
-// The negative controls carry the weight here for the same reason they do next door:
+// The negative controls carry the weight here for the same reason they do in the
+// sibling suite:
 // every assertion is about a set, and a predicate that answered `false` for
 // everything would satisfy "a narrowed stream refuses a stranger" perfectly. Each
 // clean answer is therefore pinned against a kind that must be delivered and one that

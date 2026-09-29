@@ -2,8 +2,8 @@
 //
 // THE CASE THAT MAKES THIS ONE FUNCTION IS THE LAST ONE BELOW. A mode the reply names as
 // BOTH available and restricted must keep the daemon's reason on the row on every
-// surface: two derivations could disagree, one keeping the reason and the other blanking
-// it, so the same malformed reply would disclose a restriction on one surface and hide it
+// component: two derivations could disagree, one keeping the reason and the other blanking
+// it, so the same malformed reply would disclose a restriction in one component and hide it
 // on the other. That arm is what holds the single implementation to it.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";

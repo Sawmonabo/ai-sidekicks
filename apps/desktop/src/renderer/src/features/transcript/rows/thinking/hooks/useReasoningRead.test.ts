@@ -1,10 +1,10 @@
-// The reasoning read the shell's rows make, over a real bridge whose answer a case
+// The reasoning read the transcript's rows make, over a real bridge whose answer a case
 // decides.
 //
 // `bridgeAnswering` rather than a hand-built port, for `child-run-expansion.test.ts`'
-// reason: the hook reaches the console's own call door, so a stand-in would prove the
-// case answers itself rather than that a refusal off the wire reaches the state a
-// surface renders.
+// reason: the hook reaches the console's own daemon call, `callDaemon`, so a stand-in
+// would prove the case answers itself rather than that a refusal off the wire reaches
+// the state a row renders.
 //
 // TWO SUBJECTS, AND THEY ARE DIFFERENT FACTS. What a SECOND press does — the read
 // stored its refusal and then admitted no second press, so a transport that was down
@@ -33,8 +33,8 @@ const REASONING_READ = "timeline.reasoningSurfaceRead";
 /** One `ReasoningSurfaceReadResponse` on the arm that carries no entries. */
 const UNAVAILABLE_REASONING: Record<string, unknown> = { availability: "unavailable" };
 
-describe("useReasoningSurfaceRead — a refusal is retryable and an answer is not", () => {
-  it("holds the door's own refusal rather than discarding it", async () => {
+describe("useReasoningRead — a refusal is retryable and an answer is not", () => {
+  it("holds the daemon call's own refusal rather than discarding it", async () => {
     const { held } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),
@@ -76,7 +76,7 @@ describe("useReasoningSurfaceRead — a refusal is retryable and an answer is no
   it("negative control: a read that answered is not asked again", async () => {
     // Without this, admitting a refusal would have been written as admitting anything
     // settled — and a second press would re-ask a question whose answer is on screen,
-    // for a page this surface holds no continuation cursor to extend.
+    // for a page this row holds no continuation cursor to extend.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     recover();
     const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
@@ -146,13 +146,13 @@ function bridgeHoldingReasoningRead(): HeldReasoningRead {
   };
 }
 
-describe("useReasoningSurfaceRead — the row moves while the answer is on the wire", () => {
+describe("useReasoningRead — the row moves while the answer is on the wire", () => {
   it("never lands one run's reasoning on a row addressed at another", async () => {
-    // THE DEFECT, EXERCISED. The read carried no signal, so a row re-addressed at a
-    // second run went on parsing the FIRST run's answer and folded it into the state
-    // the surface renders — a reasoning surface belonging to a run nobody was looking
-    // at, presented as this one's. Re-addressing the line abandons the read, so the
-    // reply installs nothing.
+    // THE FAILURE, EXERCISED. A read with no signal would let a row re-addressed at a
+    // second run go on parsing the FIRST run's answer and fold it into the state the
+    // row renders — reasoning belonging to a run nobody was looking at,
+    // presented as this one's. Re-addressing the line abandons the read, so the reply
+    // installs nothing.
     const { held, release } = bridgeHoldingReasoningRead();
     const { result, rerender } = renderHook((runId: RunId) => useReasoningRead(runId), {
       initialProps: SAMPLE_RUN_ID,

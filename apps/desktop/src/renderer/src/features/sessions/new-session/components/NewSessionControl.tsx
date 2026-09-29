@@ -1,16 +1,15 @@
 // "+ New": the control that makes a new-session draft reachable.
 //
-// `NewSessionDraft` shipped with a co-located test and no consumer — no control
-// anywhere constructed one, so none of the draft selection, discard, or first-send
-// behavior it holds could be reached by a person. This is that consumer, mounted
-// through `seats/slots/new-session-seat.ts` by whichever composition supplies the
-// first-message call.
+// This is the one control that constructs a `NewSessionDraft`, so the draft's
+// selection, discard and first-send behavior reach a person. It is mounted with the
+// props `new-session-control-contract.ts` declares, by whichever composition supplies
+// the first-message call.
 //
 // WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The first message, and nothing else: the
 // draft cannot compose `run.queueCreate` without the turn's own body, and a session
 // opened with nothing said is a session waiting on a person who thinks they already
 // sent something. Agents and repo mounts are not offered because both need reads this
-// surface would have to invent, and an unasked question belongs in the _not checked_
+// control would have to invent, and an unasked question belongs in the _not checked_
 // absence rather than in a picker with nothing behind it.
 //
 // AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
@@ -33,22 +32,6 @@
 // second — never the affordance alone, which is a guard that a keyboard path or a
 // later caller does not get.
 //
-// AND SEND IS CLOSED WHILE THE DESTINATION IS NOT PUTTING ACTS AT ALL. The three
-// controls beside this one — start, join, import — have carried that cause since they
-// were drawn, and this one did not: it took the bridge and nothing else, and stayed
-// live through a stopped supervisor while the sentence above it said mutations could
-// not be put. The cause arrives through `seats/slots/new-session-seat.ts` rather than being
-// derived here, because a control that recomputed its own eligibility would be a
-// second source of truth for a fact the stores own — and it arrives as a reading
-// answering at two moments, because the guard behind the affordance has to ask again
-// when the press lands. The sentence itself is NOT re-rendered here: the section
-// already draws it once, and a control repeating it would put one fact on screen
-// twice.
-//
-// THE BLOCK CLOSES SEND AND NOT "+ New". Opening a draft mints no daemon row and puts
-// nothing on any wire, so refusing to let somebody compose one while the runtime is
-// away would take the offline half of this control away for nothing.
-//
 // AND A SETTLEMENT BELONGS TO THE DRAFT THAT ASKED FOR IT. Discard is reachable
 // while a send is in flight, and "+ New" is reachable the moment it is — so a send
 // can settle over a composition that is not the one it was sent for. The result, the
@@ -68,13 +51,13 @@
 // looks ordinary and either never lands or lands somewhere the console will not read
 // again, and a `sessionId` reported back for a session nobody can open.
 //
-// AND A COMPLETED SEND HANDS THE SESSION OUT, WHICH IS THE HALF THAT WAS MISSING. The
-// continuation used to publish its report and stop, so a send that fully succeeded
-// left a form on screen with Send still enabled and a real daemon session the console
-// could not name — absent from the all-sessions list until some later directory read
-// happened to notice it, and carrying none of the origin markers only this window can
-// report. The control now names the session through `seats/slots/new-session-seat.ts`, and
-// the destination that mounts it settles the start on its own terms.
+// AND A COMPLETED SEND HANDS THE SESSION OUT. A continuation that published its report
+// and stopped would leave a form on screen with Send still enabled and a real daemon
+// session the console could not name — absent from the all-sessions list until some
+// later directory read happened to notice it, and carrying none of the origin markers
+// only this window can report. The control names the session through
+// `onSessionCreated`, and the destination that mounts it settles the start on its own
+// terms.
 //
 // AND IT IS THE COMPLETED ARM ALONE. A partial send made a session too, and the draft
 // stays for it on purpose: its refusal says which leg could not be made and a second
@@ -88,7 +71,7 @@
 // them anywhere. Two guards, and the order is the usual one. The STRUCTURAL half is a
 // revision the draft advances on every edit: the send names the one it carried, and the
 // settlement closes the draft only where the two agree, saying so through the same
-// settlement surface where they do not. The AFFORDANCE half is this field, which is
+// settlement line where they do not. The AFFORDANCE half is this field, which is
 // `readOnly` while a send runs — read-only rather than disabled, so focus and a screen
 // reader's position survive the press — and it narrows the window to the frame between
 // the click and the render, which is why the revision is the guard and not the field.

@@ -6,7 +6,7 @@
 // and releases everything on teardown — the rebinding is what keeps it from going
 // quiet for exactly the sessions a person just opened.
 //
-// It lives in `store/` because the registry and the stores are this family's.
+// It lives in `store/` because the registry and the stores it binds live there.
 //
 // NOTHING HERE POLLS AND NOTHING HERE READS A WIRE. The signal is a subscription over
 // values the window already holds.

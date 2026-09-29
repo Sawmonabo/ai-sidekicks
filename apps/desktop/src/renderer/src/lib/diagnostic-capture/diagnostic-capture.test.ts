@@ -104,8 +104,8 @@ describe("the I-am-blind marker", () => {
 
   it("holds at most the blind-probe bound, and counts what it refuses past it", () => {
     const capture = new DiagnosticCapture();
-    // A forwarder from the start, so the auto-flush at the batch bound does not spend a
-    // slot marking the forward seam blind — that would make the arithmetic below about
+    // A forwarder from the start, so the auto-flush at the batch bound does not spend an
+    // entry marking the forward seam blind — that would make the arithmetic below about
     // this test's own scaffolding rather than about the refusal.
     const batches: string[] = [];
     capture.installForwarder((jsonLines) => {

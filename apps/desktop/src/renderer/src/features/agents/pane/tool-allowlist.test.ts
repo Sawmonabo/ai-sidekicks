@@ -47,7 +47,7 @@ describe("agent tool grant — the four positions", () => {
   });
 
   it("carries the names of a populated allowlist, in the order the echo sent them", () => {
-    // The names ride the position because BOTH surfaces that state this grant read
+    // The names ride the position because the line and the row that both state this grant read
     // it — the line takes the length, the echo's row takes the names — and a second
     // read of the member is how the two came to disagree about the empty case.
     expect(
@@ -120,7 +120,7 @@ describe("agent tool grant — a populated allowlist is never promised whole", (
 
   it("promises only the first cap-many one tool past it", () => {
     // The echo names `TOOL_ALLOWLIST_NAMED_CAP` and folds the rest to a figure, so a
-    // line saying every one of them is "named below" describes a surface that is not
+    // line saying every one of them is "named below" describes a list that is not
     // there. One past the cap is where the two spellings part company.
     const sentence = namedToolAllowlistSentence(toolNames(TOOL_ALLOWLIST_NAMED_CAP + 1));
     expect(sentence).toContain(`${formatCount(TOOL_ALLOWLIST_NAMED_CAP + 1)} tools`);

@@ -19,7 +19,7 @@ import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import { useReadScope } from "./useReadScope.js";
 
-/** How a caller turns one read into the states a surface renders. */
+/** How a caller turns one read into the states a view renders. */
 export interface SubjectReadProjection<TValue, TState> {
   /** What is true before an answer exists: nothing asked, or a read in flight. */
   readonly unsettled: (key: SubjectKey) => TState;

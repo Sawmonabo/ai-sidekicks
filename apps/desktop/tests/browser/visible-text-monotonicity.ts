@@ -1,4 +1,4 @@
-// The visible-text monotonicity recorder — one role, for every streaming surface.
+// The visible-text monotonicity recorder — one role, for every streaming view.
 //
 // WHAT IT CLAIMS, AND WHY IT IS A RECORDER RATHER THAN AN ASSERTION. The reveal
 // engine's contract is that published text never regresses, and the honest way to
@@ -18,7 +18,7 @@
 // exception stays visible instead of being folded into the rule.
 //
 // WHY IT IS A ROLE MODULE RATHER THAN PART OF ONE SUITE. It is a test ROLE, and
-// `apps/desktop/AGENTS.md` gives each role one home: any surface that reveals text incrementally — a row body, a tool
+// `apps/desktop/AGENTS.md` gives each role one home: any view that reveals text incrementally — a row body, a tool
 // result, a reasoning tail — wants this same watcher, and a second copy under a
 // tier directory is the duplicate that file rejects.
 //

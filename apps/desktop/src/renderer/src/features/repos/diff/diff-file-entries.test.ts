@@ -37,7 +37,7 @@ describe("diffFileListReading", () => {
     expect(diffFileListReading(DIFF, "  MODULE-01  ").matchCount).toBe(1);
   });
 
-  it("carries what the extended headers said, for the surfaces that draw it", () => {
+  it("carries what the extended headers said, for the views that draw it", () => {
     const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
     const { entries } = diffFileListReading(
       buildDiffFixture({ ...SMALL_DIFF_SHAPE, extendedHeaderFiles: true }),

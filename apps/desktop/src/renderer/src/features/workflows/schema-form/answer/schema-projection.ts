@@ -6,7 +6,7 @@
 // the only module that turns one into an answer.
 //
 // A MEMBER IS PRESENT EXACTLY WHILE SOMETHING ON THE SCREEN IS DISPLAYING A VALUE FOR IT,
-// AND WHERE THE SURFACE CANNOT DISPLAY ABSENCE, REQUIREDNESS DECIDES. That rule lives in
+// AND WHERE THE CONTROL CANNOT DISPLAY ABSENCE, REQUIREDNESS DECIDES. That rule lives in
 // `schema-fields.ts` and is read here rather than restated: an answered node contributes
 // what it holds, and an unanswered one contributes `unansweredFieldValue` — which is a
 // value for the one control that cannot show absence and nothing at all for the other five.
@@ -24,13 +24,13 @@
 // Omitted alone, a press would send fewer entries than the person can see; carried, the
 // only representation available inside a JSON array is `undefined`, which serializes to
 // `null` and makes the checked value and the sent value differ. So the entry leaves the
-// array and the form says so: `draftIssuesIn` names it, the report the surface renders
+// array and the form says so: `draftIssuesIn` names it, the report the form renders
 // carries that sentence, and the answer is invalid until the entry is answered or removed.
 //
 // AND THE POSITIONS THE VALIDATOR ADDRESSES ARE THE PROJECTED ONES. An entry the
 // projection dropped shifts every entry after it, so a finding the schema reports at
 // `["reviewers", 0]` can belong to the second row on the screen. `projectedEntryPosition`
-// is that translation, made once here, so no surface matches a row against a position it
+// is that translation, made once here, so no component matches a row against a position it
 // computed itself.
 
 import {

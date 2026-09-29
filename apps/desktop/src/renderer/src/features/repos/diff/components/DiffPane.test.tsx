@@ -74,7 +74,7 @@ describe("diff pane — a model handed in", () => {
 });
 
 describe("diff pane — the absence it renders", () => {
-  it("says the question was not put, on a surface", () => {
+  it("says the question was not put, in the pane", () => {
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
     const nothing = container.querySelector(".meridian-nothing");
     expect(nothing?.classList.contains("meridian-nothing--not-checked")).toBe(true);

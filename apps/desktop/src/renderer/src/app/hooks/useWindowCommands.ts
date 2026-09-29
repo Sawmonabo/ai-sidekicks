@@ -85,7 +85,7 @@ export function useWindowCommands(
   // after the first render needs the revision bumped.
   const [commandRevision, setCommandRevision] = useState(0);
 
-  // A bridge-backed command with no surface of its own refuses on a window banner,
+  // A bridge-backed command with no view of its own refuses on a window banner,
   // which the store composes.
   const raiseRefusalBanner = useCallback(
     (refusal: Refusal) => {
@@ -99,7 +99,7 @@ export function useWindowCommands(
 
   // The shipped chords with this person's overrides composed onto them, and whether
   // the keyboard is suspended for a recording.
-  const keybindingSurface = useKeybindingSnapshot(keybindingOverrides);
+  const keybindingSnapshot = useKeybindingSnapshot(keybindingOverrides);
 
   const keyBindingsRef = useRef<KeybindingTable>(undefined);
   keyBindingsRef.current ??= new KeybindingTable({
@@ -144,17 +144,17 @@ export function useWindowCommands(
 
   // Swapped in place, so a rebinding never detaches and re-attaches the listener.
   useEffect(() => {
-    keyBindings.setBindings(keybindingSurface.bindings);
-  }, [keyBindings, keybindingSurface]);
+    keyBindings.setBindings(keybindingSnapshot.bindings);
+  }, [keyBindings, keybindingSnapshot]);
 
   // The listener is absent while a chord is recorded: it listens in the capture phase,
   // so recording `$mod+1` would otherwise navigate to Sessions instead of binding it.
   useEffect(() => {
-    if (keybindingSurface.recording) {
+    if (keybindingSnapshot.recording) {
       return undefined;
     }
     return keyBindings.install(window);
-  }, [keyBindings, keybindingSurface]);
+  }, [keyBindings, keybindingSnapshot]);
 
   const changePaletteOpen = useCallback((open: boolean) => {
     setPaletteOpen(open);

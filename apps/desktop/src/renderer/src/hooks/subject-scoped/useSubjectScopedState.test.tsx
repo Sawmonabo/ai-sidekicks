@@ -1,26 +1,26 @@
 // What the hook promises about FRAMES, and what the shape it replaced actually did.
 //
-// The React half of the family. The rule itself — the addressing, the epoch, and what
-// a late settlement does — is drivable with no renderer at all and lives beside
-// `subject-scoped-holder.ts` in `subject-scoped-holder.test.ts`; what needs a tree is
-// the claim this file is about: which frames a re-address paints, and which render a
-// publisher captured at is the one it writes into.
+// The React half of the subject-scoped rule. The rule itself — the addressing, the
+// epoch, and what a late settlement does — is drivable with no renderer at all and
+// lives beside `subject-scoped-holder.ts` in `subject-scoped-holder.test.ts`; what
+// needs a tree is the claim this file is about: which frames a re-address paints, and
+// which render a publisher captured at is the one it writes into.
 //
 // The publisher's own claim — that it names the visit on screen even after a render
 // React dropped moved the addressing underneath it — is a third subject and lives in
 // `subject-scoped-dropped-pass.test.tsx`, beside the resource hook's half of it.
 //
-// Every clean assertion here is paired with a NEGATIVE CONTROL that drives the shape
-// five families each wrote before this module existed — a plain `useState` reset from
-// an effect — over the identical script, and shows it failing. Without that pairing
-// "no frame carried the old subject" is a sentence about a test rather than about the
-// code: a holder that never re-addressed at all would pass it too.
+// Every clean assertion here is paired with a NEGATIVE CONTROL that drives the naive
+// shape — a plain `useState` reset from an effect — over the identical script, and
+// shows it failing. Without that pairing "no frame carried the old subject" is a
+// sentence about a test rather than about the code: a holder that never re-addressed at
+// all would pass it too.
 //
 // Renders are COUNTED, not just inspected. The guarantee is not merely that the value
 // is eventually right; it is that the pass which first sees a new subject already
 // reads that subject's own seed. A holder that reached the same value by discarding a
 // render pass would satisfy every value assertion and cost a frame per re-address on
-// a surface the pane layout re-addresses on every pane move.
+// a pane the pane layout re-addresses on every pane move.
 
 import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";

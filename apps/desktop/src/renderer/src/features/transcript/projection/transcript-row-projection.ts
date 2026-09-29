@@ -11,7 +11,7 @@
 // through the backward page read (`services/daemon/timeline-page.ts`), and that reader
 // decodes every row into a `ProjectedSessionEvent` before the store sees it, which is
 // also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
-// the raw log and not the projection. So the surface has two honest options: render
+// the raw log and not the projection. So the transcript has two honest options: render
 // nothing until a projection reaches it, or state what the log itself supports and
 // NAME every member the log cannot supply. The shell exists to take the second, and
 // this module is where the naming happens.
@@ -28,7 +28,7 @@
 //     census, rather than inferred from the type string's prefix. A kind the
 //     census does not carry is DROPPED AND COUNTED rather than filed under a
 //     guess: a row under the wrong category is filtered and grouped wrongly by
-//     every surface downstream, which is worse than a row that is missing and
+//     every view downstream, which is worse than a row that is missing and
 //     said to be missing.
 //   • `runId` on the run arm — read from the payload members the registered shapes
 //     carry, by `run-attribution.ts`, which derives them from those shapes rather

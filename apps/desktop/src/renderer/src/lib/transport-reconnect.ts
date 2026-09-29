@@ -1,28 +1,26 @@
 // What a reading needs of the console's transport-reconnect signal, and nothing more.
 //
 // The refresh policy forbids interval polling: reads happen on subscribe, on window
-// focus, on reconnect, and on the terminal events the owning surface names. Three of
-// those four were wired and the third was not — `RefreshReason` named `reconnect`, one
-// session-scoped producer raised it from a session store's own repair edge, and a
-// window-scoped reading (this node's diagnostics, this node's accounts, the machine's
-// settings) had no session, therefore no repair edge, and therefore no reconnect at
-// all.
+// focus, on reconnect, and on the terminal events the owning view names. A session
+// store raises `reconnect` from its own repair edge, but a window-scoped reading (this
+// node's diagnostics, this node's accounts, the machine's settings) has no session and
+// therefore no repair edge, so this signal is how it learns of a reconnect.
 //
 // WHY THE INTERFACE IS HERE AND THE EMITTER IS NOT
 //
-// The producer belongs to `bridge/`: what "the transport came back" MEANS is a fact
-// about the wire, and the wire is that family's. The consumer is `store/`, which sits
-// BELOW `bridge/` in the console's family DAG precisely so a store cannot reach a wire
-// — so the reading hooks cannot import the emitter, and an emitter declared in `store/`
+// The producer belongs to `services/`: what "the transport came back" MEANS is a fact
+// about the wire, and the wire is that layer's. The consumer is `store/`, which sits
+// BELOW `services/` in the import layering precisely so a store cannot reach a wire —
+// so the reading hooks cannot import the emitter, and an emitter declared in `store/`
 // would put the wire's own vocabulary underneath the layer that owns it.
 //
-// `core/` is the floor both may reach, and what lives here is the half a consumer
+// `lib/` is the layer both may reach, and what lives here is the half a consumer
 // needs: the subscribe view. It holds no state, decides nothing, and names no
 // transport. `services/transport/transport-reconnect.ts` is the implementation, and it
 // is the only thing in the console allowed to decide that a reconnect happened.
 //
 // ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm
-// reachability enum: a surface that could read the current state would render it, and a
+// reachability enum: a view that could read the current state would render it, and a
 // renderer that painted "connected" would be claiming a fact it observes only
 // indirectly — the tray's three states are the supervisor's, not the renderer's. What
 // crosses this boundary is an EDGE — the wire was away and is back — which is the one
@@ -42,7 +40,7 @@ export interface TransportReconnectObservable {
    *
    * Never called for a FIRST connection, which is not a reconnect: a reading's own
    * `subscribe` reason already covers the moment it opens, and firing here as well
-   * would put two reads behind every surface that mounts.
+   * would put two reads behind every view that mounts.
    */
   subscribe(onReconnect: () => void): Unsubscribe;
 }

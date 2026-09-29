@@ -186,7 +186,7 @@ export class ReadingAnchor {
    * The pill, and the keyboard's jump.
    *
    * Returns the mode it moved to rather than performing a scroll: the anchor
-   * decides, and the one module that can move the surface performs.
+   * decides, and the one module that can move the scroll container performs.
    */
   public resumeFollowing(): ReadingMode {
     this.#pinnedRootCursor = undefined;

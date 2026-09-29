@@ -12,7 +12,7 @@
 //     entries it is handed and carries no availability flag of its own — an
 //     unreachable destination is one its caller left out.
 //   • **Quiet.** The rail carries no color except the accent on the current
-//     destination. It is the console's most-seen surface, so it is the one that most
+//     destination. It is the console's most-seen component, so it is the one that most
 //     has to stay quiet.
 
 import type { GlyphName } from "@renderer/console/primitives/index.js";
@@ -85,8 +85,8 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
 export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTemplate>> = {
   sessions: { label: "Sessions", glyph: "sessions" },
   // The `workflow` glyph the pane kind already uses, rather than a plural sibling
-  // drawn beside it. One picture per concept is what makes the collection a family
-  // — the destination and the pane it opens are the same thing at two scales, and
+  // drawn beside it. One picture per concept is what makes the glyphs one set — the
+  // destination and the pane it opens are the same thing at two scales, and
   // two glyphs for them would differ only by whoever drew the second one.
   workflows: { label: "Workflows", glyph: "workflow" },
   settings: { label: "Settings", glyph: "settings" },

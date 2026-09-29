@@ -1,9 +1,8 @@
 // The collaborators every session-store-registry suite constructs a registry with.
 //
-// AT THE FAMILY ROOT AND NOT IN `session/`, for `session-event.test-support.ts`'s
-// reason: six families outside this one build their initialized store through it, and
-// `read/`'s scheduler suites settle microtasks through it, so it is the family's
-// scaffolding rather than one sub-module's.
+// IN `tests/helpers/` AND NOT BESIDE THE SESSION STORE: suites in several features build
+// their initialized store through it, and the read scheduler suites settle microtasks
+// through it, so it is shared scaffolding rather than one module's.
 //
 // One home for the reader, the projector, the event and snapshot builders, the
 // microtask settle, and the initialized store the sibling suites share. Nothing here
@@ -11,12 +10,10 @@
 // projector would let two suites disagree about what an applied event looks like.
 //
 // AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initializedStore` is doing
-// at the bottom of this file. Three families had written that builder — the run
-// console, the workspace mounts page, and this directory's own event-signal suite —
-// byte for byte, in three trees whose authors do not read each other's diffs. They
-// agreed only because none of them had been touched: `SessionStore.initialize` growing
-// a required member would have had to move in three places, and the one left behind
-// would have gone green over a store its siblings no longer build.
+// at the bottom of this file. One builder, because
+// copies in several suites agree only until `SessionStore.initialize` grows a required
+// member: it would have to move in every copy, and the one left behind would go green
+// over a store the others no longer build.
 
 import type {
   ProjectedSessionEvent,

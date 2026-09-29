@@ -1,9 +1,9 @@
 // Once per distinct sentence, in the polite lane, and never for a state that has not
 // settled.
 //
-// The cases that matter are the two silences. A surface that re-announced on every
+// The cases that matter are the two silences. A view that re-announced on every
 // render would fill the queue with one sentence and shed everything behind it; a
-// surface that announced its `not-loaded` arm would tell a person a read had landed
+// view that announced its `not-loaded` arm would tell a person a read had landed
 // before it had. Both are inaudible on screen, so both are asserted here against the
 // real announcer rather than against a spy — what a reader would hear is the region's
 // text, and that is what these cases read.
@@ -22,14 +22,16 @@ afterEach(() => {
   cleanup();
 });
 
-/** A surface whose whole job is to hand one sentence to the hook. */
-function SettlingSurface(props: { readonly sentence: string | undefined }): React.JSX.Element {
+/** A component whose whole job is to hand one sentence to the hook. */
+function SettlementSentenceProbe(props: {
+  readonly sentence: string | undefined;
+}): React.JSX.Element {
   useSettlementAnnouncement(props.sentence);
-  return <p>a surface</p>;
+  return <p>a settling view</p>;
 }
 
 /**
- * Mount the surface over an announcer this test drives.
+ * Mount the probe over an announcer this test drives.
  *
  * The announcer is supplied rather than built by the provider so the hold window is
  * on frozen time: a message clears on a real timer otherwise, and "was it said again"
@@ -44,7 +46,7 @@ function mount(sentence: string | undefined): {
   const announcer = new LiveAnnouncer({ clock });
   const view = render(
     <LiveAnnouncerProvider announcer={announcer}>
-      <SettlingSurface sentence={sentence} />
+      <SettlementSentenceProbe sentence={sentence} />
     </LiveAnnouncerProvider>,
   );
   return {
@@ -54,7 +56,7 @@ function mount(sentence: string | undefined): {
       act(() => {
         view.rerender(
           <LiveAnnouncerProvider announcer={announcer}>
-            <SettlingSurface sentence={next} />
+            <SettlementSentenceProbe sentence={next} />
           </LiveAnnouncerProvider>,
         );
       });
@@ -110,7 +112,7 @@ describe("settlement announcement — what is not said twice", () => {
   it("negative control: a reading that returns to not-settled does not clear or repeat", () => {
     // `undefined` means "nothing has settled", which is not the same as "say the
     // empty string" — the announcer publishes an empty string to CLEAR a region, and
-    // a surface that passed one through would silence whatever was standing.
+    // a view that passed one through would silence whatever was standing.
     const { container, rerender } = mount("Four mounts were read.");
     rerender(undefined);
     expect(politeText(container)).toBe("Four mounts were read.");

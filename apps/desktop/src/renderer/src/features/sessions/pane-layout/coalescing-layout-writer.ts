@@ -20,14 +20,14 @@
 // leak, and nothing for a test to advance.
 //
 // AND THE PARTITION RIDES THE REQUEST, NOT THE CALLER'S CURRENT STATE. A request
-// names the session its snapshot belongs to, and the single pending slot carries
+// names the session its snapshot belongs to, and the single pending request carries
 // both, so the pump writes what the request named however long it waited. The
 // alternative — reading the caller's current session inside the write callback —
 // files a queued arrangement under whichever session the person navigated to while
 // it waited, which overwrites that session's saved pane layout with another one's.
 //
 // THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
-// `UiStateStore`, and that store is replaced under a live surface: a reconnect
+// `UiStateStore`, and that store is replaced under a live pane layout: a reconnect
 // re-mints it and the composition root hands the new one down without remounting
 // anything beneath. A writer built in a `useState` initializer closes over the store
 // of its FIRST render and keeps writing there, so every later arrangement is filed in
@@ -38,9 +38,8 @@
 //
 // RETIREMENT FLUSHES; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
 // before it stops accepting requests, because the last arrangement a person made is
-// exactly the one they expect to find, and a terminal that threw it away would be
-// worse than the no-terminal this class shipped with. A request arriving after
-// retirement is dropped rather than filed: the surface on screen holds the writer
+// exactly the one they expect to find. A request arriving after
+// retirement is dropped rather than filed: the pane layout on screen holds the writer
 // bound to the live store, and that is where its arrangement belongs.
 
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -114,7 +113,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   public request(partition: string, snapshot: TRecord): void {
     if (this.#isRetired) {
       // Dropped rather than filed: this writer's store has been replaced, and the
-      // surface on screen is already holding the writer bound to the live one.
+      // pane layout on screen is already holding the writer bound to the live one.
       return;
     }
     this.#pending = { partition, snapshot };
@@ -125,7 +124,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
    * Send what is waiting, then stop accepting requests. The terminal, and total.
    *
    * Called when the store this writer was built over is replaced. It FLUSHES: the
-   * pending slot holds the newest arrangement, and a teardown that dropped it would
+   * pending request holds the newest arrangement, and a teardown that dropped it would
    * throw away the one act the person performed last. Where a write is already in
    * flight there is nothing to start — the pump's own `finally` sends the pending one
    * — so this needs no `await` and answers in both states.

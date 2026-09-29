@@ -64,14 +64,14 @@ const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FIRST_LEDGER_ROW_BUDGET_ID);
 
 /**
- * How long the page function waits for a surface before giving up on it.
+ * How long the page function waits for each paint before giving up on it.
  *
  * Far above the budget it is measuring — this bounds a console that never mounted
  * the transcript at all, which is a different failure from a slow one, and it has to
  * be loose enough that runner contention is never mistaken for it. Well under the
  * tier's own timeout, so the failure names the selector rather than the whole test.
  */
-const SURFACE_WAIT_BUDGET_MS = 30_000;
+const PAINT_WAIT_BUDGET_MS = 30_000;
 
 /**
  * The stall the negative control plants, in milliseconds.
@@ -144,7 +144,7 @@ async function measureFirstTranscriptRow(
       advanceMilliseconds,
       advanceCount,
       stallMilliseconds,
-      surfaceWaitBudgetMs,
+      paintWaitBudgetMs,
     ]: [
       string,
       string,
@@ -188,7 +188,7 @@ async function measureFirstTranscriptRow(
         const paintWaitTimer = setTimeout(() => {
           observer.disconnect();
           resolve(null);
-        }, surfaceWaitBudgetMs);
+        }, paintWaitBudgetMs);
         // `buffered` so an entry recorded between the read above and this call
         // is delivered rather than lost in the gap between the two.
         observer.observe({ type: "paint", buffered: true });
@@ -239,7 +239,7 @@ async function measureFirstTranscriptRow(
           const waitTimer = setTimeout(() => {
             observer.disconnect();
             resolve(null);
-          }, surfaceWaitBudgetMs);
+          }, paintWaitBudgetMs);
           observer.observe(document.documentElement, { childList: true, subtree: true });
         });
 
@@ -288,7 +288,7 @@ async function measureFirstTranscriptRow(
       stepMilliseconds,
       stepCount,
       plantedStallMilliseconds,
-      SURFACE_WAIT_BUDGET_MS,
+      PAINT_WAIT_BUDGET_MS,
     ] as [string, string, string, string, number, number, number, number],
   );
 }
@@ -308,18 +308,18 @@ function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
-    `the launched console recorded no first-contentful-paint entry inside ${String(SURFACE_WAIT_BUDGET_MS)} ms, ` +
+    `the launched console recorded no first-contentful-paint entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
     "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
     "reporting the harness",
   "no-scenario-handle":
     "the launched console exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
-    `the console never painted the session screen's pane inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    `the console never painted the session screen's pane inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
     "The instrument was ready and the console did not mount — this is a console failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the console painted the session screen's pane but no transcript row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    `the console painted the session screen's pane but no transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
     "A console that mounts no transcript row at all is the regression this budget row exists to catch — " +
     "this is a console failure, not a harness that was not there yet",
 };

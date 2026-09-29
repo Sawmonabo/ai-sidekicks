@@ -50,16 +50,16 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
 
   it("feeds the library's offset and rect from ONE scroll listener", () => {
     // The library's own `observeElementOffset` and `observeElementRect` each attach
-    // their own listener and observer. Two sources for one box is how two surfaces
+    // their own listener and observer. Two sources for one box is how two readers
     // start disagreeing about where the reader is standing.
-    const surface = createCountingScrollContainer();
+    const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const offsets: number[] = [];
     const heights: number[] = [];
     controller.seams.observeElementOffset(UNUSED_VIRTUALIZER, (offset) => offsets.push(offset));
     controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
-    expect(surface.scrollListenerCount).toBe(1);
+    expect(scrollContainer.scrollListenerCount).toBe(1);
     // Replayed on subscribe, so a pane mounted mid-stream knows where it is.
     expect(offsets).toStrictEqual([40]);
     expect(heights).toStrictEqual([300]);
@@ -69,14 +69,14 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     // The library's own `observeElementRect` runs a `ResizeObserver`; this frame
     // replaces it, so the height a resize produces reaches the virtualizer through
     // this subscription or through nothing at all.
-    const surface = createCountingScrollContainer({ clientHeight: 300 });
+    const scrollContainer = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const heights: number[] = [];
     controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
 
-    surface.resizeTo(260, 4000);
+    scrollContainer.resizeTo(260, 4000);
     controller.scroll.requestOverflowMeasurement();
     clock.runFrame();
 
@@ -86,10 +86,10 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   it("negative control: a pass over an unchanged box gives it nothing to re-lay-out", () => {
     // Otherwise the case above would pass over a seam that republished on every
     // pass, which is a full re-layout of the window per measurement frame.
-    const surface = createCountingScrollContainer({ clientHeight: 300 });
+    const scrollContainer = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const heights: number[] = [];
     controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
 

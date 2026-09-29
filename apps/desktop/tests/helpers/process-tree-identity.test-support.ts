@@ -38,8 +38,8 @@ export const CAPTURED_TREE_TABLE: ReadonlyMap<number, ProcessTableRow> = process
  * is a legitimate scripted answer, so the bound is checked before the take
  * rather than inferred from one.
  *
- * Exported because both suites take a scripted root: the reissue cases over
- * there, and the ancestry proof and the refresh that could not read next door.
+ * Exported because both suites take a scripted root: the reissue cases in
+ * one, and the ancestry proof and the refresh that could not read in the other.
  */
 export class ScriptedStartStamps {
   readonly #answers: readonly (string | undefined)[];

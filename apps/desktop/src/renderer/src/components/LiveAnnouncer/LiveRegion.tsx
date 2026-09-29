@@ -4,8 +4,8 @@
 // file, and the reason that rule holds here rather than being a formality: the
 // provider beside it decides WHO owns an announcer and for how long, and this
 // decides what an announcement looks like in the accessibility tree. Two decisions,
-// two modules. It is not exported through the family door — the console has one
-// announcer per window and the provider mounts its pair, so a family that reached
+// two modules. It is not exported from the shared components' public entry — the console
+// has one announcer per window and the provider mounts its pair, so a feature that reached
 // for this directly would be the second speaker `LiveAnnouncerProvider` exists to
 // make unrepresentable.
 //

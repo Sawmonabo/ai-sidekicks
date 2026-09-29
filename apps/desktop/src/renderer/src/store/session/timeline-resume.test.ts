@@ -31,7 +31,7 @@ describe("resolveTimelineResume — where the next read starts", () => {
   });
 
   it("restarts from the beginning when nothing has been acknowledged", () => {
-    // The ordinary FIRST read, and the case the retired rule refused outright: a
+    // The ordinary FIRST read, and not a refusal: a
     // user who has been acknowledged nowhere has no position to resume from,
     // and the beginning of the window is where a reader with no position starts.
     const decision = resolveTimelineResume({ latest: LATEST });
@@ -95,7 +95,7 @@ describe("the refused arm — the one refusal left", () => {
 
   it("raises every code it declares, so the enumeration is a set and not a comment", () => {
     // The closed-set claim, both directions: what the module can raise and what it
-    // says it can raise are the same list. A member nothing raises is a code a surface
+    // says it can raise are the same list. A member nothing raises is a code a view
     // could branch on and never reach.
     const raised = new Set(
       [refuseUnresolvableResume()].flatMap((decision) =>

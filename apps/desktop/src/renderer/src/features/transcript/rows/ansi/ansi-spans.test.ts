@@ -106,7 +106,7 @@ describe("parsing ANSI output", () => {
   });
 
   it("negative control: blink and conceal are NOT reproduced", () => {
-    // Both absences are decisions. Blink would hand a subprocess the surface's motion
+    // Both absences are decisions. Blink would hand a subprocess the transcript's motion
     // budget; conceal would let a tool hide bytes it printed. The text survives both.
     const { spans } = parseAnsiSpans(`${ESCAPE}[5m${ESCAPE}[8msecret`);
     expect(spans.map((span) => span.text).join("")).toBe("secret");

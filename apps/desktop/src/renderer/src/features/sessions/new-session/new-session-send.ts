@@ -144,26 +144,26 @@ async function resolveSession(
   completedCalls: string[],
 ): Promise<CreateSettlement> {
   if (request.sessionId !== undefined) {
-    // Named as completed even though this press did not issue it: the slot's job is to
-    // say what EXISTS, and a session made by the previous press is as real as one made
-    // by this one.
+    // Named as completed even though this press did not issue it: the completed-calls
+    // list's job is to say what EXISTS, and a session made by the previous press is as
+    // real as one made by this one.
     completedCalls.push(SESSION_CREATE_METHOD);
     return { settlement: "resolved", sessionId: request.sessionId };
   }
-  // Through the bridge's one call door, which parses the request before sending and
+  // Through `callDaemon`, the bridge's one daemon call, which parses the request before sending and
   // the reply after and never throws.
   const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {});
   if (reply.status === "refused") {
     if (reply.refusal.code === ("reply-unreadable" satisfies DaemonReplyRefusalCode)) {
-      // THE ONE REFUSAL THAT IS NOT EVIDENCE OF NOTHING HAPPENING. The door answers
+      // THE ONE REFUSAL THAT IS NOT EVIDENCE OF NOTHING HAPPENING. `callDaemon` answers
       // this code when the call FULFILLED and the value failed the registered response
       // schema — so the daemon was reached, ran, and answered, and the only thing that
       // failed is this build's reading of what it said. A session was very possibly
       // created.
       //
-      // NARROW ON PURPOSE, and the boundary is the door's own vocabulary rather than a
+      // NARROW ON PURPOSE, and the boundary is `callDaemon`'s own vocabulary rather than a
       // judgment made here: `request-unsendable` means nothing left this process,
-      // `read-abandoned` is never reachable on a mutation (the door is handed no
+      // `read-abandoned` is never reachable on a mutation (`callDaemon` is handed no
       // cancellation here), and `call-rejected` is the call itself failing — which this module
       // treats as a plain refusal, because widening the ambiguous arm to every
       // transport hiccup would make a draft permanently unsendable for a fault that

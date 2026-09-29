@@ -70,7 +70,7 @@ export function toolBindingFileRecords(
  *
  * A STRING FOR THE FAILURE ARM rather than a second result type, which is the shape
  * every reader of this file form takes: the caller widens whichever it gets into the
- * one reading a surface renders, and a result type per level would be four unions
+ * one reading a view renders, and a result type per level would be four unions
  * describing one outcome.
  */
 export function readToolBindings(
@@ -133,7 +133,7 @@ function readBindingReference(value: unknown, bindingProse: string): McpServerBi
   const facet = GOVERNANCE_FACET_KEYS.find((key) => key in value);
   if (facet !== undefined) {
     // The rule, in the sentence rather than only in the code: these three are set
-    // through the node's own governance surface and resolved live at phase launch, so
+    // through the node's own governance settings and resolved live at phase launch, so
     // a definition carrying one is refused rather than imported and ignored.
     return `${bindingProse} carries \`${facet}\`, which is the node operator's setting and never a definition's.`;
   }

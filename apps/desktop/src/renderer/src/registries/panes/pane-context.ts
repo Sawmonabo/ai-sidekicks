@@ -10,7 +10,7 @@
 // module below both is what that gate's own message prescribes, and the same move
 // `registries/commands/command-contributions.ts` makes for the command shape.
 //
-// It imports nothing from this family, which is the property that makes it a floor
+// It imports nothing from this folder, which is the property that makes it a floor
 // rather than one more node in the graph.
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";

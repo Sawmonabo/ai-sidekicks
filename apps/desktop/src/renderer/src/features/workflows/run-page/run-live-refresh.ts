@@ -8,7 +8,7 @@
 // keyed on.
 //
 // AND IT IS NOT A POLL. The console's read policy puts reads on subscribe, on window
-// focus, on reconnect, and on the terminal events the owning surface names, through one
+// focus, on reconnect, and on the terminal events each reading names, through one
 // coalescing scheduler — and forbids an interval outright. This module is that policy
 // applied to one run: `store/reads/session-refresh-triggers.ts` observes the three outside
 // reasons, `lib/reads/refresh-scheduler.ts` coalesces them, and what comes out is a
@@ -96,7 +96,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this pane a fresh read.
    *
-   * Declared on the READING rather than handed to it by the surface that mounts it,
+   * Declared on the READING rather than handed to it by the pane that mounts it,
    * which is `ReadTriggerTarget`'s own rule: which events change an answer is a
    * property of the question, and two panes asking the same one must not disagree
    * about when it goes stale.

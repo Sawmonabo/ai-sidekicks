@@ -137,7 +137,7 @@ export function usePaneLayoutPersistence(
   // for the store: the pane layout is the subject and the session is the key, so a `UiStateStore`
   // replacement leaves this exactly as it was. It is a write gate and a dispatch gate and
   // nothing else, which is why it is held here rather than on the pane layout: a rendered
-  // `hasSettled` is a fact a surface announces on, so hoisting one of the two onto the
+  // `hasSettled` is a fact a view announces on, so hoisting one of the two onto the
   // other would give a persistence gate a place in a rendered state shape, or an
   // announcement a place in a hook.
   const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());

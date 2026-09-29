@@ -23,7 +23,7 @@
 }
 
 /*
- * The two doors below are this label's public API. A page whose label IS a wire value
+ * The two custom properties below are this label's public API. A page whose label IS a wire value
  * asks for the provenance face through them; every other page leaves them unset and
  * takes the sans face at the row's own size. They exist because a page that declared
  * `.meridian-settings-row__label` in its own sheet would be a second sheet declaring

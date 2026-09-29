@@ -61,7 +61,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
       expect(result.refusal.code).toBe("adapter-unavailable");
       expect(isRefusal(result.refusal)).toBe(true);
     }
-    // Counted, so the diagnostics surface shows a store that has begun to fail
+    // Counted, so the diagnostics view shows a store that has begun to fail
     // rather than a write that quietly went nowhere.
     expect((await store.health()).refusalCounts["adapter-unavailable"]).toBe(1);
   });

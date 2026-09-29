@@ -1,13 +1,13 @@
 // What every transcript card is handed.
 //
-// `TranscriptRowProps` is the seat's contract — the row plus the three decisions the
-// LIST makes about it (hue, supersession, density). A card needs those and two more
-// things the seat cannot carry, because neither is a property of the row's position in
+// `TranscriptRowProps` is the row renderer's contract — the row plus the three decisions
+// the LIST makes about it (hue, supersession, density). A card needs those and two more
+// things the row renderer's props cannot carry, because neither is a property of the row's position in
 // a list: the hydrated body, and the footnote registry the message it belongs to shares.
 //
-// EXTENDING THE SEAT RATHER THAN RESTATING IT is the point. A member added to
+// EXTENDING THE CONTRACT RATHER THAN RESTATING IT is the point. A member added to
 // `TranscriptRowProps` reaches both cards without either one being edited, and no card
-// can quietly disagree with the seat about what a row is.
+// can quietly disagree with the row renderer about what a row is.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 

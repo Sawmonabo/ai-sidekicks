@@ -2,7 +2,7 @@
 //
 // Nine suites wrote this loop, differing only in the bound they passed (3, 3, 3, 4,
 // 4, 4, 6, 8) and in nothing else — same `act`, same wait, same shape. A loop written
-// nine times is a loop fixed once: a surface that grows one more chained effect gets
+// nine times is a loop fixed once: a component that grows one more chained effect gets
 // its own copy raised, and the eight that flush one pass too few then assert against
 // a tree one settlement behind, intermittently, because the short count wins on a
 // fast machine.
@@ -22,12 +22,6 @@
 // React's scope is applied without the surrounding commit, and an assertion taken
 // next reads the render before it. The boundary alone, for a case already inside an
 // `act` body, is the sibling module's own export.
-//
-// It lives in `core/` for the reason `frozen-instant.test-support.ts` does: it is
-// the bottom of the family DAG, so a view family, a store suite, and a settings page
-// all reach it without one of them having to import another's family.
-// `core/committed-frame.test-support.tsx` is the precedent that this family may hold
-// a React-importing test-support module.
 
 import { act } from "@testing-library/react";
 

@@ -2,7 +2,7 @@
 //
 // IT DRAWS A PLACEHOLDER, AND THAT IS THE WHOLE POINT. A line of text alone would make
 // the header one line of prose tall while the session opens and a different height a
-// moment later, so every surface below it would move down the page at the exact instant
+// moment later, so every view below it would move down the page at the exact instant
 // a person was reaching for something. The placeholder holds a fixed height, so the
 // header's height is settled before the store opens and nothing under it jumps.
 //

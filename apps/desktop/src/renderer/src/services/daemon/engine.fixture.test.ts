@@ -230,7 +230,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
     // Without this, an engine that replayed on every emission — or one that replayed
     // to a subscriber that had already received the prefix — would pass every case
     // above while delivering the opening beats twice to the console's real
-    // subscriber, which is a duplicate the store would silently drop and a timeline
+    // subscriber, which is a duplicate the store would silently drop and a transcript
     // that would read as though the session had happened twice.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
@@ -245,7 +245,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   it("negative control: a subscriber that asks for no replay still receives no prefix", () => {
     // Replay is the whole-session stream's registered behavior and not the engine's
     // default: the narrowed run streams and the relay are live, and an engine that
-    // replayed unconditionally would hand a runs surface transitions it never
+    // replayed unconditionally would hand a run-stream subscriber transitions it never
     // subscribed in time for.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });

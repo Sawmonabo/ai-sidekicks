@@ -7,7 +7,7 @@
  * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 3 — amber means a person is
+ * Design-language rules that govern this sheet: the two-hue rule — amber means a person is
  * needed, red means something failed.
  *
  * The generated base sheet sets no global `border-box` reset, and a token-driven

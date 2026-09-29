@@ -1,6 +1,6 @@
 // Whose keystroke is it — the widget's, or the console's?
 //
-// Two surfaces ask that question and they ask two different versions of it, so both
+// Two callers ask that question and they ask two different versions of it, so both
 // live here rather than one being reimplemented beside the other:
 //
 //   • The keybinding table asks the NARROW one, per binding: is text being typed?
@@ -18,9 +18,9 @@
 // all deliver their events from a descendant. `isContentEditable` already inherits
 // down a contentEditable subtree; an ARIA role does not, so the role arm walks.
 //
-// It lives in `primitives/` rather than in either caller because both callers are
-// above it in the console's family DAG, and a helper hoisted to the lower of two
-// consumers is the rule this tree runs on. It renders nothing and imports nothing.
+// It lives in `lib/` rather than in either caller because both callers sit above it in
+// the import layering, and a helper two consumers share lives below both of them. It
+// renders nothing and imports nothing.
 
 /**
  * `<input>` types that are controls rather than text entry. A checkbox or a
@@ -78,7 +78,7 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
  * Does the widget this event came from own its own keys?
  *
  * True for every text-entry target, and additionally for anything inside a widget
- * whose ARIA role declares it takes the arrow keys. A surface that binds a bare
+ * whose ARIA role declares it takes the arrow keys. A view that binds a bare
  * modifier chord asks this before acting, so a person typing never has the view
  * rearranged underneath them.
  */

@@ -41,8 +41,8 @@ export interface VisibleTranscriptWindow {
    *
    * So the two are separated: this is the FACT, and the offer is somebody else's.
    * The find result's boundary reads this; the act that fetches rows the daemon still
-   * holds is `frame/paging/`'s, which asks the producer rather than the cap. The find
-   * surface offers none — see `TranscriptFeed.tsx`.
+   * holds is `history/`'s, which asks the producer rather than the cap. The find
+   * box offers none — see `TranscriptFeed.tsx`.
    */
   readonly hasEarlierRows: boolean;
   /**

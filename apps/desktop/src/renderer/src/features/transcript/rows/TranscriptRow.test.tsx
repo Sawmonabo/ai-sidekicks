@@ -13,7 +13,8 @@ import {
   findTranscriptRowRenderer,
   type TranscriptRowProps,
 } from "@renderer/console/seats/index.js";
-// Deeply: the teardown is reached by tests alone, so it is not a door line.
+// Imported directly: the teardown is reached by tests alone, so the shared entry does not
+// export it.
 import { unregisterTranscriptRowRenderer } from "../transcript-row-renderer.js";
 import {
   registerTranscriptRowFooterRenderer,
@@ -27,7 +28,7 @@ afterEach(() => {
   unregisterTranscriptRowRenderer();
 });
 
-function slotProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
+function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
@@ -72,7 +73,10 @@ function MountedInAList(props: {
           },
         }}
       >
-        <TranscriptRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+        <TranscriptRow
+          {...rowRendererProps(props.row)}
+          density={leased?.density ?? props.listDensity}
+        />
       </RetainedRowStateProvider>
     </InBridge>
   );
@@ -103,7 +107,7 @@ describe("routing a row to its card", () => {
     expect(container.querySelector(".meridian-message-card")).not.toBeNull();
   });
 
-  it("gives a reasoning row the reasoning surface rather than the machine body", () => {
+  it("gives a reasoning row the reasoning body rather than the machine body", () => {
     const { container } = render(
       <MountedInAList
         row={sampleRunRow({ type: "assistant.thinking_update" })}
@@ -118,7 +122,7 @@ describe("routing a row to its card", () => {
   });
 });
 
-describe("the edit control's seat", () => {
+describe("the edit control's footer renderer", () => {
   afterEach(() => {
     unregisterTranscriptRowFooterRenderer();
   });
@@ -127,7 +131,7 @@ describe("the edit control's seat", () => {
     return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
   }
 
-  it("draws the seat owner's control beside Copy on a user's own message", () => {
+  it("draws the footer renderer's control beside Copy on a user's own message", () => {
     registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
     const { container } = render(
       <MountedInAList
@@ -210,7 +214,7 @@ describe("standing in for the list's density decision", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
-      render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
+      render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />),
     ).toThrow(/retained row state provider/);
   });
 });

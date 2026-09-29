@@ -1,6 +1,6 @@
-// The next move under a refusal, in the region the `action` slot receives.
+// The next move under a refusal, in the region the `action` prop fills.
 //
-// ONE SHELL FOR EVERY TABLE. `refusal-props.ts` makes `action` a slot the caller fills,
+// ONE SHELL FOR EVERY TABLE. `refusal-props.ts` makes `action` a prop the caller fills,
 // and the three refusal shapes render whatever node arrives there. What arrives has the
 // same shape from every table: a sentence, then the exclusive alternatives where one
 // code stands for more than one situation. The props name no repo, no mount and no

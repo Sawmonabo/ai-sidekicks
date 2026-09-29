@@ -249,7 +249,7 @@ describe("ComposerSendRouter — one router, and identifiers the wire would acce
     expect(resolution.outcome).toBe("new-turn");
     // The negative control for "one router": the request the pure resolution built
     // is byte-identical to the one the dispatch sent. A second resolution path —
-    // the surface building its own request beside `resolve` — fails here.
+    // the composer building its own request beside `resolve` — fails here.
     expect(call.mock.calls[0]?.[1]).toStrictEqual(
       resolution.outcome === "new-turn" ? resolution.request : undefined,
     );

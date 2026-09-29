@@ -13,7 +13,7 @@
 //     date-only `2026-01-01` in UTC, and it NORMALIZES a date that does not exist:
 //     `2026-02-30T10:00:00Z` becomes March 2 and `2026-01-01T24:00:00Z` becomes the
 //     next day. Each answers a number, so the `Number.isNaN` guard every call site
-//     wrote passes and a surface renders an instant the wire never sent.
+//     wrote passes and a view renders an instant the wire never sent.
 //   • VALIDATED FIELD BY FIELD AT ONE CALL SITE. Correct where it was written, and
 //     invisible to the three sites that were not.
 //
@@ -37,12 +37,12 @@
 //     the exact leniency that made `Date.parse` unusable here.
 //   • `zod` (`z.iso.datetime`) — declined, on placement rather than on capability.
 //     It validates the calendar and the clock correctly, but the console admits a
-//     schema library at exactly one door — `bridge/`, where a daemon reply is parsed
-//     against the method's registered shape — and `core/` is the DAG floor, which
-//     takes no library at all. A wire SHAPE needs a registry row; an ENCODING of one
-//     scalar needs twenty lines, written below, and those lines are also what let
-//     this reader follow RFC 3339 section 5.6 exactly where zod narrows it (the
-//     lowercase `t` / `z` separators that section permits and zod refuses).
+//     schema library in exactly one place — `services/`, where a daemon reply is parsed
+//     against the method's registered shape — and `lib/` sits at the bottom of the
+//     import layering and takes no library at all. A wire SHAPE needs a registry row;
+//     an ENCODING of one scalar needs twenty lines, written below, and those lines are
+//     also what let this reader follow RFC 3339 section 5.6 exactly where zod narrows
+//     it (the lowercase `t` / `z` separators that section permits and zod refuses).
 //
 // ONE NARROWING THIS READER KEEPS, recorded rather than discovered later. RFC 3339
 // section 5.6 permits a leap second (`23:59:60Z`); the platform's epoch cannot
@@ -77,11 +77,10 @@ const RFC_3339_DATE_TIME =
  *
  * HERE BECAUSE THE MILLISECOND IS THIS MODULE'S UNIT. `Instant.epochMilliseconds` is
  * the only number the console does arithmetic on, so every duration a caller composes
- * or compares is a multiple of one of these — and the factors were being written out
- * per caller, three ways in three families: a private constant here, a `SECOND_`-based
- * chain in a presence model, and `24 * 60 * 60 * 1000` inline in a test harness. Three
- * spellings of one fact is three places for a zero to go missing, and every one of them
- * reads correctly on its own.
+ * or compares is a multiple of one of these. Written out per caller — a private
+ * constant, a `SECOND_`-based chain, `24 * 60 * 60 * 1000` inline — each spelling of one
+ * fact is one more place for a zero to go missing, and every one of them reads
+ * correctly on its own.
  *
  * DERIVED RATHER THAN WRITTEN OUT, for the same reason. `86_400_000` typed by hand is a
  * digit count nobody verifies at review; `24 * MILLISECONDS_PER_HOUR` is the sentence a

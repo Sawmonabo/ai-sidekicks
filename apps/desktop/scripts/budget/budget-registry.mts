@@ -1,6 +1,6 @@
 // The console budget registry.
 //
-// The QUERY surface over `tests/budget/budgets.json`, the one place every
+// The QUERY module over `tests/budget/budgets.json`, the one place every
 // numeric budget the console is gated on is written down. Load it, then ask it
 // things: which rows are the console's own product budgets, which the
 // scaffolding applies to itself, which are enforced, and what one row's canonical

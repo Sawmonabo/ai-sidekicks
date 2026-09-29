@@ -1,8 +1,8 @@
-// The mounts family's refusal copy: one move per code, and the three-way distinction.
+// The repo mounts' refusal copy: one move per code, and the three-way distinction.
 //
-// EVERY CASE HERE FAILS WITHOUT THE TABLE. The recovery slot on this family's refusal
-// shapes was empty before it, so a person meeting `repo.already_attached` read the code
-// and nothing else.
+// EVERY CASE HERE FAILS WITHOUT THE TABLE. Without it the recovery field on the repo
+// mounts' refusal shapes is empty, so a person meeting `repo.already_attached` reads the
+// code and nothing else.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,7 +19,7 @@ describe("mountRefusalRemedy — every registered code has a move", () => {
     expect(recovery?.nextMove.trim().length).toBeGreaterThan(0);
   });
 
-  it("negative control: a code this family does not own gets nothing invented for it", () => {
+  it("negative control: a code the repo mounts do not own gets nothing invented for it", () => {
     // The console must not answer a refusal it has no copy for with a generic
     // sentence: the daemon's own detail is then the only true thing on screen.
     expect(mountRefusalRemedy("session.not_found")).toBeUndefined();
@@ -54,7 +54,7 @@ describe("mountRefusalRemedy — the reuse conflict's three-way distinction", ()
 
   it("negative control: an ordinary code carries no distinctions at all", () => {
     // The list is rendered as a list, so a code that filled it with one restatement of
-    // its own move would put a bullet under every refusal in the family.
+    // its own move would put a bullet under every refusal the repo mounts raise.
     expect(mountRefusalRemedy("worktree.not_found")?.distinctions).toHaveLength(0);
   });
 });

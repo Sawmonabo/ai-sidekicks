@@ -1,4 +1,4 @@
-// The composer family's named bounds.
+// The composer feature's named bounds.
 //
 // Each cap lives with its narrowest owner, per the single-sourcing rules in
 // `apps/desktop/AGENTS.md`, so this is that module for the composer. It exists because a
@@ -48,7 +48,7 @@ export const COMPOSER_DRAFT_MAX_ROWS = 8;
  * page: a name matched against the first one alone refuses a definition the daemon
  * does carry. The walk is still bounded, because a daemon that kept handing back a
  * cursor would otherwise loop on a person's keystroke — so the read stops here and
- * reports itself incomplete, which is a partial list a surface may say is partial
+ * reports itself incomplete, which is a partial list a view may say is partial
  * rather than a search it may call finished.
  *
  * Sized well past what a session's own definitions plus the project and shared scopes

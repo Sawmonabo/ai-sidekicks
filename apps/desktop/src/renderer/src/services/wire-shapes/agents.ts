@@ -2,7 +2,7 @@
 // and the child-run link read, declared here because no contracts module carries them yet.
 //
 // `packages/contracts` carries the agent lifecycle EVENT types and every driver catalog
-// shape, and none of the reply shapes below. `agent-definition.ts` next door is the same
+// shape, and none of the reply shapes below. `agent-definition.ts` beside it is the same
 // kind of module for the same reason.
 //
 // TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`, `reason`, and
@@ -12,7 +12,7 @@
 // `agent-vocabularies.ts`, beside the question of whether a value is one a renderer knows,
 // which is a different question from what the wire may carry.
 //
-// EVERY FIELD THE RENDERER HAS NO GUARANTEE OF IS OPTIONAL, and every surface renders its
+// EVERY FIELD THE RENDERER HAS NO GUARANTEE OF IS OPTIONAL, and every view renders its
 // absence rather than a blank. A roster reply that carries identity and lifecycle and no
 // binding is a real answer, and the card says which half it got.
 

@@ -2,9 +2,9 @@
  * Binding a workspace to an execution mode: the mount root it is bound under, and the
  * modes this mount cannot offer.
  *
- * The dialog shape this surface shares with the attach and execution-root surfaces is in
+ * The dialog shape this dialog shares with the attach and execution-root dialogs is in
  * `../mount-controls.css`, imported ahead of this sheet; what is here is what only the
- * bind surface wears, including the one rule that overrides a shared one (`--out`'s
+ * bind dialog wears, including the one rule that overrides a shared one (`--out`'s
  * `cursor`), which is why this sheet loads after that one.
  *
  * Imported by `BindWorkspaceDialog.tsx`, which renders `BindModePicker.tsx`.

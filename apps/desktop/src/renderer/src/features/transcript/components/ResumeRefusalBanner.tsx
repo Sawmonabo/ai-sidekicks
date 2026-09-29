@@ -7,14 +7,10 @@
 // and the entry recovers by forgetting it and re-reading the window from its beginning.
 // That recovery is correct and it is also invisible: every row is present, the feed
 // looks ordinary, and what actually happened is that the console silently gave up a
-// place it was keeping. This is the surface that says so.
+// place it was keeping. This banner says so.
 //
-// WHY A BANNER AND NOT AN ABSENCE. This position used to hold a `Nothing` in its
-// `not-checked` kind, for a refusal that fired on every read from every responder —
-// a permanent band above every session screen reporting a version skew nothing was skewed
-// by. That refusal is gone (`timeline-resume.ts` says why), and what is left is a real
-// answer to a real request: the daemon refused something the console sent. So it takes
-// the refusal grammar's BANNER, whose own rule is the fit — what the whole room can do
+// WHY A BANNER AND NOT AN ABSENCE. This is a real answer to a real request: the
+// daemon refused something the console sent. So it takes the refusal grammar's BANNER, whose own rule is the fit — what the whole room can do
 // has changed, because the room's stream was re-read from a different place — and it
 // carries no `onDismiss`, which is that primitive's way of saying a notice clears when
 // its condition does rather than when a person waves it away.
@@ -23,12 +19,12 @@
 // the next read that resumes or restarts normally replaces it and this renders nothing.
 // A person is told once, about the read it happened on.
 //
-// WHY IT IS NOT A BLANK SURFACE. The store still projects and the subscription still
+// WHY IT DOES NOT BLANK THE SESSION SCREEN. The store still projects and the subscription still
 // replays and tails; what was lost is a remembered position. So this renders ABOVE the
 // session screen body and never in place of it — a screen that replaced the room would
 // report an outage the daemon is not having.
 //
-// WHY THE TRANSCRIPT FAMILY OWNS IT. This family's screen is what mounts a session's
+// WHY THE TRANSCRIPT FEATURE OWNS IT. This feature's screen is what mounts a session's
 // session screen, so it is the one place holding the registry and the route's session id
 // together. The session screen body is deliberately handed everything BUT the registry
 // (`index.ts` says why), and reversing that to carry one reading down would hand a
@@ -49,16 +45,15 @@ export interface ResumeRefusalBannerProps {
  * `null` for every other arm and for the interval before any read has landed. A
  * session that resumed, one that started from the beginning because nothing had been
  * acknowledged, and one whose first read is still in flight are three different facts
- * and none of them is this surface's to report — the first two are the ordinary course
- * and the third is already rendered as loading by the surface above.
+ * and none of them is this banner's to report — the first two are the ordinary course
+ * and the third is already rendered as loading by the session screen body.
  */
 export function ResumeRefusalBanner(props: ResumeRefusalBannerProps): React.JSX.Element | null {
   const decision = useTimelineResume(props.registry, props.sessionId);
   if (decision === undefined || decision.outcome !== "refused") {
     return null;
   }
-  // Spread, so the code and the sentence are the refusal's own. `refusal-contract.ts`'
-  // rule 1 is that the console renders the code verbatim and does not write a second
-  // sentence explaining what the refusal meant.
+  // Spread, so the code and the sentence are the daemon's own: the console never writes
+  // a second sentence explaining what a refusal meant.
   return <RefusalBanner {...decision.refusal} />;
 }

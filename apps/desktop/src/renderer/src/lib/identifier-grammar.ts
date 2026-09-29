@@ -12,7 +12,7 @@
 //
 // WHY THIS IS ITS OWN MODULE. The grammar is a decision about STRINGS and is wrong
 // when a string the store could have held is refused, or when one it could not is
-// admitted. The class table next door is a decision about SHAPES and is wrong when
+// admitted. The class table in `store/persistence/` is a decision about SHAPES and is wrong when
 // a value's structure is misread. Two failure modes, and one of them — the charset,
 // the ceiling, the path-separator exclusion — is the half a reviewer has to be able
 // to read on one screen without the seven class shapes around it.
@@ -60,7 +60,7 @@ const PATH_SEPARATOR = "/";
  * ceiling are still written in exactly one place.
  *
  * EXPORTED FOR THE PANE ADDRESS, and the two callers want the same thing for the same
- * reason. A layout row's entity id is a string this family already holds to
+ * reason. A layout row's entity id is a string the persistence layer already holds to
  * `isIdentifierShaped` on the way to disk, so a pane-address parse that admitted any
  * non-empty string would have route resolution accept an id the durable path refuses —
  * two boundaries onto one value, disagreeing. The separator exclusion carries over

@@ -15,7 +15,8 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type RowJumpAbsence, type RowJumpOutcome } from "./row-jump.js";
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
-// suite's totality case, so a door line for it would be a door widened for testing.
+// suite's totality case, so exporting it from the feature's public entry would widen
+// that entry for testing.
 import { ROW_JUMP_ABSENCES } from "./row-jump.js";
 import { foldRunGroupHeaders } from "../feed/run-group-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../transcript-logs.test-support.js";

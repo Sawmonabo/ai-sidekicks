@@ -25,8 +25,8 @@
 // GitHub sets no variable carrying the workflow's `runs-on` label, so the class is
 // identified by what the runner does publish. `GITHUB_ACTIONS` distinguishes a
 // hosted runner from a developer's machine — a self-hosted or local run sets none
-// of these — and `RUNNER_OS` / `RUNNER_ARCH` pin the image family and the
-// architecture, which are the two properties a timing actually depends on. A
+// of these — and `RUNNER_OS` / `RUNNER_ARCH` pin the operating system and
+// the architecture, which are the two properties a timing actually depends on. A
 // second Linux runner class added to the desktop job would land here as a second
 // entry rather than as a widened boolean.
 

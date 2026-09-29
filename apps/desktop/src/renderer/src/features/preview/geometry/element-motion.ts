@@ -19,12 +19,10 @@
 // it. One capture-phase pair on the document hears all three, and the caller
 // decides which of its subjects the moving node belongs to.
 //
-// THE SIZE SEAM ITSELF IS NOT HERE. `observeElementResize` was this family's, until
-// the terminal family turned out to arm a size source too — for an emulator grid
-// that re-fits when its host box changes — and the two families sit beside each
-// other in the DAG, where neither can import the other. It lives in
-// `primitives/element-resize.ts` now, which is the lowest family both sit above, and
-// this module is one of its callers rather than its home.
+// THE SIZE SEAM ITSELF IS NOT HERE. The terminal pane arms a size source too, for an
+// emulator grid that re-fits when its box changes, and neither feature can import the
+// other, so `observeElementResize` lives in `lib/element-resize.ts`, below both, and
+// this module is one of its callers.
 //
 // AND A MOVE IS NEITHER OF THOSE. `observeElementPosition` is the composed answer
 // to "did this element change WHERE it is", which no single platform observer
@@ -111,20 +109,19 @@ export function sharesMotionWith(element: Element, movingNode: Node): boolean {
  * while something is already known to be animating or has just started, so it costs
  * nothing at rest.
  *
- * FILTERED BY THE SAME BOUND AS THE DOCUMENT READING, and it used to be unfiltered.
- * The overlay registry arms its frame sampler on this predicate, so a `not-loaded`
- * skeleton inside a dialog or a popover — an infinite opacity pulse, which
+ * FILTERED BY THE SAME BOUND AS THE DOCUMENT READING. The overlay registry arms its
+ * frame sampler on this predicate, so without the filter a `not-loaded` skeleton inside
+ * a dialog or a popover — an infinite opacity pulse, which
  * `primitives/absence/nothing.css` gives every read in flight through its
- * `meridian-skeleton-pulse` keyframes — held it true for as long
- * as the read was out, and the sampler emitted an occlusion change on every animation
- * frame. That is the permanent RAF loop the document path already closed, reached
- * through the other door. Both doors now run `animation-motion.ts`'s one filter.
+ * `meridian-skeleton-pulse` keyframes — would hold it true for as long as the read was
+ * out, and the sampler would emit an occlusion change on every animation frame. Both
+ * this predicate and the document reading run `animation-motion.ts`'s one filter.
  *
  * The containment half is supplied and is not redundant even though every animation
  * this function reads is already on the element, inside it, or above it: an animation
  * whose effect names a DIFFERENT target than the node it was read from would
- * otherwise be judged on its flow alone, and the callback answers the question this
- * family answers everywhere else rather than a second version of it.
+ * otherwise be judged on its flow alone, and the callback answers the question the
+ * other motion readings in this folder answer rather than a second version of it.
  */
 export function hasRunningMotion(element: Element): boolean {
   const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
@@ -175,7 +172,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
  * one of them:
  *
  *   1. REORDER — the element's ancestors are watched for `childList` changes, which
- *      is what a pane layout reordering its seats performs. Watching the element's own
+ *      is what a pane layout reordering its panes performs. Watching the element's own
  *      children would report its content changing and never its placement.
  *   2. SIBLING RESIZE — each of those same ancestors is watched for size. A sibling
  *      that shrinks moves this element while neither this element nor any ancestor
@@ -226,7 +223,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
  *
  * The bound is stated rather than hidden: an animation that starts while every other
  * source is silent is picked up at the next invalidation and not before. In practice
- * a surface that animates a box also toggles the class or style that decided to,
+ * a component that animates a box also toggles the class or style that decided to,
  * which is source 4 in the same delivery turn. THE DISARM IS NOT PAIRED WITH THIS
  * ARM — the sampler re-reads the same animations on every frame and stops on the one
  * that finds nothing running, which is where the element came to rest. An
@@ -251,7 +248,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
  * change. What that costs is a frame read per animating frame, and what it buys is
  * the one class of movement nothing else in this module can see.
  *
- * THE ANCESTOR WALK STOPS AT THE DOCUMENT BODY. No console surface declares a
+ * THE ANCESTOR WALK STOPS AT THE DOCUMENT BODY. No console view declares a
  * pane layout root today, so the body is the outermost box whose reordering can move a
  * pane; the walk gains a tighter boundary in the edit that declares one, and until
  * then a walk that went further would only add the document element, which no layout

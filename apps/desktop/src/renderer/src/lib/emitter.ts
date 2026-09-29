@@ -64,7 +64,7 @@ export class Emitter<Event> {
     }
   }
 
-  /** How many sinks are attached. Read by tests and by the diagnostics surface. */
+  /** How many sinks are attached. Read by tests and by the diagnostics view. */
   public get sinkCount(): number {
     return this.#sinks.size;
   }

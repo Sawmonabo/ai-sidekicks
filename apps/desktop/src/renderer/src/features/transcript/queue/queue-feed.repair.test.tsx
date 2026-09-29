@@ -110,7 +110,7 @@ describe("the queue reading re-reads on a repair", () => {
   });
 
   it("re-reads when the window regains focus", async () => {
-    // The window half, wired by `useQueueFeed` itself, so a surface holding only the
+    // The window half, wired by `useQueueFeed` itself, so a view holding only the
     // session id still stops showing a list read before the person was away.
     const { bridge, clock, queueCalls, listedSessionIds } = queueFeedBridge();
     const sessionStore = initializedStore();

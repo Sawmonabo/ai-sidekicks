@@ -3,7 +3,7 @@
 // constructed its own row values would prove the markup and leave the seam between
 // the two — the part that can actually drift — unchecked.
 //
-// WHAT IS ASSERTED HERE AND WHAT IS ASSERTED NEXT DOOR. This suite is the list's own
+// WHAT IS ASSERTED HERE AND WHAT IS ASSERTED BESIDE IT. This suite is the list's own
 // three claims: the absence, the header's counts, and the order the rows come out in.
 // Everything a ROW draws is `RunListItem.test.tsx`, which splits along the same seam
 // the modules do.
@@ -54,7 +54,7 @@ function parkedPhase(phaseId: string): WorkflowPhaseStateRow {
 }
 
 describe("an empty list", () => {
-  it("says there are none, in the shape a surface stands in for", () => {
+  it("says there are none, as the block-sized empty absence", () => {
     const root = renderList([]);
     expect(root.classList.contains("meridian-nothing--empty")).toBe(true);
     expect(root.classList.contains("meridian-nothing--block")).toBe(true);

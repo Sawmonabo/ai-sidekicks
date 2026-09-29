@@ -1,4 +1,4 @@
-// The reply chokepoint on the PARSE arm: what the door sends, and what it makes of
+// The reply chokepoint on the PARSE arm: what `callDaemon` sends, and what it makes of
 // what comes back.
 //
 // Every case drives the REAL `callDaemon` over the REAL registry against a REAL
@@ -9,8 +9,8 @@
 // The REJECTION arm is `daemon-reply.rejections.test.ts` beside this file. The two
 // are separated because they are two claims about one function, and each is an
 // enumeration in its own right: this one says a reply off the contract never
-// reaches a surface and a request off the contract never reaches the wire; that one
-// says no shape a rejection arrives in leaves the door as an exception. The two
+// reaches a caller and a request off the contract never reaches the wire; that one
+// says no shape a rejection arrives in leaves `callDaemon` as an exception. The two
 // roles both suites play live in `daemon-reply.test-support.ts`.
 
 import { isRefusal } from "@renderer/lib/refusal.js";
@@ -28,7 +28,7 @@ const SEEN_AT = "2026-01-01T14:20:00.500Z";
 /**
  * A value the response schema rejects, spelled so a leak is unmistakable.
  *
- * Shaped like the message content rule 9 forbids in a refusal detail, so the
+ * Shaped like the message content a refusal detail must never carry, so the
  * assertion that it is absent reads as the claim it is making.
  */
 const OFF_CONTRACT = "the person said something private";
@@ -103,11 +103,10 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   });
 
   it("never puts the refused VALUE in the sentence a person reads", async () => {
-    // Rule 9's non-negotiable half, and the reason this module composes its own
-    // sentence instead of rendering the validator's: a rejected member can be a
-    // user's words, a repo path, or a credential, and the validator
-    // interpolates it. Both per-family parsers this replaces stringified the error
-    // straight into the detail.
+    // A refused value never reaches a refusal's detail, which is why `callDaemon`
+    // composes its own sentence instead of rendering the validator's: a rejected
+    // member can be a user's words, a repo path, or a credential, and the validator
+    // interpolates it.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
@@ -161,8 +160,8 @@ describe("callDaemon — a request the contract does not admit is never sent", (
 });
 
 describe("describeFailingPaths — a shape it cannot read yields no clause", () => {
-  // Driven directly rather than through the door, because the door's own callers
-  // always hand it a real validator error: the parameter is typed `unknown`
+  // Driven directly rather than through `callDaemon`, because `callDaemon` always
+  // hands it a real validator error: the parameter is typed `unknown`
   // precisely to disclaim that knowledge, and a claim that only holds for the one
   // shape the one caller passes is not the claim the signature makes.
 
@@ -199,7 +198,7 @@ describe("describeFailingPaths — a shape it cannot read yields no clause", () 
   it("names a segment it cannot render rather than throwing on it", () => {
     // A path segment is whatever the validator put there. `String(...)` runs
     // ToPrimitive, which throws on a null-prototype value carrying no `toString`,
-    // so the segment goes through the family's total stringifier and the clause
+    // so the segment goes through `lossyStringify`, which cannot throw, and the clause
     // says the segment is unrenderable instead of taking the sentence down.
     const unrenderable: unknown = { issues: [{ path: [Object.create(null)] }] };
 

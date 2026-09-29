@@ -5,12 +5,12 @@
 // share a walk: the first says the entry can be REACHED, the second says the call it
 // answers EXISTS, and the third says the delay it scripts can be SPENT. A scenario
 // failing any of them has a reply the fixture answers with in a way no transport
-// does, and none shows up as anything but a surface that never leaves its loading
+// does, and none shows up as anything but a view that never leaves its loading
 // state.
 //
 // THE CALL CLAIM IS THE ONE THAT CATCHES AN INVENTED WIRE. A scripted reply is
 // keyed on a method STRING, and a string is exactly as easy to make up as to
-// transcribe: a scenario answering `workflow.runList` renders a surface that looks
+// transcribe: a scenario answering `workflow.runList` renders a view that looks
 // served, ships a reference image of it, and reaches the daemon on the day the
 // fixture define flips to find that nothing by that name was ever registered. The
 // registry is the corpus's own — the daemon call set the console binds — so nothing
@@ -32,11 +32,11 @@ import type { Scenario } from "../../../fixtures/scenario.js";
 // is what turns "no unbound daemon method is scripted today" from prose into a check.
 
 /**
- * A daemon method the corpus registers that no console surface calls yet.
+ * A daemon method the corpus registers that no console view calls yet.
  *
  * That is exactly the state which keeps a method out of `RegisteredDaemonMethodContract`,
- * whose admission rule is a surface that calls it — so a scenario may script such a
- * call ahead of its surface. An entry moves to a binding row on the day a surface calls
+ * whose admission rule is a view that calls it — so a scenario may script such a
+ * call ahead of its view. An entry moves to a binding row on the day a view calls
  * it, because a bound method is validated in both directions and one listed here is
  * served unchecked.
  *
@@ -98,7 +98,7 @@ export function findReplyDefects(scenario: Scenario): readonly ScenarioContractD
  *
  * So the split is exactly the engine's own test. `Infinity` passes `afterMs > 0` and
  * parks at a tick no finite advance reaches, so the reply is released only by
- * teardown — as an abandoned one — and the surface awaiting it renders its loading
+ * teardown — as an abandoned one — and the view awaiting it renders its loading
  * state for the life of the window. `NaN`, a negative number, and `-Infinity` all
  * FAIL `afterMs > 0`, so the reply is never parked: it settles on the calling turn,
  * and the loading state the latency exists to make reachable is never observable.
@@ -116,7 +116,7 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
       "it scripts a latency of Infinity ms. The engine parks a delayed reply until the " +
       "frozen clock reaches the tick it was made at plus that many milliseconds, and no " +
       "finite advance reaches this one — so the reply is released only by teardown, as an " +
-      "abandoned one, and the surface awaiting it renders its loading state for the life " +
+      "abandoned one, and the view awaiting it renders its loading state for the life " +
       "of the window. Script the milliseconds this call should take."
     );
   }
@@ -146,7 +146,7 @@ function describeCallDefect(call: string): string | undefined {
   return (
     `it answers "${call}", which the corpus registers nowhere — not as a daemon method ` +
     "the console binds a request and response shape for. A scenario answering an " +
-    "invented name renders a surface that looks served and reaches nothing on the day " +
+    "invented name renders a view that looks served and reaches nothing on the day " +
     "the fixture define flips. Script the registered method."
   );
 }

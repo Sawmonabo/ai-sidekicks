@@ -1,12 +1,11 @@
 // The two pure rules the viewport folds a render's conditions through.
 //
-// They were private methods on the controller, and while they were, the only way
-// to reach either was to build four live objects, attach a scroll surface and
-// drive a reconcile — so the arms that matter most were the ones no case reached:
-// a tail key the retained set no longer holds, and a row that STRADDLES the fold
-// rather than sitting clear of it. `viewport-controller.test.ts` still owns the
-// wiring claims and is not narrowed; what is added here is the boundary arithmetic
-// underneath them, asserted directly because it now can be.
+// As values rather than private methods on the controller, because reaching them through
+// the controller means building four live objects, attaching a scroll container and
+// driving a reconcile — and the arms that matter most are the ones that path reaches
+// least: a tail key the retained set no longer holds, and a row that STRADDLES the fold
+// rather than sitting clear of it. `viewport-controller.test.ts` owns the wiring claims;
+// this suite asserts the boundary arithmetic underneath them directly.
 
 import { describe, expect, it } from "vitest";
 

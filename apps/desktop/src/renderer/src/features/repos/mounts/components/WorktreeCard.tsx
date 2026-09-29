@@ -22,10 +22,10 @@
 //
 // WHAT THIS CARD DOES NOT OFFER, and why none of it is an omission:
 //   • No retire control. The retire confirm is the strongest interaction this
-//     surface could carry and it enumerates the candidate's branch, its uncommitted files, its
+//     card could carry and it enumerates the candidate's branch, its uncommitted files, its
 //     unmerged commits, and any inspection failure — a preview this card is not
 //     given and must not fabricate. Preview is consent, so the control belongs to
-//     the surface that can run the inspection.
+//     the view that can run the inspection.
 //   • No force-retire, force-detach, or boundary-obstruction override. The design
 //     names a force-override a possible future enhancement, deliberately not
 //     scheduled.
@@ -60,10 +60,10 @@ import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
   /**
-   * The instant the surface read at.
+   * The instant the section read at.
    *
    * A prop rather than a clock this card reaches for, because interval polling is
-   * forbidden: the age moves when the surface re-reads and at no other time,
+   * forbidden: the age moves when the section re-reads and at no other time,
    * and a card that read the wall clock would move it on any unrelated re-render.
    */
   readonly nowMilliseconds: number;

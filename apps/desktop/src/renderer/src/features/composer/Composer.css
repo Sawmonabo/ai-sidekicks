@@ -76,12 +76,12 @@
    control stays quiet.
 
    The accent is the BOUNDARY AND THE INK, not a fill, for contrast: `accent-text` is
-   the accent-tinted text color for a SURFACE, so on the `accent` fill it puts two
+   the accent-tinted text color for the `surface` grounds, so on the `accent` fill it puts two
    near-isoluminant colors together and fails WCAG 1.4.3 in both schemes. The
    primitives' filled treatment, `meridian-accent-fill`, clears that floor and a card's
    primary action wears it, but boundary-and-ink measures higher on this label (6.38:1
    light, 11.49:1 dark) and the accent boundary clears the 3:1 non-text floor against
-   the send box's surface (4.17:1 light, 7.77:1 dark). */
+   the send box's background (4.17:1 light, 7.77:1 dark). */
 .meridian-composer__primary {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);

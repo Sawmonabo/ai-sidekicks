@@ -12,11 +12,11 @@ import { driverCapabilityReads } from "./driver-capability-read.js";
  * Read the bound drivers' declared capability flags.
  *
  * Every consumer on one bridge is served by one reading. The snapshot is the stored
- * readout object, so `useSyncExternalStore` compares a pointer and a surface that
+ * readout object, so `useSyncExternalStore` compares a pointer and a component that
  * asked second re-renders once, when the answer lands, and never on a poll.
  *
  * The two window-scoped refresh reasons are wired here, because both are properties
- * of this window rather than of a session: a surface mounting is `subscribe`, and
+ * of this window rather than of a session: a component mounting is `subscribe`, and
  * the window regaining focus is `window-focus`. The session-scoped one is
  * `useDriverCapabilityRepairRead`.
  */

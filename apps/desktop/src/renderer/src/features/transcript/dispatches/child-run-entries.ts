@@ -15,7 +15,7 @@
 // projection produces; no `handoff` event type
 // is registered anywhere and nothing here looks for one. What the console has is the
 // set of wire types that mean work changed hands, and this directory is that set's
-// one home: it is the only surface that draws a handoff, so the vocabulary sits
+// one home: it is the only view that draws a handoff, so the vocabulary sits
 // beside the renderer that spends it rather than in a second table somewhere else.
 //
 // EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor` and `reason` are

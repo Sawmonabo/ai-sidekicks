@@ -1,4 +1,4 @@
-// Cancel-before-admission: the queue's one removal path, and what a surface reads while
+// Cancel-before-admission: the queue's one removal path, and what a view reads while
 // it is in flight.
 //
 // A cancel is a MUTATION, not part of the fold over the daemon's rows. This module holds
@@ -12,7 +12,7 @@
  */
 export type QueueCancelCall = (queueItemId: string) => Promise<void>;
 
-/** What a surface reads about cancels, and the control it asks one through. */
+/** What a view reads about cancels, and the control it asks one through. */
 export interface QueueCancellationState {
   /** Items whose cancel is in flight, so the control disables rather than re-fires. */
   readonly pendingCancelIds: ReadonlySet<string>;
@@ -28,7 +28,7 @@ export interface QueueCancellationState {
  *
  * It publishes through a callback rather than holding listeners of its own. The
  * watchers belong to the reading this is part of: two publication paths for one
- * surface would let a cancel's settlement render a frame the rows had not reached.
+ * view would let a cancel's settlement render a frame the rows had not reached.
  */
 export class QueueCancellations {
   readonly #cancel: QueueCancelCall;

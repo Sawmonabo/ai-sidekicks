@@ -1,5 +1,5 @@
-// The three composed requests, read at the wire's edge so a surface can refuse in its
-// own words before the door refuses in the door's.
+// The three composed requests, read at the wire's edge so the view composing one can
+// refuse in its own words before `callDaemon` refuses in its own.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,7 +28,7 @@ describe("the composed-request readers", () => {
 
   it("refuses an arm missing what its own discriminant requires", () => {
     // The reading this buys the caller: a steer with no content is a request the
-    // daemon would refuse, and the surface says so naming the control rather than
+    // daemon would refuse, and the view says so naming the control rather than
     // the method.
     expect(
       readInterventionRequest({

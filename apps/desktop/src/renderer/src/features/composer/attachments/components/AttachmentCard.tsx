@@ -67,7 +67,7 @@ const DECLARED_NAME_TITLE = "Declared by the sender";
 
 export interface AttachmentCardProps {
   readonly reading: AttachmentReading;
-  /** The instant the surface rendered at. Ages move when it re-reads and never on a timer. */
+  /** The instant the card rendered at. Ages move when it re-reads and never on a timer. */
   readonly nowMilliseconds: number;
   /** Send the refused stream again, per its own disposition. */
   readonly onRetry?: ((localId: string) => void) | undefined;

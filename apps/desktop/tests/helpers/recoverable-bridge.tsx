@@ -1,4 +1,5 @@
-// What the shell's two row hooks are driven over: one bridge, one wrapper, one count.
+// What the reasoning-read and question-answer hooks are driven over: one bridge, one
+// wrapper, one count.
 //
 // HOISTED ON THE SECOND USE, which is the split that put the reasoning read and the
 // ask answer in modules of their own. Their suites moved apart with them and both need
@@ -6,9 +7,8 @@
 // of what actually reached the wire, and the provider `renderHook` mounts a hook
 // under — so the shapes live here once rather than being written twice and drifting.
 //
-// This family's own home rather than `core/`: both readers are in `cards/shell/`, and
-// nothing outside it drives these hooks. It dies with the shell, exactly as the two
-// modules it serves do.
+// It lives in `tests/helpers/` because its two readers sit in different features, the
+// transcript's reasoning read and the composer's question answer.
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.js";
 

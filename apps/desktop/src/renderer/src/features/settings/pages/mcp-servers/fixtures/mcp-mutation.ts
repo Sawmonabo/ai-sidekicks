@@ -3,7 +3,7 @@
 //
 // THE KEY IS THE CALLER'S AND IT IS MINTED ONCE PER PRESS. Every governance mutation
 // carries a `clientIdempotencyKey`, and what it means is "this is the same operation",
-// which only the surface that watched a person press the control can know. A key
+// which only the view that watched a person press the control can know. A key
 // minted inside the port would make every retry of one press a second operation — the
 // exact opposite of what the member is for — so it is minted here, on the press, and
 // carried unchanged through however many attempts one press produces.
@@ -13,7 +13,7 @@
 // suite can assert that a retry reused a key instead of asserting that two keys are
 // both strings.
 //
-// NOTHING HERE DECIDES WHETHER A CONTROL MAY BE PRESSED. The governing surface makes
+// NOTHING HERE DECIDES WHETHER A CONTROL MAY BE PRESSED. The design for this page makes
 // that explicit: eligibility is not projected at all, no field reports it, every
 // control is offered. So this module has no precondition to check and no arm for
 // "not allowed".
@@ -93,7 +93,7 @@ export async function setBindingEnabled(options: {
  * A trust grant binds at the daemon against the binding's current base configuration
  * and reaches no provider config, so its reply carries `daemon_enforced` and no live
  * results at all. That difference is rendered rather than smoothed away: the same
- * result shape carries both, and the surface says where a change took effect.
+ * result shape carries both, and the page says where a change took effect.
  */
 export async function setBindingTrust(options: {
   readonly send: SendMcpTrust;

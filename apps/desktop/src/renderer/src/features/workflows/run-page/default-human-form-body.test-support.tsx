@@ -6,7 +6,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-// The seat's own wait for its two chunks: the form opens in two steps, and a press
+// The schema form's own wait for its two chunks: the form opens in two steps, and a press
 // straight after `render` would hit a control the form has not armed yet.
 import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test-support.js";
 import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
@@ -183,17 +183,17 @@ export async function renderSwitchableMountPoint(
   // Spread on the arm that carries one: `exactOptionalPropertyTypes` refuses an explicit
   // `undefined` on an optional prop.
   const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
-  const slotFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
+  const mountPointFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
     <ServedRunActContext.Provider value={mounting.recordServedAct}>
       <HumanFormMountPoint phase={phase} submitForm={submitForm} {...ownerBody} />
     </ServedRunActContext.Provider>
   );
-  const { container, rerender } = render(slotFor(mounting.phase));
+  const { container, rerender } = render(mountPointFor(mounting.phase));
   await settle();
   return {
     container,
     switchTo: async (next) => {
-      rerender(slotFor(next));
+      rerender(mountPointFor(next));
       await settle();
     },
   };

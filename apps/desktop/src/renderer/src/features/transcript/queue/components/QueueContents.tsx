@@ -24,7 +24,7 @@ import "./QueueContents.css";
  *
  * The cap is spent by a `slice` and a withheld count, which is the whole mechanism: the
  * queue windows nothing and imports no windowing layer. Below the cap the list is a plain
- * block; above it the surface says how many rows it is not drawing rather than drawing
+ * block; above it the list says how many rows it is not drawing rather than drawing
  * them all. The queue is FIFO and the head is what matters, so the ceiling truncates the
  * tail and never the front.
  */

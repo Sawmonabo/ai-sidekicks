@@ -10,7 +10,7 @@
  *
  * A column of row-shaped bars rather than a spinner: the shape on screen is the shape
  * the rows will take, so the first read replaces a skeleton with its own content
- * instead of swapping one kind of surface for another.
+ * instead of swapping one kind of view for another.
  */
 
 .meridian-transcript-window-skeleton {

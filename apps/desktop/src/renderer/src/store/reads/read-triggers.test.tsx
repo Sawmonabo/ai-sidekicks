@@ -1,7 +1,7 @@
 // Whether one arrived frame owes a reading a re-read, and both wirings asking it once.
 //
 // `eventTriggersRead` is the whole of that decision, and it is checked here rather than
-// only through a family that happens to declare a frame-level rule: the kind gate has
+// only through a feature whose reading happens to declare a frame-level rule: the kind gate has
 // been the answer since the seam was written, the frame gate is new, and a reading that
 // declared one and was asked the other would either re-read on everything or stop
 // re-reading at all.
@@ -9,7 +9,7 @@
 // AND IT IS ASKED THROUGH THE REACT WIRING TOO. `useSessionReadTriggers` here and
 // `SessionRefreshTriggers` beside it are two wirings of one policy, which that module's
 // own head calls honest — two VOCABULARIES are not. A predicate consulted by one and
-// not the other goes stale on exactly the surfaces wired the other way, and no unit test
+// not the other goes stale on exactly the views wired the other way, and no unit test
 // of the predicate alone would report it, so the hook is driven against a real store.
 // The imperative wiring is driven the same way from
 // `workflows/pane/run/run-live-rounds.test.ts`, which is where its reading lives.

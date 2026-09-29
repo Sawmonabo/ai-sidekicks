@@ -1,21 +1,21 @@
-// What a LOG of lease transitions folds to, from this device's seat.
+// What a LOG of lease transitions folds to, from this device's point of view.
 //
 // `lease-transition.ts` reads one event; this module reads a session. The two are
 // split because they answer different questions and need different fixtures: a
 // reading is a payload, and a projection is an ordering and a device. Everything below
-// is a property of the SEQUENCE — which of five holdings the surface settles into.
+// is a property of the SEQUENCE — which of five holdings the lease line settles into.
 //
 // This module has one hard rule: **the holder is a wire field and is never derived
 // from the last observed take**. So nothing here reads the outcome of a
 // `session.takeControl` call.
 // The lease state is a fold over `pty.control_changed` events — the registered
 // event type whose payload carries the holder, the holder it replaced, and the
-// reason — and a take the console made changes the surface only when the
+// reason — and a take the console made changes the lease line only when the
 // transition it caused comes back on the log.
 //
 // That is not fastidiousness. A take that succeeds and a take whose broadcast
 // the console never received look identical at the call site, and only one of
-// them means the person may type. An optimistic surface would show a keyboard to
+// them means the person may type. An optimistic lease line would show a keyboard to
 // somebody who does not hold the shell.
 //
 // WHY A PURE FOLD AND NOT A CLASS. The store's own projector discipline
@@ -35,7 +35,7 @@ import {
 } from "./lease-transition.js";
 
 /**
- * Who holds the shell, from this device's seat.
+ * Who holds the shell, from this device's point of view.
  *
  * `not-checked` is not a synonym for `unheld`: a free lease is an explicit state that
  * reads differently from a suppressed one, and "no transition has ever
@@ -55,7 +55,7 @@ export const TERMINAL_LEASE_HOLDERS = [
 /** One of the holdings above. */
 export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
-/** What a log of lease transitions folds to, from this device's seat. */
+/** What a log of lease transitions folds to, from this device's point of view. */
 export interface TerminalLeaseState {
   readonly holding: TerminalLeaseHolder;
   /** The holder the wire named, or `null` for a free lease. Never inferred. */
@@ -63,7 +63,7 @@ export interface TerminalLeaseState {
   /**
    * The newest transition the fold could not read, when one arrived after every
    * transition it could. Present means the lease state is unknown rather than
-   * stale, and the surface says which transition lost it.
+   * stale, and the lease line says which transition lost it.
    */
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
 }
@@ -91,9 +91,9 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * is recorded as the unread transition and the projection settles into the arm that
  * shows no holder and writes nothing.
  *
- * That direction is the whole point. Skipping it left the transition before it
+ * That direction is the whole point. Skipping it would leave the transition before it
  * standing as the newest state, so a daemon that moved the lease under a reason a
- * later release introduced would leave this surface reading `held-by-this-device` and
+ * later release introduced would leave the lease line reading `held-by-this-device` and
  * stdin open for somebody who no longer holds the shell. An unread transition is
  * ignorance, and ignorance about a write lease reads as no lease at all.
  *
@@ -123,7 +123,7 @@ export function projectTerminalLease(
   const wireHolderUserId = newest === undefined ? null : newest.holderUserId;
 
   // Fail-closed: an unread transition collapses to the free lease BEFORE the device
-  // comparison, so a surface can never show "you hold it" on the strength of a
+  // comparison, so the lease line can never show "you hold it" on the strength of a
   // transition this build could not read.
   const holderUserId = unreadTransition !== undefined ? null : wireHolderUserId;
 
@@ -144,7 +144,7 @@ export function projectTerminalLease(
  *
  * The unread arm comes first because it is a statement about the READING and not
  * about the lease: with a transition the console could not understand, neither
- * "nobody holds it" nor "you hold it" is something this surface knows, and the
+ * "nobody holds it" nor "you hold it" is something the lease line knows, and the
  * only honest answers left are the two that disable writing.
  */
 function readHolding(state: {

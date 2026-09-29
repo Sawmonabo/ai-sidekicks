@@ -13,7 +13,7 @@
 //
 // WHY THIS MODULE SITS IN THE LAZY CHUNK. It imports the library for values —
 // `MarkerType`, `Position` — and so is reachable only from `RunGraphCanvas.tsx`,
-// which is itself reached only through this directory's `index.ts`, the door
+// which is itself reached only through this directory's `index.ts`, the entry
 // `run-graph-loader.ts`'s `import()` names. The layout module beside it imports
 // nothing from the library at all, which is what lets the host decide whether a graph
 // can be drawn before any of these bytes are fetched.
@@ -46,7 +46,7 @@ import {
 export type PhaseNodeData = { readonly phase: RunGraphNode };
 
 /**
- * The one node kind this surface draws. The string is the `nodeTypes` key.
+ * The one node kind this graph draws. The string is the `nodeTypes` key.
  *
  * A const assertion rather than a widening annotation: the renderer's node type is
  * generic over this string, so a `string` type would widen every node this file

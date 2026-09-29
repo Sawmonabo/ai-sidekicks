@@ -61,7 +61,7 @@ export interface TranscriptFeedWindowsInputs {
  * The chain, with every stage's own report beside it.
  *
  * Published as separate members rather than as the last window alone, because the
- * surfaces above read from two different points in it: find classifies an id against
+ * views above read from two different points in it: find classifies an id against
  * every stage to say WHICH one is the reason a row is not on screen, and the rows
  * render the folded one.
  */

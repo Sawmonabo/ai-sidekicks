@@ -23,7 +23,7 @@ import {
  *
  * AND IT IS NEVER ECHOED, WHICH THE WIRE MAKES EASY: the registration reply carries the
  * account and no token member at all, so the settled arm below has nothing to render
- * even for a surface that tried. The one thing this form shows after a success is the
+ * even for a view that tried. The one thing this form shows after a success is the
  * account the daemon created.
  *
  * `type="password"` IS FOR THE SHOULDER AND NOT FOR THE PROCESS. It keeps the value off

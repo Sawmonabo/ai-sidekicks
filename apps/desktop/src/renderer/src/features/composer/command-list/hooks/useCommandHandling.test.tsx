@@ -10,8 +10,8 @@
 //
 // THE ROOT IS REGISTERED HERE BECAUSE THE ZONE DOES NOT REGISTER IT. The console
 // command that carries this id is registered by `useWorkflowStartPrefill`, which the
-// discovery seat mounts and this zone does not — and the executor refuses a name the
-// surface does not list before any handler is reached. Registering it is therefore
+// command list mounts and this zone does not — and the executor refuses a name the
+// composer's commands do not list before any handler is reached. Registering it is therefore
 // scaffolding for the claim rather than part of it.
 
 import { render } from "@testing-library/react";
@@ -89,7 +89,7 @@ describe("the composer command zone reads the committed render's handlers", () =
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  /** Put the root on the surface the recognizer reads, as the prefill seat does. */
+  /** Put the root on the command set the recognizer reads, as the prefill hook does. */
   function registerWorkflowRoot(): void {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
@@ -114,7 +114,7 @@ describe("the composer command zone reads the committed render's handlers", () =
       />,
     );
     // Re-addressed after the executor was built. The executor object is memoized on
-    // the surface thunk and so does not change; only what its handlers close over does.
+    // the composer-commands thunk and so does not change; only what its handlers close over does.
     const builtInFirstRender = executor.current;
     rerender(
       <ComposerCommandZoneHost

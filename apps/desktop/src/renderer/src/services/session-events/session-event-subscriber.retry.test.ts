@@ -123,7 +123,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     // AND no initial read, and the registry's `opened` change for it had already been
     // delivered — so nothing was going to name that session again until somebody
     // closed and reopened it. Two readings have to be true here at once: the id is
-    // retained for a retry, and the store carries a cause a surface can render.
+    // retained for a retry, and the store carries a cause a view can render.
     const { registry, binder, engine, bridge, reasonsSeen } = createOutageHarness(1);
     binder.attach();
     registry.open(SESSION_ID);

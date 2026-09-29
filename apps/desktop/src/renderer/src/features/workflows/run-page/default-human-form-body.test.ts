@@ -4,7 +4,7 @@
 // is on screen, the schema draws its controls, a schema outside the drawn set opens the
 // JSON editor, and the press puts the submit with the revision the form was composed
 // against. Every case drives the mount point and not the shell, since the submit and the
-// single-flight guard are the seat's. What happens as the mount moves is in
+// single-flight guard are the submit binding's. What happens as the mount moves is in
 // `default-human-form-body.transitions.test.ts`; what a supplied body is handed is in
 // `HumanFormSubmitBinding.test.tsx`.
 

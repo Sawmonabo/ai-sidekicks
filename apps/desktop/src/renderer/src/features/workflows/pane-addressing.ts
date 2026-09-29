@@ -21,8 +21,8 @@
 // REFUSED, NEVER THROWN, AND NEVER QUIETLY READ. Both of the other dispositions are
 // worse: a throw takes the whole pane layout down over one mis-addressed pane, and reading
 // the id anyway is the defect this replaces. The refusal is a `Refusal` rather
-// than a boolean so the two panes render one grammar — rule 9's code in mono and the
-// sentence verbatim — instead of each writing its own words for the same state.
+// than a boolean so the two panes render one grammar — the refusal code in mono and
+// the sentence verbatim — instead of each writing its own words for the same state.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";

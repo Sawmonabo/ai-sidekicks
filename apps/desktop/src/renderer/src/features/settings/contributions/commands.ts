@@ -24,7 +24,7 @@ export type BridgeCommandRefusalCode = (typeof BRIDGE_COMMAND_REFUSAL_CODES)[num
 /** The subsystem name every refusal this module raises carries. */
 export const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
 
-/** Where a refused act is rendered. Supplied by the surface that owns the copy. */
+/** Where a refused act is rendered. Supplied by the view that owns the copy. */
 export type BridgeCommandRefusalSink = (refusal: Refusal) => void;
 
 /**
@@ -62,7 +62,7 @@ export function buildBridgeCommands(
       keywords: ["update", "upgrade", "release", "version"],
       run: async () => {
         // Requests the check and returns. The updater's own state arrives through
-        // `update.subscribe`, which belongs to whichever surface renders it — a
+        // `update.subscribe`, which belongs to whichever view renders it — a
         // command that awaited an outcome here would be a second reader of a state
         // machine the main process already observes.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>

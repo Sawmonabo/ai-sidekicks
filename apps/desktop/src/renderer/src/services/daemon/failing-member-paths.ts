@@ -1,9 +1,9 @@
 // The refusal sentence's one clause about WHICH members failed.
 //
-// SPLIT FROM `daemon-reply.ts`, whose header owns the rule this obeys: no refused
-// value ever reaches a detail sentence. That module is the call door and this is the
+// Beside `daemon-reply.ts`, whose header owns the rule this obeys: no refused value
+// ever reaches a detail sentence. That module makes the daemon call, and this is the
 // one reading it takes of a validator's error object — a different job with a
-// different hazard, and together they were one file past the package's ceiling.
+// different hazard.
 
 import { lossyStringify, readGuardedProperty } from "@renderer/lib/wire-errors.js";
 
@@ -35,14 +35,13 @@ const NAMED_FAILING_PATH_CAP = 3;
  * `null` and `undefined` throw a `TypeError` on the way in — from inside the one
  * module that answers for a value nobody validated. Every read here therefore goes
  * through `readGuardedProperty`, which collapses absent and unreadable to the same
- * `undefined`, and every path segment through the family's total stringifier rather
+ * `undefined`, and every path segment through `lossyStringify`, which cannot throw, rather
  * than bare `String(...)`, which runs ToPrimitive and throws on a null-prototype
  * segment. Both are cheap on a path that only runs once something has already failed.
  *
- * Exported for the call door and for its co-located test, and for nothing else:
- * `bridge/index.ts` deliberately publishes neither this nor the registry behind it.
- * A surface that could reach a reading of a validator's error would be a surface
- * that could compose a second refusal sentence.
+ * Exported for `callDaemon` and for its co-located test, and for nothing else. A
+ * view that could reach a reading of a validator's error could compose a second
+ * refusal sentence.
  */
 export function describeFailingPaths(error: unknown): string {
   const issues = readGuardedProperty(error, "issues");

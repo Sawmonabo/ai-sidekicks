@@ -74,7 +74,7 @@ describe("agent binding column — a refused roster read", () => {
   it("negative control: a roster that answered offers no way back", async () => {
     // Without this, the case above would pass over a column that rendered the control
     // on every arm — a retry beside a roster that is already current, which reads as a
-    // refresh this surface does not have.
+    // refresh this column does not have.
     const scriptedDaemon = new RefusingRosterDaemon(0);
     const fixture = bridgeCalling(scriptedDaemon);
     const { container } = render(

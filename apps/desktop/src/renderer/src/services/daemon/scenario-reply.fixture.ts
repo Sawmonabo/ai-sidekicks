@@ -11,7 +11,7 @@
 // The split is load-bearing rather than tidy. `scripted-reply.ts` settles one of these
 // and names nothing else in `vocabulary.ts`; `scenario/wire-truth/reply-walk.ts` holds
 // every scripted reply in the tree to the wire's own truth and reads no other member of
-// a scenario; and a family adding a `readonly ScenarioReply[]` table in its own
+// a scenario; and a feature adding a `readonly ScenarioReply[]` table in its own
 // subdirectory of `scenario/` takes this module and not the shape beside it.
 
 import type { WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
@@ -31,8 +31,8 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
  * sends on the refusals that name something: `pty.control_held_by_other` carries the
  * holder, and a rate-limited refusal carries its retry bound. `core/wire-rejection.ts`
  * reads both positions the corpus registers — `data.fields` on a JSON-RPC envelope and
- * `details` on a flat one — so a fixture that could only script `{code, message}` left
- * every extension-reading surface unreachable from any scenario.
+ * `details` on a flat one — so a fixture that could only script `{code, message}` would
+ * leave every view that reads a refusal's extensions unreachable from any scenario.
  *
  * The member is OPTIONAL and typed as the flat position, so a scenario that scripts a
  * bare envelope is unchanged and one that scripts context reaches the same reader a
@@ -49,18 +49,18 @@ export type ScenarioRefusalEnvelope = WireErrorEnvelope & {
  *
  * Without this arm no scenario could reach a refusal at all: the fixture's own
  * `FixtureBridgeError` names something the FIXTURE could not do, so every typed
- * daemon refusal a surface has to render — an artifact too large, an ingest at
+ * daemon refusal a view has to render — an artifact too large, an ingest at
  * capacity, a terminal permission denied, a control already held by someone else —
- * was unreachable.
+ * would be unreachable.
  *
  * `WireErrorEnvelope` is not a second refusal vocabulary minted here. It is declared
  * in `src/shared/wire-errors.ts` and reached through `core/index.js`, which is the
  * console's one home for the wire's `{code, message}` shape and for
  * `normalizeWireRejection` — what every renderer catch arm already turns a rejection
- * into. `src/shared/` sits on no rung of the console's family DAG, so taking the
- * shape from `core` is what keeps one reading of it above that floor rather than one
- * per family. A fixture refusing in any other shape would train a surface against a
- * value the live bridge never sends.
+ * into. `src/shared/` sits below every renderer folder in the import order, so taking
+ * the shape from the renderer's `lib/` keeps one reading of it for the whole renderer
+ * rather than one per feature. A fixture refusing in any other shape would train a
+ * view against a value the live bridge never sends.
  */
 export interface ScenarioRejectingReply extends ScenarioReplyBase {
   readonly refusal: ScenarioRefusalEnvelope;
@@ -72,10 +72,10 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * A canned reply the scenario COMPUTES from the request the caller actually sent.
  *
  * `replyFor` matches on the method NAME, which is right for a session-scoped read and
- * wrong for an entity-scoped one: a session holding two repo mounts asked
- * `repo.mountRead` twice and got the same mount back both times, so the second mount
- * and every state only it carried were unreachable — in the fixture and in every
- * capture taken from it — while the surfaces above read as though both had answered.
+ * wrong for an entity-scoped one: a session holding two repo mounts that asked
+ * `repo.mountRead` twice would get the same mount back both times, so the second mount
+ * and every state only it carried would be unreachable — in the fixture and in every
+ * capture taken from it — while the views above read as though both had answered.
  *
  * Returning `undefined` means the scenario scripts no answer for THAT request and
  * settles exactly as an unscripted method does: refused by name, never resolved with
@@ -99,7 +99,7 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * for the life of the window: every re-read past the expiry answered the state the
  * scenario had at tick zero, so the one thing that room was written to show — a row
  * aging out — was unreachable from it. The instant comes off the engine's
- * own frozen clock, so it is the SAME timeline the beats are due on rather than a
+ * own frozen clock, so it is the SAME clock the beats are due on rather than a
  * second one a reply could drift from, and a computation that ignores it settles
  * exactly where it always did.
  *
@@ -145,7 +145,7 @@ interface ScenarioReplyBase {
    * pending until the engine has been advanced this far past the call. It bounds
    * BOTH arms — a refusal a real transport takes 400 ms to deliver is a loading
    * state before it is an error, and a fixture that refused instantly would let a
-   * surface ship without ever rendering that half.
+   * view ship without ever rendering that half.
    */
   readonly afterMs?: number;
 }

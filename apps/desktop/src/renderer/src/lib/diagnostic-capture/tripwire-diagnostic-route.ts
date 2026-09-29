@@ -52,10 +52,10 @@ export function routeTripwiresToDiagnosticCapture(
  * Arm the route between this renderer process's own registry and its own capture.
  *
  * The composition site names THIS rather than the two singletons, and that is what
- * keeps them where they are: `windowTripwires` is deliberately held off the `core/`
- * door because its installer is its own module, and publishing the capture beside it
- * would hand every family above a second way to record. One function crossing the
- * door arms both and publishes neither.
+ * keeps them where they are: `windowTripwires` is deliberately kept out of any shared
+ * entry because its installer is its own module, and exporting the capture beside it
+ * would hand every feature above a second way to record. One exported function arms
+ * both and hands out neither.
  *
  * Takes the clock the console runs on rather than reaching for `Date`, so a window
  * driven by a frozen clock stamps its records at the instant the rest of the window

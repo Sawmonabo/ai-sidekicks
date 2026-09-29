@@ -35,7 +35,7 @@ export interface RepoMountsReading {
    * The instant this reading was taken, on the reader's own clock.
    *
    * Carried here rather than read off the wall clock by the cards that render an age,
-   * because an age moves when the surface re-reads and at no other time. Zero before the
+   * because an age moves when the section re-reads and at no other time. Zero before the
    * first read, which no card renders against.
    */
   readonly readAtMilliseconds: number;

@@ -5,7 +5,7 @@
 // nothing about, and the control that started it is the same control a person
 // presses to stop it — so "reload is still pending, stop was pressed and served,
 // reload then rejects" is not an exotic interleaving but the ordinary way that one
-// slot is used. Rendering every completion as it lands finishes that sequence by
+// button is used. Rendering every completion as it lands finishes that sequence by
 // showing the failure of the act the operator ALREADY replaced, over a pane whose
 // most recent act succeeded.
 //

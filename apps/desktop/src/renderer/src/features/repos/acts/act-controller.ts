@@ -31,7 +31,7 @@
 // measure it against.
 //
 // A CALL THAT REJECTS IS NOT CAUGHT HERE. A rejected act puts the act half back to idle,
-// so the surface stops saying it is sending, and the rejection reaches whoever sent the
+// so the dialog stops saying it is sending, and the rejection reaches whoever sent the
 // act; a rejected read leaves the prerequisite half where it was and the scheduler
 // re-throws it.
 //
@@ -67,14 +67,14 @@ export interface ActControllerOptions {
 export interface PrerequisiteReaderOptions<TValue> {
   /** What this reader's emitter reports under when a sink throws. */
   readonly label: string;
-  /** The window's one clock, so this refresh coalesces on its surface's time base. */
+  /** The window's one clock, so this refresh coalesces on the window's time base. */
   readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the question. */
   readonly sessionStore: SessionStore;
   /**
    * The frames that owe the question a fresh answer.
    *
-   * A PROPERTY OF THE QUESTION and not of the surface that mounts it, which is what
+   * A PROPERTY OF THE QUESTION and not of the dialog that mounts it, which is what
    * `ReadTriggerTarget` means: two readings asking the same thing must not disagree
    * about when the answer goes stale.
    */
@@ -93,7 +93,7 @@ export interface PrerequisiteReaderOptions<TValue> {
 const ACT_KEY = "act";
 
 /**
- * One act, published as the settlement a surface reads.
+ * One act, published as the settlement a dialog reads.
  *
  * Owns the single-flight guard, the disposed latch, and the emitter; the call each act
  * sends and the arm it settles into are the caller's.
@@ -124,14 +124,14 @@ export class ActController<TSettlement extends ActSettlementArm> {
    * Send one act, and publish what came back.
    *
    * DOES NOT OVERLAP ITSELF, and through the latch rather than off the rendered arm: two
-   * presses inside one frame both read a surface that is idle, so a guard read from the
+   * presses inside one frame both read a dialog that is idle, so a guard read from the
    * published reading admits both. What that costs is two durable records for one
    * intended act, and two replies racing to decide which settlement is shown.
    *
    * THE SETTLE CALLBACK IS ANNOTATED {@link ActOwnArm} RATHER THAN `TSettlement`, which
    * is where "a discriminant of its own" is actually checked. An arm reusing `idle` or
    * `sending` resolves to `never` there and the callback stops compiling; without it a
-   * surface could publish an arm that overwrote one of the two states its own reading is
+   * controller could publish an arm that overwrote one of the two states its own reading is
    * read in, and a settled act would render as still sending.
    */
   public async act<TReplyValue>(
@@ -150,7 +150,7 @@ export class ActController<TSettlement extends ActSettlementArm> {
         this.#publish(settle(value));
       });
     } catch (rejection) {
-      // Nothing is on the wire any more, so the surface stops saying it is sending.
+      // Nothing is on the wire any more, so the dialog stops saying it is sending.
       this.#publish(ACT_IDLE);
       throw rejection;
     } finally {
@@ -162,7 +162,7 @@ export class ActController<TSettlement extends ActSettlementArm> {
    * Put the act back to idle.
    *
    * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
-   * moments: a settlement is read after the call settles and the surface is still open,
+   * moments: a settlement is read after the call settles and the dialog is still open,
    * and a user who comes back to act a second time must not meet the first one's
    * sentence. The single-flight key is not given back — a call still on the wire is not
    * recallable, so a second act sends nothing until that one answers.
@@ -193,7 +193,7 @@ export class ActController<TSettlement extends ActSettlementArm> {
 /**
  * The question an act is issued against, read on the console's refresh policy.
  *
- * ONE PER SUBJECT AND NOT PER SURFACE — per mount for the modes it admits, per
+ * ONE PER SUBJECT AND NOT PER DIALOG — per mount for the modes it admits, per
  * workspace-and-mode for an execution root — which is why an answer survives a dialog
  * that is closed and reopened. The answer has not changed because a popup shut, and
  * re-reading on every open would put a call on the wire for each glance.
@@ -238,8 +238,8 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
   /**
    * Arm the refresh triggers, and take NO read.
    *
-   * Idempotent, and separate from {@link ask} because a surface whose question does not
-   * exist yet still has to be listening for the frames that would change it. A surface
+   * Idempotent, and separate from {@link ask} because a dialog whose question does not
+   * exist yet still has to be listening for the frames that would change it. A dialog
    * whose question exists the moment it opens calls `ask` instead, which arms these same
    * triggers on its way past.
    */
@@ -291,9 +291,9 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
   /**
    * Ask again, on one of the four reasons the policy admits.
    *
-   * ASKS NOTHING WITH NO QUESTION NAMED. A window focus over a surface nobody has opened
+   * ASKS NOTHING WITH NO QUESTION NAMED. A window focus over a dialog nobody has opened
    * or typed into has nothing to re-ask, and requesting anyway would put a call on the
-   * wire on every focus for the life of the surface.
+   * wire on every focus for the life of the dialog.
    */
   public requestRead(reason: RefreshReason): void {
     if (this.#disposed || this.#question === undefined) {
@@ -306,7 +306,7 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
    * Terminal. A reply still on the wire publishes into nothing after this.
    *
    * AND IS NOT PARSED EITHER, which is the scheduler's disposal doing it: it abandons the
-   * read line, so the door drops the call and the round it holds settles nothing.
+   * read line, so `callDaemon` drops the call and the round it holds settles nothing.
    */
   public dispose(): void {
     this.#disposed = true;

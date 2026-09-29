@@ -9,7 +9,7 @@
 //
 // Both functions are total on well-formed input and deliberately NOT defensive
 // against a kind outside the closed set: a projector naming a kind that does not
-// exist is a defect in the view family that registered it, and the projection
+// exist is a defect in the feature that registered it, and the projection
 // runner's all-or-nothing boundary is where that defect is caught and named. A
 // guard here would swallow it into a silently missing entity instead.
 

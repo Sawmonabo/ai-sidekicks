@@ -4,7 +4,7 @@
 // snapshot read back off disk, which may predate or postdate this build, and a route a
 // person can type into the address bar. `pane-address.ts` beside this file owns WHICH
 // pane kind is a view of WHICH entity — the rows, the union the compiler holds a typed
-// call site to, and the same rows as data. This file owns what happens at the one door
+// call site to, and the same rows as data. This file owns what happens at the one entry
 // the compiler does not stand at.
 //
 // Its own module rather than the bottom of that file, and the seam is exactly that
@@ -124,7 +124,7 @@ export function parsePaneAddress(
  * unenforced.
  *
  * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
- * the layout snapshot this parse reads back is written through that family's value
+ * the layout snapshot this parse reads back is written through that folder's value
  * walk, so the durable boundary already holds this exact string to this exact
  * predicate. A second grammar here would let route resolution admit an id the layout
  * path refuses, which is one value with two answers.

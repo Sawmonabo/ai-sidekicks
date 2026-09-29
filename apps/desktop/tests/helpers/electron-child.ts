@@ -38,8 +38,8 @@
 // It is not a second terminator. `process-tree/` owns the platform facts
 // about delivering a signal to a tree and stays their home; `ManagedElectronChild`
 // in `managed-electron-child.ts` owns WHEN that call is made and how many times,
-// and what a child's terminal events mean. This file is the DOOR: the one place
-// under `test/` that reaches `spawn`, which is the property
+// and what a child's terminal events mean. This file is the SPAWNER: the one place
+// under `tests/` that reaches `spawn`, which is the property
 // `apps/desktop/eslint.config.mjs` enforces. It asserts nothing, and
 // the one test-framework symbol it imports is a teardown registrar rather than
 // an assertion API — a helper that could fail a test would be a second place a
@@ -104,7 +104,7 @@ export type DisposalFailureDisposition = "swallowed" | "fails-the-test";
 /**
  * Bind a disposer to the end of the current test, however it ends.
  *
- * The door every Electron harness in this package walks through, including the
+ * The one settle-time registration every Electron harness in this package uses, including the
  * Playwright launcher, which spawns nothing here but has exactly the same hole:
  * its `close` runs in the body's own settlement, and a vitest timeout does not
  * run the body's settlement.
@@ -178,7 +178,7 @@ export interface ElectronChildSpawnOptions {
    * What to release once this child's LAST termination attempt has settled.
    *
    * A spawn argument rather than a second settle-time registration a caller
-   * makes afterwards, and that is the whole ordering property: the door arms
+   * makes afterwards, and that is the whole ordering property: the spawner arms
    * exactly one disposer, so the release cannot be sequenced before an attempt
    * that some other disposer is still going to make. `OrderedChildTeardown`
    * below has the leak that shape closes.
@@ -268,8 +268,8 @@ export function spawnManagedElectronChild(
     // spawn; this one happens after it, and without this arm the caller gets a
     // clear diagnostic while a detached child it was never handed keeps running
     // with no kill path anywhere. Registering BEFORE the spawn was the other
-    // way out and is worse: the disposer would then have to read a slot that is
-    // empty until the spawn returns, and an empty-slot teardown is a branch
+    // way out and is worse: the disposer would then have to read a holder that is
+    // empty until the spawn returns, and a teardown over an empty holder is a branch
     // nothing ever drives. Disposing here is driven on every run by the case in
     // `electron-child-lifetime.test.ts`.
     //

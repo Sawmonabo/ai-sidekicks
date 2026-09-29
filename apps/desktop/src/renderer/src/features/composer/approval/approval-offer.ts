@@ -1,6 +1,6 @@
 // Whether one approval can still be answered. One reading, two consumers.
 //
-// The card and the palette row are the same act on two surfaces, and every operator
+// The card and the palette row offer the same act, and every operator
 // action is in the palette — so a row the pane has withdrawn is a row that answers a
 // request nobody is waiting on. Both used to derive that independently and the two
 // derivations disagreed: the card took its two buttons off on a SETTLED refusal
@@ -16,7 +16,7 @@
 // only to the person who presses the row that should not have been there.
 //
 // IT IS AN OFFER READING AND NOT AN ELIGIBILITY PROJECTION. Whether the daemon will
-// accept the decision is the daemon's to say and reaches the surface as a typed
+// accept the decision is the daemon's to say and reaches the card as a typed
 // refusal; what this answers is narrower — whether this console has already been
 // told, in an answer it is holding, that the act is over.
 

@@ -139,7 +139,7 @@ describe("an item's own render", () => {
     expect(text).not.toContain("Everything unresolved in this session");
   });
 
-  it("is a press only when the surface supplied somewhere to go", () => {
+  it("is a press only when the caller supplied somewhere to go", () => {
     const withoutOpen = render(<NotificationsList reading={readingOf([item()])} />);
     expect(withoutOpen.container.querySelectorAll(".meridian-attention__row--open")).toHaveLength(
       0,
@@ -176,7 +176,7 @@ describe("members the boundary refused", () => {
   });
 
   it("never reports an all-clear for a read it could recognize none of", () => {
-    // The failure this catches is the worst one this surface has: a person is told
+    // The failure this catches is the worst one this list has: a person is told
     // nothing needs them on the strength of a read whose every member was refused.
     const { container } = render(
       <NotificationsList
@@ -195,10 +195,11 @@ describe("members the boundary refused", () => {
 });
 
 describe("a read that did not cover every session", () => {
-  // The worst sentence this surface has is the all-clear, and before this arm it was
-  // reachable on a read one session never answered: the fan-out dropped the refusals,
-  // an empty projection from the sessions that did answer read as "nothing", and a
-  // person was told they were free on a question half the console never got back.
+  // The worst sentence this list has is the all-clear, and without this arm it would
+  // be reachable on a read one session never answered: a fan-out that dropped the
+  // refusals would read an empty projection from the sessions that did answer as
+  // "nothing", and tell a person they were free on a question half the console never
+  // got back.
 
   it("never says a person is free while a session went unchecked", () => {
     const { container } = render(
@@ -241,7 +242,7 @@ describe("a read that did not cover every session", () => {
 describe("when an attention item was raised", () => {
   // The two instants are one calendar day apart at the same wall-clock minute, which
   // is the collision the reading has to survive: rows are grouped by session and by
-  // nothing else, so nothing else on this surface says which day an item belongs to.
+  // nothing else, so nothing else in this list says which day an item belongs to.
   const RAISED_TODAY = "2026-01-01T10:00:00.000Z";
   const RAISED_NEXT_DAY = "2026-01-02T10:00:00.000Z";
 
@@ -373,7 +374,7 @@ describe("what makes the attention read run again", () => {
     expect(container.textContent ?? "").toContain("An approval is waiting.");
   });
 
-  it("releases its subscription and reads no more once the surface has gone", async () => {
+  it("releases its subscription and reads no more once the list has gone", async () => {
     const clock = new ManualClock(0);
     const registry = registryOn(clock);
     const read = callServing({ items: [] });

@@ -1,20 +1,18 @@
-// Two claims the frame alone can make, because both are about the SLOT rather
-// than about what is put in it.
+// Two claims the frame alone can make, because both are about the REGIONS it lays
+// out rather than about what is put in them.
 //
-//   • **A modal overlay makes the background inert.** The adopted dialog family runs
-//     under `modal="trap-focus"`, which traps focus and deliberately does not lock
-//     scroll — and leaves inerting the app root to the shell. Nothing was doing it,
-//     so the rail and the whole screen
-//     stayed in the accessibility tree underneath an open dialog, reachable by
-//     every assistive-technology reader that does not follow focus. The overlays
-//     slot has to sit OUTSIDE whatever carries the attribute, or the palette
-//     would inert itself.
+//   • **A modal overlay makes the background inert.** The widget library's dialog
+//     runs under `modal="trap-focus"`, which traps focus and deliberately does not
+//     lock scroll — and leaves inerting the app root to the shell. Without that, the
+//     rail and the whole screen would stay in the accessibility tree underneath an
+//     open dialog, reachable by every assistive-technology reader that does not
+//     follow focus. The overlays region has to sit OUTSIDE whatever carries the
+//     attribute, or the palette would inert itself.
 //   • **A failed screen does not follow a person to the next route.** The
-//     boundary's error is its own state, and its identity used to be constant
-//     across routes: one route's render crash therefore hid the next route's
-//     screen behind the previous one's failure card until "Try again" was
-//     clicked. Keying the boundary by the route it is holding makes navigating
-//     away the retry.
+//     boundary's error is its own state, and with one identity across routes one
+//     route's render crash would hide the next route's screen behind the previous
+//     one's failure card until "Try again" was clicked. Keying the boundary by the
+//     route it is holding makes navigating away the retry.
 //
 // The frame's third claim — that the window has one live announcer, and that a
 // raised banner reaches it — is its own subject and has its own file,
@@ -47,18 +45,17 @@ function ExplodingScreen(): React.JSX.Element {
 /**
  * The boundary's failure card, addressed through the screen it replaced.
  *
- * `screen.getByRole("alert")` used to be unambiguous and is not any more: the frame
- * mounts the announcer's assertive region, which is a permanent `role="alert"` node
- * by design. Scoping to the screen asks the question these cases were always
- * asking — did the ROUTE's slot render a failure — rather than "is there an alert
- * anywhere in this window".
+ * `screen.getByRole("alert")` is ambiguous here: the frame mounts the announcer's
+ * assertive region, which is a permanent `role="alert"` node by design. Scoping to
+ * the screen asks the question these cases ask — did the ROUTE's region render a
+ * failure — rather than "is there an alert anywhere in this window".
  */
 function screenAlert(container: HTMLElement): HTMLElement | null {
-  const screenSlot = container.querySelector<HTMLElement>(".meridian-frame__screen");
-  if (screenSlot === null) {
-    throw new Error("the frame rendered no screen slot");
+  const screenRegion = container.querySelector<HTMLElement>(".meridian-frame__screen");
+  if (screenRegion === null) {
+    throw new Error("the frame rendered no screen region");
   }
-  return within(screenSlot).queryByRole("alert");
+  return within(screenRegion).queryByRole("alert");
 }
 
 describe("AppFrame — a modal overlay inerts the background and nothing else", () => {

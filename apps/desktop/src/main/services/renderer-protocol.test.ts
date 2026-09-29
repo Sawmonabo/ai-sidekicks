@@ -25,8 +25,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // resolved during this file's own import phase — before a top-level
 // `const electronMock = createElectronMock(...)` would have initialized, which
 // would leave the hoisted `vi.mock` factory reading a binding in its temporal
-// dead zone. The stub is also the whole surface this file needs, and it
-// constructs no window, so it is not a second copy of the shared harness's
+// dead zone. The stub also carries every `electron` member this file needs, and
+// it constructs no window, so it is not a second copy of the shared harness's
 // `BrowserWindow` machinery.
 const electronMock = vi.hoisted(() => ({
   registerSchemesAsPrivileged: vi.fn(),

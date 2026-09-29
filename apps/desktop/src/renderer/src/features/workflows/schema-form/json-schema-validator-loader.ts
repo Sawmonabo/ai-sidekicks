@@ -1,35 +1,20 @@
-// The schema compiler as the door publishes it: the same call, with the module that
-// performs it fetched first.
+// The schema compiler behind a loader: the same call, with the module that performs it
+// fetched first.
 //
-// WHY THIS MODULE EXISTS AT ALL. The bridge door is on the console's initial import graph
-// — the renderer root reaches it — so every value the door names is charged to every
-// launch. `compileSchemaValidator`'s only production readers are inside
-// `seats/schema-form/`, which is a loader-backed chunk of its own, and behind the compiler
-// stands the schema library's JSON-Schema entry point and everything it pulls in. A door
-// line for the compiler therefore did exactly what this package's module rules warn
-// a door line for a lazily-read body does: a symbol reachable both statically and
-// dynamically is assigned to the STATIC chunk, so the validator rode the document of every
-// session that never draws a form, against the `renderer-initial-bundle` budget
-// the console's design language sets.
-//
-// SO THE DOOR NAMES THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
-// graph is one function body and a type reference that erases; the compiler and its
-// library are emitted as their own chunk and fetched the first time a schema form mounts.
-// `workflow-definition-file-codec.ts` beside it is the same move for the definition file's
-// two sides, and the two are deliberately separate modules: they defer different
-// sub-graphs, for different surfaces, and one wrapper naming both would fetch the parser
-// for a form and the schema reader for an export.
-//
-// AND THE DEFERRAL IS HERE RATHER THAN IN THE CALLER. A view family — and the seat kit
-// above this one — may not reach past this family's door, which
-// `console-cross-family-deep-import` closes, so the form cannot `import()` the validator
-// module itself. The wrapper belongs on this side of the door, which is also where the
-// reason for it is legible: the door's own eagerness is what has to be paid for.
+// WHY THIS MODULE EXISTS AT ALL. Behind `compileSchemaValidator` stands the schema
+// library's JSON-Schema entry point and everything it pulls in. The form's hook asks this
+// module rather than importing `json-schema-validator.ts`, so the form's own chunk carries
+// one function body and a type reference that erases, and the compiler and its library
+// are emitted as a chunk of their own, fetched the first time a form compiles a schema.
+// `workflow-definition-file-codec.ts` is the same move for the definition file's two
+// sides, and the two are deliberately separate modules: they defer different sub-graphs,
+// for different views, and one wrapper naming both would fetch the parser for a form and
+// the schema reader for an export.
 //
 // THE ADDRESSING IS NOT DEFERRED WITH IT. `schema-member-path.ts` carries no schema
-// library and is read by six modules of that same seat on their first render, so it stays
-// an ordinary eager door line; deferring it would have bought nothing and made a control's
-// React key wait on a chunk.
+// library and is read by the form's controls on their first render, so it is an ordinary
+// static import; deferring it would buy nothing and make a control's React key wait on a
+// chunk.
 //
 // THE PROMISE IS MEMOIZED, AND "THE MODULE MAP IS ALREADY THE MEMO" IS WHY IT HAD TO BE.
 // This module carried that sentence, borrowed from `workflow-definition-file-codec.ts`,
@@ -43,12 +28,12 @@
 // makes a second call synchronous-to-settle rather than merely cheap.
 //
 // A CLASS WITH A PRIVATE FIELD, never a module-level `let`, on this package's state
-// rules, and `SchemaFormChunk` is the same shape one family up for the same
+// rules, and `SchemaFormChunk` in `schema-form-mounts.ts` is the same shape for the same
 // job. The instance below is this renderer's; a test builds its own, which is what keeps
 // the memo out of the shared state a module-level promise would be.
 //
 // WHAT A COMPILED VALIDATOR'S LIFETIME IS STAYS THE CALLER'S — one per schema per mount,
-// held by `use-schema-form.ts`, where the schema identity that keys it lives. This memo is
+// held by `useSchemaForm.ts`, where the schema identity that keys it lives. This memo is
 // about the CHUNK and says nothing about a compile.
 //
 // THE ONLY WAY THIS REJECTS is a chunk that did not load, which is a fact about the
@@ -56,9 +41,9 @@
 // sentence about a definition that is fine, and the memo is DROPPED on that arm so a later
 // call reaches a live loader rather than a cached failure. WHERE IT SETTLES is named,
 // because a rejection with no named consumer is one nobody attaches to:
-// `seats/schema-form/containers/use-schema-form.ts` takes it on the rejecting arm of the
-// one `then` it puts here, inside its own compile round, and turns it into that hook's
-// `checker-unavailable` validator arm — which opens the raw editor and arms the act. That
+// `hooks/useSchemaForm.ts` takes it on the rejecting arm of the one `then` it puts here,
+// inside its own compile round, and turns it into that hook's `checker-unavailable`
+// validator arm — which opens the raw editor and arms the act. That
 // arm is a settlement rather than a retry, so nothing re-asks until a schema moves or a
 // form is opened again; dropping the memo is what makes those two reach a live fetch.
 // Nothing about the failure reaches a person from HERE; what a fetch raises is about the
@@ -67,10 +52,10 @@
 import type { SchemaValidator } from "./json-schema-validator.js";
 
 /**
- * What the door hands back: the compiler, not a compiled validator.
+ * What the loader hands back: the compiler, not a compiled validator.
  *
  * The FUNCTION, because compiling is synchronous once the module is here and the schema is
- * the caller's: a wrapper taking the schema would put one `import()` on the door per
+ * the caller's: a wrapper taking the schema would put one `import()` behind every
  * compile and would hide, from the one module that has to know it, when the compile
  * actually happened.
  */
@@ -130,12 +115,7 @@ async function importSchemaValidatorCompiler(): Promise<SchemaValidatorCompiler>
 const schemaValidatorCompilerChunk: SchemaValidatorCompilerChunk =
   new SchemaValidatorCompilerChunk();
 
-/**
- * Fetch the schema compiler, and hand back the compiler itself.
- *
- * The door's shape is unchanged — one call, one promise of the compiler — so the hook and
- * the three test supports that already reach it need no edit. What moved is behind it.
- */
+/** Fetch the schema compiler, and hand back the compiler itself. */
 export function loadSchemaValidatorCompiler(): Promise<SchemaValidatorCompiler> {
   return schemaValidatorCompilerChunk.load();
 }

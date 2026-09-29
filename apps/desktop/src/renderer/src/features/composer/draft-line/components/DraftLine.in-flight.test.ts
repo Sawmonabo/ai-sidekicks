@@ -79,7 +79,7 @@ describe("DraftLine — one send in flight", () => {
     });
     expect(sendButton(result.container).disabled).toBe(true);
 
-    // A separate frame, so the surface has re-rendered into `sending` — the press
+    // A separate frame, so the line has re-rendered into `sending` — the press
     // is refused by the rendered state rather than by the latch, and refused
     // SILENTLY: nothing was rejected, the person was only early.
     await act(async () => {

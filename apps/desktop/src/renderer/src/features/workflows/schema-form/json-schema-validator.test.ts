@@ -81,7 +81,7 @@ describe("the schema validator wrapper", () => {
   it("keeps a dotted property name and an array position apart, which one string cannot", () => {
     // The whole reason a path is segments. Joined with a dot, the property literally named
     // `items.0` and the first entry of the array named `items` are the same string, so a
-    // surface keyed on that string draws one member's finding under the other's control.
+    // control keyed on that string draws one member's finding under the other's control.
     const validator = compileSchemaValidator({
       type: "object",
       properties: {
@@ -158,7 +158,7 @@ describe("the schema validator wrapper", () => {
     if (validator.status !== "uncompilable") {
       return;
     }
-    // The reason travels, because a surface that said only "could not check" leaves an
+    // The reason travels, because an editor that said only "could not check" leaves an
     // author with nothing to change.
     expect(validator.detail).toContain("only the JSON itself is checked");
     expect(validator.detail.length).toBeGreaterThan("only the JSON itself is checked".length);

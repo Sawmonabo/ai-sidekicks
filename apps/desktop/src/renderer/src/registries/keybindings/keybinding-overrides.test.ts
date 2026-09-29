@@ -121,7 +121,7 @@ describe("refusing a candidate chord", () => {
   });
 
   it("negative control: every code the refusals above carry is in the vocabulary", () => {
-    // Without this the codes would be free strings that a surface renders and a
+    // Without this the codes would be free strings that a view renders and a
     // reader searches for, and a typo in one would be invisible.
     for (const code of ["chord-taken", "chord-reserved", "chord-unbindable"]) {
       expect(KEYBINDING_OVERRIDE_REFUSAL_CODES).toContain(code);

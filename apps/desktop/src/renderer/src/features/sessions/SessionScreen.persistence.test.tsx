@@ -10,7 +10,7 @@
 // Navigating between two open sessions is that same failure with a second partition in
 // it. Sessions are opened and never closed, so moving from one to another re-renders
 // this component rather than remounting it, and a queued arrangement can flush after
-// the surface already shows somebody else's session.
+// the screen already shows somebody else's session.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -92,7 +92,7 @@ describe("SessionScreen — the saved arrangement", () => {
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
       // Scoped to the pane layout's own refusal strip: the announcer's polite region
-      // carries `role="status"` too and renders above every surface.
+      // carries `role="status"` too and renders above every view.
       expect(
         container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
       ).toContain("written by a different version");
@@ -134,7 +134,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     adapter.holdWrites();
     adapter.holdReads();
     // Twice: the first commit goes in flight against the closed gate, the second
-    // lands in the writer's single pending slot. That slot is the whole subject —
+    // lands in the writer's single pending request. That request is the whole subject —
     // it is what outlives the navigation below.
     cyclePaneFocus(container);
     cyclePaneFocus(container);
@@ -143,7 +143,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
 
     rerender(workspaceFor(otherSession(), store, false));
     // The arriving session's restore is held open, so the queued arrangement flushes
-    // while the surface already shows the second session — the ordering decided here
+    // while the screen already shows the second session — the ordering decided here
     // rather than left to whichever promise happens to settle first.
     adapter.releaseWrites();
     await waitFor(() => {

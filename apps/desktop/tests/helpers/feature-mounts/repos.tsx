@@ -1,15 +1,14 @@
-// The repos family's sidebar section and diff pane, mounted once for the two tiers that
+// The repos feature's sidebar section and diff pane, mounted once for the two tiers that
 // look at them.
 //
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
-// accessibility tier both need the same surfaces this family ships, and a per-tier copy
+// accessibility tier both need the same views this feature ships, and a per-tier copy
 // of the mount would be two chances to compose them differently and then read the
 // results as if they were comparable. Three modules divide that job: `app-harness.ts`
-// owns HOW the app is mounted, `repos-mount-harness.ts` owns what SETTLED means and
-// how a tier waits for it, and `repos-fixtures.ts` owns what the surfaces are drawn
-// against.
+// owns HOW the app is mounted, `mount-queries.ts` owns what a mounted view is and
+// how a tier finds it, and `repos-fixtures.ts` owns what the views are drawn against.
 //
-// BOTH SURFACES ARE MOUNTED DIRECTLY, AND EACH FOR A STATED REASON.
+// BOTH VIEWS ARE MOUNTED DIRECTLY, AND EACH FOR A STATED REASON.
 //
 //   • The SECTION is a component that takes its calls as an argument, so it is mounted
 //     over `sessionOperations()`: the session's workspace list, each mount's read, and
@@ -23,7 +22,7 @@
 //     stopped answering.
 //   • The DIFF PANE takes its model as a prop and no wire produces one, so the pane layout's
 //     own body renders the `not-checked` absence — which is the emptiest frame the
-//     surface has and would pin a baseline of a box. The pane is mounted with
+//     pane has and would pin a baseline of a box. The pane is mounted with
 //     `extendedHeaderChangeSet()` instead, which is the composition `DiffPane.tsx`
 //     draws: the compared states, the file list, and the rows. The absence arm is not
 //     unpinned by that — `DiffPane.test.tsx` owns it, where a DOM assertion can say
@@ -63,7 +62,7 @@ export async function mountRepoSection(): Promise<MountedView> {
     //
     // ON FROZEN TIME, so the standing message never clears itself mid-capture. The
     // announcer's hold deadline is the one timer the primitive arms, and on a real
-    // clock it lands a state update after the surface has settled — which a tier
+    // clock it lands a state update after the section has settled — which a tier
     // records as whichever side of the clear the runner happened to reach.
     <PlatformBridgeProvider bridge={bridge} clock={clock}>
       <LiveAnnouncerProvider clock={new ManualClock()}>
@@ -97,7 +96,7 @@ export async function mountDiffPane(): Promise<MountedView> {
         // view of. Named from the section's fixture rather than spelled here, so the
         // subject the tier pins and the subject the section states cannot drift.
         address: { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
-        paneId: "pane-diff-surface",
+        paneId: "pane-diff",
         bridge,
         sessionStore,
       })}

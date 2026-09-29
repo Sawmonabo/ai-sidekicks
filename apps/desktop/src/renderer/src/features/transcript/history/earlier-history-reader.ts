@@ -11,7 +11,7 @@
 //
 // WHAT IT IS NOT. It is not a second window model, and it holds no rows: the page it
 // reads goes straight into the session store's own log through
-// `prependEarlierEvents`, which is the one door a log grows at its head through. What
+// `prependEarlierEvents`, which is the one call a log grows at its head through. What
 // this object holds is a POSITION and a verdict — where the next page starts, and
 // whether the producer said any remain.
 //
@@ -56,12 +56,12 @@ import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
-/** What a surface renders about the rows before this window. */
+/** What the transcript renders about the rows before this window. */
 export interface EarlierHistoryState {
   /**
    * Whether a backward page can be asked for right now.
    *
-   * False for three different reasons, and the surface deliberately does not tell
+   * False for three different reasons, and the transcript deliberately does not tell
    * them apart: the window opens at the beginning of the log, the producer has said
    * nothing remains, or a page is already in flight. All three mean the same thing to
    * a person looking at the control — there is nothing to press — and the third is
@@ -109,7 +109,7 @@ export class EarlierHistoryReader {
    * OWNED HERE RATHER THAN TAKEN FROM THE PRESS, because the round has to be opened
    * AFTER the single-flight guard has admitted the press: a round opened by the caller
    * would abort the page already in flight on exactly the double press this walk drops,
-   * and the reader would then install the door's own `read-abandoned` refusal beside a
+   * and the reader would then install `callDaemon`'s own `read-abandoned` refusal beside a
    * control that had done nothing wrong. The walk's owner ends the line through
    * {@link abandonReads}, which is what `useEarlierHistory.ts` hands the holder as its
    * disposal — so a pane that leaves stops its outstanding page rather than only
@@ -140,7 +140,7 @@ export class EarlierHistoryReader {
   }
 
   /**
-   * What a surface should render, read against the store as it stands.
+   * What the transcript should render, read against the store as it stands.
    *
    * The store is passed in rather than held because the walk's base is a fact the
    * STORE owns — a completed read re-establishes where the window starts — and an
@@ -181,7 +181,7 @@ export class EarlierHistoryReader {
           // compile-time markers over opaque wire strings, and both of these values
           // came off the wire: the id is the one the store was opened under, and the
           // cursor is whatever the daemon last issued. The two casts stay local
-          // because a view family may import no other view family.
+          // because a feature may import no other feature.
           sessionId: sessionStore.sessionId as SessionId,
           beforeCursor: beforeCursor as EventCursor,
           limit: TRANSCRIPT_EARLIER_PAGE_ROWS,
@@ -190,16 +190,16 @@ export class EarlierHistoryReader {
       );
       if (isReadAbandoned(round.signal)) {
         // NOTHING IS WAITING, so nothing installs — not the page and not the refusal
-        // the door composes for an abandoned read. The reading is taken here rather
+        // `callDaemon` composes for an abandoned read. The reading is taken here rather
         // than left to the window generation because the two answer different
         // questions: that one says the window moved under this page, and this one says
-        // there is no longer a surface offering the control the page was pressed on.
+        // there is no longer a pane offering the control the page was pressed on.
         return;
       }
       if (reply.status === "refused") {
         // Through the round as well, and for the same reason the page is: a refusal
         // installed after the window moved is a failure reported against a read the
-        // surface is no longer offering, on a control the rebase has already re-armed.
+        // transcript is no longer offering, on a control the rebase has already re-armed.
         baseWindowGeneration.settle(() => {
           this.#refusal = reply.refusal;
         });

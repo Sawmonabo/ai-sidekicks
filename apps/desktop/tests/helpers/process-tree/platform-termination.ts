@@ -355,7 +355,7 @@ function unverifiedRootClaimants(
  * decides, asking the operating system rather than reading taskkill's message,
  * which is localized and must not depend on the runner's display language.
  *
- * Run through the one bounded door in `readers.ts` for the reason every other
+ * Run through the one bounded call in `readers.ts` for the reason every other
  * host command here is: it is a `spawnSync`, so a `taskkill` that does not
  * return blocks the thread vitest's own timeout runs on. A caller inside a
  * deadline passes what is left of it; a bound already spent runs nothing and

@@ -1,7 +1,7 @@
 // Conditional-type negative test against the `PreloadApi` interface.
 //
 //   "No auth material (daemon session token, PASETO tokens, DPoP key)
-//   appears on the `window.desktopBridge` surface — verified by a negative
+//   appears anywhere on `window.desktopBridge` — verified by a negative
 //   contract test against the bridge's exposed type."
 //
 // How it works

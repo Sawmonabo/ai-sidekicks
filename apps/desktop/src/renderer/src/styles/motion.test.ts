@@ -9,7 +9,7 @@ function samplesOf(easing: string): readonly number[] {
   return inner.split(", ").map((sample) => Number(sample));
 }
 
-// The sampler is `spring-sampler.test-support.ts`'s whole public surface, so every
+// The sampler is `spring-sampler.test-support.ts`'s whole public API, so every
 // claim below is made about the string it emits. That is deliberate rather than a
 // narrowing forced on the suite: the closed-form solution and the sample count are
 // private, and a test that reached them would be checking the sampler against the
@@ -31,7 +31,7 @@ describe("the sampled linear() easing", () => {
     expect(samples[samples.length - 1]).toBe(1);
   });
 
-  it("never exceeds 1, which is rule 5's zero overshoot as the sheet will paint it", () => {
+  it("never exceeds 1, which is zero overshoot as the sheet will paint it", () => {
     for (const sample of samplesOf(easing)) {
       expect(sample).toBeLessThanOrEqual(1);
     }
@@ -92,7 +92,7 @@ describe("the sampled linear() easing", () => {
 });
 
 describe("the motion scale", () => {
-  it("holds every step to the band rule 5 admits", () => {
+  it("holds every step to the band the motion rule admits", () => {
     // 120-180 ms for chrome and 240 ms for an attribution thread drawing itself.
     expect(MOTION_DURATIONS_MS["motion-quick"]).toBe(120);
     expect(MOTION_DURATIONS_MS["motion-settle"]).toBe(180);

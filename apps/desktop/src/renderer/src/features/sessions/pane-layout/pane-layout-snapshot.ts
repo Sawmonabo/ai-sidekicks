@@ -21,7 +21,7 @@
 // AND ONE THE PANE LAYOUT'S OWN STORE STATES AND THIS FILE HAS TO HONOR: **one entity,
 // one pane**. `open()` enforces it by focusing the pane that already shows an
 // address, which repairs nothing it did not create — a record holding two pane ids
-// at one address would mount both bodies, consume two cap slots, and be written
+// at one address would mount both bodies, count twice against the cap, and be written
 // back on the next save, surviving every restart. So a duplicate address is
 // coalesced HERE, during decoding, first in position order winning, and the drop is
 // reported like every other one. Coalesced rather than refused whole: the record is
@@ -225,7 +225,7 @@ export function decodePaneLayoutSnapshot(
     }
     const addressKey = paneAddressKey(pane);
     if (adoptedAddressKeys.has(addressKey)) {
-      // Dropped BEFORE the push, so it consumes no cap slot: a record padded with
+      // Dropped BEFORE the push, so it does not count against the cap: a record padded with
       // repeats of one address must not push real panes out of the restore.
       refusals.push(
         refusePaneLayoutRestore(
@@ -296,7 +296,7 @@ function decodePane(
   // THE ADMISSION IS THE CONSOLE'S ONE PANE-ADDRESS GRAMMAR, and not a reading of
   // its own. A weaker one here — any known entity kind, any non-empty id — admits a
   // `transcript` opened over an artifact and an id like `bad/id`, and the body that
-  // mounts the row then refuses it: an unusable pane holding one of the cap's slots,
+  // mounts the row then refuses it: an unusable pane counted against the cap,
   // written straight back out on the next save and surviving every restart. The
   // grammar knows both things this one cannot: WHICH entity kinds each pane kind is
   // a view of, and what an identifier is allowed to look like.

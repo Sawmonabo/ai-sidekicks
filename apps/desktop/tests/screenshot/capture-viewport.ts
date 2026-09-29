@@ -13,7 +13,7 @@
 // row below it. Measured on the committed set — every capture taller than the
 // 900 px window carried real content to row 899 and pure white to the bottom edge,
 // in the dark scheme as well as the light one, which is what makes it a capture
-// artifact rather than a surface that happens to end.
+// artifact rather than an element that happens to end.
 //
 // SO THE FIX IS A WINDOW AND NOT A CAPTURE OPTION. There is no option on either side
 // that paints beyond the iframe: Playwright already asks Chromium for
@@ -22,22 +22,22 @@
 // grow is the tester window itself, so the element is laid out and painted whole
 // before anything is clipped out of it.
 //
-// AND ONE SHAPE OF SURFACE NO WINDOW HOLDS. A surface whose own height is derived
+// AND ONE SHAPE OF ELEMENT NO WINDOW HOLDS. An element whose own height is derived
 // from the window's is exactly one window tall plus a constant, at every window: the
 // console's two full-height destinations are `min-height: 100%` around 32 px of their
 // own padding, so each measures 64 px past whatever window it is in. Growing moves
 // both numbers together and photographs the same picture in a taller frame, so this
 // module names that outcome instead of chasing it — the capture is taken at the
 // window the tier configures, which is the size every other capture is taken at,
-// and the overhang is that surface's own trailing padding rather than anything it
-// draws. Stated here because it is a property of THE SURFACE and not of the capture:
+// and the overhang is that element's own trailing padding rather than anything it
+// draws. Stated here because it is a property of THE ELEMENT and not of the capture:
 // a destination that stops overflowing its scroll container stops taking this arm.
 //
 // AND THAT SHAPE IS CONFIRMED RATHER THAN GUESSED. One non-closing overhang is also
-// what a surface that reflowed ONCE looks like: the grow is itself a layout change,
+// what an element that reflowed ONCE looks like: the grow is itself a layout change,
 // so a deferred image landing or a container re-measuring can add back as much as the
 // window just gained, during the very settle that made room for it. Reading that as
-// coupling puts the window back and photographs the surface with an unpainted tail
+// coupling puts the window back and photographs the element with an unpainted tail
 // below it — the defect this module exists to refuse, arriving through the fix for
 // it. So the third arm is taken on TWO consecutive non-closing overhangs, measured at
 // three window heights: it costs the genuinely coupled destinations one more resize,
@@ -82,10 +82,10 @@ export interface CaptureViewport {
  *
  * It is the height the screenshot project's Playwright page is built at, so a window
  * grown to it still scales at exactly 1. Four times the 900 px window the console is
- * measured in: the tallest surface the committed set pins today is 2 446 px, which is
+ * measured in: the tallest element the committed set pins today is 2 446 px, which is
  * 2.7 of them, so this is real headroom rather than a number fitted to the current
- * corpus — and it is a CEILING rather than an arbitrarily large page because a surface
- * that needs more than four windows is not a surface anyone reads whole, and an image
+ * corpus — and it is a CEILING rather than an arbitrarily large page because an element
+ * that needs more than four windows is not an element anyone reads whole, and an image
  * of it is not a thing a review can look at. The refusal below is the honest answer
  * there; raising this number to silence one is not.
  */
@@ -104,22 +104,22 @@ export const CAPTURE_WINDOW_HEIGHT_CEILING = 3600;
  * box's pixels.
  *
  * FIVE SECONDS, which is Vitest's own default, restated here because it stopped being
- * an inherited default the moment the tier began opening the window for a surface. The
+ * an inherited default the moment the tier began opening the window for an element. The
  * default is sized for a capture the size of the window; a tier that holds a box
  * several windows tall is asking for several times the encode and several times the
  * comparison under the same budget. Measured: `tall-capture.test.ts` holds a
- * 1 200 × 2 400 surface whole, which is a ~3 Mpx encode and a ~3 Mpx comparison twice
+ * 1 200 × 2 400 element whole, which is a ~3 Mpx encode and a ~3 Mpx comparison twice
  * over, and on a loaded runner (GitHub Actions run 34267040299, the `macos-15`
  * screenshot job) that did not fit — the probe failed with "Could not capture a stable
  * screenshot within 5000ms" on a branch whose diff touched no renderer file, while the
  * same job was green on the base commit and on two sibling branches the same hour. A
- * perfectly static surface reported unstable, which is a budget failure wearing a
+ * perfectly static element reported unstable, which is a budget failure wearing a
  * stability failure's name.
  *
  * IT STAYS FIVE SECONDS PER WINDOW rather than becoming a larger flat number.
  * `stabilityWaitMsFor` multiplies it by the windows a capture actually held, so a
  * viewport-sized capture keeps exactly the wait it has always had and only a capture
- * that asked for more work is given longer to finish it. A surface that is genuinely
+ * that asked for more work is given longer to finish it. An element that is genuinely
  * unstable still fails — later, and with the wait it was given named in the failure,
  * because the matcher prints the number it raced against.
  */
@@ -156,7 +156,7 @@ export function stabilityWaitMsFor(heldViewportRatio: number): number {
  * What one sizing pass decided: the window fits, it should grow, or growing is futile.
  *
  * Three arms rather than a nullable window, because the third is a real outcome and
- * not a failure. A surface whose own height is derived from the window's — the
+ * not a failure. An element whose own height is derived from the window's — the
  * console's two full-height destinations are, each `min-height: 100%` around its own
  * padding — is exactly one window tall plus a constant, at every window. Growing
  * moves both numbers by the same amount and photographs the same picture in a taller
@@ -177,17 +177,17 @@ export type CaptureWindowStep =
  * How many consecutive non-closing overhangs the third arm is taken on.
  *
  * TWO, which is three measurements at three window heights, and the distance between
- * a surface sized BY its window and a surface that reflowed once while the first
+ * an element sized BY its window and an element that reflowed once while the first
  * window was being opened. Opening a window is a layout change, so a deferred image
  * or a re-measuring container can add back as much as the window just gained during
  * the settle that follows it. One observation cannot tell those apart — both leave an
  * overhang no smaller than the one before — and reading the reflow as coupling
- * restores the tier's window and photographs the surface with an unpainted tail,
+ * restores the tier's window and photographs the element with an unpainted tail,
  * which is the false green this module exists to refuse.
  *
  * A SECOND OBSERVATION SEPARATES THEM because it is taken at a window the first one
- * paid for. A surface sized by its window hangs over by the same constant at every
- * height, so its overhang survives the grow. A surface that reflowed once has since
+ * paid for. An element sized by its window hangs over by the same constant at every
+ * height, so its overhang survives the grow. An element that reflowed once has since
  * been given the height it grew to, so its overhang closes and the pass reports
  * `fits` — which is the capture the defect was replacing with a restored window.
  */
@@ -197,7 +197,7 @@ const CONFIRMING_NON_CLOSING_PASSES = 2;
  * How many of the trailing overhangs failed to close on the one before them.
  *
  * Read from the END, because only the run reaching the present pass says anything
- * about the surface now: a surface that reflowed, was grown for, and then settled
+ * about the element now: an element that reflowed, was grown for, and then settled
  * carries a closing pass in its history, and that pass is what ends the run.
  */
 function nonClosingRunLength(overhangsPx: readonly number[]): number {
@@ -218,28 +218,28 @@ function nonClosingRunLength(overhangsPx: readonly number[]): number {
 }
 
 /**
- * Decide one sizing pass: fit, grow, or stop because the surface grows with its window.
+ * Decide one sizing pass: fit, grow, or stop because the element grows with its window.
  *
  * A PURE FUNCTION OVER SIZES, which is what makes the sizing testable without a
  * browser: the DOM read that produces `required` is `settled-capture.ts`'s and the
  * decision is here, so every arm and both refusals can be driven by a node-shaped
  * case instead of by minting a capture that is too large on purpose.
  *
- * `previousOverhangsPx` is how far the surface hung past the window on each earlier
+ * `previousOverhangsPx` is how far the element hung past the window on each earlier
  * pass, oldest first, and empty on the first. It is the whole basis of the third arm:
- * an overhang no smaller after a grow than before it is a surface being sized BY the
+ * an overhang no smaller after a grow than before it is an element being sized BY the
  * window rather than one that simply needed a bigger one — and the arm waits for that
  * to hold twice, for `CONFIRMING_NON_CLOSING_PASSES`' reason. The history is passed
  * rather than a verdict the caller reached, so the whole judgment is owned here and
  * the loop that drives it owns none of it.
  *
  * It throws rather than returning a wider window in the two cases where no window
- * would help. A surface wider than the page cannot be held at all — the page is
+ * would help. An element wider than the page cannot be held at all — the page is
  * built at one width and a capture never changes it, because widening the window
- * would relayout the console at a width no capture is taken at. A surface
+ * would relayout the console at a width no capture is taken at. An element
  * taller than the ceiling is refused for the reason the ceiling records, and the
  * ORDER against the third arm is the one choice here worth naming: a CONFIRMED
- * coupling is answered before the ceiling is consulted, because that surface is
+ * coupling is answered before the ceiling is consulted, because that element is
  * photographed at the tier's own window and never needs a tall one, while a merely
  * SUSPECTED one is refused rather than assumed — assuming it is what writes an image
  * with an unpainted tail, and the ceiling's message is the honest thing to fail with.
@@ -252,9 +252,9 @@ export function captureWindowStep(
 ): CaptureWindowStep {
   if (required.width > applied.width) {
     throw new Error(
-      `Refusing to capture ${captureName}: the surface extends ${String(required.width)}px ` +
+      `Refusing to capture ${captureName}: the element extends ${String(required.width)}px ` +
         `across a ${String(applied.width)}px window, and a capture never widens one — a ` +
-        `console relaid out at another width is not the surface the captures pin.`,
+        `console relaid out at another width is not the element the captures pin.`,
     );
   }
   const overhangPx = required.height - applied.height;
@@ -266,9 +266,9 @@ export function captureWindowStep(
   }
   if (required.height > CAPTURE_WINDOW_HEIGHT_CEILING) {
     throw new Error(
-      `Refusing to capture ${captureName}: the surface is ${String(required.height)}px tall ` +
+      `Refusing to capture ${captureName}: the element is ${String(required.height)}px tall ` +
         `and this tier opens a window of at most ${String(CAPTURE_WINDOW_HEIGHT_CEILING)}px. ` +
-        `A capture taller than that is not a surface a review can read; split it, or pin the ` +
+        `A capture taller than that is not an element a review can read; split it, or pin the ` +
         `part a person actually looks at.`,
     );
   }

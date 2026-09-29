@@ -1,6 +1,6 @@
 // One reading of the slash prefix, and the two lines it must not claim.
 //
-// The discovery surface and the send router read the same grammar, so a rule both
+// The command list and the send router read the same grammar, so a rule both
 // zones depend on is asserted once, here.
 
 import { describe, expect, it } from "vitest";

@@ -65,7 +65,7 @@ const OTHER_MEMBER_SCHEMA = {
  * What a compiler that refused answers with.
  *
  * THAT IT REFUSES AT ALL IS THE READER'S BUSINESS AND IS PINNED THERE
- * (`bridge/wire-shapes/json-schema-check.test.ts`, over a `$ref` the library does not
+ * (`json-schema-validator.test.ts`, over a `$ref` the library does not
  * implement). What is under test here is the form's handling of that verdict once it
  * arrives, which is a claim about this hook and is stated over the verdict rather than
  * over a schema chosen to provoke one.
@@ -92,8 +92,8 @@ interface HeldCompilerLoad {
  * One compiler function shared by every load, so a case counting compiles is counting the
  * hook's calls rather than the substitution's. BOTH OUTCOMES ARE HELD BY ONE OBJECT: a
  * chunk that landed and a chunk that did not are two answers to one load, and a second
- * substitution beside this one would be two `mockImplementation`s over one door export —
- * two answers to which of them a case installed.
+ * substitution beside this one would be two `mockImplementation`s over one loader
+ * export — two answers to which of them a case installed.
  */
 interface HeldCompilerLoads {
   /** What every held load resolves to, recording the schemas it was asked about. */
@@ -160,7 +160,7 @@ describe("a form whose compiler has not arrived", () => {
   it("does not say the schema could not be compiled, because nobody has tried yet", async () => {
     const held = holdCompilerLoads();
     // The mapper cannot draw this member, so this form opens on the raw editor — the one
-    // surface that renders a sentence about an uncompilable schema.
+    // view that renders a sentence about an uncompilable schema.
     const { container } = render(
       <SchemaFormAnswer
         prompt="Anything?"

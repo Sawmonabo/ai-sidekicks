@@ -5,8 +5,7 @@
 // patch's STRUCTURE — which files it touches, what each one's compared states are,
 // where its hunks start. This module reads what is INSIDE one hunk, which is a
 // different question with its own vocabulary: prefix characters, two independent line
-// counters, and `\ No newline at end of file`. The two levels were one module and the
-// file was the family's longest; nothing but length said they were one subject.
+// counters, and `\ No newline at end of file`.
 //
 // IT STAYS ON THE PARSE SIDE OF THE ADOPTED LIBRARY'S SEAM. The library's
 // `parsePatch` hands over hunk bodies as prefixed strings and this is what reads them,
@@ -47,11 +46,11 @@ const NO_NEWLINE_MARKER_PREFIX = "\\";
  *
  * A `\ No newline at end of file` marker is still not a row — it annotates the line
  * above it, and a row drawn for it would be a row the file does not have — but it is
- * no longer DISCARDED. It was, and that lost the whole content of one class of change:
- * a patch that only adds or removes a terminating newline spells it as a deletion and
- * an insertion whose text is identical, so both surfaces drew two indistinguishable
- * lines and the marker that said which was which had been thrown away. It is carried
- * onto the line it annotates, which is the one immediately before it.
+ * not DISCARDED either, because discarding it loses the whole content of one class of
+ * change: a patch that only adds or removes a terminating newline spells it as a
+ * deletion and an insertion whose text is identical, so both diff views would draw two
+ * indistinguishable lines with nothing saying which was which. It is carried onto the
+ * line it annotates, which is the one immediately before it.
  */
 export function hunkLines(
   prefixedLines: readonly string[],

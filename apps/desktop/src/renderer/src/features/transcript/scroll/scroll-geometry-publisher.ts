@@ -1,23 +1,22 @@
 // The transcript's geometry publication: what three numbers MEAN, and who is woken by them.
 //
-// SPLIT OUT OF `scroll-chokepoint.ts` ON THE SEAM THAT MODULE'S OWN TEXT NAMES.
-// Its third decision — "Geometry is published, not polled: a replayable,
-// instance-bound subscription" — is a whole job beside the two the chokepoint exists
-// for, which are owning the surface and writing the offset. `geometry-sample.ts` had
-// already named the reader of its comparison "a publisher"; this is that publisher,
-// and it holds the emitter, the last sample, and the tolerance the two derived facts
-// come out of.
+// ITS OWN MODULE BESIDE `scroll-chokepoint.ts`. Publishing geometry rather than polling
+// it — a replayable, instance-bound subscription — is a whole job beside the two the
+// chokepoint exists for, which are owning the scroll container and writing the offset.
+// `geometry-sample.ts` names the reader of its comparison "a publisher"; this is that
+// publisher, and it holds the emitter, the last sample, and the tolerance the two
+// derived facts come out of.
 //
 // WHAT IS HERE AND WHAT IS NOT. Here: the derivation from the three sampled numbers,
 // the held sample, the replay, and the rule about which sample is worth waking a
-// subscriber for. Not here: the SURFACE. This module never reads a DOM property and
+// subscriber for. Not here: the SCROLL CONTAINER. This module never reads a DOM property and
 // never writes one — its caller reads `scrollTop`, `clientHeight` and `scrollHeight`
 // exactly once each and hands the three over, which is what keeps "the sample reads
 // three properties and no fourth" a claim about the module that does the reading, and
 // what keeps the one `scrollTop` write in the console in the one module
 // `apps/desktop/AGENTS.md` pins by path.
 //
-// AND IT TAKES A READING RATHER THAN A SURFACE for the same reason a cycle would
+// AND IT TAKES A READING RATHER THAN A SCROLL CONTAINER for the same reason a cycle would
 // otherwise close: `ScrollContainer` is the chokepoint's own declaration, and a
 // publisher that took one would have to import the module that imports it —
 // `scroll-callers.ts` records the same shape one seam over.
@@ -35,7 +34,7 @@ import {
 } from "./geometry-sample.js";
 
 /**
- * The three numbers a surface read produces, before anything is derived from them.
+ * The three numbers a scroll container read produces, before anything is derived from them.
  *
  * The SAMPLED members of `ScrollGeometry` and nothing else: the two derived facts are
  * this module's to compute and the provenance pair is its to stamp, so a caller that
@@ -138,7 +137,7 @@ export class ScrollGeometryPublisher {
    * must wake nobody, and the last sample is the answer to what the pane's box WAS,
    * which a diagnostic reading it afterwards is entitled to. Nothing republishes it —
    * a subscription taken after this replays it and then hears nothing, because the
-   * controller that fed this publisher has no surface to sample.
+   * controller that fed this publisher has no scroll container to sample.
    */
   public clear(): void {
     this.#emitter.clear();

@@ -1,6 +1,6 @@
 // The two axes stay two axes.
 //
-// `mount-health.ts`'s central claim about this surface is a
+// `mount-health.ts`'s central claim about the mount card is a
 // NEGATIVE one — lifecycle and health never collapse into one chip — and a negative
 // claim needs a case that fails when it stops holding. The disjointness case below is
 // that case: it fails the moment one axis borrows the other's vocabulary, which is

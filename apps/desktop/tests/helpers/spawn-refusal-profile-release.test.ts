@@ -1,6 +1,6 @@
 // The resource a spawn was holding BEFORE it had a child, and who releases it.
 //
-// `electron-child-profile-removal.test.ts` next door asks which paths release a
+// `electron-child-profile-removal.test.ts` beside this file asks which paths release a
 // profile once a child exists. This file asks the question one moment earlier,
 // and the answer used to be "nobody": the temporary Chromium profile is created
 // before the spawn — its path is a spawn argument — so between `mkdtempSync` and
@@ -9,18 +9,18 @@
 //
 // THE WINDOW IS NOT HYPOTHETICAL. The throw is the registrar refusing, which is
 // what `onTestFinished` does outside a running test — a spawn from `beforeAll`,
-// the misuse the spawn door's own header names. Both of this package's Electron
+// the misuse `electron-child.ts`'s own header names. Both of this package's Electron
 // spawners wrote the same two lines in the same order, spawn and then register
 // the removal, and both had the identical hole: the refusal propagated out of
 // the promise executor, the removal was registered from nowhere, and the profile
 // stayed on disk for the rest of the run. The kill was already covered — the
-// spawn door disposes the child before it rethrows — so what survived was the
+// spawner disposes the child before it rethrows — so what survived was the
 // directory alone, which is exactly the leak that is invisible until a run has
 // accumulated a few dozen of them.
 //
 // So the ordering is owned once, by `spawnChildCleanedUpAtSettleTime`, and this
-// file makes that a property in both directions: the door releases and rethrows,
-// the superseded shape does not, and both spawners are on the door.
+// file makes that a property in both directions: it releases and rethrows, the
+// superseded shape does not, and both spawners call it.
 //
 // The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
 // the child programs are `electron-child-lifetime.test-support.ts`'s, and the
@@ -93,7 +93,7 @@ describe("a spawn that refuses releases what it was already holding", () => {
           "the profile outlived the refusal — the removal is still reachable only from a registration the refusal skipped",
         ).toBe(false);
         expect(profile.removalCount()).toBe(1);
-        // The kill is the spawn door's own recovery and is asserted here too:
+        // The kill is the spawner's own recovery and is asserted here too:
         // a guard that removed the directory while leaving the child running
         // would have traded one leak for the worse one.
         await expectTerminatedWithin(
@@ -114,8 +114,8 @@ describe("a spawn that refuses releases what it was already holding", () => {
       // THE SUPERSEDED SHAPE, written out as both spawners used to spell it: the
       // spawn on one line and the removal's own settle-time registration on the
       // next. The second line is unreachable code the moment the first one
-      // throws, which is what makes the case above a property of the door rather
-      // than of `rmSync` happening to run somewhere.
+      // throws, which is what makes the case above a property of
+      // `spawnChildCleanedUpAtSettleTime` rather than of `rmSync` happening to run somewhere.
       const registrar = new RefusingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       const profile = heldProfile();

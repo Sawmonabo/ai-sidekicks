@@ -2,12 +2,12 @@
 //
 // This module owns the FOLD, and it opens and reads no wire. The fold is pure: given
 // the accounts and the quota rows seen so far, which reading is current for each
-// `(accountId, limitId)`, and what does a surface render for it. A pure fold is
+// `(accountId, limitId)`, and what does a view render for it. A pure fold is
 // drivable from a test with no bridge and no React, which is what the supersession
 // rules below need.
 //
 // THE KEY IS `(accountId, limitId)` AND NOT THE WINDOW'S DURATION, because a pinned
-// provider surface publishes three distinct windows of the same length and a duration
+// provider publishes three distinct windows of the same length and a duration
 // key silently collapses them into whichever arrived last.
 //
 // SUPERSESSION IS TWO RULES IN ONE ORDER, AND THE ORDER IS THE POINT.
@@ -16,13 +16,13 @@
 // is evaluated FIRST. Consumption inside one window rises monotonically, so a lower
 // `usedPercent` against the same `limitId` and the same `resetsAt` is not a newer
 // truth however new its timestamp is: it is an erroneous or out-of-order reading, and
-// seating it on timestamp alone would drop a 90%-consumed account to 20% and hide
+// storing it on timestamp alone would drop a 90%-consumed account to 20% and hide
 // imminent exhaustion until the window actually resets. Only once that guard has
 // passed does observation time decide, with arrival order breaking an exact tie.
 //
 // A NEW WINDOW IS NOT A REGRESSION. `resetsAt` moving is exactly what a window reset
 // looks like, so a lower reading under a different `resetsAt` is the ordinary case and
-// is seated on its timestamp like any other — which is why the guard keys on the reset
+// is stored on its timestamp like any other — which is why the guard keys on the reset
 // horizon rather than on the percentage alone.
 //
 // AND SUPERSESSION IS ALSO A COMPARISON AGAINST THE ACCOUNT ITSELF. Every quota row
@@ -37,7 +37,7 @@ import type { ProviderAccount, ProviderAccountUsageWindow } from "@ai-sidekicks/
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";
 
-/** One provider account's quota in one limit window, as a surface renders it. */
+/** One provider account's quota in one limit window, as a view renders it. */
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
@@ -85,14 +85,14 @@ export function remainingPercentOf(reading: ProviderQuotaReading): number {
  * What merging one reading into the fold did. Closed, and derived into a union below
  * so a fourth outcome cannot appear in the rule while a caller still handles three.
  *
- * The two held arms are deliberately DISTINCT rather than one "not seated": a reading
+ * The two held arms are deliberately DISTINCT rather than one "not stored": a reading
  * held because a newer observation already stands is the ordinary case and worth no
  * word anywhere, while one held by the monotonicity guard is a reading the wire should
  * not have sent, and the caller records it. Collapsing them would make the second
  * unreportable.
  */
 export const USAGE_WINDOW_MERGE_DISPOSITIONS = [
-  "seated",
+  "stored",
   "held",
   "dropped-below-high-water",
 ] as const;
@@ -123,9 +123,9 @@ export function decideUsageWindowMerge(
     "newest-first",
   );
   if (ranked === 0) {
-    return isCandidateLaterArrival ? "seated" : "held";
+    return isCandidateLaterArrival ? "stored" : "held";
   }
-  return ranked < 0 ? "seated" : "held";
+  return ranked < 0 ? "stored" : "held";
 }
 
 /**
@@ -199,14 +199,14 @@ export class ProviderAccountFold {
     this.#nextArrivalOrdinal += 1;
     if (held === undefined) {
       this.#windowsByKey.set(key, { usageWindow, arrivalOrdinal });
-      return "seated";
+      return "stored";
     }
     const disposition = decideUsageWindowMerge(
       usageWindow,
       held.usageWindow,
       arrivalOrdinal > held.arrivalOrdinal,
     );
-    if (disposition === "seated") {
+    if (disposition === "stored") {
       this.#windowsByKey.set(key, { usageWindow, arrivalOrdinal });
     }
     return disposition;
@@ -233,12 +233,12 @@ export class ProviderAccountFold {
    *
    * BESIDE {@link accountLabels} RATHER THAN INSTEAD OF IT, because the two answer
    * different questions: a chip joining a paying-account handle to a word needs the
-   * label and nothing else, and a surface that LISTS the registry needs the rows —
+   * label and nothing else, and a view that LISTS the registry needs the rows —
    * `billingMode`, the stored health reading, the generation, the timestamps. Both are
-   * derived from the same seating, so there is no second copy to keep in step.
+   * derived from the same held accounts, so there is no second copy to keep in step.
    *
    * ORDER IS ARRIVAL ORDER AND NOT A SORT. The registry reply's own order is the
-   * daemon's, a re-seated account keeps the position it had, and a new one appends —
+   * daemon's, an account put again keeps the position it had, and a new one appends —
    * so a row does not move under a person's cursor because a probe landed.
    */
   public accounts(): readonly ProviderAccount[] {
@@ -249,7 +249,7 @@ export class ProviderAccountFold {
    * Every quota reading currently held, one per `(accountId, limitId)`.
    *
    * The SUPERSEDED set rather than everything ever seen: this is what the fold has
-   * decided is current, so a surface folding it again by limit gets the same answer it
+   * decided is current, so a view folding it again by limit gets the same answer it
    * would from the readings, and one that renders a window's own members reads the
    * wire row it came from rather than a projection of it.
    */
@@ -260,11 +260,11 @@ export class ProviderAccountFold {
   /**
    * Every account the registry carries, by the id the daemon minted for it.
    *
-   * OFF THE SAME SEATING AS THE READINGS, and that is the whole point of publishing
+   * OFF THE SAME HELD ACCOUNTS AS THE READINGS, and that is the whole point of publishing
    * it here. `accountId` is a handle and `displayLabel` is what a person reads, so
-   * any surface naming a paying account has to join the two — and the account plane
+   * any view naming a paying account has to join the two — and the account plane
    * has exactly one reader in this window, whose read and tail already hold every
-   * account whole. A surface that took its own `providerAccount.list` would be a
+   * account whole. A view that took its own `providerAccount.list` would be a
    * second reading of one registry: two arrival orders, and no way to say which was
    * right when a removal reached one of them first.
    *
@@ -283,7 +283,7 @@ export class ProviderAccountFold {
   }
 }
 
-/** One window and its account, as a surface renders the pair. */
+/** One window and its account, as a view renders the pair. */
 function readingFor(
   usageWindow: ProviderAccountUsageWindow,
   account: ProviderAccount,

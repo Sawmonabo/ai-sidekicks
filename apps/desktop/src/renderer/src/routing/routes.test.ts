@@ -90,7 +90,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     // `workspace` is a ROUTE kind reached from the sessions destination, not a
     // rail destination with an address. `#/workspace` therefore names nothing —
     // the session screen is `#/session/<id>` — and a grammar that answered it
-    // would be a second address for a surface that already has one.
+    // would be a second address for a screen that already has one.
     expect(parseRoute("#/workspace")).toStrictEqual({
       kind: "not-found",
       attempted: "#/workspace",
@@ -101,7 +101,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/session").kind).toBe("not-found");
   });
 
-  it("carries the attempted hash, so the surface says what it could not open", () => {
+  it("carries the attempted hash, so the not-found screen says what it could not open", () => {
     // A blank not-found is the state the console's five kinds of nothing exist to
     // prevent: it renders as "something is wrong" and names nothing.
     expect(parseRoute("#/nowhere")).toStrictEqual({ kind: "not-found", attempted: "#/nowhere" });

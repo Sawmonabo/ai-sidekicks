@@ -68,7 +68,7 @@
 // AND THE LOOP OBSERVES THE TRANSCRIPT ITSELF, once per cycle. The route wait names the
 // transcript PANE, whose chrome mounts on the route whether or not the transcript inside it
 // ever draws a row, so nothing in the loop would otherwise notice a console that came
-// up with no surface under it — the run would churn, wait successfully two hundred
+// up with no transcript under it — the run would churn, wait successfully two hundred
 // times, and report clean growth over an empty box. Rows appear part-way through
 // because the script is walked across the whole run, so the per-cycle claim is the one
 // that holds from then on: once a cycle has found a mounted row, no later cycle finds
@@ -226,7 +226,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   // rather than by inspection — the locators asserted route-exclusive here are
   // the same two constants `churnOnce` waits on, so a wait re-pointed at any
   // element both routes render fails on the two absence checks below.
-  it("waits on a surface that only its own destination renders", async () => {
+  it("waits on a screen that only its own destination renders", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
@@ -291,7 +291,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         let appliedEventsAtMidRun: number | null = null;
         // THE LOOP'S OWN PROOF THAT IT CHURNED A TRANSCRIPT. The session screen wait names the
         // transcript pane, whose chrome mounts on the route whether or not the transcript
-        // inside it ever draws — so nothing else in this body observes the surface the
+        // inside it ever draws — so nothing else in this body observes the transcript the
         // heap reading is about until the very end of the run. These two are counted
         // per cycle: rows appear part-way through, because the script is walked across
         // the whole run, so the per-cycle claim is the one that holds from then on —
@@ -305,7 +305,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           if (transcriptRowsHaveMounted) {
             expect(
               cycleReading.transcriptRowCount,
-              `cycle ${String(cycle)} left the transcript holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose surface is gone`,
+              `cycle ${String(cycle)} left the transcript holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose transcript is gone`,
             ).toBeGreaterThan(0);
           }
           if (cycleReading.transcriptRowCount > 0) {
@@ -402,7 +402,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // screen.
         //
         // It is asserted HERE rather than in a tier of its own because the height
-        // chain that bounds the surface is only observable once something overflows
+        // chain that bounds the transcript is only observable once something overflows
         // it, and this is the case that has already driven the script to its end.
         //
         // EVERY QUANTITY BELOW IS THE VIEWPORT'S OWN, and that is the correction the
@@ -410,7 +410,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // compared against the events the store admitted — which is a viewport
         // quantity against a LOG quantity, false for any log shorter than twice the
         // screen however well the window is working, and taken at whatever instant
-        // the driver happened to ask rather than after the surface had reconciled.
+        // the driver happened to ask rather than after the transcript had reconciled.
         // `readTranscriptWindow` waits for the transcript to have mounted a row and then
         // reads the window from the renderer either way, so a working transcript is
         // measured against itself and a stalled one arrives here with the figures
@@ -452,7 +452,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         ).toBeGreaterThan(transcriptWindow.viewportClientHeightPx);
         expect(
           transcriptWindow.mountedRowCount,
-          "the transcript mounted every row it holds, so its surface is not bounded by the viewport and the whole log is being laid out",
+          "the transcript mounted every row it holds, so it is not bounded by the viewport and the whole log is being laid out",
         ).toBeLessThan(transcriptWindow.totalRowCount);
         // AND BOUNDED BY THE BOX PLUS ITS DECLARED OVERSCAN, which is the whole of
         // what the mounted range is allowed to be: the rows the box intersects, and
@@ -487,7 +487,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           }
 
           // Collects first, then streams the snapshot to a file — the probe's own
-          // door, so the capture runs over the same DevTools session every reading
+          // method, so the capture runs over the same DevTools session every reading
           // in this tier is taken through.
           await heapProbe.captureSnapshotTo(snapshotPath);
           const readings = await heapProbe.readRetainedByConstructor(snapshotPath, [

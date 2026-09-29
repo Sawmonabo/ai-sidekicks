@@ -164,7 +164,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
     // The only ordering in which the latch and the status disagree, and the one the
     // suite stopped one step short of: A → B → A with A's first call STILL PARKED.
     // The holder re-seeds on the return, so the bar renders `idle` and the line is
-    // writable; a latch keyed on the draft key alone still held A's slot, so the
+    // writable; a latch keyed on the draft key alone still held A's claim, so the
     // second press claimed nothing, returned, and did nothing at all — no send, no
     // refusal, no status change, no chip.
     const driven = driveAddressableComposer();
@@ -247,7 +247,7 @@ describe("useSendController — an operation's busy state belongs to the address
     });
   });
 
-  it("frees the slot of the address a late settlement belongs to, and no other", async () => {
+  it("frees the claim of the address a late settlement belongs to, and no other", async () => {
     // The disposition for the settlement itself: it releases the address it was
     // issued at, so returning there finds a composer that can send again rather than
     // one wedged by its own answered call.

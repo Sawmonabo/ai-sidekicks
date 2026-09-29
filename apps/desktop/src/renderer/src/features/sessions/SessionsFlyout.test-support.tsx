@@ -1,7 +1,7 @@
 // The harness the attention binding's test drives it through: the settle, and the two
 // calls a composition supplies it.
 //
-// THE FAKED CONTEXT IS THE SIBLING MODULE, `session-surface.context.test-support.ts`.
+// THE FAKED CONTEXT IS THE SIBLING MODULE, `sessions-screen-context.test-support.ts`.
 
 import { act } from "@testing-library/react";
 

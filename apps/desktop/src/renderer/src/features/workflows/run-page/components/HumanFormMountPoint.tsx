@@ -4,10 +4,10 @@
 // THE FORM STANDING HERE IS THE CONSOLE'S OWN SHELL (`default-human-form-body.ts`): a real form over
 // the schema the run read carried. The `body` prop replaces it with a supplied body.
 //
-// THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE SEAT. The mount
+// THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE MOUNT POINT. The mount
 // this mount point hands over is therefore the channel's pair — the resolved phase and whichever
 // body is to stand in it — and the channel composes the body's mount from the phase plus
-// the `submit` it holds. That indirection is the whole of the seat's promise: the submit
+// the `submit` it holds. That indirection is the whole of what the pane promises a body: the submit
 // call, the single-flight guard, the captured revision, the re-armed run read and the
 // settlement rendering stay with the pane, and a body arrives with one act already bound.
 // `HumanFormSubmitBinding` is a MODULE-LEVEL reference, because a component composed on

@@ -1,4 +1,4 @@
-// Which tone each server status wears, declared once for every surface that draws one.
+// Which tone each server status wears, declared once for every view that draws one.
 //
 // A `.ts` module rather than a table inside whichever component happened to need it
 // first: the row's aggregate chip and each leg's own chip both key on this, and two
@@ -6,7 +6,7 @@
 //
 // A TOTAL `Record` RATHER THAN A SWITCH. A sixth status is then a compile error here
 // rather than a chip that silently renders neutral, which is the difference between a
-// vocabulary the surface is held to and one it happens to cover today.
+// vocabulary the page is held to and one it happens to cover today.
 
 import type { ChipTone } from "@renderer/console/primitives/index.js";
 import type { McpServerStatus } from "@ai-sidekicks/contracts";

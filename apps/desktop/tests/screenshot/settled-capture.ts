@@ -1,36 +1,36 @@
 // The one call every screenshot capture goes through, the settle it refuses, and the
-// window it opens so the whole surface is in the image.
+// window it opens so the whole element is in the image.
 //
 // WHY A CAPTURE CAN BE WRONG WITHOUT BEING RED. A loader-backed pane body arrives as
 // its own chunk, so between the pane mounting and its module landing the pane is its
 // own chrome and nothing else. That frame is correct — it is what keeps the deferred
 // body off the initial import graph — and it is a catastrophic thing to photograph: the
 // image records a pane that had not finished loading, and the person who opens the
-// directory to look at the console is looking at a half-built surface. Nothing about
-// that is red. The capture succeeds, the file is written, and the surface in it is not
-// the surface anyone sees.
+// directory to look at the console is looking at a half-built element. Nothing about
+// that is red. The capture succeeds, the file is written, and the element in it is not
+// the element anyone sees.
 //
 // SO THE REFUSAL IS STRUCTURAL RATHER THAN A WAIT. There is no timer to tune and no
 // "settled" heuristic to get wrong: `PendingPaneBody` stamps a marker while its module
 // is in flight, `listPendingBodyNames` reads it back, and a capture whose tree carries one
-// fails by name. A surface that needs its body first awaits it in its own mount helper —
-// which is where the knowledge of what that surface is waiting for lives.
+// fails by name. An element that needs its body first awaits it in its own mount helper —
+// which is where the knowledge of what that element is waiting for lives.
 //
-// AND THE SECOND HALF OF THE SAME FAILURE IS THE WINDOW. A settled surface taller than
+// AND THE SECOND HALF OF THE SAME FAILURE IS THE WINDOW. A settled element taller than
 // the tester window was photographed to the window's bottom edge and then in the page's
 // own background color for every row beneath it, because a Playwright element
 // screenshot is a CLIP in page coordinates and nothing paints an iframe's overflow.
 // Every image
 // over 900 px carried that: real content to row 899, then pure white to the bottom, in
-// the dark scheme too — a picture of a surface unreadable past its first window, which
+// the dark scheme too — a picture of an element unreadable past its first window, which
 // is the same false green the pending-body refusal exists to forbid, arriving by a
 // different route. `capture-viewport.ts` states the mechanism and the rule; this file
 // opens the window, re-runs the refusal on the resized tree, and puts it back.
 //
-// ONE SHAPE OF SURFACE STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
+// ONE SHAPE OF ELEMENT STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
 // sized from the window is one window tall plus its own padding at every window, so
 // the loop below recognizes that — on the SECOND pass after the first, having grown
-// once more to tell it apart from a surface that reflowed while the first window was
+// once more to tell it apart from an element that reflowed while the first window was
 // opening — puts the window back, and photographs it at the tier's own size. The
 // reason and its consequence are `capture-viewport.ts`'s to state, and
 // `tall-capture.test.ts` drives both.
@@ -42,9 +42,9 @@
 import { expect } from "vitest";
 import { page } from "vitest/browser";
 
-// The LEAF and not the family door: `listPendingBodyNames` has no production reader, so
-// `console/seats/index.ts` carries no line for it — a door line only a test reaches is
-// what the module-shape rules in `apps/desktop/AGENTS.md` reject.
+// The module itself and not a barrel: `listPendingBodyNames` has no production reader, so
+// no public entry exports it — an export only a test reaches is what the module-shape
+// rules in `apps/desktop/AGENTS.md` reject.
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { settle } from "../helpers/settle.js";
 import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
@@ -52,12 +52,12 @@ import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./c
 /**
  * How many times a capture may re-measure and re-open its window before it refuses.
  *
- * Opening a window is a layout change, so a surface can answer the first grow with a
+ * Opening a window is a layout change, so an element can answer the first grow with a
  * taller box than the one that was measured — a deferred image lands, a container
- * reflows — and settle on the second. A surface sized BY its window is recognized on
+ * reflows — and settle on the second. An element sized BY its window is recognized on
  * the second pass after the first and spends two of these on being confirmed, for the
  * reason `CONFIRMING_NON_CLOSING_PASSES` states; what the rest of the budget bounds is
- * the surface that keeps closing the gap by a little each pass, which would otherwise
+ * the element that keeps closing the gap by a little each pass, which would otherwise
  * resize the console hundreds of times before reaching the ceiling.
  */
 const CAPTURE_SIZING_PASSES = 4;
@@ -75,7 +75,7 @@ const CAPTURE_SIZING_PASSES = 4;
 export interface CaptureWindowDriver {
   /** Move the tester window, and resolve once Vitest has applied the size. */
   resize(viewport: CaptureViewport): Promise<void>;
-  /** Let the surface answer the move, inside `act`. */
+  /** Let the element answer the move, inside `act`. */
   settle(): Promise<void>;
 }
 
@@ -121,7 +121,7 @@ export function assertNoPendingPaneBodies(
  * How much window this element's box needs, in the tester's own coordinates.
  *
  * The element's DOCUMENT-space bottom-right corner rather than its size, because the
- * clip Playwright sends is anchored in page coordinates: a surface 964 px tall sitting
+ * clip Playwright sends is anchored in page coordinates: an element 964 px tall sitting
  * 348 px down needs 1 312 px of window, and one that needs only its own height is the
  * special case where it starts at the origin. Rounded outward for the same reason
  * Playwright rounds its clip outward — a box that ends on a fraction of a pixel still
@@ -163,7 +163,7 @@ export class CaptureWindow {
    * Open the window until it holds the whole element, or stop when no window would.
    *
    * The settle after each resize is the shared act-wrapped one: a resize is a layout
-   * change, so a surface that observes its own box writes state React has to flush
+   * change, so an element that observes its own box writes state React has to flush
    * before the next measurement means anything.
    *
    * The `grows-with-its-window` arm PUTS THE WINDOW BACK before returning rather than
@@ -186,10 +186,10 @@ export class CaptureWindow {
       if (pass === CAPTURE_SIZING_PASSES) {
         throw new Error(
           `Refusing to capture ${captureName}: the window was opened ` +
-            `${String(CAPTURE_SIZING_PASSES)} times and the surface still needs ` +
+            `${String(CAPTURE_SIZING_PASSES)} times and the element still needs ` +
             `${String(required.height)}px in a ${String(this.#applied.height)}px one. It is ` +
             `closing the gap rather than fitting or tracking the window, and a capture ` +
-            `cannot decide which size a surface like that is meant to be photographed at.`,
+            `cannot decide which size an element like that is meant to be photographed at.`,
         );
       }
       overhangsPx.push(step.overhangPx);
@@ -243,7 +243,7 @@ export class CaptureWindow {
    * resize rather than after the settle that follows it. Written afterwards — which is
    * how this shipped — a settle that rejects leaves the window open, the flag false,
    * and `restore` returning early, so every later capture in the run is taken in a
-   * console the previous one enlarged and every image after it holds a surface laid
+   * console the previous one enlarged and every image after it holds an element laid
    * out at a size no other capture in the tier uses. A flag raised too early costs one
    * redundant resize of a window that may never have moved; a flag raised too late
    * costs the rest of the run, and a resize that throws part-way has no defined size
@@ -263,10 +263,10 @@ export class CaptureWindow {
  * The order is load-bearing three times over. The refusal runs BEFORE anything else, so
  * a tree that is still loading fails without writing an image at all, rather than
  * quietly overwriting yesterday's good picture with one of a fallback. The window opens
- * BEFORE the capture, so the surface is painted whole rather than clipped at the
+ * BEFORE the capture, so the element is painted whole rather than clipped at the
  * window's edge. And the refusal runs AGAIN on the resized tree, because a taller window
  * is a different layout: it can bring a deferred body into view, and a check that only
- * ever held on the pre-resize tree would be a check of a surface that was not the one
+ * ever held on the pre-resize tree would be a check of an element that was not the one
  * photographed.
  *
  * The restore is in `finally` so a refusal or a failed capture both leave the window

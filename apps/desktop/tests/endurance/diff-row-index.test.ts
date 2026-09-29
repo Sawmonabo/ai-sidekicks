@@ -2,9 +2,9 @@
 //
 // `steady-state.test.ts` beside this file measures the console held open for a
 // working day. This one measures the other endurance case a desktop console has:
-// one surface handed a body far larger than anything it is scrolled through, held
+// one view handed a body far larger than anything it is scrolled through, held
 // open, and worked. A forty-file, five-thousand-line change set is the shape the diff
-// family is written against, and every property this file asserts is one that
+// feature is written against, and every property this file asserts is one that
 // holds at ten rows and quietly stops holding at five thousand.
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
@@ -299,7 +299,7 @@ function pathologicalBodyRow(lineIndex: number): DiffLineRow {
 /**
  * A five-thousand-line patch whose first changed pair is two very wide lines.
  *
- * Built here rather than in `diff-fixture.test-support.ts` because it is not a SHAPE the surfaces
+ * Built here rather than in `diff-fixture.test-support.ts` because it is not a SHAPE the views
  * render — it is one deliberately hostile input, and the fixture module's generated
  * change sets are the subjects the screenshot and layout tiers share. The wide line is
  * made of many short tokens rather than one long run of characters, because the word

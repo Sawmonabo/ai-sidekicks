@@ -1,5 +1,5 @@
 // The brokered sign-in and the non-interactive token registration: what each call
-// answers, and what the surface holds while it is in flight.
+// answers, and what the page holds while it is in flight.
 //
 // WHY A FLOW STATE AND NOT A BOOLEAN. A sign-in has outcomes a person can act on and
 // they are not degrees of one thing: nothing has been started; a request is out; a flow
@@ -33,7 +33,7 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
  * Where a brokered sign-in has got to.
  *
  * THE THREE HELD ARMS CARRY THE ACCOUNT, and that is what makes the plane sayable. A
- * flow that recorded only its own progress could tell a surface that something was
+ * flow that recorded only its own progress could tell a page that something was
  * running and never which account was running it — so a second row's control could be
  * disabled with no reason a person could act on, which is worse than one that stays
  * pressable and refuses.
@@ -76,7 +76,7 @@ export const SIGN_IN_ENDED_BY_REGISTRY =
  * than a list of the three kinds that hold: the compiler refuses a missing key and
  * refuses an unknown one, so an arm added to the state above is a compile error here
  * rather than a control that silently stays pressable through it. A predicate
- * spelled at each call site is how two surfaces come to disagree about what "running"
+ * spelled at each call site is how two views come to disagree about what "running"
  * means, which for this plane is the difference between one flow and two.
  */
 const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
@@ -89,7 +89,7 @@ const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boole
 
 /**
  * What one start attempt answered: a live flow. It carries the account so the plane
- * can seat it, and it is the only arm because a start that never became a flow raises.
+ * can record it, and it is the only arm because a start that never became a flow raises.
  */
 export interface SignInStartOutcome {
   readonly kind: "live";
@@ -210,7 +210,7 @@ export type RegistrationFieldReading =
  * IT REFUSES ON EVERY ARM RATHER THAN RETURNING SILENTLY. The two selects offer closed
  * vocabularies the wire publishes, so an unadmitted value is not reachable by pressing
  * anything — but a narrowing that answers `undefined` on the impossible arm is a
- * surface that goes quiet when it is surprised, and the whole point of the refusal
+ * control that goes quiet when it is surprised, and the whole point of the refusal
  * shape is that a press is answered.
  *
  * NO REFUSED VALUE IS ECHOED. A label is user content, and `detail` says what

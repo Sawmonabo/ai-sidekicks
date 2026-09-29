@@ -4,7 +4,7 @@
 // without naming a pane kind, so what it answers has to be checked against the
 // closed set rather than against today's board: a picker that ignored what was
 // claimed and a picker that never ran out both pass a suite whose board is mostly
-// empty, and both fail the day the families land. The table below drives the real
+// empty, and both fail the day the features land. The table below drives the real
 // helper over a claimed set written by hand, which is the only way either arm can
 // be reached today.
 
@@ -71,7 +71,7 @@ describe("pane probe — registering it", () => {
   });
 
   it("registers nothing when the composition left no kind free", () => {
-    // The arm the board reaches once every family has landed. The probe reports
+    // The arm the board reaches once every feature has landed. The probe reports
     // that it did nothing, and it must not have unregistered somebody's body to
     // make room for itself.
     const registry = new PaneRegistry();

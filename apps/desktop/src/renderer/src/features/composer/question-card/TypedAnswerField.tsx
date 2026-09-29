@@ -9,8 +9,8 @@
 // THE DRAFT IS DELIBERATELY NOT PERSISTED. It is a half-typed answer to a question
 // whose deadline the daemon stamped, so keeping it past the row is keeping text a
 // reader will never be offered the chance to send: the ask settles and the field it
-// belonged to is gone. The console's durable writes go through its persistence family
-// and its value-class enumeration, and a draft is exactly what that family declines.
+// belonged to is gone. The console's durable writes go through `store/persistence/`
+// and its value-class enumeration, and a draft is exactly what that module declines.
 //
 // AND IT IS NOT DROPPED ON DISPATCH EITHER, which is the half this arm used to get
 // wrong. Clearing the field the instant the callback returned threw the user's

@@ -6,7 +6,7 @@
 // is invisible to everyone who can see the screen and total for everyone who cannot.
 //
 // The third — deleting on one press, the one act here with no undo — is
-// `AgentLibrary.acts.test.ts`, with the editor seat and the pending-delete state.
+// `AgentLibrary.acts.test.ts`, with the mounted editor and the pending-delete state.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the registry calls are plain functions the stub there answers.

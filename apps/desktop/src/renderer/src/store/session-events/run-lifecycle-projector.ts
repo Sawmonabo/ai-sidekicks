@@ -6,16 +6,15 @@
 // a sidebar that renders a live session's runs as "no runs", indistinguishable
 // from a session that has none.
 //
-// WHY IT LIVES IN `frame/` AND NOT IN `store/` OR IN A VIEW FAMILY
+// WHY IT LIVES IN `store/session-events/` AND NOT IN A FEATURE
 //
 // Two constraints meet, and only one home satisfies both. It reads WIRE member
-// names off an event payload, which `store/` deliberately does not do —
-// `store/entities/entities.ts` frames `ProjectedSessionEvent` as a renderer-local projection
-// contract precisely so the store family holds no wire knowledge, the same reason
-// `frame/session/session-event-binder.ts` states for living here. And it is REGISTERED by the
-// composition root, which puts it at or below `frame/` in the family DAG: a view
-// family sits above the frame, so a projector owned there could not be handed to
-// the registry the frame constructs. `frame/` is where those two meet.
+// names off an event payload, which the session store's entities deliberately do not —
+// `store/session/entities/entities.ts` frames `ProjectedSessionEvent` as a renderer-local
+// projection contract precisely so the entities hold no wire knowledge. And it is
+// REGISTERED by the composition root, and no feature imports another, so a projector
+// owned by one feature is one the others could not import. `store/session-events/`
+// holds the folds that read the wire into the session store, below every feature.
 //
 // WHAT IT DERIVES RATHER THAN DECLARES
 //
@@ -27,11 +26,11 @@
 // WHAT IT READS OFF A PAYLOAD, AND WHERE THAT LIST COMES FROM
 //
 // The body used to keep four members — `runVersion`, the two state strings, and
-// `agentId` — while claiming every kind in the family. Everything else the
+// `agentId` — while claiming every kind in the `run_lifecycle` category. Everything else the
 // registered payloads carry was dropped on the floor: `executionPosture` off
 // `run.running`, the stop-condition `trigger`, the orchestration linkage, the
 // admission stamps, and the rollback `targetPosition`. Those values stayed in the
-// raw timeline and never reached the `run` partition, so a surface reading the
+// raw timeline and never reached the `run` partition, so a component reading the
 // run body — the composer's posture chip among them — found nothing and rendered
 // as though the run had never carried one.
 //
@@ -42,7 +41,7 @@
 // the two the durable payload carries alone. A member added to either registered
 // shape lands in that union and fails the reader table's `satisfies` until
 // someone classifies it, which is the whole point: a hand list is how a body
-// silently stops carrying the member a surface was built to read.
+// silently stops carrying the member a component was built to read.
 //
 // AND THE DERIVATION IS NOT THE WHOLE PAYLOAD, WHICH IS THE SECOND TABLE'S
 // SUBJECT. Those two shapes are both `run.subscribeState` projections, and this
@@ -102,8 +101,8 @@
 // per-arm check is how the fourteenth kind arrives without one. `sessionId` is a
 // registered member of the durable `run_lifecycle` row, so the REQUIRED arm is the
 // right one: a beat that omits it is malformed rather than terse. The rule itself is
-// `core/wire-session-attribution.ts`'s — three folds at three heights on the family
-// DAG make the same claim, and its header states why nothing above them can.
+// `lib/wire-session-attribution.ts`'s: several folds make the same claim, and its header
+// states why the rule lives there, below all of them.
 //
 // A PROJECTOR IS PURE, AND THAT DECIDES THE MALFORMED CASE. It may read the event
 // and nothing else — no store, no clock, no tripwire — because the apply path
@@ -181,7 +180,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
 /**
  * The projector registry the composition root hands `SessionStoreRegistry`.
  *
- * One function under every kind in the family rather than one function per kind:
+ * One function under every run-lifecycle kind rather than one function per kind:
  * the fold is the same for all thirteen, and thirteen near-copies is how the
  * fourteenth gets a subtly different one.
  */

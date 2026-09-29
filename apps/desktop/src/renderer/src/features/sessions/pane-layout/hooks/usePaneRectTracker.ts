@@ -6,7 +6,7 @@ import { PaneRectTracker } from "../pane-rect-tracker.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
 
 /**
- * Hold one tracker for the lifetime of the surface that owns the panes.
+ * Hold one tracker for the lifetime of the component that owns the panes.
  *
  * The sink is held in a ref and updated in an effect rather than captured at
  * construction, so a caller passing an inline lambda does not rebuild the tracker
@@ -27,11 +27,9 @@ export function usePaneRectTracker(options: {
       new PaneRectTracker({
         clock: options.clock,
         onFlush: (rects) => sink.current?.(rects),
-        // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
-        // reading of the same rule: the overlays register on the registry their own
-        // element's document holds, so a pane layout handed one by a caller would be tracking
-        // an airspace nothing claims — which is what four prop hops of an `airspace`
-        // nobody ever passed had this family doing.
+        // Off the DOCUMENT and not off a prop: the overlays register on the registry
+        // their own element's document holds, so a pane layout handed one by a caller
+        // would be tracking an airspace nothing claims.
         airspace: airspaceRegistryFor(document),
       }),
   );

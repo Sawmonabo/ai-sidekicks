@@ -1,12 +1,12 @@
 // The context meter's own reading: how much of the window this run has spent.
 //
-// Split from `ContextRing.tsx`, which owns the seat — whether a meter is shown at
+// Split from `ContextRing.tsx`, which owns the placement — whether a meter is shown at
 // all, and for which run — while this owns what one reading looks like.
 //
 // THE SOURCE NOTE TRAVELS WITH THE READING. Where a figure came from is part of
 // what the figure means (a provider-reported window and a daemon-derived one are
 // not the same claim), so the note table lives here beside the render that uses it
-// rather than in the seat, which never reads it.
+// rather than in `ContextRing.tsx`, which never reads it.
 
 import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import type { ContextWindowReading, ContextWindowSource } from "./context-window-reading.js";

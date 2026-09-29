@@ -1,17 +1,17 @@
 // The glyph vocabulary, held to what a NAME set can be held to.
 //
-// The three rules are stated in `glyphs.ts` as prose. Since the faces became
-// compiled components, rules 1 and 2 are properties of a rendered `<svg>` rather
-// than of a string in this module, and they are checked next door in
+// The three rules are stated in `glyphs.ts` as prose. The faces are compiled
+// components, so one geometry and one vocabulary of parts are properties of a
+// rendered `<svg>` rather than of a string in this module, and they are checked in
 // `components/Glyph/glyph-icons.test.ts`, which renders every face and reads the
-// geometry back off it. What is left here is rule 3, and it has two halves:
+// geometry back off it. What is left here is the closed name set, and it has two halves:
 //
 //   • The set is CLOSED and each name appears once. `GlyphName` is now the
 //     array's own members, so exhaustiveness is a compile-time tautology; what a
 //     test can still catch is a name added twice, or added in a shape the rest
 //     of the set is not written in.
 //   • The guard is TOTAL over it and fail-closed off it, because that is the
-//     path a wire value takes before a surface indexes the face map.
+//     path a wire value takes before a view indexes the face map.
 //
 // The scale is checked here too, for the reason it lives here: three steps that
 // only mean something in order.
@@ -56,12 +56,12 @@ describe("the glyph vocabulary — one closed set of names", () => {
 });
 
 describe("isGlyphName — the fail-closed projection a wire value passes through", () => {
-  it("accepts every name in the family", () => {
+  it("accepts every name in the set", () => {
     const rejected = GLYPH_NAMES.filter((name) => !isGlyphName(name));
     expect(rejected).toStrictEqual([]);
   });
 
-  it("rejects a name the family does not have", () => {
+  it("rejects a name the set does not have", () => {
     // The caller renders the unrecognized shape on a false, rather than indexing
     // the face map and drawing nothing.
     expect(isGlyphName("gear")).toBe(false);
@@ -78,7 +78,7 @@ describe("isGlyphName — the fail-closed projection a wire value passes through
   });
 });
 
-describe("the glyph family — the geometry every face is compiled to", () => {
+describe("the glyph set — the geometry every face is compiled to", () => {
   it("strokes narrowly enough to sit inside its own box", () => {
     expect(GLYPH_STROKE_WIDTH).toBeGreaterThan(0);
     expect(GLYPH_STROKE_WIDTH).toBeLessThan(GLYPH_VIEWBOX_SIZE);
@@ -87,7 +87,7 @@ describe("the glyph family — the geometry every face is compiled to", () => {
   it("renders at a positive default edge length, no larger than the box", () => {
     expect(GLYPH_DEFAULT_SIZE).toBeGreaterThan(0);
     // Both are edge lengths for the same drawing. A size above the box would
-    // upscale the stroke past the weight rule 1 fixes.
+    // upscale the stroke past the one weight the geometry fixes.
     expect(GLYPH_DEFAULT_SIZE).toBeLessThanOrEqual(GLYPH_VIEWBOX_SIZE);
   });
 });

@@ -18,12 +18,11 @@
 // AND ONE CHORD VOCABULARY. The modifier token set, the resolution of `$mod`, and the
 // splitter that separates a press into its modifiers and its key all come from
 // `primitives/chord/chord-format.ts` — the console's chord printer, which needs those same
-// three facts to render a chord for a platform that is not the host. All three were
-// copies in this family, one of them with a comment admitting it, and the splitter copy
-// was a `chord.split("+")` that answers differently from the parser on exactly the
-// chords the grammar exists for.
+// three facts to render a chord for a platform that is not the host. A local copy of any
+// of them would drift, and a `chord.split("+")` splitter answers differently from the
+// parser on exactly the chords the grammar exists for.
 //
-// The close-tab chord of 12.2 lives here and not beside the tab strip, because it is
+// The pane's close-tab chord lives here and not beside the tab strip, because it is
 // the same question — is this keystroke the application's? — and a second modifier
 // comparison written next to the strip is how the two answers start to disagree.
 //
@@ -82,8 +81,9 @@ export function describeChordEvent(event: KeyboardEvent): ChordDescriptor {
 }
 
 /**
- * 12.4's first rule, as a predicate. Shift is deliberately absent from the test: a
- * shift-only combination is a capital letter.
+ * The first claim rule — a chord is claimed only when it carries control, meta or alt —
+ * as a predicate. Shift is deliberately absent from the test: a shift-only combination is
+ * a capital letter.
  */
 export function carriesApplicationModifier(descriptor: ChordDescriptor): boolean {
   return descriptor.ctrlKey || descriptor.metaKey || descriptor.altKey;
@@ -141,7 +141,7 @@ export function projectClaimableChords(chords: readonly string[]): readonly stri
 }
 
 /**
- * The platform close-tab chord of 12.2, as one predicate.
+ * The platform close-tab chord, as one predicate.
  *
  * "The handler rejects an in-progress composition, rejects alt and shift, and requires
  * the platform's own modifier with the other absent, so the chord closes a tab and

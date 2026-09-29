@@ -1,21 +1,17 @@
 // The console's one seam onto the daemon's SUBSCRIPTIONS, and the stream names it
 // opens through it.
 //
-// A SIBLING OF THE CALL DOOR AND NOT A HALF OF IT. `daemon-reply.ts` answers for
+// A SIBLING OF `callDaemon` AND NOT A HALF OF IT. `daemon-reply.ts` answers for
 // calls: one request, one reply, parsed against the shape the corpus registers for
 // the method. A subscription has no reply to bind — it answers with an unsubscribe
 // handle and delivers frames afterwards — so a stream is projected PER FRAME by its
 // consumer rather than parsed once here, which is a different failure mode with a
-// different owner. The `daemon-reply-chokepoint` gate says the same thing from the
-// other side: it deliberately does not scan `daemon.subscribe`. Folding the two into
-// one module would have given one file two jobs and made the chokepoint's own
-// exemption unreadable.
+// different owner. Folding the two into one module would give one file two jobs.
 //
-// WHY IT LIVES IN `bridge/` RATHER THAN BESIDE ITS FIRST CALLER. The queue feed and
-// the provider-account quota feed both open streams; those two sit in different
-// families with no edge between them, so `apps/desktop/AGENTS.md`'s
-// hoist-on-the-second-use rule puts the helper in the lowest family that can hold a
-// `PlatformBridge` — this one.
+// WHY IT LIVES IN `services/daemon/` RATHER THAN BESIDE ITS FIRST CALLER. The queue
+// feed and the provider-account quota feed both open streams, and they belong to
+// different features, which never import each other, so the helper they share sits
+// in the lowest folder that can hold a `PlatformBridge`: this one.
 //
 // WHAT THE WIDENING DOES AND DOES NOT ADMIT. The stream name is pinned to `string`
 // (the genuinely untypeable half) and the delivered payload is left `unknown`, which
@@ -141,7 +137,7 @@ export function subscribeDaemon(
 /**
  * The one widening of `daemon.subscribe`, shared by both scoped entry points.
  *
- * The open is REPORTED as well as taken. Every stream this door opens is a reading of
+ * The open is REPORTED as well as taken. Every stream this module opens is a reading of
  * the same transport, and `transport/observed-subscription.ts` holds what such a
  * reading proves — a node-scoped tail opening is the returning edge a window with no
  * bindable session has no other way to observe.

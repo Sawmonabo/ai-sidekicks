@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 
 /**
- * The registry, in the two states the surface refuses to collapse.
+ * The registry, in the two states the callback tools section refuses to collapse.
  *
  * Both carry entries, because withholding is about whether an agent can REACH a tool
  * rather than about whether one is registered.

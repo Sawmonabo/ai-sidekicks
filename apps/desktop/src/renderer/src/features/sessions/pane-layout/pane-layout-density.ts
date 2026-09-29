@@ -13,7 +13,7 @@
 // preset names.
 //
 // The presets, their widths, and the default live in `pane-layout-measures.ts`,
-// which is this family's one home for a bound. What is here is the three readings of
+// which is the pane layout's one home for a bound. What is here is the three readings of
 // them: whether a persisted string names a preset, what one preset's floor is, and how
 // many panes of it fit. This module is deliberately DOM-free and React-free — it is
 // read by the layout class, by the pane layout's separator maths, and by a test that asserts

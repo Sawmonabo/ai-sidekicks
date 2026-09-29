@@ -193,9 +193,9 @@ export function uncorrelatedKey(event: ProjectedSessionEvent): string {
  * cannot spell the same string, and this one map holds all three.
  *
  * AND SCOPED WHERE THE LIFECYCLE SAYS ITS ID IS NOT UNIQUE ON ITS OWN. Which segments a
- * driver ask is identified by, and in which order, is `core/driver-ask-identity.ts`' and
+ * driver ask is identified by, and in which order, is `driver-ask-identity.ts`' and
  * is deliberately not spelled here — the transcript's ask card keys its own terminal fold on
- * the same pair, and one surface answering that question differently from the other is
+ * the same pair, and one view answering that question differently from the other is
  * how an answer given in one run settles a card in another.
  */
 export function identifiedRequestKeyOf(

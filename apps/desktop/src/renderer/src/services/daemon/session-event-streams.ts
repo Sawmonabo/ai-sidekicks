@@ -7,11 +7,10 @@
 // module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
 // and `scenario-subscriptions.fixture.ts` has to route by the same table to answer the
 // way the daemon would. Two copies of the rule would let the producer and the
-// consumer drift while every test still passed — which is exactly what happened
-// before this table existed: the fixture recognized one stream name and delivered
-// NOTHING to a subscriber that named either of the other two, so every run beat a
-// scenario scripts was invisible to the surface that had asked for it, and the
-// silence was indistinguishable from a quiet session.
+// consumer drift while every test still passed: a fixture that recognized one stream
+// name would deliver NOTHING to a subscriber that named another, so every run beat a
+// scenario scripts would be invisible to the view that asked for it, and the silence
+// would be indistinguishable from a quiet session.
 //
 // WHICH KINDS A NARROWED STREAM CARRIES IS `session-event-stream-kinds.ts`, one
 // module down. The rows below are composed out of that module's lists rather than
@@ -36,13 +35,9 @@
 //
 // FROZEN AT EVERY LEVEL — the table and each row on it — because it is exported: a
 // reachable mutation would re-route every subscription in the renderer at once, and
-// the readonly types alone say nothing about that at runtime. That is not a style
-// choice but the defect this table replaces: the rows used to be `ReadonlySet` views
-// over mutable `Set`s, which is a TypeScript view and nothing more, so one
-// `carriedKinds.add(…)` anywhere in the process would have re-routed every fixture
-// subscription in that renderer for the rest of its life with no compiler and no test
-// saying so. The kind lists carry their own freeze next door, where they are
-// declared.
+// a readonly type is a TypeScript view that says nothing about that at runtime. The
+// kind lists carry their own freeze in `session-event-stream-kinds.ts`, where they
+// are declared.
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import {
@@ -69,7 +64,7 @@ export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
  *
  * Declared here for the reason the three above are: this module is the one place that
  * says what a `daemon.subscribe` name delivers, and a second spelling of a subscribe
- * name is the drift it exists to end. Two console surfaces answer this push with two
+ * name is the drift it exists to end. Two console views answer this push with two
  * different reads — who is present, and what they are doing — and neither opens its
  * payload.
  */
@@ -92,10 +87,11 @@ export interface WholeSessionEventStream {
 export interface NarrowedSessionEventStream {
   readonly scope: "selected-kinds";
   /**
-   * This stream's kinds, taken from the contract-bound record next door that
-   * declares them and frozen there. Typed as strings because a subscriber's event
-   * `kind` arrives wire-verbatim: the membership test IS what recognizes it, and the
-   * registration proof lives on that record rather than on this list.
+   * This stream's kinds, taken from the contract-bound record in
+   * `session-event-stream-kinds.ts` that declares them and frozen there. Typed as
+   * strings because a subscriber's event `kind` arrives wire-verbatim: the membership
+   * test IS what recognizes it, and the registration proof lives on that record rather
+   * than on this list.
    */
   readonly carriedKinds: readonly string[];
 }

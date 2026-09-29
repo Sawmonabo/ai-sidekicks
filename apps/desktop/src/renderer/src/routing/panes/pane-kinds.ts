@@ -5,17 +5,17 @@
 // the order `registeredPaneKinds()` answers in, and `pane-kinds.test.ts` compares this
 // tuple with its own copy of the list by string equality rather than by eye.
 //
-// WHY THE SET IS DECLARED HERE AND NOT IN THE FAMILY THAT RENDERS EACH PANE
+// WHY THE SET IS DECLARED HERE AND NOT IN THE FEATURE THAT RENDERS EACH PANE
 //
-// Six view families each build two or three pane kinds at the same time. A set
-// assembled from six per-family fragments could not answer "is this a pane kind?"
+// Six features each build two or three pane kinds at the same time. A set
+// assembled from six per-feature fragments could not answer "is this a pane kind?"
 // until every fragment had loaded, and the one place that question is asked is
 // layout restore — which runs before any pane has mounted. An unknown pane kind is
-// dropped and reported; a validator that had to wait for the families to register
+// dropped and reported; a validator that had to wait for the features to register
 // would have nothing to drop against.
 //
 // The tuple is the declaration and the union is derived from it, for the reason
-// `registries/screens/screen-registry.ts` gives about its own slots: a union written beside a
+// `registries/screens/screen-registry.ts` gives about its own screen names: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
 
 /**
@@ -23,7 +23,7 @@
  *
  * Two members are built now and wired live only once the decisions behind them
  * land — `browser` (a main-process `WebContentsView`) and `terminal` (gated on the
- * write-lease surface). They are in the set because the set is what layout restore
+ * write lease). They are in the set because the set is what layout restore
  * validates against, and a pane kind absent from it would be dropped from a snapshot
  * rather than run against the fixture bridge, which is what is wanted until those
  * wires land.
@@ -63,9 +63,9 @@ export function isPaneKind(value: unknown): value is PaneKind {
  * spend a paying account's memory for a session nobody has opened yet, on every cold
  * start, forever.
  *
- * A PROPERTY OF THE KIND: a per-descriptor boolean lets each view family answer for
+ * A PROPERTY OF THE KIND: a per-descriptor boolean lets each feature answer for
  * itself a question the layout model settles, and six answers to one question is how a
- * snapshot ends up holding a pane one family thought was durable. The annotation is
+ * snapshot ends up holding a pane one feature thought was durable. The annotation is
  * load-bearing: a name here that stops being a pane kind is a compile error.
  */
 export const EPHEMERAL_PANE_KINDS: readonly PaneKind[] = ["browser"];

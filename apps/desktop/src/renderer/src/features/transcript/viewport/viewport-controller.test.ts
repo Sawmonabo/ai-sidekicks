@@ -1,6 +1,6 @@
 // The wiring, driven end to end: rows in, and the reader held in place.
 //
-// The surface is a real detached element. Every geometry read under `happy-dom`
+// The scroll container is a real detached element. Every geometry read under `happy-dom`
 // answers zero, which is exactly why nothing here asserts a pixel: the claims are
 // about which objects were CALLED and with what — that holding a reading position is
 // one glide named for its caller, and that a scroll costs no reconcile. Where a pixel
@@ -132,32 +132,32 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     // exactly the render `directDomUpdates` exists to avoid — and, because a render
     // re-runs the virtualizer's layout effects, one turn of a loop that would not
     // settle.
-    const surface = createCountingScrollContainer();
+    const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
     let notifications = 0;
     controller.subscribe(() => {
       notifications += 1;
     });
     for (let tick = 0; tick < 20; tick += 1) {
-      surface.moveTo(40 + tick * 17);
+      scrollContainer.moveTo(40 + tick * 17);
     }
     expect(notifications).toBe(0);
     expect(controller.anchor.state.anchorPoint).toBeDefined();
   });
 
   it("negative control: a scroll that changes a RENDERED fact does notify", () => {
-    const surface = createCountingScrollContainer();
+    const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
     let notifications = 0;
     controller.subscribe(() => {
       notifications += 1;
     });
     // Reaching the tail is a mode change, and the mode is on screen.
-    surface.moveTo(surface.scrollHeight - surface.clientHeight);
+    scrollContainer.moveTo(scrollContainer.scrollHeight - scrollContainer.clientHeight);
     expect(notifications).toBeGreaterThan(0);
     expect(controller.snapshot().reading.mode).toBe("following");
   });
@@ -165,11 +165,11 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
   it("does not re-anchor to a position the transcript itself just wrote", () => {
     // Anchoring to the result of a glide discards the position the glide was
     // performed to preserve.
-    const surface = createCountingScrollContainer();
+    const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
-    surface.moveTo(220);
+    scrollContainer.moveTo(220);
     const capturedByTheReader = controller.anchor.state.anchorPoint;
     expect(capturedByTheReader).toBeDefined();
     controller.scroll.glideTo("deep-link", 900);
@@ -179,7 +179,7 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
 
 describe("the viewport controller — a pane that changed size", () => {
   /** A viewport parked at the bottom of its content, in the tail's own arithmetic. */
-  function surfaceAtTail(): ReturnType<typeof createCountingScrollContainer> {
+  function scrollContainerAtTail(): ReturnType<typeof createCountingScrollContainer> {
     return createCountingScrollContainer({
       initialScrollTop: 3700,
       clientHeight: 300,
@@ -190,35 +190,35 @@ describe("the viewport controller — a pane that changed size", () => {
   it("keeps a follower following, and re-glides to the tail the resize moved", () => {
     // A shorter viewport raises the distance from the tail on its own. Without the
     // asymmetry the anchor states, this alone would stop the transcript following.
-    const surface = surfaceAtTail();
+    const scrollContainer = scrollContainerAtTail();
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     const followsBefore = controller.scroll.writeCount("follow-tail");
 
-    surface.resizeTo(150, 4000);
+    scrollContainer.resizeTo(150, 4000);
     controller.scroll.requestOverflowMeasurement();
     clock.runFrame();
 
     expect(controller.anchor.state.mode).toBe("following");
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBefore + 1);
-    expect(surface.scrollTop).toBe(3850);
+    expect(scrollContainer.scrollTop).toBe(3850);
   });
 
   it("negative control: a reader who had scrolled away is not dragged to the tail", () => {
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: 300,
       scrollHeight: 4000,
     });
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
 
-    surface.resizeTo(150, 4000);
+    scrollContainer.resizeTo(150, 4000);
     controller.scroll.requestOverflowMeasurement();
     clock.runFrame();
 
@@ -246,23 +246,23 @@ describe("the viewport controller — the tail glide and the height it lands aga
    */
   function followerAtTail(): {
     controller: ViewportController;
-    surface: ReturnType<typeof createCountingScrollContainer>;
+    scrollContainer: ReturnType<typeof createCountingScrollContainer>;
   } {
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: TAIL_BEFORE_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
     });
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     controller.commitPendingPositionHold();
     expect(controller.anchor.state.mode).toBe("following");
-    return { controller, surface };
+    return { controller, scrollContainer };
   }
 
   it("lands on the tail the appended rows produced, not the one they replaced", () => {
-    const { controller, surface } = followerAtTail();
+    const { controller, scrollContainer } = followerAtTail();
     const followsBeforeAppend = controller.scroll.writeCount("follow-tail");
 
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
@@ -271,12 +271,12 @@ describe("the viewport controller — the tail glide and the height it lands aga
     // here would scroll to the bottom of the log as it was BEFORE the append. This is
     // the reading that fails against the pre-commit glide.
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeAppend);
-    expect(surface.scrollTop).toBe(TAIL_BEFORE_PX);
+    expect(scrollContainer.scrollTop).toBe(TAIL_BEFORE_PX);
 
-    surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
+    scrollContainer.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
     controller.commitPendingPositionHold();
 
-    expect(surface.scrollTop).toBe(TAIL_AFTER_PX);
+    expect(scrollContainer.scrollTop).toBe(TAIL_AFTER_PX);
     // The negative control rides the same two readings: the offset the pre-commit
     // glide would have chosen is a different number, and it is the one the reader was
     // left at before this fix.
@@ -302,29 +302,29 @@ describe("the viewport controller — the tail glide and the height it lands aga
     // and a reader who scrolled in between is no longer following. Without the
     // re-check the deferral would reintroduce exactly the teleport the anchor exists
     // to prevent.
-    const { controller, surface } = followerAtTail();
+    const { controller, scrollContainer } = followerAtTail();
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
     const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
 
-    surface.moveTo(500);
+    scrollContainer.moveTo(500);
     expect(controller.anchor.state.mode).not.toBe("following");
-    surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
+    scrollContainer.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
     controller.commitPendingPositionHold();
 
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit);
-    expect(surface.scrollTop).toBe(500);
+    expect(scrollContainer.scrollTop).toBe(500);
   });
 
   it("holds a reader's anchor during the reconcile itself, deferring nothing", () => {
     // Only the following arm is deferred: the anchor arm's index lookup is measured
     // in the pre-render offset space on purpose, so moving it would break it.
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
     });
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
 
     controller.reconcile({ rows: syntheticRows(20), ...CALM });

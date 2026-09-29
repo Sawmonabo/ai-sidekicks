@@ -2,19 +2,19 @@
 //
 // What reaches the screen from the refusal itself is fixed: the code verbatim in mono,
 // the daemon's own sentence unparaphrased, and no sentence of the console's explaining
-// what the daemon meant. Every rendering also gets an `action` slot — the operator's
-// next move, when one exists — and that slot is the console's to fill. This table is
+// what the daemon meant. Every rendering also takes an `action` prop — the operator's
+// next move, when one exists — and the console fills it. This table is
 // what fills it, and the distinction it keeps is the same one: the daemon says what
 // happened, and the console says what to do next.
 //
 // SO NOTHING HERE PARAPHRASES A `detail`. Each entry names an act — edit the line,
 // send again, wait for the bindings — and where the honest next move is "nothing,
-// this is over", it says that and the surface withdraws the control instead of
+// this is over", it says that and the component withdraws the control instead of
 // leaving a button that cannot work.
 //
-// ONE TABLE RATHER THAN COPY AT EACH SURFACE, because these codes reach more than
+// ONE TABLE RATHER THAN COPY IN EACH COMPONENT, because these codes reach more than
 // one. `session.not_found` can answer almost anything; `intervention.idempotency_conflict`
-// refuses a composer steer and a runs-pane control alike. Two surfaces writing their
+// refuses a composer steer and a runs-pane control alike. Two components writing their
 // own words for one code is how a person learns a remedy on one screen and does not
 // recognize it on the next.
 //
@@ -25,18 +25,22 @@
 // registry, the corpus routing a stale comparand to the intervention lifecycle state
 // `expired` instead — so its row is gone rather than kept for symmetry.
 //
-// IT IS KEYED ON THE WIRE STRING AND ANSWERS `undefined` FOR EVERY OTHER CODE, which
-// is deliberate: a `Record` over a closed union would make this module import each
-// producer's vocabulary and invert the DAG — `core/` is the bottom family and knows
-// none of them — and, worse, a total table would need an entry for every registered
-// code in the corpus, most of which have no next move beyond what the daemon already
-// said. An unlisted code renders exactly as it does today, with no action beside it.
+// IT IS KEYED ON THE WIRE STRING AND ANSWERS `undefined` FOR EVERY OTHER CODE, which is
+// deliberate: a `Record` over a closed union would make this module import each
+// producer's vocabulary and invert the import direction — `lib/` sits below every
+// producer and knows none of them — and, worse, a total table would need an entry for
+// every registered code in the corpus, most of which have no next move beyond what the
+// daemon already said. An unlisted code renders exactly as it does today, with no
+// action beside it.
 
-/** Which of rule 9's three shapes a refusal's blast radius calls for. */
+/**
+ * Which of the three refusal shapes — inline under the control, a card in the transcript,
+ * a banner across the session — a refusal's blast radius calls for.
+ */
 export type RefusalRendering = "inline" | "card" | "banner";
 
 /**
- * What a surface does about one named refusal, beyond rendering the daemon's words, in
+ * What a component does about one named refusal, beyond rendering the daemon's words, in
  * one of two variants: the app-wide table's entry, or a feature table's entry with the
  * exclusive cases one code stands for.
  */
@@ -50,7 +54,7 @@ export interface AppRefusalRemedy {
   /**
    * The shape this refusal calls for, by blast radius rather than by severity.
    *
-   * A surface that has only one rendering ignores it; a surface that can raise a
+   * A component that has only one rendering ignores it; one that can raise a
    * banner reads it and raises one, which is how `session.not_found` reaches the
    * session screen from a control that was pressed in one pane.
    */
@@ -62,7 +66,7 @@ export interface AppRefusalRemedy {
    *
    * `true` means there is nothing left for the control that produced it to do — the
    * decision was answered elsewhere, the message was already sent, the run is gone
-   * — so the surface withdraws the control rather than offering an act that can only
+   * — so the component withdraws the control rather than offering an act that can only
    * be refused again. `false` means the same act may work, so the control stays.
    */
   readonly settled: boolean;
@@ -84,7 +88,7 @@ export interface CasedRefusalRemedy {
 /**
  * The next move for each named refusal, keyed on the wire code verbatim.
  *
- * Every entry is a code the corpus registers and a surface in this console actually
+ * Every entry is a code the corpus registers and a view in this console actually
  * reaches. A code with no entry is not an omission to be filled for symmetry: it is
  * a refusal whose daemon sentence is the whole of what the console can honestly say.
  */
@@ -98,7 +102,7 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
       "This was already sent with different text. Nothing new went out — send the line again as a new message.",
     settled: true,
   },
-  // The run left the daemon. Whatever the surface last saw of it is the last thing
+  // The run left the daemon. Whatever the console last saw of it is the last thing
   // anyone will see; the row stays and stops claiming to be live.
   "run.not_found": {
     rendering: "card",
@@ -122,7 +126,7 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
     nextMove: "Somebody else answered this request. It leaves the list on the next read.",
     settled: true,
   },
-  // No event was appended, so the goal did not change at all. The surface names the
+  // No event was appended, so the goal did not change at all. The inline refusal names the
   // bindings the daemon reported failing beside this.
   "session.goal_delivery_failed": {
     rendering: "inline",

@@ -10,8 +10,8 @@
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
 //
 // The subject is `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts` over
-// `lib/reads/read-scope.ts` and the daemon call door — a model, a scheduler, a
-// read line, and a parse. None of it touches the DOM, and `diff-endurance.test.ts`
+// `lib/reads/read-scope.ts` and `callDaemon` — a model, a scheduler, a
+// read line, and a parse. None of it touches the DOM, and `diff-row-index.test.ts`
 // beside this file is the same separation cashed the same way: the claims are
 // checkable in milliseconds, deterministically, on any runner, with no bundle to
 // build and no window to launch. The DOM half — that a closed pane is gone from the
@@ -24,7 +24,7 @@
 // below observe the mechanism, they do not stand in for it.
 //
 // THE EVIDENCE THAT NO PARSE RAN is the reply itself. Each held call is released with
-// a body the presence schema REFUSES, so a door that had gone on to read it would
+// a body the presence schema REFUSES, so a call that had gone on to read it would
 // answer `reply-unreadable`. Every answer being `read-abandoned` is therefore
 // evidence the parse never ran, rather than evidence it ran and agreed — the
 // distinction a "did the value arrive" assertion cannot make.
@@ -32,7 +32,7 @@
 // THREE CLAIMS, and the third is what makes the first two non-vacuous:
 //
 //   1. NO PROJECTION AFTER ABANDONMENT. Over hundreds of close-mid-read cycles, no
-//      model reaches `loaded` and no model reaches `failed`. A surface that has gone
+//      model reaches `loaded` and no model reaches `failed`. A view that has gone
 //      renders neither, so paying to decide which one would be paying twice over.
 //   2. NOTHING ACCUMULATES. No timer is left armed on the clock, every subscription
 //      is released, and the number of listeners the churn leaves behind is zero. A
@@ -75,8 +75,8 @@ const READABLE_REPLY = { devices: [] };
 
 /** What one churn run observed, counted rather than inferred. */
 interface ChurnTally {
-  /** Every answer the call door gave, in the order the reads took them. */
-  readonly doorAnswers: string[];
+  /** Every answer `callDaemon` gave, in the order the reads took them. */
+  readonly callAnswers: string[];
   /** How many times a read body projected a reply into a value. */
   projections: number;
   /** How many times a model reached a rendering state. */
@@ -93,7 +93,7 @@ interface HeldCall {
  * One model over a bridge whose call this run holds, plus the tally it writes to.
  *
  * The read body is what a reader in this tree writes: forward the round's signal to
- * the door, throw on a refusal, project on a reply. Everything the claims measure is
+ * `callDaemon`, throw on a refusal, project on a reply. Everything the claims measure is
  * counted from inside it.
  */
 function openChurnSubject(
@@ -138,10 +138,10 @@ function openChurnSubject(
         { signal },
       );
       if (reply.status === "refused") {
-        tally.doorAnswers.push(reply.refusal.code);
+        tally.callAnswers.push(reply.refusal.code);
         throw new Error(reply.refusal.code);
       }
-      tally.doorAnswers.push("served");
+      tally.callAnswers.push("served");
       // THE PROJECTION. Trivial arithmetic standing for the real thing — a device
       // list built, a diff flattened, a timeline folded — because what is under test
       // is whether it runs at all, not what it costs when it does.
@@ -191,7 +191,7 @@ async function runOneCycle(
 
 /** A tally that has counted nothing yet. */
 function emptyTally(): ChurnTally {
-  return { doorAnswers: [], projections: 0, settlements: 0 };
+  return { callAnswers: [], projections: 0, settlements: 0 };
 }
 
 describe("read abandonment under churn — a closed pane pays for nothing", () => {
@@ -204,13 +204,13 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
     }
 
     expect(tally.projections).toBe(0);
-    // Every read reached the door and every one of them was answered by the
+    // Every read reached `callDaemon` and every one of them was answered by the
     // departure rather than by a parse. A single `reply-unreadable` here would mean
     // a reply was read after its owner had gone.
-    expect(tally.doorAnswers).toHaveLength(CHURN_CYCLES);
-    expect(new Set(tally.doorAnswers)).toStrictEqual(new Set(["read-abandoned"]));
+    expect(tally.callAnswers).toHaveLength(CHURN_CYCLES);
+    expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["read-abandoned"]));
     // No model reached a rendering state, `failed` included: an abandoned read has
-    // no failure to report and no surface left to report it to.
+    // no failure to report and no view left to report it to.
     expect(tally.settlements).toBe(0);
   });
 
@@ -236,11 +236,11 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
       await runOneCycle(clock, tally, false);
     }
 
-    // Same models, same door, same fixture, same number of cycles — the one thing
+    // Same models, same daemon call, same fixture, same number of cycles — the one thing
     // that moved is when the pane closed. Without this the zeroes above would be
     // satisfied by a harness whose reads never reached the wire.
     expect(tally.projections).toBe(CHURN_CYCLES);
-    expect(new Set(tally.doorAnswers)).toStrictEqual(new Set(["served"]));
+    expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["served"]));
     expect(tally.settlements).toBe(CHURN_CYCLES);
     expect(clock.pendingCount).toBe(0);
   });

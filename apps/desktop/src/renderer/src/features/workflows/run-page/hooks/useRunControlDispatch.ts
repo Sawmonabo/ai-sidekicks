@@ -34,11 +34,11 @@
 // that read, which is a different thing — see `servedActCount`.
 //
 // AND THAT ROUND IS THE RUN'S RATHER THAN THESE TWO CONTROLS'. Answering a phase parked
-// on a person moves the run exactly as canceling it does, and the surface that does it
-// is a body mounted in a seat with no dispatcher in reach — so the count is published
-// here and its advance is offered through `served-run-act.ts`, which states why the seam
-// is a context. One counter reached from two surfaces, and not a second number the pane
-// would have to sum.
+// on a person moves the run exactly as canceling it does, and what does it is the form
+// body inside the human-form mount point, with no dispatcher in reach — so the count is
+// published here and its advance is offered through `served-run-act.ts`, which states why
+// the seam is a context. One counter reached from the controls and from the form body,
+// and not a second number the pane would have to sum.
 
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { type GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
@@ -85,7 +85,7 @@ export interface WorkflowRunControls {
    * The chain is a read addressed by the version the run's snapshot reports, and that
    * snapshot is put at the round this hook publishes — so a chain taken as a parameter
    * here would have to be resolved before the value it is resolved from exists. The
-   * surface that mounts the control is where the two producers meet, and
+   * component that mounts the control is where the two producers meet, and
    * `run-controls.ts` states the split on the pair of interfaces it declares for it.
    */
   readonly resume: WorkflowResumeDispatch;
@@ -94,10 +94,10 @@ export interface WorkflowRunControls {
   /**
    * Advance that round for a served act this dispatcher did not put.
    *
-   * The pane's parked phases are answered through the human-form mount point, which is a body
-   * mounted in a seat and reaches no dispatcher — and a submission the daemon recorded
-   * moved the run exactly as a served cancel did. So the advance is offered rather than
-   * a second count being kept next door: `served-run-act.ts` is the seam the pane hands
+   * The pane's parked phases are answered through the human-form mount point, whose body
+   * reaches no dispatcher — and a submission the daemon recorded moved the run exactly
+   * as a served cancel did. So the advance is offered rather than a second count being
+   * kept in another module: `served-run-act.ts` is the seam the pane hands
    * this across, and states why it is a context rather than a member on the mount.
    *
    * Does nothing on a pane naming no run, which is the arm both controls above take —
@@ -227,7 +227,7 @@ export function useRunControlDispatch(
  *
  * The FUNCTION form of publish for {@link publishOutcome}'s own reason — one held record
  * carries both — and the outcomes are carried through untouched because an act performed
- * on another surface settles neither control here. The publish is the one this render
+ * through the human form settles neither control here. The publish is the one this render
  * captured, so an act recorded after the pane was retargeted writes nowhere rather than
  * re-reading the run the person moved to.
  */

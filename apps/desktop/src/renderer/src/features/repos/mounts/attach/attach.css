@@ -1,7 +1,7 @@
 /*
  * Attaching a repository, and re-attaching one whose identity has drifted.
  *
- * The shape these two surfaces share with the bind and execution-root surfaces is in
+ * The shape these two components share with the bind and execution-root dialogs is in
  * `../mount-controls.css`, which is imported first; what is here is what only these two
  * wear.
  *
@@ -11,7 +11,7 @@
  * other, last sheet wins — so the agents block keeps the name and this one carries its
  * feature in it.
  *
- * Imported by both surfaces it dresses, `AttachRepositoryDialog.tsx` and
+ * Imported by both components it dresses, `AttachRepositoryDialog.tsx` and
  * `ReattachControl.tsx`.
  */
 

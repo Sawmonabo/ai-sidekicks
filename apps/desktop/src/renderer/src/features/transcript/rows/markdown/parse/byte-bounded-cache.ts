@@ -21,11 +21,9 @@
 // alternative — a timestamp per entry and a scan — costs a scan per insert to answer
 // the same question `Map` iteration order already answers.
 
-// The console's one byte measurement, taken from the door that publishes it. One
-// byte-measurement function serves every cap. This cache spent a second one for a while,
-// and the two justified themselves
-// against each other in their own doc comments — which is what a drift reads like
-// before the two answers separate on the first body neither was tested with.
+// The console's one byte measurement, imported from the module that owns it: one
+// byte-measurement function serves every cap, so no two caps can disagree about how
+// large one body is.
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /** What one cache reports about itself, so a budget test can read it. */

@@ -1,7 +1,7 @@
 // When a confirmation discards the settlement standing under it, and when it must not.
 //
 // THE CONFIRM CONTROL IS AN `AlertDialog.Close`, AND THAT IS THE WHOLE DEFECT. Both of
-// this family's confirmations put their question inside the popup and the settlement
+// the repo mounts' confirmations put their question inside the popup and the settlement
 // on the card, because a settlement drawn inside a dialog the confirm press closes is
 // drawn into a popup that is already gone. So the confirm press does two things in one
 // act: it sends, and it closes. A discard rule wired to `onOpenChange` and keyed on the

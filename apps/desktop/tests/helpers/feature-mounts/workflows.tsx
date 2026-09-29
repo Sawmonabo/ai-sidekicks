@@ -39,7 +39,7 @@
 // member directly would pin a frame the shipped store could no longer produce.
 //
 // WHY EACH VIEW IS FOUND A DIFFERENT WAY. Each pane IS one region, and
-// `seats/PaneFrame` names it with `aria-labelledby` pointing at the crumb
+// `PaneFrame` names it with `aria-labelledby` pointing at the crumb
 // TRAIL rather than at a heading — so a pane's accessible name is its whole address
 // ("session-1 run-01 Workflow run") and two panes of one kind in one pane layout are told
 // apart by what they are scoped to. That is why the lookup below reads the trail's

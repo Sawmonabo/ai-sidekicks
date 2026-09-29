@@ -76,7 +76,7 @@ const GRAMMAR_LOADERS: Readonly<Record<HighlightableLanguage, GrammarLoader>> = 
 export interface CodeToken {
   readonly content: string;
   /**
-   * The family's custom-property reference, or `undefined` for a token the theme left
+   * The token kind's custom-property reference, or `undefined` for a token the theme left
    * plain. Never a color — see `code-theme.ts`.
    */
   readonly colorReference: string | undefined;

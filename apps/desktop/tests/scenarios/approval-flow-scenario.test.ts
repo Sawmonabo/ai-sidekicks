@@ -46,8 +46,8 @@ describe("the scenario's approval beats, folded through the shipped store", () =
     expect(withAsk[0]?.body?.["expiryAt"]).toBe("2026-01-01T17:30:01.100Z");
   });
 
-  it("negative control: a store opened without this family's projectors folds none of it", () => {
-    // The state every approvals surface was built against: the beats reach the
+  it("negative control: a store opened without the approval-flow projectors folds none of it", () => {
+    // The state every approvals view was built against: the beats reach the
     // timeline and the partition stays empty, so a pane joining a row to an entity
     // finds nothing however many approval events landed.
     const store = storeOver(undefined);

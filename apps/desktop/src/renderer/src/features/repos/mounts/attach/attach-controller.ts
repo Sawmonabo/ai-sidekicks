@@ -1,7 +1,7 @@
 // The attach act: the call it sends, and what it publishes.
 //
 // Attach asks nothing first, so it is the store's act half alone: the single-flight guard,
-// the disposed latch, and the members a surface reads them by. What is left here is what
+// the disposed latch, and the members a dialog reads them by. What is left here is what
 // is attach's own, which call it makes and how the reply reads.
 //
 // A mount belongs to the machine, so the call carries the path and nothing about the
@@ -18,7 +18,7 @@ export interface AttachSettlement {
   readonly response: RepoAttachResponse;
 }
 
-/** Where the attach stands. What a surface renders. */
+/** Where the attach stands. What a dialog renders. */
 export type AttachRequestReading = ActSettlementReading<AttachSettlement>;
 
 /** What one attach controller sends through. */

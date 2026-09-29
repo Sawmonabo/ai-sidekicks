@@ -48,7 +48,8 @@ export type MarkdownBlockNode = MarkdownRoot["children"][number];
  *     unterminated formula the moment a second `$` never arrives.
  *   • `linkMode` stays `"protocol"`, so an unfinished link becomes the sentinel URL the
  *     mapper recognizes. `"text-only"` would drop the link's own text mid-stream and
- *     then re-introduce it, which is the flicker `markdown-rules.ts` rule 1 forbids.
+ *     then re-introduce it, which is the flicker `markdown-rules.ts` forbids when it
+ *     says an incomplete construct never mounts.
  */
 const REMEND_OPTIONS = { inlineKatex: false, linkMode: "protocol" } as const;
 

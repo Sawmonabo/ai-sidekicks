@@ -7,7 +7,7 @@
 // while the button beside it still sends it. Every one of them is a control that says one
 // thing and does another.
 //
-// ONE RESOLUTION, READ BY BOTH HALVES. A surface asks this module which choice is live
+// ONE RESOLUTION, READ BY BOTH HALVES. A view asks this module which choice is live
 // and hands the answer to the picker's `checked` and to its own verdict. There is
 // nothing left for the two to drift between, which is the whole of the fix: the split
 // was never a bug in either half, it was two halves answering one question.
@@ -85,7 +85,7 @@ export function resolveServedSelection<TChoice>(
  * The choice a picker draws as checked and a form may send, or none.
  *
  * ONE FUNCTION FOR BOTH READINGS, which is the property that keeps a picker and a
- * button from disagreeing: a surface that drew the withdrawn choice while refusing to
+ * button from disagreeing: a view that drew the withdrawn choice while refusing to
  * send it would be showing a selection nothing can act on.
  */
 export function selectedChoiceOf<TChoice>(

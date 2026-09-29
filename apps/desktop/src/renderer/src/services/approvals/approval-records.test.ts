@@ -64,7 +64,7 @@ describe("the projection read", () => {
     const row = parsed.rows[0];
     // `id` becomes `approvalRequestId` because that is what the registered resolve
     // request calls the same value; `scope` becomes `requestedScope` because the
-    // reply carries a second scope and one word for both is how a surface starts
+    // reply carries a second scope and one word for both is how a view starts
     // showing a granted scope where a requested one belongs.
     expect(row?.approvalRequestId).toBe(REGISTERED_ROW.id);
     expect(row?.requestedScope).toBe("session");
@@ -129,7 +129,7 @@ describe("the projection read", () => {
 
   it("negative control: a reply that is not the read throws rather than reading empty", () => {
     // Without this, a daemon answering something else entirely would render as
-    // "nothing needs a decision" — the exact conflation this surface forbids.
+    // "nothing needs a decision" — the exact conflation a failed read must never become.
     expect(() => readApprovalProjection({ requests: [] })).toThrow();
     expect(() => readApprovalProjection(undefined)).toThrow();
   });
@@ -233,8 +233,9 @@ describe("a rule's run and its scope kind agree", () => {
 
   it("negative control: a kind this build does not know still reads, carrying no run", () => {
     // The refinement asks only whether this is the run kind. A fourth kind the
-    // daemon grows is rendered as itself under this surface's wire-string rule, and
-    // a refinement that had refused every unknown kind would have dropped it.
+    // daemon grows is rendered as itself, because an unknown wire string renders
+    // verbatim, and a refinement that had refused every unknown kind would have
+    // dropped it.
     const parsed = readRememberedRuleList({
       rules: [{ ...WELL_FORMED_RULE, scope: { kind: "workspace" } }],
     });

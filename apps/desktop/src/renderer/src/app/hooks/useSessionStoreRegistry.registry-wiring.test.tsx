@@ -166,33 +166,33 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
   });
 });
 
-describe("useSessionStoreRegistry — the board a family projects its own events through", () => {
+describe("useSessionStoreRegistry — the board a feature projects its own events through", () => {
   /** An event kind no taxonomy registers, so only a registered claim can fold it. */
-  const FAMILY_EVENT_KIND = "approval.probe_raised";
+  const CLAIMED_EVENT_KIND = "approval.probe_raised";
 
   /** One beat of that kind, in the shape the apply chokepoint consumes. */
-  function familyEvent(sessionId: string, sequence: number): ProjectedSessionEvent {
+  function claimedEvent(sessionId: string, sequence: number): ProjectedSessionEvent {
     return {
       id: `event-${String(sequence)}`,
       sessionId,
       sequence,
-      kind: FAMILY_EVENT_KIND,
+      kind: CLAIMED_EVENT_KIND,
       occurredAt: new Date(sequence).toISOString(),
       payload: { approvalId: "approval-probe-1" },
     };
   }
 
-  it("folds an event kind a family claimed, in a store the window opened", () => {
+  it("folds an event kind a feature claimed, in a store the window opened", () => {
     // The whole point of the seam. `store/entities/entities.ts` declares an `approval`
-    // partition and every other family's besides, and under the frame's constant
-    // table not one of them had a possible producer: a family could only fill its own
+    // partition and every other feature's besides, and under the frame's constant
+    // table not one of them had a possible producer: a feature could only fill its own
     // partition by reading the wire a second time, beside the store rather than in
     // it. Here the fold is claimed on a board the window is handed, and the store the
     // window opens folds with it.
     const projectorRegistry = new EntityProjectorRegistry();
     projectorRegistry.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
     projectorRegistry.register(
-      FAMILY_EVENT_KIND,
+      CLAIMED_EVENT_KIND,
       (event) => [
         {
           operation: "upsert",
@@ -207,7 +207,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     );
 
     const observed: Observation[] = [];
-    const sessionId = "session-family-projection";
+    const sessionId = "session-feature-projection";
     render(
       <SessionProbe
         sessionId={sessionId}
@@ -223,7 +223,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     store?.initialize({ cursor: 0, entities: [] });
 
     act(() => {
-      registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
+      registry.enqueue(sessionId, [claimedEvent(sessionId, 1)]);
       registry.flush(sessionId);
     });
 
@@ -236,7 +236,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     // The constant path, exactly as it was. Same registry class, same event, one
     // difference — the fold is the frame's table and nothing else — and the partition
     // stays empty while the timeline still records the arrival. That is the state
-    // every family's surface would have been built against.
+    // every feature's view would have been built against.
     const registry = new SessionStoreRegistry({
       read: () => Promise.resolve(undefined),
       projectors: RUN_LIFECYCLE_PROJECTORS,
@@ -245,7 +245,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     const store = registry.open(sessionId);
     store.initialize({ cursor: 0, entities: [] });
 
-    registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
+    registry.enqueue(sessionId, [claimedEvent(sessionId, 1)]);
     registry.flush(sessionId);
 
     expect(store.snapshot().timeline).toHaveLength(1);

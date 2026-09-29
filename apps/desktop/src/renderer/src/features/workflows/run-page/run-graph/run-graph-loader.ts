@@ -2,13 +2,13 @@
 //
 // WHY THIS MODULE EXISTS. The console bounds the renderer's initial bundle excluding
 // lazy chunks — terminal, node graph, math, diagrams, browser tools — so the node
-// graph is a LAZY chunk by the budget it is measured against. The chunk's door pulls
-// in `@xyflow/react`, its `@xyflow/system` runtime sibling, the library's own
-// `base.css` and this directory's sheet; reached by a static import from a pane the
-// console can open at boot, every one of those bytes lands in the document the
-// operator waits for whether or not a run is ever drawn.
+// graph is a LAZY chunk by the budget it is measured against. The chunk's entry,
+// `run-graph/index.ts`, pulls in `@xyflow/react`, its `@xyflow/system` runtime
+// sibling, the library's own `base.css` and this directory's sheet; reached by a
+// static import from a pane the console can open at boot, every one of those bytes
+// lands in the document the operator waits for whether or not a run is ever drawn.
 //
-// So the door is reached through `import()` and through nothing else. That makes this
+// So that entry is reached through `import()` and through nothing else. That makes this
 // module the bundler's split point: everything only `run-graph/index.js` reaches is
 // emitted as its own chunk, with the two sheets `RunGraphCanvas.tsx` imports, and fetched
 // the first time a graph mounts.
@@ -23,7 +23,7 @@
 /**
  * What a caller gets: the canvas component, and deliberately nothing else.
  *
- * Narrowed from the door's own shape rather than restated, so a rename behind
+ * Narrowed from the entry module's own shape rather than restated, so a rename behind
  * `index.ts` fails here instead of drifting. `typeof import(...)` in a TYPE position
  * is erased by the compiler — it opens no runtime edge into the chunk this module
  * exists to keep out of the initial graph.

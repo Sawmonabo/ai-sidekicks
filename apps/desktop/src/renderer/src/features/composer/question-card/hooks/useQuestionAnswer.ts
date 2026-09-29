@@ -1,11 +1,11 @@
 // The answer an input-ask row delivers, and where that delivery has got to.
 //
-// A MODULE OF ITS OWN, BESIDE THE READ IT USED TO SIT WITH. `driver.respondToRequest`
+// A MODULE OF ITS OWN, APART FROM EVERY READ. `driver.respondToRequest`
 // is a run-changing method by the console's own classification, and a durable act that
 // reached the daemon has HAPPENED — the console's half of it is not the console's to
 // give up on, so a module that dispatches one has no business naming read cancellation
-// in any form. `shell-row-reads.ts` next door is a read on a line that ends, and it
-// names the round that ends it. The two therefore live apart: the split is what makes
+// in any form. A read, by contrast, is on a line that ends, and it names the round
+// that ends it. The two therefore live apart: the split is what makes
 // each module's whole relationship with cancellation readable from its imports, and it
 // is what a reviewer holds every dispatcher to.
 //
@@ -17,7 +17,7 @@
 // outcome a transport can have, so a caller that ignored the reply would have decided
 // that a refusal looks exactly like a success — an answer that never reached the
 // driver left the run blocked with nothing on screen saying so. This hook holds what
-// came back, and the surface above renders it.
+// came back, and the question card above renders it.
 
 import { useCallback, useState } from "react";
 
@@ -76,7 +76,7 @@ export function useQuestionAnswer(runId: RunId | undefined, askId: string): Ques
         return;
       }
       setDelivery({ status: "delivering", response });
-      // NO `catch` ARM, and its absence is the door's contract rather than an
+      // NO `catch` ARM, and its absence is `callDaemon`'s contract rather than an
       // omission: `callDaemon` answers `served` or `refused` for every outcome a
       // transport can have — a request the daemon would not accept, a rejected call,
       // a reply the registered schema does not admit — so a `catch` here would be a

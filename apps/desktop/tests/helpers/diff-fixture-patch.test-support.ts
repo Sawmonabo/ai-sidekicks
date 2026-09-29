@@ -39,7 +39,7 @@ export function buildPatchText(shape: DiffFixtureShape): string {
     const path = fixtureFilePath(fileOrdinal);
     // No `a/` and `b/` prefixes and no `diff --git` line: this is a plain unified
     // patch, so the path the parser reports is the path written here, with nothing
-    // to strip and no chance of a re-rooted file reaching a surface.
+    // to strip and no chance of a re-rooted file reaching a view.
     const lines: string[] = [`--- ${path}`, `+++ ${path}`];
     for (let hunkOrdinal = 0; hunkOrdinal < shape.hunksPerFile; hunkOrdinal += 1) {
       const start = hunkOrdinal * 40 + 1;
@@ -102,7 +102,7 @@ function terminalNewlinePatch(): string {
  * produces too when only some of its files moved.
  *
  * No hunks anywhere below: the whole change is in the headers, which is the case a
- * surface would draw as `+0 −0` under a bare path if it read only the hunks.
+ * view would draw as `+0 −0` under a bare path if it read only the hunks.
  */
 function extendedHeaderPatches(): readonly string[] {
   const { renamed, copied, modeChanged, binary } = EXTENDED_HEADER_FIXTURE_FILES;

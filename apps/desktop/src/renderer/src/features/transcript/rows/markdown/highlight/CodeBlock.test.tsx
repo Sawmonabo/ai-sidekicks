@@ -28,7 +28,7 @@ describe("a settled code block", () => {
     expect(container.textContent).toContain("const a = 1;");
   });
 
-  it("swaps in spans whose color is a family reference", async () => {
+  it("swaps in spans whose color is a token-kind reference", async () => {
     const { container } = render(
       <CodeBlock source="const a = 1;" infoString="ts" isSettled scheduler={ownScheduler()} />,
     );

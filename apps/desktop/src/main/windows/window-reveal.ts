@@ -37,8 +37,8 @@
 // `disable_hidden` patch, which is what a throttling-off setting switches on,
 // keeps animation frames running for an occluded, minimized, AND hidden window
 // on macOS, but on Windows only for the first two — a hidden window there stops
-// painting (electron/electron#31016). A never-revealed window is therefore a
-// faithful measurement surface on macOS and not on Windows, so Windows keeps
+// painting (electron/electron#31016). A never-revealed window is therefore one a
+// test can measure faithfully on macOS and not on Windows, so Windows keeps
 // the inactive reveal. Linux runs the tiers under Xvfb, where there is no
 // operator to disturb, and takes the inactive reveal as well.
 //

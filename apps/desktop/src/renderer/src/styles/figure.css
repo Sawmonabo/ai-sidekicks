@@ -7,7 +7,7 @@
  * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 4 — mono is the signature that a
+ * The design-language rule that governs this sheet: mono is the signature that a
  * figure came from the wire.
  */
 
@@ -24,7 +24,7 @@
 }
 
 /*
- * Rule 4: mono IS the provenance signature. Both classes of wire figure wear it —
+ * Mono IS the provenance signature. Both classes of wire figure wear it —
  * a byte-for-byte string and an `Intl`-formatted quantity — so a reader can tell at
  * a glance which numbers on a screen the daemon actually sent.
  *
@@ -32,8 +32,8 @@
  * cannot select is a digest they have to retype, and console chrome elsewhere is
  * routinely made unselectable.
  *
- * THE TWO DOORS BELOW ARE THIS FIGURE'S PUBLIC API, and they exist so that a surface
- * composing a wire figure never reaches back in and redeclares this class: a class
+ * THE TWO CUSTOM PROPERTIES BELOW ARE THIS FIGURE'S PUBLIC API, and they exist so that a
+ * component composing a wire figure never reaches back in and redeclares this class: a class
  * two sheets declare at equal specificity is resolved by which sheet the session
  * loaded first, so the same figure reads differently depending on which pane opened.
  * A container that wants the figure quieter or smaller inside it sets these on ITS

@@ -116,10 +116,10 @@ describe("relative-time formatters — one per resolved locale", () => {
     );
   });
 
-  it("keeps the absent locale as a slot of its own", () => {
+  it("keeps the absent locale as a formatter of its own", () => {
     // Not folded into whatever the host resolves to, even on a host whose default IS
     // that locale: a caller that named nothing asked for the host default, and a
-    // caller that named a tag asked for that tag. The slot is also the one entry no
+    // caller that named a tag asked for that tag. That formatter is also the one no
     // eviction can reach, which the bound case below depends on.
     expect(relativeTimeFormatFor(undefined)).not.toBe(relativeTimeFormatFor("en-US"));
     expect(relativeTimeFormatFor(undefined)).not.toBe(
@@ -155,7 +155,7 @@ describe("relative-time formatters — one per resolved locale", () => {
     }
 
     expect(countRelativeTimeFormatters().namedLocales).toBeLessThanOrEqual(cap);
-    // And the absent locale is still answered by its own slot, which no eviction
+    // And the absent locale is still answered by its own formatter, which no eviction
     // reaches: the hottest key in the console survives a caller that filled the map.
     expect(relativeTimeFormatFor(undefined)).toBe(relativeTimeFormatFor(undefined));
   });

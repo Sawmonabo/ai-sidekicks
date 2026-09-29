@@ -2,7 +2,7 @@
 //
 // Three negative controls carry `MountCard.tsx`'s three hardest claims: the resolved root
 // is never shortened in the STRING, the two status axes are never one chip, and no detach
-// control exists anywhere on the surface.
+// control exists anywhere on the card.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -137,7 +137,7 @@ describe("MountCard — the way into a change set", () => {
 
 describe("MountCard — what the renderer must not offer", () => {
   it("negative control: nothing on the card is a detach control", () => {
-    // The desktop renderer has no detach surface and no force option on a refused
+    // The desktop renderer has no detach control and no force option on a refused
     // detach. This case fails the moment either becomes a control.
     const { container } = renderCard();
     for (const element of container.querySelectorAll("button, input, a")) {

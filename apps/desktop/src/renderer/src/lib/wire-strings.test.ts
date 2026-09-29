@@ -44,7 +44,7 @@ describe("reading a wire-supplied member as a number", () => {
     expect(readWireNumber(-1.5)).toBe(-1.5);
   });
 
-  it("refuses the three values JavaScript calls numbers and no surface may render", () => {
+  it("refuses the three values JavaScript calls numbers and no view may render", () => {
     // A member the daemon could not compute is not a figure, and rendering one would
     // put `NaN` in front of a person as though it were a reading.
     expect(readWireNumber(Number.NaN)).toBeUndefined();

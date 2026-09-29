@@ -14,7 +14,7 @@
 // and the deltas, which is what a producer supplies in production too.
 //
 // AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
-// owns the watcher, because any surface that reveals text incrementally wants the
+// owns the watcher, because any view that reveals text incrementally wants the
 // same one; a copy here would be the second implementation of a role.
 
 import { act } from "@testing-library/react";
@@ -90,7 +90,7 @@ function StreamingProbeBody(props: { readonly laneId: string }): React.JSX.Eleme
 }
 
 /**
- * Mount the probe, and hand back the subject, the clock, and the ingest door.
+ * Mount the probe, and hand back the subject, the clock, and the ingest handle.
  *
  * `renderSettled` is the tier's one mount, so the console's own cleanup discipline
  * owns the unmount and no case here disposes a tree by hand.

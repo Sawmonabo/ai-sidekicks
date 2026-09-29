@@ -2,11 +2,11 @@
 //
 // WHY THIS IS NOT ONE STORE. The all-sessions destination is mounted at
 // `kind: "sessions"`, an address that names no session — so the frame opens no
-// route-scoped store and hands the surface `undefined` for it, permanently. A list
+// route-scoped store and hands the screen `undefined` for it, permanently. A list
 // built from that one store was therefore built from nothing, and every locally open
 // session was reduced to its identifier: no projected touched time, so the recency
 // ordering the design opens with had nothing to order by, and no users, so a
-// row carrying people rendered as a bare id. The set the surface needs is the one
+// row carrying people rendered as a bare id. The set the screen needs is the one
 // `SessionStoreRegistry` holds, and that set has no fixed size.
 //
 // WHICH IS WHY IT IS A SUBSCRIPTION AND NOT N HOOKS. A hook per open store cannot be
@@ -89,7 +89,7 @@ export class OpenSessionRowProjection {
    * Follow the open set and every store in it, for as long as anyone is listening.
    *
    * The fan-out is attached on the FIRST subscriber and released with the last, so a
-   * projection whose surface has unmounted holds no listener anywhere. An arrow
+   * projection whose component has unmounted holds no listener anywhere. An arrow
    * property rather than a prototype method because `useSyncExternalStore` compares
    * this function's identity and re-subscribes when it moves.
    */
@@ -280,7 +280,7 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
     touchedAtIso: entity.touchedAt,
     userIds: entity.id === store.sessionId ? userIds : [],
     // Attention is one projection for the whole destination and is stamped over the
-    // merged list by the surface. Reading it per source would give one session two
+    // merged list by the screen. Reading it per source would give one session two
     // severities and let the merge decide which a person saw.
     attentionSeverity: undefined,
   }));

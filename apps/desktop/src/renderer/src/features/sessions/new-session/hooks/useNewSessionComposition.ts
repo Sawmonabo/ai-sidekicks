@@ -210,11 +210,11 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
         // A send that rejects outright does not publish `NO_SEND_YET`, which would clear
         // the result: no banner, no announcement, no diagnostic, and a Send button that
         // answers a press by doing nothing. The draft names the fault in its own
-        // vocabulary instead, so the refusal renders in the slot every other outcome
+        // vocabulary instead, so the refusal renders in the line every other outcome
         // uses and the announce effect below says it out loud.
         //
         // A STRUCTURAL GUARD, and no test drives it, because nothing in this build
-        // reaches it: `callDaemon` answers a rejected call, an absent door and an
+        // reaches it: `callDaemon` answers a rejected call, an unsendable request and an
         // unreadable reply alike with a typed refusal, and every statement `send()`
         // makes outside that call is total — so no wire a test can compose makes this
         // promise reject, and a test that did would need an injected draft this
@@ -244,7 +244,7 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   // The destination composes it from the stores its context carries and hands over a
   // fresh function on every pass, because nothing over there needs a stable one. Named
   // in the effect's dependencies it would re-run the whole settlement on every render
-  // of the surface above: the sentence said twice, the session opened twice, the
+  // of the destination above: the sentence said twice, the session opened twice, the
   // navigation put twice. Written from a layout effect rather than the render body because
   // a pass React discards still runs a render body, and a
   // callback captured there belongs to a tree that never reached the screen.

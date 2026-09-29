@@ -69,7 +69,7 @@ function usageWindow(
 }
 
 /**
- * A reading of the account plane holding exactly these seated rows.
+ * A reading of the account plane holding exactly these current rows.
  *
  * The readout is the only thing the selection accepts, and it is composed here rather
  * than reached for: what the four other members say does not bear on which rows this
@@ -123,10 +123,10 @@ describe("accountQuotaRowsFrom", () => {
   });
 
   // THE FOIL FOR THE SECOND RULE THAT USED TO LIVE HERE. Two readings for one limit is
-  // an input the readout's own contract does not produce — the fold seats one row per
+  // an input the readout's own contract does not produce — the fold keeps one row per
   // `(accountId, limitId)` — and that is exactly why it is the right probe: a module
   // that resolved this pair would be answering a question it is not allowed to answer,
-  // and the answer it used to give was the wrong one, seating a later 5% over a
+  // and the answer it used to give was the wrong one, putting a later 5% in place of a
   // standing 44% inside one window because it ranked on the timestamp alone.
   it("decides nothing about which of two readings for one limit is current", () => {
     const rows = accountQuotaRowsFrom(
@@ -180,11 +180,11 @@ describe("accountQuotaRowsFrom", () => {
   });
 
   // The ordering is this page's and the reading is the node's, so the selection must
-  // not reorder the array it was handed — a fold publishing its rows to two surfaces
+  // not reorder the array it was handed — a fold publishing its rows to two views
   // would otherwise have one of them shuffled under it.
   it("leaves the reading's own row order untouched", () => {
-    const seated = [usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })];
-    const registry = registryHolding(seated);
+    const currentRows = [usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })];
+    const registry = registryHolding(currentRows);
 
     accountQuotaRowsFrom(registry, accountAtGeneration(3));
 

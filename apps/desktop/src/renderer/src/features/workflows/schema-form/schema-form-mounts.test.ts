@@ -1,5 +1,5 @@
-// The deferred edge into the schema form kit: one fetch per loader, the real surfaces at
-// the end of it, and two mounts that share the one memo.
+// The deferred edge into the schema form kit: one fetch per loader, the real form
+// components at the end of it, and two mounts that share the one memo.
 //
 // The BUNDLING half of this seam's claim — that the kit and its stylesheet land in a lazy
 // chunk rather than in the initial document — is not assertable from here, and no gate
@@ -23,7 +23,7 @@ import {
 describe("the schema form chunk's loader", () => {
   it("resolves the real kit, not a stand-in for it", async () => {
     const kit: SchemaFormModule = await new SchemaFormChunk().load();
-    // Identity, not shape: a wrapper that merely looked like these would let a surface
+    // Identity, not shape: a wrapper that merely looked like these would let a caller
     // draw a form this directory does not own. The imports above name the DECLARING
     // modules while the loader goes through the chunk root, so this also holds that root
     // to re-exporting the declarations rather than wrapping them.
@@ -56,7 +56,7 @@ describe("the schema form chunk's loader", () => {
   });
 });
 
-describe("the mounts the seats door publishes", () => {
+describe("the answer and preview mounts", () => {
   it("resolve their bodies out of the page's own memo", async () => {
     // One fetch behind both, which is the whole reason the mounts take a loader rather
     // than naming the specifier twice: a definition row and a waiting phase opening in

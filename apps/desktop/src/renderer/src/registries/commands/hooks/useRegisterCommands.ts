@@ -1,24 +1,24 @@
-// How a SURFACE contributes commands for as long as it is on screen.
+// How a COMPONENT contributes commands for as long as it is on screen.
 //
 // The frame's own commands are registered from an effect and removed on unmount
-// (`app/hooks/useWindowCommands.ts`), and a view family's are the same shape for the same
+// (`app/hooks/useWindowCommands.ts`), and a feature's are the same shape for the same
 // reason: they close over a live store, a live bridge, and the rows a pane is
-// currently showing, none of which exists at module scope. What a family must not
+// currently showing, none of which exists at module scope. What a feature must not
 // copy from the frame is the mechanism — two hand-written register/unregister
 // effects against one module-scoped registry is two places to get the unregister
-// wrong — so the lifecycle lands here once and every surface takes it as a hook.
+// wrong — so the lifecycle lands here once and every component takes it as a hook.
 //
-// IT CONTRIBUTES THROUGH THE SEAT AND NOT THROUGH `registerCommands`, and
+// IT CONTRIBUTES THROUGH THE CONTRIBUTION REGISTRY AND NOT THROUGH `registerCommands`, and
 // that is the whole point rather than a preference. The palette re-reads the
 // registry once per `commandRevision`, and the only thing that moves the revision
-// is a contribution signal: a surface that called `registerCommands`
+// is a contribution signal: a component that called `registerCommands`
 // directly would add its rows to a registry the open palette has already memoized
 // against, and the commands would be invisible until something unrelated bumped
 // it. The frame gets away with the plural call because it bumps the revision
 // itself, in the same effect; a pane has no revision to bump.
 //
-// WHICH MOUNT OWNS THE ROWS IS THE SURFACE'S BOOKKEEPING — NOT THIS HOOK'S. Two
-// mounts of one surface would otherwise tear down in the wrong order: the first one's
+// WHICH MOUNT OWNS THE ROWS IS THE CONTRIBUTION REGISTRY'S BOOKKEEPING — NOT THIS HOOK'S.
+// Two mounts of one component would otherwise tear down in the wrong order: the first one's
 // cleanup clearing rows the second still owns, or the second's clearing an owner the
 // first is still on screen under. The register that decides which contribution is
 // live, and what the rows fall back to when it goes, belongs beside the owner-scoped
@@ -29,7 +29,7 @@
 // registry — and one of them superseding an owner it has no rows in silently disarms
 // the other's release.
 //
-// NO CHORDS. The seat contributes acts and binds no keys: a chord is a
+// NO CHORDS. This hook contributes acts and binds no keys: a chord is a
 // window-wide claim, the key-binding table refuses two bindings on one chord, and
 // a pane that bound one would be racing every other pane in the pane layout for it. The
 // keyboard path to these acts is the palette itself, which is one chord for all

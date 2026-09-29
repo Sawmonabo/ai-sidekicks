@@ -13,9 +13,9 @@
 // twice — which is the nested-status-region defect that pane's own header names. The
 // ask settles in one turn of the call, so what a person sees is the answer.
 //
-// WHY IT MOUNTS AT THE FAMILY'S SESSION SCREEN ROOT. It needs two things that are in hand
+// WHY IT MOUNTS AT THE FEATURE'S SESSION SCREEN ROOT. It needs two things that are in hand
 // in exactly one place: the store, for the hole, and the registry, for the position a
-// read acknowledged. `ResumeRefusalBanner` next door is mounted there for the same
+// read acknowledged. `ResumeRefusalBanner` is mounted there for the same
 // reason and says so — the session screen body is handed everything BUT the registry.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
@@ -39,7 +39,7 @@ export interface TranscriptGapFillProps {
  * The replay this window can ask for, or nothing at all.
  *
  * `null` for a window with nothing missing, and for the interval an ask is in flight.
- * Both are the ordinary course and neither is this surface's to report.
+ * Both are the ordinary course and neither is this component's to report.
  */
 export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Element | null {
   const { sessionId } = props.sessionStore;
@@ -53,7 +53,7 @@ export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Elem
       // decision names none — a restart because nothing was ever acknowledged, a refusal
       // because the daemon could not resolve what this console sent — and neither is a
       // position to replay from. The refusal itself is already on screen above, rendered
-      // by the surface that owns that reading.
+      // by the banner that owns that reading.
       keptCursor: resume?.outcome === "resume" ? resume.fromCursor : undefined,
     },
     props.fillGap,

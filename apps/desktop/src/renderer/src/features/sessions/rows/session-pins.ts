@@ -28,14 +28,14 @@ export type SessionPins = Readonly<Record<string, typeof PINNED>>;
 /** The empty pin map: what a list shows before a record is read. */
 export const NO_PINS: SessionPins = {};
 
-/** What a surface holds: the map, the refusal, and the one act that changes it. */
+/** What a view holds: the map, the refusal, and the one act that changes it. */
 export interface SessionPinBinding {
   readonly pinned: SessionPins;
   readonly lastRefusal: Refusal | undefined;
   readonly setPinned: (sessionId: string, isPinned: boolean) => void;
 }
 
-/** The pin map, durable. One per window; the surface builds it once and holds it. */
+/** The pin map, durable. One per window; the screen builds it once and holds it. */
 export class SessionPinStore {
   readonly #state: DurableViewState<SessionPins>;
 

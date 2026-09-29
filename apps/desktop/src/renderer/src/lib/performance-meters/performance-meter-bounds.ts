@@ -1,8 +1,8 @@
 // What the dev-tier perf meters are allowed to hold.
 //
 // A bound TABLE beside its readers: a record whose keys are the bounds sits with the
-// code that spends them. These four are spent in exactly one module — the registry
-// next door — and nothing else in the console reads them.
+// code that spends them. These four are spent in exactly one module — the registry in
+// `performance-meters.ts` beside it — and nothing else in the console reads them.
 //
 // EVERY ONE OF THEM IS A RETENTION BOUND rather than a budget target. The budget
 // figures the meters are read AGAINST — p95 frame time, idle CPU, renderer heap —

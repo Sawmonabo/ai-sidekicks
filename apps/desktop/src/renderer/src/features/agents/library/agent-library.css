@@ -97,7 +97,7 @@
 
 /* The same treatment the Agents pane gives its column titles, because it is the
  * same construct — a quiet label over a column, not a heading competing with the
- * page's own. A third uppercase scale in one family would be a third for no reason. */
+ * page's own. A third uppercase scale in one feature would be a third for no reason. */
 .meridian-agent-library__column-title {
   margin: 0;
   font-size: var(--meridian-text-sm);

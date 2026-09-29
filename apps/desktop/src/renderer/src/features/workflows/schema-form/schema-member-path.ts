@@ -1,29 +1,28 @@
-// How one member of an answer is ADDRESSED: the representation every surface and every
+// How one member of an answer is ADDRESSED: the representation every control and every
 // finding shares, and the single string spelling it takes where a string is what the
 // platform wants.
 //
-// IT IS A SIBLING OF THE VALIDATOR RATHER THAN PART OF IT, AND THE SPLIT IS THE POINT.
-// `json-schema-check.ts` next door compiles a delivered schema, which means it imports a
-// schema library and is reached through a loader so that library stays off the console's
-// initial import graph. Addressing needs none of that: it is six lines of string and array
-// work that the schema form's descriptors, its controls, its draft writes and its plan all
-// read on their first render. Left in the validator's module they would have held that
-// library's whole sub-graph on the door — a value the door publishes is charged to every
-// launch — so what the door publishes eagerly is this, and the compiler arrives when a
-// form is actually drawn.
+// IT IS KEPT APART FROM THE VALIDATOR, AND THE SPLIT IS THE POINT.
+// `json-schema-validator.ts` compiles a delivered schema, which means it imports a schema
+// library and is reached through a loader so that library arrives on a chunk of its own.
+// Addressing needs none of that: it is a few lines of string and array work that the
+// schema form's descriptors, its controls, its draft writes and its plan all read on
+// their first render. Left in the validator's module, every one of them would wait on the
+// library's chunk, so this module is imported statically and the compiler arrives when a
+// form first compiles a schema.
 //
 // THE ISSUE PATH TRAVELS AS SEGMENTS, BECAUSE A JOINED PATH IS NOT INJECTIVE. The schema
 // library reports a path of property keys and array indices, and joining those with a dot
 // collapses members a schema keeps apart: a property literally named `items.0` and the
 // first entry of an array named `items` both spell `items.0`, and so do a property named
-// `a.b` and a `b` nested inside an `a`. A surface keyed on that string draws one member's
+// `a.b` and a `b` nested inside an `a`. A control keyed on that string draws one member's
 // verdict under another member's control — or under both — which is a finding rendered
 // about a value the schema said nothing about. So the segments travel whole, the lookup
 // that matches a control to its findings compares them element by element through
 // `isSameMemberPath`, and the one place a path has to become a string — a React key, an
 // element id, a sentence naming the member — takes the RFC 6901 JSON Pointer that
 // `encodeMemberPointer` composes, which escapes rather than collapses. One representation,
-// one encoder, and no surface re-derives either.
+// one encoder, and nothing re-derives either.
 
 /**
  * Where one member sits inside an answer: property keys and array positions, in order.

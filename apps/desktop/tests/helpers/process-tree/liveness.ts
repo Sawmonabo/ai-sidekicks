@@ -169,7 +169,7 @@ type BoundedHostQuery = (
  * taken from inside a disposal that is already racing a teardown: a `ps` that
  * stalls blocks the very thread vitest's timeout runs on, so the worker is torn
  * down with its Electron still alive. It therefore goes through
- * `runBoundedHostQuery` — the one door in `readers.ts` that every host query in
+ * `runBoundedHostQuery` — the one bounded call in `readers.ts` that every host query in
  * this directory takes, and the only place `HOST_QUERY_TIMEOUT_MS` is spelled.
  * The Linux arm reads a file rather than running a command, so it is bounded by
  * the read itself and has nothing to pass.

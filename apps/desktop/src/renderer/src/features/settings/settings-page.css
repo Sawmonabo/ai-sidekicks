@@ -1,14 +1,14 @@
 /* The chrome every settings page body is drawn inside.
  *
  * A sibling of `settings.css` rather than a block inside it: the rail and the pane
- * belong to the surface, while the block, the lede, the fact grid, the action row and
+ * belong to the screen, while the block, the lede, the fact grid, the action row and
  * the wire-vocabulary list are the shape a PAGE takes — shared by every page and
  * owned by none of them, which is why this sheet lives beside the two shared page
  * components rather than in any one page's directory.
  */
 
 /* --- Page bodies --------------------------------------------------------- */
-/* Appended by the page lanes; the rail and pane above are the surface's. Every
+/* Appended by the page lanes; the rail and pane above are the screen's. Every
    page composes the same three shapes — a lede, a block with a title, and rows —
    so the classes are named for those rather than for any one page. */
 
@@ -62,7 +62,7 @@
 }
 
 /*
- * A page that lays its own form out as a grid places this line through this door
+ * A page that lays its own form out as a grid places this line with this class
  * rather than declaring the class in its own sheet. `grid-column` applies only to a
  * grid item, so the property inheriting past the form's own children changes nothing
  * deeper; unset, the line is placed by the grid's ordinary flow.

@@ -15,15 +15,11 @@
 // that sent one would be refused at the parse, so `earliest` is not a member a newer
 // daemon might grow into this reply; it is a member this reply cannot have.
 //
-// The canonical architecture doc states the rule differently. Its gap-detection
-// sentence resumes from `acknowledged ?? earliest` and compares the two to decide
-// whether events were lost, which describes a decode of a member the shipped schema
-// forbids. THE CONSOLE READS THE SHIPPED SCHEMA. This module used to read the doc
-// instead and refused the whole resume cycle whenever `earliest` was absent — which
-// is every read, from every responder, forever: a permanent version-skew band above
-// every session screen, reporting a skew nothing was skewed by. That refusal is deleted
-// rather than relaxed, and the two facts the shipped reply does carry are what is
-// decided from.
+// THE CONSOLE READS THE SHIPPED SCHEMA. A rule that resumes from
+// `acknowledged ?? earliest`, and compares the two to decide whether events were lost,
+// decodes a member the shipped schema forbids, and refusing the resume cycle whenever
+// `earliest` is absent would refuse every read from every responder. So the two facts
+// the shipped reply does carry are what is decided from.
 //
 // THE VOCABULARY, RE-DERIVED FROM WHAT A READ CAN ACTUALLY SAY
 //
@@ -31,22 +27,21 @@
 //     user has been read up to, so the next read starts there.
 //   • `restart` — it carried none. Nothing has been acknowledged, so the beginning of
 //     the window IS the resume position and no cursor is submitted. This is a first
-//     read and it is the ordinary case; it is NOT a refusal, and rendering it as one
-//     was the second half of the same defect.
+//     read and it is the ordinary case; it is NOT a refusal.
 //   • `refused` — the daemon could not resolve a cursor this console SUBMITTED. The
-//     only refusal left, and the only one that was ever about a real failure: the
-//     others described the responder's shape, and this one describes an answer.
+//     only refusal, because it is the only case that describes an answer rather than
+//     the shape of the responder's reply.
 //
 // WHY THE REFUSED ARM IS A VALUE AND NOT A THROW. It carries the console's refusal
-// grammar so a surface renders it beside the feed rather than in place of it: the
+// grammar so a view renders it beside the feed rather than in place of it: the
 // stream is fine, the projection is fine, and what was lost is one remembered
 // position. A throw would turn that into a rejected read the scheduler records as a
 // degradation of the store, which is a different and worse claim.
 //
 // WHY THERE IS NO LOST-EVENT ARM, AND WHAT WOULD RE-ARM ONE
 //
-// The canonical sentence's third clause — `decode(acknowledged) < decode(earliest)` means
-// events were lost — names `decode` as the inverse of an `encode` the daemon owns and
+// A lost-event test — `decode(acknowledged) < decode(earliest)` means events were
+// lost — names `decode` as the inverse of an `encode` the daemon owns and
 // PUBLISHES NEITHER. `packages/contracts/src/session.ts` says the cursor is opaque in as
 // many words: its internal structure (sequence + monotonic_ns) is the daemon's, the
 // schema is a bounded non-empty string, and any non-empty bounded string is accepted
@@ -82,14 +77,13 @@ export const TIMELINE_RESUME_ORIGIN = "timeline-resume";
 /**
  * Why a resume cycle was refused. Closed, and closed at ONE member.
  *
- * It held two before, and both described the SHAPE of a responder's reply rather than
- * an answer: one for a reply with no cursor block, one for a block missing a floor the
- * shipped schema has no member for. Neither was actionable and neither was rare — the
- * second fired on every read ever taken. What is left is the one refusal that reports
- * a failure: a position this console sent, that the daemon could not resolve.
+ * A reply with no cursor block, or a block missing a floor the shipped schema has no
+ * member for, describes the SHAPE of a responder's reply rather than an answer, and is
+ * not refused. The one refusal reports a failure: a position this console sent, that
+ * the daemon could not resolve.
  *
- * A single-member enumeration rather than a bare literal, because the shape of the
- * claim has not changed: the code a refusal carries is a closed set this module owns,
+ * A single-member enumeration rather than a bare literal, because the code a refusal
+ * carries is a closed set this module owns,
  * a code outside it is a compile error at the site that raises it, and the co-located
  * test compares what is raised against what is declared.
  */
@@ -154,7 +148,7 @@ export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision 
  * The detail says what the console DID about it, because that is the part a person can
  * act on: the position is gone, the feed was re-read from the beginning of the window,
  * and nothing about the session's stream is otherwise affected. It names no cursor —
- * `core/refusal.ts`' rule is that a detail never carries the refused value.
+ * `lib/refusal.ts`' rule is that a detail never carries the refused value.
  */
 export function refuseUnresolvableResume(): TimelineResumeDecision {
   return {
@@ -198,7 +192,8 @@ export function isUnresolvableCursorRejection(rejection: unknown): boolean {
  * anything here, so a two-member interface would be a second declaration of a shape
  * `@ai-sidekicks/contracts` already owns, kept in step by hand, read for one field.
  * The block still arrives as `unknown`, because it crosses a boundary the compiler
- * does not see and this family sits below `bridge/` and narrows nothing on its own.
+ * does not see, and the store, which sits below the daemon service, narrows nothing
+ * on its own.
  *
  * `latest` is nevertheless REQUIRED to be present and a cursor: it is what makes a
  * block a block, so a record without it is not a cursor block that lost its

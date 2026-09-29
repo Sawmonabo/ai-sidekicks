@@ -12,7 +12,7 @@ describe("what the table says about each answered code", () => {
   });
 
   it("settles the four whose act cannot be retried, and leaves the one that can", () => {
-    // `settled` is what withdraws a control. A surface reading it wrongly either
+    // `settled` is what withdraws a control. A component reading it wrongly either
     // leaves a button that can only be refused again, or takes away one that works.
     expect(refusalRemedyFor("intervention.idempotency_conflict")?.settled).toBe(true);
     expect(refusalRemedyFor("approval.already_resolved")?.settled).toBe(true);

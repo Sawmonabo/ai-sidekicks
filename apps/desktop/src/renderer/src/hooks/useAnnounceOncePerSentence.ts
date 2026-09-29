@@ -2,10 +2,10 @@
 //
 // `PartialRead` renders its notices into the page and creates no live region, on
 // `LiveAnnouncerProvider`'s standing absolute. That leaves the case the absolute
-// exists to serve properly rather than to forbid: a surface whose read settles while
+// exists to serve properly rather than to forbid: a view whose read settles while
 // a person is already on it, where the notice appears in a part of the page nothing
 // draws their attention to. The answer is the console's one announcer, and this is
-// the route to it — so a family never mints its own region and never writes its own
+// the route to it — so a feature never mints its own region and never writes its own
 // "announce once" latch.
 //
 // ONCE PER SENTENCE, AND THE SENTENCE IS THE KEY. The frame's banner announcements
@@ -15,19 +15,17 @@
 // route change announces nothing, and a reading that goes back to incomplete after
 // serving is a second, real announcement.
 //
-// AND THE KEY IS THE KEY WITHIN A PASS TOO, which is the half that was missing. Two
-// readings of one surface can say the same words — two `stale` readings for one
-// subject are one sentence twice — and a pass that walked a LIST checked each of them
-// against the previous pass only, so both passed and the region was asked to say the
-// text twice. The announcer coalesces an immediate repeat and would have hidden that
-// on the pair; it does not coalesce a repeat with another sentence between it, so
-// `[stale, cut, stale]` really did speak, then speak again, then speak the first
-// sentence a third time. The pass's sentences are therefore collected as a SET rather
-// than deduplicated as the loop runs: the rule is stated once, in the value, and the
-// set held for the next pass is the same object this one announced from.
+// AND THE KEY IS THE KEY WITHIN A PASS TOO. Two readings in one view can say the same
+// words — two `stale` readings for one subject are one sentence twice — and a pass that
+// checked each sentence of a LIST against the previous pass only would let both through
+// and ask the region to say the text twice. The announcer coalesces an immediate repeat
+// but not a repeat with another sentence between it, so `[stale, cut, stale]` would
+// speak the first sentence twice. The pass's sentences are therefore collected as a SET
+// rather than deduplicated as the loop runs: the rule is stated once, in the value, and
+// the set held for the next pass is the same object this one announced from.
 //
 // POLITE, ALWAYS. `live-announcer.ts` reserves the assertive lane for refusals that
-// change what the whole room can do. An incomplete reading changes what one surface
+// change what the whole room can do. An incomplete reading changes what one view
 // is claiming about itself, and interrupting somebody mid-sentence to tell them a
 // list may be short is the wrong trade.
 //
@@ -40,15 +38,14 @@
 // rule lives once, in `useAnnounceOncePerSentence` below, and each arity is the caller
 // that composes its own sentences and hands them over.
 //
-// AND THE THIRD ARITY IS WHAT THE DEDUP KEY IS FOR. A view family had written its own
-// ref, its own comparison and its own effect for a rule this module already owned,
-// because what it counts "once" by is not the sentence: two sessions holding the same
-// number of rows say the same words, and a sentence-keyed latch would announce the
-// first settlement and go silent on the second. That is a different KEY over the same
-// memory rather than a different rule, so the key becomes a parameter and the third
-// arity — `useReadSettlementAnnouncement` below — is another caller of the one latch.
-// The two memories are separate refs because a call site is in one mode for its whole
-// life: which mode it is in is decided by the arity that called, never by the pass.
+// AND THE THIRD ARITY IS WHAT THE DEDUP KEY IS FOR. Some callers count "once" by
+// something other than the sentence: two sessions holding the same number of rows say
+// the same words, and a sentence-keyed latch would announce the first settlement and go
+// silent on the second. That is a different KEY over the same memory rather than a
+// different rule, so the key becomes a parameter and the third arity —
+// `useReadSettlementAnnouncement.ts` — is another caller of the one latch. The two
+// memories are separate refs because a call site is in one mode for its whole life:
+// which mode it is in is decided by the arity that called, never by the pass.
 
 import { useEffect, useRef } from "react";
 
@@ -70,7 +67,7 @@ export type AnnouncementDedupeKey = object | string;
  *   absent from it is forgotten and speaks again if it returns — which is what a reading
  *   that goes back to incomplete after serving must do, and what an empty pass means:
  *   nothing is incomplete any more. `undefined` leaves the memory standing, which is
- *   what a surface whose read has not settled needs — it has nothing to say and nothing
+ *   what a view whose read has not settled needs — it has nothing to say and nothing
  *   to retract, and forgetting there would make one settlement audible twice.
  * @param dedupeKey What to count "once" by instead of the sentences, for a caller whose
  *   distinct settlements can say identical words. A pass carrying a key it has not
@@ -84,7 +81,7 @@ export function useAnnounceOncePerSentence(
   dedupeKey?: AnnouncementDedupeKey,
 ): void {
   const announce = useAnnounce();
-  // What this surface said last pass. A ref rather than state, because it must not
+  // What this caller said last pass. A ref rather than state, because it must not
   // cause a render — and because what it guards is the effect's next run, which is
   // scheduled before any render it could trigger would land.
   const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
@@ -112,8 +109,8 @@ export function useAnnounceOncePerSentence(
       }
       return;
     }
-    // Collected as a SET rather than deduplicated as the loop runs: two readings of one
-    // surface can say the same words, and a pass that checked each against the PREVIOUS
+    // Collected as a SET rather than deduplicated as the loop runs: two readings in one
+    // view can say the same words, and a pass that checked each against the PREVIOUS
     // pass only let both through. The set held for the next pass is the same object this
     // one announced from.
     const spoken = new Set(sentences);

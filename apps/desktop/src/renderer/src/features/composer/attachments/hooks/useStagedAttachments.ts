@@ -10,7 +10,7 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.js";
 import { StagedAttachments, type StagedAttachmentsSnapshot } from "../staged-attachments.js";
 
-/** What a surface holding a staged list renders and acts through. */
+/** What a view holding a staged list renders and acts through. */
 export interface StagedAttachmentsBinding {
   readonly snapshot: StagedAttachmentsSnapshot;
   readonly attachFiles: (files: readonly File[]) => void;
@@ -34,7 +34,7 @@ export interface StagedAttachmentsBinding {
  * cleanup and then this effect's setup again on the SAME committed staged list, and the
  * cleanup terminally disposes the ingest client. Left in place, every file the user
  * chose afterwards would reach a client whose `attach` returns at once: the attachment
- * surface inert, with nothing on screen to say so. The seam's `isClosed`, supplied
+ * strip inert, with nothing on screen to say so. The seam's `isClosed`, supplied
  * beside `close`, replaces it, so this effect starts a staged list and does nothing else.
  */
 export function useStagedAttachments(

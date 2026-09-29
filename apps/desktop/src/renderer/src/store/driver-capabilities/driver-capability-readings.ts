@@ -5,9 +5,7 @@
 // `driver-capability-read.ts` beside the wire. That module owns one call per bridge,
 // the scheduler that refreshes it, the cache that shares it, and the two hooks that
 // wire its triggers — a subject whose cases need a bridge, a frozen clock, and a
-// mounted probe. These need a `Map`. `driver-capability-readings.test.ts` had already
-// been split off for exactly that reason and was driving symbols that still lived
-// next door; this is the other half of that split.
+// mounted probe. These need a `Map`.
 //
 // THE READOUT IS THE PARAMETER AND NEVER A DEPENDENCY. Every function here takes the
 // readout it answers about, so the direction of the import is one-way — the wire does

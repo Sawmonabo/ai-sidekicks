@@ -145,7 +145,7 @@ export class HostCommandBudget {
    * What the next command may spend, read at the moment it is asked.
    *
    * NEVER NEGATIVE, and that floor is load-bearing rather than tidy: the shared
-   * door refuses a bound at or below zero by spawning nothing, and a figure that
+   * `runBoundedHostCommand` refuses a bound at or below zero by spawning nothing, and a figure that
    * had run past zero would arrive there as an ever-larger negative number
    * meaning the same thing less legibly. Zero is the honest answer to "you have
    * no time left", and it is the answer that keeps a caller escalating rather

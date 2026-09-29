@@ -1,6 +1,6 @@
 // How every settings-page suite builds the context its page reads.
 //
-// `SettingsPageContext` is the shape every page in this family is handed, so a member added
+// `SettingsPageContext` is the shape every settings page is handed, so a member added
 // to it has to reach every harness that builds one: the builder is here, and a new member is
 // one compile error in one file.
 

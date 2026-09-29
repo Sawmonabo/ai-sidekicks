@@ -1,4 +1,5 @@
-// The store's third door: a log growing at its head, and which end a cap then cuts.
+// The store's third way in, `prependEarlierEvents`: a log growing at its head, and which
+// end a cap then cuts.
 //
 // The two are one subject. A backward page is only worth reading if the cap keeps it,
 // and the retained end is the whole of that guarantee — so every case below asserts
@@ -27,7 +28,7 @@ function openStore(options: { readonly timelineCap?: number } = {}): SessionStor
   return store;
 }
 
-describe("SessionStore.prependEarlierEvents — the head door", () => {
+describe("SessionStore.prependEarlierEvents — growing the log at its head", () => {
   it("carries the submitted read position onto the window head", () => {
     expect(openStore().snapshot().windowHeadCursor).toBe("cursor-at-18");
   });

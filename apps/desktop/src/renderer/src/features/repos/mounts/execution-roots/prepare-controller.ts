@@ -2,7 +2,7 @@
 //
 // Two calls in order, and the order is the point. `repo.worktreeReuseCheck` answers whether
 // a live checkout of the named branch already exists and whether it is clean and
-// compatible; only then does the surface know whether the prepare it is about to send needs
+// compatible; only then does the form know whether the prepare it is about to send needs
 // a consent, cannot be sent at all, or is an ordinary create.
 //
 // The check is keyed on what was typed and is re-run when it changes, which is why the
@@ -44,7 +44,7 @@ export interface PrepareSettlement {
   readonly state: string;
 }
 
-/** Both halves, published together so a surface renders one consistent frame. */
+/** Both halves, published together so a form renders one consistent frame. */
 export type PrepareReading = ActReading<ReuseVerdict, PrepareSettlement>;
 
 /** What one prepare controller is scoped to: a workspace, on a mount, in one mode. */
@@ -77,7 +77,7 @@ export class ExecutionRootPrepareController extends ActControllerBase<
       label: "execution root prepare reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      // The family's census and not a list of its own: a worktree appearing, being retired,
+      // The repos feature's census and not a list of its own: a worktree appearing, being retired,
       // or changing state is what makes a reuse verdict wrong, and two readers of one
       // answer must not disagree about when it goes stale.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),

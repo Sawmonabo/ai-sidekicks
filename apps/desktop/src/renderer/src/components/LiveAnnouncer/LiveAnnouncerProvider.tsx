@@ -1,5 +1,5 @@
 // The announcer's mount: two regions that exist for the life of the window, and
-// the context every surface reaches them through.
+// the context every component reaches them through.
 //
 // WHY THE REGIONS RENDER HERE AND NOT AT THE CALL SITE. A live region has to be in
 // the accessibility tree BEFORE the text it will speak arrives — see decision 1 in
@@ -43,7 +43,8 @@ export interface LiveAnnouncerProviderProps {
    * fast the runner happened to be rather than on the beat that advanced time, which
    * makes an accessibility assertion and a screenshot of a standing banner both
    * unrepeatable. The frame reads `useClock` and hands the answer down; this
-   * family sits below the bridge in the DAG and cannot ask for itself.
+   * component is shared code below `services/` in the import layering and cannot ask
+   * for itself.
    *
    * Ignored when `announcer` is supplied — that announcer arrived with its own.
    */

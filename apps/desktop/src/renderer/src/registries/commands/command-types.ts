@@ -1,7 +1,7 @@
-// What a family CONTRIBUTES to the palette: an act, and optionally a chord for it.
+// What a feature CONTRIBUTES to the palette: an act, and optionally a chord for it.
 //
 // Two declarations and nothing else — no store, no parser, no matcher. They live
-// together and below everything because they are the family's two INPUT types, and
+// together and below everything because they are the command registry's two INPUT types, and
 // every module here is either a consumer of them (`CommandRegistry`,
 // `KeybindingTable`) or a decision procedure over them (`command-ranking.ts`,
 // `palette/keybindings/keybinding-conflicts.ts`).
@@ -16,12 +16,12 @@
 // precisely so a cycle cannot hide inside one. Hoisting the shared symbol into a
 // module below both is what that gate's own message prescribes.
 //
-// This module imports nothing from this family, which is the property that makes
+// This module imports nothing from this folder, which is the property that makes
 // it a floor rather than one more node in the graph.
 
 /** One act the console offers. */
 export interface CommandDefinition {
-  /** Stable, unique, namespaced by owning family — `session.rename`, not `rename`. */
+  /** Stable, unique, namespaced by owning feature — `session.rename`, not `rename`. */
   readonly id: string;
   /** Sentence case, no trailing punctuation, names the act — console copy rules. */
   readonly title: string;
@@ -36,7 +36,7 @@ export interface CommandDefinition {
    *
    * A `run` MUST SETTLE. `invoke` hands its promise back and the palette drops it,
    * deliberately — the dialog must not stay open waiting on a command that opens
-   * another surface — so a `run` that rejects reaches no surface at all and becomes
+   * another view — so a `run` that rejects reaches no view at all and becomes
    * an unhandled rejection. A command that can fail catches its own failure and
    * renders it (`palette/commands/bridge-commands.ts` is the worked example).
    */
@@ -63,7 +63,7 @@ export interface CommandDefinition {
    * Why this row cannot be run right now, or absent where it can be.
    *
    * A CONTRIBUTOR'S SENTENCE AND NEVER THE PALETTE'S. The palette has no idea why an
-   * act is closed; the family that owns the act does, so the reason travels on the row
+   * act is closed; the feature that owns the act does, so the reason travels on the row
    * and is rendered verbatim beside it and again in the refusal a press earns. A row
    * that carries one still LISTS — hiding it would answer "why is this gone" with
    * silence, and the `when` clause is already the affordance for an act that does not

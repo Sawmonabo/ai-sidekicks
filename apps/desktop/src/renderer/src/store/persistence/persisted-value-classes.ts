@@ -96,9 +96,9 @@ function notIdentifier(where: string, value: string): PersistenceRefusal {
 }
 
 /**
- * The record rule, re-narrowed over the tree this family walks.
+ * The record rule, re-narrowed over the `PersistableValue` tree this module walks.
  *
- * The decision — an object, not `null`, not an array — is `core/wire-record.ts`'s and
+ * The decision — an object, not `null`, not an array — is `lib/wire-record.ts`'s and
  * is not restated here. What this adds is the narrowing, and it is load-bearing: both
  * callers below go straight on to `Object.entries` / `Object.values` and hand each
  * member back to a `PersistableValue` walk, which `Readonly<Record<string, unknown>>`
@@ -294,7 +294,7 @@ export function validatePersistedValue(
  *
  * It sits with the value type it serializes rather than in a module of its own:
  * `JSON.stringify` over a `PersistableValue` is the measurement, and a module
- * holding the ruler while the thing being measured is declared next door would be
+ * holding the ruler while the thing being measured is declared in another would be
  * two files for one fact.
  *
  * The address counts because it is stored: a cap that measured only the value
@@ -332,7 +332,7 @@ export function measureRecordByteLength(
  * through is not a chokepoint, it is a chokepoint on one field.
  *
  * A code of its own rather than a reuse of `value-not-identifier-shaped`: the
- * store counts refusals BY CODE for the diagnostics surface, and an operator
+ * store counts refusals BY CODE for the diagnostics view, and an operator
  * reading a count that named values while every one of them was an address would
  * go and audit the wrong half of every write.
  *

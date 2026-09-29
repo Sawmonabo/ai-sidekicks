@@ -75,7 +75,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("drops the elements it cannot read and keeps the ones it can", () => {
-    // A row naming nobody is worse than a shorter list: the surface renders one
+    // A row naming nobody is worse than a shorter list: the component renders one
     // figure per element, and an unreadable element would render an empty figure.
     expect(
       readRefusalExtensions({ failedBindingIds: ["binding-a", "", 7, null, "binding-b"] }),
@@ -102,8 +102,8 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
 
 describe("refusal extensions — a rebuild carries the registered set and nothing else", () => {
   it("carries a refusal's registered members through the normalizer", () => {
-    // The defect in terms: this used to answer the three core members and drop the
-    // rest, so a surface rendering the refusal could not name the failed bindings.
+    // A rebuild that answered only the three core members would drop the rest, so a
+    // component rendering the refusal could not name the failed bindings.
     const normalized = normalizeWireRejection("sessions", widenedRefusal());
 
     expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);

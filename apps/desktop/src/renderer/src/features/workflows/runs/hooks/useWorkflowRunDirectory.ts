@@ -1,4 +1,4 @@
-// The runs a session holds, as a surface can honestly know them.
+// The runs a session holds, as the runs section can honestly know them.
 //
 // `RunList` renders snapshots and reads none, so the rows reach it from a caller. This
 // hook is that caller's read: the call that enumerates the runs is its argument, and a
@@ -31,7 +31,7 @@ import { subjectReadStart, type SubjectRead } from "../../subject-read-start.js"
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 
 /**
- * What the runs surface knows about a session's runs at one moment.
+ * What the runs section knows about a session's runs at one moment.
  *
  * Three states and no others, and the two unsettled ones come from the shared shape in
  * `features/workflows/subject-read-start.ts` rather than being spelled a third time here — so

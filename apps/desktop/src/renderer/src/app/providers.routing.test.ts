@@ -1,7 +1,7 @@
 // Where the rail says the window is.
 //
 // The rail names the three destinations and highlights where the window is. The
-// destination set is the routing family's and the highlight is the rail's; only a
+// destination set is the routing folder's and the highlight is the rail's; only a
 // driven window shows them agreeing, and only a driven window shows a session
 // session screen sitting under the sessions destination rather than under an icon that is
 // not drawn.
@@ -29,7 +29,7 @@ async function clickRailDestination(mounted: RenderResult, label: string): Promi
     fireEvent.click(button);
     await crossMacrotaskBoundary();
   });
-  // The press warms the destination it navigates to, and a destination whose family
+  // The press warms the destination it navigates to, and a destination whose feature
   // registered a loader arrives a chunk later. Waited through the shared helper rather
   // than a boundary count here, for the reason that helper gives.
   await settleRegisteredBodies();
@@ -52,7 +52,7 @@ describe("AppProviders — the rail's three destinations, and where the window i
   });
 
   it("offers sessions, workflows, and settings, and nothing else", async () => {
-    // The defect: the rail shipped a Workspace destination where the surface set names
+    // The defect: the rail shipped a Workspace destination where the design's screen set names
     // Workflows, so the destination that opens the workflow builder could not be reached at
     // all and one that has no address of its own carried an icon.
     const mounted = await mountApp();
@@ -80,10 +80,10 @@ describe("AppProviders — the rail's three destinations, and where the window i
 
     expect(window.location.hash).toBe(WORKFLOWS_HASH);
     expect(currentRailDestination(mounted)).toBe("Workflows");
-    // The workflows family claims this slot, so the destination mounts its own frame
-    // rather than the reserved-slot absence. Asserted on that frame, which only the
+    // The workflows feature claims this screen, so the destination mounts its own frame
+    // rather than the reserved-screen absence. Asserted on that frame, which only the
     // workflows destination renders: the frame would happily render an absence here
-    // again if the family stopped registering, and a check for "something is on
+    // again if the feature stopped registering, and a check for "something is on
     // screen" would not notice.
     expect(mounted.container.querySelectorAll(".meridian-workflows-destination")).toHaveLength(1);
     expect(mounted.container.querySelector(".meridian-screen-notice")).toBeNull();

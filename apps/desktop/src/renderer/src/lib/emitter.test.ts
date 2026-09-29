@@ -1,7 +1,7 @@
 // The emitter, driven at the two points where the naive version is wrong.
 //
 // Anyone can write subscribe / emit / unsubscribe over a `Set` in four lines. The
-// reason this one is a module rather than four lines per family is the two
+// reason this one is a module rather than four lines in each feature is the two
 // behaviors its header calls decisions, and both are invisible until the day they
 // matter: mutating a `Set` while iterating it is DEFINED in JavaScript, so an
 // unsubscribe during emission silently skips a sink that was still subscribed; and

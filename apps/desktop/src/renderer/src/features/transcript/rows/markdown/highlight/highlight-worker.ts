@@ -27,8 +27,8 @@ import type { HighlightRequestMessage, HighlightResponseMessage } from "./highli
  * `lib.webworker.d.ts`, which those do not include. Adding the webworker lib to the
  * whole renderer would make `postMessage`, `close`, and `self` resolve to the worker
  * realm in every component that never runs in one — a far larger claim than this file
- * needs. Two members is the whole surface, so the narrow structural type is also the
- * honest one.
+ * needs. Two members are all this file uses of the worker global, so the narrow
+ * structural type is also the honest one.
  */
 interface HighlightWorkerScope {
   addEventListener(

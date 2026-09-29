@@ -135,7 +135,7 @@ describe("assets — the generated token sheet", () => {
 
   it("binds the browser's own UI to the chosen scheme on each explicit arm", () => {
     // `color-scheme` decides what Chromium paints for scrollbars, form controls,
-    // spinners and the canvas — surfaces no custom property reaches. Leaving the
+    // spinners and the canvas — parts no custom property reaches. Leaving the
     // root's `light dark` in force under an explicit choice means an operator who
     // picks light on a dark OS gets a light document inside dark scrollbars, and
     // the inverse mismatch is reachable the same way. The token guard already
@@ -219,10 +219,10 @@ describe("assets — the generated token sheet", () => {
 
   it("declares no font feature anywhere in the sheet", () => {
     // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
-    // descendant — which put the slashed zero rule 4 reserves as the mark of a wire
-    // figure onto every user name, repo path, and branch name in the console.
+    // descendant — which would put the slashed zero, reserved as the mark of a wire
+    // figure, onto every user name, repo path, and branch name in the console.
     // The features ride the mono `@font-face` descriptors in
-    // `frame/bindings/typeface.ts` instead, where they are scoped to the face by
+    // `typeface.ts` instead, where they are scoped to the face by
     // construction rather than by a selector this sheet could never narrow again:
     // CSS Fonts 4 gives the property precedence over the features `font-variant-*`
     // computes, so once it is on the root no descendant can scope the feature at all.

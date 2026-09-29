@@ -83,7 +83,7 @@ export class CapturedPng {
    * about a whole band: "this row is one color and it is this one" fails loudly on a
    * row that is half right, which a spot check at one x does not. Hex rather than a
    * tuple so a failure prints something a reader recognizes, and alpha is dropped
-   * because a capture of an opaque surface has none to report.
+   * because a capture of an opaque element has none to report.
    */
   public rowColors(row: number): readonly string[] {
     if (row < 0 || row >= this.#height) {

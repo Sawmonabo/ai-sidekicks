@@ -4,7 +4,7 @@
 // record's own id: one admitted dispatch appends exactly one record, so the token
 // identifies the request and a form finds its own settlement by it rather than by
 // whichever record is newest. The run and the control ride it so a token is legible in
-// a test failure and in a debugger; the ordinal is the surface's monotonic dispatch
+// a test failure and in a debugger; the ordinal is the dispatch hook's monotonic
 // counter, which keeps two dispatches of one control on one run distinct.
 
 import { type RunControl } from "./services/run-control-dispatch.js";

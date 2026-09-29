@@ -16,15 +16,15 @@ const CONTROL_GLYPH_SIZE = 13;
  * lie.
  *
  * The label is TEXT rather than an icon for the history controls, because the console's
- * closed glyph family carries no directional arrow and no reload mark, and inventing
+ * closed glyph set carries no directional arrow and no reload mark, and inventing
  * one at a call site is what `tokens/glyphs.ts` exists to prevent.
  *
- * It wears the family's own `meridian-preview-action` rather than a chrome-only button
- * style, so the family keeps one button shape.
+ * It wears the preview feature's own `meridian-preview-action` rather than a chrome-only
+ * button style, so the feature keeps one button shape.
  */
 export function AddressLineButton(props: {
   readonly label: string;
-  /** `| undefined` explicitly: the reload/stop slot passes one arm without a glyph. */
+  /** `| undefined` explicitly: the shared reload/stop button passes one arm without a glyph. */
   readonly glyph?: GlyphName | undefined;
   readonly disabled?: boolean;
   readonly onActivate: () => void;

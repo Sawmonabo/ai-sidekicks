@@ -4,7 +4,7 @@
 // than the store reads this. `open-session-entry.ts` decides whether a batch opened a
 // hole worth an authoritative re-pull, and it decides that by reading these counters —
 // so a shape declared inside the class that writes it would force every reader to
-// import the writer, which is how a family acquires a cycle.
+// import the writer, which is how a folder acquires an import cycle.
 //
 // COUNTS RATHER THAN A VERDICT. Every member is a number or a flag about what
 // happened, and none of them is "you should re-pull": what an outcome MEANS is the

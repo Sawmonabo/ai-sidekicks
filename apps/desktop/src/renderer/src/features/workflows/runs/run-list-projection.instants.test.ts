@@ -49,7 +49,7 @@ describe("an instant the console cannot read", () => {
         ],
       }),
     ]);
-    // Per PARK and never per row: the surface that says which kind of park this is
+    // Per PARK and never per row: the park badge, which says which kind of park this is,
     // draws one park at a time, so a row-level reading could not tell it which of
     // these two the sentence in front of the operator is about.
     expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([

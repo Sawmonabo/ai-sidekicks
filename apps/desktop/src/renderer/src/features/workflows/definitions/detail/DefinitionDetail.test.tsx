@@ -187,8 +187,8 @@ describe("the definition detail — the two acts and what each answers", () => {
   });
 
   it("says nothing about an act nobody pressed", () => {
-    // Rule 8's kinds of nothing are about reads a person is waiting on, not controls
-    // they have not touched — so an untouched act renders no row at all, and this is
+    // The absences the console tells apart describe reads a person is waiting on, not
+    // controls they have not touched — so an untouched act renders no row at all, and this is
     // the control that keeps the outcome list from narrating the console's inactivity.
     const container = renderDetail();
 

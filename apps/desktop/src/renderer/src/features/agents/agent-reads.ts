@@ -4,7 +4,7 @@
 // about a lifetime — which is the seam that separates this module from
 // `pane/agents-pane-models.ts`. That module owns how long a read lives, who holds it,
 // and what disposes it; this one owns which method answers it and what makes it ask
-// again. The two change for different reasons: a lease policy moves when a surface
+// again. The two change for different reasons: a lease policy moves when a view
 // changes how it mounts, and a refresh story moves when the wire grows a signal.
 //
 //   • **The roster is push-driven.** Its refresh signal is the session store's own

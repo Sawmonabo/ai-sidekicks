@@ -18,7 +18,7 @@ function overlayElement(): Element {
 }
 
 describe("AirspaceRegistry", () => {
-  it("closes the overlay kinds at the seven 12.3 enumerates", () => {
+  it("closes the overlay kinds at seven", () => {
     expect([...AIRSPACE_OVERLAY_KINDS]).toStrictEqual([
       "dialog",
       "popover",

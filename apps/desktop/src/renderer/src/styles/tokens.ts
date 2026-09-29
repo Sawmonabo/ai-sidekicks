@@ -3,7 +3,7 @@
 // `palette.ts` authors the values; this module resolves them (gamut fit, then rounding
 // to the precision the CSS carries) and names them. Two consumers: `generate-css.ts`,
 // which emits `meridian.css` from exactly these records, and `contrast.test.ts`, which
-// measures exactly these records against the WCAG 2.2 AA floors design-language rule 3
+// measures exactly these records against the WCAG 2.2 AA floors the design language
 // states. Because both read the same resolved values, a token that passes the contrast
 // test is the token the browser paints — there is no second table to drift.
 //
@@ -123,10 +123,10 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
 }
 
 /**
- * Every scheme-varying color token, resolved, as ENTRIES. Order is surfaces, then
- * text, then attention, then the two family vocabularies — the order `meridian.css`
+ * Every scheme-varying color token, resolved, as ENTRIES. Order is grounds, then
+ * text, then attention, then the code and terminal vocabularies — the order `meridian.css`
  * emits, so the generated file reads top-down from ground to signal and finishes with
- * the sets a single family spends.
+ * the sets only code blocks and command output spend.
  *
  * DATA AND NOT A `Map`, which is the state-and-views rule in `apps/desktop/AGENTS.md`
  * and is enforced as syntax in `eslint.console-syntax-bans.mjs`: an exported `Map` is
@@ -234,7 +234,7 @@ export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
  *
  * Its own list on `TINTED_GROUND_PAIRS`' shape rather than a third entry in that
  * one, because the two describe different things and the difference is what
- * decides the value: a tinted ground is a wash a surface can also carry other text
+ * decides the value: a tinted ground is a wash a banner can also carry other text
  * on, while an accent fill is a control's face and admits exactly one ink. Folding
  * them together would put `accent-ink` in a list named for grounds and invite the
  * next reader to paint it on `amber-ground`.
@@ -266,14 +266,12 @@ export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [
 export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
 
 /**
- * The foregrounds painted on that well — the code families and the ANSI names that
+ * The foregrounds painted on that well — the code-token kinds and the ANSI names that
  * carry a color of their own.
  *
- * DERIVED from the two palette records rather than listed, so a family added there
- * is measured here on the same commit. That is the whole point of the move: these
- * were `oklch()` literals in a stylesheet, held to no floor and fitted into no
- * gamut, and a hand-written census would have reproduced exactly that gap one
- * family later.
+ * DERIVED from the two palette records rather than listed, so a token added there
+ * is measured here on the same commit. A hand-written list would leave the next
+ * token held to no floor and fitted into no gamut.
  */
 export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [
   ...Object.keys(CODE_TOKENS),

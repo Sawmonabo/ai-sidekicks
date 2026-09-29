@@ -2,7 +2,7 @@
 // and the control. Three pages need it, so it is written once and each page supplies text.
 //
 // THE CONTROL IS `@base-ui/react`'s SWITCH, not a bare checkbox and not our own.
-// That package is the console's one adopted widget family; it renders a `<span>` plus
+// That package is the console's one adopted widget library; it renders a `<span>` plus
 // a hidden `<input>`, so the row associates a
 // real `<label>` with the input's id and the switch is reachable by keyboard,
 // labeled, and focus-visible without this file re-deriving any of it.

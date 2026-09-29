@@ -1,4 +1,4 @@
-// One diff's view state, driven through the hook's own door.
+// One diff's view state, driven through the hook itself.
 //
 // WHY THE HOOK AND NOT THE PANE. `DiffPane.test.tsx` already holds what a person
 // sees — a selection the new change set does not contain drops instead of narrowing

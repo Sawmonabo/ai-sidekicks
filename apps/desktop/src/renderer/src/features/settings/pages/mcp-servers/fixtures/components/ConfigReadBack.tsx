@@ -7,7 +7,7 @@ import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
  * One binding's configuration, exactly as the daemon serves it back.
  *
  * THE READ-BACK IS THE REDACTED VIEW AND NOTHING ELSE. Configuration content splits
- * three ways on this surface: input a person types, whose credential-bearing values
+ * three ways on this page: input a person types, whose credential-bearing values
  * are write-only in the renderer; the read-back, which is precisely this; and values
  * the daemon does not serve at all, which are rendered nowhere. This component is the
  * middle one, and it can only be the middle one — the wire carries `envVarNames`,
@@ -28,7 +28,7 @@ import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
  * arguments a binding declared told an operator that two bindings were identical when
  * one of them could write. They are strings the daemon already serves in the redacted
  * view — the same view the command itself arrives on — so rendering them withholds
- * nothing that was ever withheld, and the governing surface requires the command and
+ * nothing that was ever withheld, and the design for this page requires the command and
  * its arguments to stay inspectable.
  *
  * The three groups render through camelCase helpers rather than second components, on

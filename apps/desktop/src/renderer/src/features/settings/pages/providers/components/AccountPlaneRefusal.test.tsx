@@ -25,7 +25,7 @@ function renderRefusal(
   return { container, openPage };
 }
 
-describe("an account-plane refusal on a console surface", () => {
+describe("an account-plane refusal on a console screen", () => {
   it("renders the daemon's code and sentence before anything it adds", () => {
     const { container } = renderRefusal("provideraccount.not_registered");
     const text = container.textContent ?? "";

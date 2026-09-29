@@ -19,7 +19,7 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 
-const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";
+const RENDER_FAILURE_MESSAGE = "the transcript could not render this row";
 
 /** A region that fails the way a real one does: during its own render. */
 function ExplodingRegion(): React.JSX.Element {
@@ -27,7 +27,7 @@ function ExplodingRegion(): React.JSX.Element {
 }
 
 function CalmRegion(): React.JSX.Element {
-  return <p>the timeline rendered</p>;
+  return <p>the transcript rendered</p>;
 }
 
 describe("ErrorBoundary — a render crash is recorded as a render crash", () => {
@@ -56,12 +56,12 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
     const applyBypassBefore = windowTripwires.firingCount("apply-chokepoint-bypass");
 
     render(
-      <ErrorBoundary regionName="The timeline">
+      <ErrorBoundary regionName="The transcript">
         <ExplodingRegion />
       </ErrorBoundary>,
     );
 
-    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(1);
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(applyBypassBefore);
   });
 
@@ -73,7 +73,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
     );
 
     const report = windowTripwires.reports().at(-1);
-    expect(report?.kind).toBe("surface-render-failure");
+    expect(report?.kind).toBe("region-render-failure");
     expect(report?.site).toBe("ErrorBoundary(The inspector)");
     expect(report?.detail).toContain(RENDER_FAILURE_MESSAGE);
   });
@@ -82,7 +82,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
     // Without this, a boundary that reported on every mount would satisfy both
     // cases above and still be wrong.
     render(
-      <ErrorBoundary regionName="The timeline">
+      <ErrorBoundary regionName="The transcript">
         <CalmRegion />
       </ErrorBoundary>,
     );

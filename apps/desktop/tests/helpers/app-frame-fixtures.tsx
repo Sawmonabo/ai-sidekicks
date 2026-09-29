@@ -2,7 +2,7 @@
 //
 // One home for the two roles each of them plays: the props `AppFrame` requires that
 // no case is making a claim about, and the bridge host the frame resolves its clock
-// from. It holds nothing a single suite uses — the exploding surface, the failure
+// from. It holds nothing a single suite uses — the exploding screen, the failure
 // card's addressing, the banner, and the live regions each have one reader and stay
 // beside it.
 import { createStubBridge } from "@shared/preload-api.js";

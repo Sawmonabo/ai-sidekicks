@@ -1,6 +1,6 @@
 // Binding a workspace on one mount: the pre-bind read, the act, and what each publishes.
 //
-// Two calls and one surface: the form cannot offer a mode until the mount-scoped
+// Two calls and one dialog: the form cannot offer a mode until the mount-scoped
 // capabilities read has answered, and the two are asked and published separately.
 //
 // The read is made when the dialog opens and not when the card mounts. A session with six
@@ -8,7 +8,7 @@
 // anything.
 //
 // What a mount admits changes when the mount does, which is why the frames this reading
-// re-asks on are this family's own census rather than a list written in this module.
+// re-asks on are the repos feature's own census rather than a list written in this module.
 //
 // A bind answers with the mode it bound and the workspace's lifecycle state, and no root:
 // the workspace list is where a root is read from once it exists.
@@ -17,7 +17,7 @@
 // to; the controller is scoped to that session's store.
 //
 // Everything else is the store's act controller: the scheduler, the triggers, the act arms,
-// the single-flight guard, the disposed latch, and the members a surface reads them by.
+// the single-flight guard, the disposed latch, and the members a dialog reads them by.
 
 import type {
   ExecutionMode,
@@ -39,7 +39,7 @@ export interface BindSettlement {
   readonly response: WorkspaceBindResponse;
 }
 
-/** Both halves, published together so a surface renders one consistent frame. */
+/** Both halves, published together so a dialog renders one consistent frame. */
 export type BindReading = ActReading<
   WorkspaceExecutionModeCapabilitiesReadResponse,
   BindSettlement
@@ -81,7 +81,7 @@ export class BindWorkspaceController extends ActControllerBase<
       label: "workspace bind reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      // The frames that change what a mount admits. This family's own census.
+      // The frames that change what a mount admits. The repos feature's own census.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
     });
     this.#operations = options.operations;

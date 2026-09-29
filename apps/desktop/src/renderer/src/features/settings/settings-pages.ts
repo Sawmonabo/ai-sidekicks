@@ -47,16 +47,16 @@ export interface SettingsPageDescriptor {
  * One entry of the page table, in one of exactly two forms.
  *
  * THE PANE LAYOUT'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalized by the same `LoaderBackedBody`. `seats/pane/pane-registry.ts`
+ * product fact and normalized by the same `LoaderBackedBody`. `registries/panes/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
  * inside it is a second act after that.
  *
  * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
- * agent definitions page's body is the AGENTS family's, and that family's door is imported
+ * agent definitions page's body is the agents feature's, and that feature's public entry is imported
  * EAGERLY by `app/registrations.ts` for the Agents pane's pane registration. So
  * while this registry took only a `render`, the registration site had to reach the page
- * through that door, and the bundler — which assigns a module reachable both statically
+ * through that entry, and the bundler — which assigns a module reachable both statically
  * and dynamically to the static chunk — put the page and its stylesheet on the initial
  * graph of every launch, including every launch that never opens settings. A loader here
  * is what lets the registration name a chunk root instead of a component.
@@ -102,7 +102,7 @@ export class SettingsPageRegistry {
   /**
    * The loader-backed pages, so {@link preload} has something to resolve.
    *
-   * A second table rather than a member on the descriptor, for the two `seats/` boards'
+   * A second table rather than a member on the descriptor, for the pane and screen registries'
    * reason: the descriptor is what every mount site reads and none of them has business
    * knowing whether the page it is about to render arrived as a chunk.
    */
@@ -156,13 +156,13 @@ export class SettingsPageRegistry {
   /**
    * Start this section's body loading, without opening it.
    *
-   * The two `seats/` boards' `preload`: idempotent by construction, because the promise
+   * The pane and screen registries' `preload`: idempotent by construction, because the promise
    * is memoized on the registration, and a component-form or unregistered section settles
    * immediately with nothing to do — so a caller never has to ask first whether a section
    * is loader-backed.
    *
    * ONE PRODUCTION CALLER: the mount's idle walk, which covers the board after the first
-   * frame. A load that fails is reported where the page mounts, inside the surface error
+   * frame. A load that fails is reported where the page mounts, inside the screen's error
    * boundary, where somebody is waiting for it; the walk drops its own rejection because
    * nobody is.
    */
@@ -207,10 +207,10 @@ export class SettingsPageRegistry {
   }
 }
 
-// There is deliberately NO module-scope page registry here. The surface is handed
+// There is deliberately NO module-scope page registry here. The settings screen is handed
 // the one its registrar composed, for `registerFeatureContributions`' reason one level
 // down: a singleton would make the pane's contents depend on a side effect of the
-// slot registration, so a test rendering the surface directly would get an empty
+// screen registration, so a test rendering the screen directly would get an empty
 // pane and a second settings window could not compose a different subset.
 
 /**

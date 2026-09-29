@@ -10,8 +10,8 @@
 // "no timer fires" claim can be CHECKED rather than asserted, and a test on real
 // timers could not make it.
 //
-// `ApplyQueue`, the read plane's other scheduler, is driven by `apply-queue.test.ts`
-// next door.
+// `ApplyQueue`, the read plane's other scheduler, is driven by
+// `store/session/apply-queue.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

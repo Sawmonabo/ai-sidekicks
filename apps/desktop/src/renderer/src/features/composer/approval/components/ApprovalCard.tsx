@@ -21,7 +21,7 @@
 //
 // The action row is a `toolbar` walked with arrows and with `h`/`l`, and both suppress
 // the page scroll they would otherwise cause. Base UI supplies the disclosure under
-// Meridian tokens — `@base-ui/react` is the one adopted widget family and ships zero
+// Meridian tokens — `@base-ui/react` is the one adopted widget library and ships zero
 // CSS; the row itself is two ordinary buttons, because a library button would add
 // weight without adding behavior a `<button>` does not already have.
 
@@ -66,7 +66,7 @@ export interface ApprovalCardProps {
   /**
    * Extra body between the header and the action row — where a permission-kind
    * `driver_ask` lands: a permission-kind ask normalizes into the approval model and
-   * belongs to this view rather than to the run timeline.
+   * belongs to this view rather than to the transcript.
    */
   readonly children?: React.ReactNode;
 }
@@ -75,8 +75,8 @@ export interface ApprovalCardProps {
 const ACTION_ORDER = ["approve", "reject"] as const;
 
 /**
- * The one member of {@link ACTION_ORDER} that carries the accent, per rule 1's one
- * primary action per surface. Named here rather than compared inline so the row
+ * The one member of {@link ACTION_ORDER} that carries the accent, because a card
+ * carries one filled primary action and no more. Named here rather than compared inline so the row
  * cannot grow a second filled control without this line moving.
  */
 const PRIMARY_ACTION: (typeof ACTION_ORDER)[number] = "approve";

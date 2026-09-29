@@ -38,7 +38,7 @@ export function usePaneRectSources(
     // the four and left a pane's rect answering from a measurement nothing refreshed.
     const releaseHostSizeSource = observeElementResize(element, () => {
       // A READ, queued. Mutating layout from inside this callback re-enters the
-      // observer, which is the loop this module's rule 1 forbids.
+      // observer, which is the loop the tracker's reads-in-the-callback rule forbids.
       tracker.invalidate("host-resize");
     });
 

@@ -7,15 +7,15 @@
 // waits for an idle callback on top of it.
 //
 // THE WALK IS THE MOUNT'S, NOT THE WINDOW'S, and that is the whole difference from
-// `frame/bindings/lazy-body-warm-binding.ts`. The two boards in `seats/` are the window's and are
+// `app/hooks/useLazyBodyIdleWarm.ts`. The pane and screen registries are the window's and are
 // composed once for it; the page board is composed per settings mount, so its walk is
-// built here, canceled when this surface unmounts, and never outlives the registry it
+// built here, canceled when this settings screen unmounts, and never outlives the registry it
 // reads. A second settings window warms its own board and inherits nothing.
 //
 // AND IT IS NOT THAT BINDING REUSED, for two reasons that both stand alone. The console
-// DAG forbids the edge — a view family may not import `frame/`, and the remedy that rule
+// import direction forbids the edge — a feature may not import `frame/`, and the remedy that rule
 // names is the hoist, which has already happened: `LazyBodyIdleWarm` and
-// `idleWarmScheduler` live in `seats/` precisely so more than one composition site can
+// `idleWarmScheduler` live in `components/LazyBody/` precisely so more than one composition site can
 // arm the same walk. And that hook binds exactly two window-scoped boards under one
 // cleanup, which is a different lifetime rather than a different spelling of this one.
 //
@@ -36,7 +36,7 @@ import { type SettingsPageRegistry } from "../settings-pages.js";
 /**
  * Warm this mount's loader-backed settings pages once, after its first frame.
  *
- * Takes the board the surface renders rather than reaching for a module-scope one, on the
+ * Takes the board the settings screen renders rather than reaching for a module-scope one, on the
  * composition site's own rule: there is no process-wide page registry, and a window handed
  * a board of its own must warm that one.
  *
@@ -57,7 +57,7 @@ export function useSettingsPageIdleWarm(
     // permanently cancelable, and `StrictMode` replays every effect — so a walk held in
     // state would be started by the first setup, canceled by the synthetic cleanup, and
     // found already-started-and-canceled by the replay, leaving the board cold for the
-    // life of the surface with nothing failing and nothing logged.
+    // life of the screen with nothing failing and nothing logged.
     const walk = new LazyBodyIdleWarm(pages, warmScheduler);
     walk.start();
     return () => {

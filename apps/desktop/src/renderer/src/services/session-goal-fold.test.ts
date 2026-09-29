@@ -120,7 +120,7 @@ describe("the fold is ordered by origin and not by arrival", () => {
     });
   });
 
-  it("folds a payload carrying no origin keys through the envelope-ordered slot", () => {
+  it("folds a payload carrying no origin keys by its envelope", () => {
     // An event appended before the keys existed cannot join an origin's register.
     // It still competes, on the envelope, rather than being dropped or ranked on
     // where it happened to land here.
@@ -141,8 +141,8 @@ describe("the fold is ordered by origin and not by arrival", () => {
   });
 
   it("refuses to read a malformed origin key as an order", () => {
-    // A string sequence and an empty node id are not orders. Both events fall to
-    // the envelope-ordered slot, so the newer instant wins rather than whichever
+    // A string sequence and an empty node id are not orders. Both events fall back
+    // to the envelope ranking, so the newer instant wins rather than whichever
     // hand-shaped read happened to compare larger.
     const goal = foldSessionGoal([
       event(

@@ -8,7 +8,7 @@
 // the Keyboard page draws, and what the store is built over.
 //
 // The record key is declared here rather than beside `SCHEME_PREFERENCE_KEY` because
-// this record has exactly one addresser — the store next door — and every other reader
+// this record has exactly one addresser — the store beside this module — and every other reader
 // goes through it. The scheme's key is shared because a second reader, the end-to-end
 // tier opening its own connection, addresses that record directly.
 
@@ -57,7 +57,7 @@ export interface KeybindingSnapshot {
    * The shipped table these overrides were composed ONTO, as it was read.
    *
    * Beside the effective one rather than instead of it, because the two answer
-   * different questions and a surface asking "which rows did this person change" needs
+   * different questions and a page asking "which rows did this person change" needs
    * the one the changes are not in. Reading it off this snapshot is what keeps that
    * answer in step with the table the frame is installing — where a page reading the
    * base's own module would be a second reading the moment the base stops being one
@@ -74,14 +74,14 @@ export interface KeybindingOverrideStoreOptions {
   /**
    * Reads the chords the console ships. Overrides are composed onto what it answers.
    *
-   * A reader rather than the table, so a base that grows as families contribute is
+   * A reader rather than the table, so a base that grows as features contribute is
    * read at composition time instead of captured at construction.
    */
   readonly defaults: () => readonly Keybinding[];
   /**
    * Signals that the shipped table has moved, where it can. Absent means it cannot.
    *
-   * The store re-composes and publishes on the signal, so every reader of the surface
+   * The store re-composes and publishes on the signal, so every reader of the snapshot
    * re-renders exactly as it does for a rebinding. A base that never moves supplies
    * nothing, and the reader above is then called once per composition and no oftener.
    */

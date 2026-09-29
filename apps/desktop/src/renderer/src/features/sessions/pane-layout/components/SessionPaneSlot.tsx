@@ -7,8 +7,8 @@
 // kind. Neither half reads the other's state, which is why the cut is here and not
 // at a line count.
 //
-// Nothing here leaves the family: both symbols are reached only from `SessionPaneLayout.tsx`,
-// so the session screen door carries neither.
+// Nothing here leaves the pane layout: both symbols are reached only from
+// `SessionPaneLayout.tsx`, so the sessions feature's public entry exports neither.
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
@@ -38,7 +38,7 @@ export interface SessionPaneSlotProps {
    *
    * A pane's kind and its entity reference come off a restored snapshot or a route,
    * so the pair is not known to be an address any body admits until it is parsed. The
-   * refusal arm is what a slot draws instead of a body — never a throw, which would
+   * refusal arm is what a pane slot draws instead of a body — never a throw, which would
    * take the whole pane layout down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
@@ -53,7 +53,7 @@ export interface SessionPaneSlotProps {
 }
 
 /**
- * One pane's frame, and the body resolved through the pane layout's single mount door.
+ * One pane's frame, and the body the pane registry resolves for it.
  *
  * Memoized on purpose: the console's frame budgets are written against a four-lane
  * streaming session, and an unmemoized map re-renders four pane bodies for every

@@ -1,4 +1,4 @@
-// One offer reading, two surfaces: the card's answers and the pane's palette rows.
+// One offer reading behind both the card's answers and the pane's palette rows.
 //
 // A refusal the shared remedy table marks `settled` means the request was answered
 // somewhere else, so every further press earns the same refusal and the next

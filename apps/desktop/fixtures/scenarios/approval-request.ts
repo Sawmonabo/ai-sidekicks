@@ -2,14 +2,14 @@
 // raised by one agent in one run of the user's session.
 //
 // The three waiting are a destructive git command, a file write, and a provider
-// permission ask. Several requests rather than one, so a surface that shows the waiting
+// permission ask. Several requests rather than one, so a view that shows the waiting
 // ones has more than one card to be a barrier across, and one already approved to show
 // it does not count a settled request as waiting.
 //
-// The approval beats carry the REGISTERED payload — the approval-flow family shapes it
+// The approval beats carry the REGISTERED payload — the approval-flow event kinds shape it
 // `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
 // resourceDescriptor?, expiryAt?, approver?, effectiveScope?, …}` — because a
-// payload a surface does not read is still a payload a daemon emits, and a beat
+// payload no view reads is still a payload a daemon emits, and a beat
 // carrying a thinner one would be teaching the wire a shape it does not have.
 //
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
@@ -67,12 +67,12 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
   label: "A decision waiting",
   purpose:
     "Three requests waiting, one of them a provider permission ask, beside one that is " +
-    "already approved, so a surface that lists the waiting ones can be held to leaving the " +
+    "already approved, so a view that lists the waiting ones can be held to leaving the " +
     "approved one out.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // The person the pending cards are addressed to. Stated rather than inferred:
-  // an approvals surface that guessed its caller would render an approve control for
+  // an approvals view that guessed its caller would render an approve control for
   // whoever happens to be first in the join log.
   callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T13:30:00.000Z",

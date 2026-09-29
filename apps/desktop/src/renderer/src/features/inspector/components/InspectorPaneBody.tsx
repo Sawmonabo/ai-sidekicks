@@ -13,7 +13,7 @@ import { InspectedEntity } from "../entity-detail/components/InspectedEntity.js"
  * called conditionally.
  *
  * `linkedSourcePaneId` comes straight off the pane context, which is where the pane layout
- * puts it: a pane opened from another carries the source pane's id on its seat, and
+ * puts it: a pane opened from another carries the source pane's id on its context, and
  * an unlinked one carries `undefined` there deliberately rather than by omission. So
  * the record claims a link exactly when the pane layout made one, and the pane invents
  * neither the presence nor the absence.
@@ -22,8 +22,8 @@ export function InspectorPaneBody(props: {
   readonly context: PaneContextOf<"inspector">;
 }): React.JSX.Element {
   const { context } = props;
-  // There is no arm for a missing entity, and that is the seat's doing rather than an
-  // omission: `seats/pane/pane-address.ts` makes the inspector's address REQUIRE one, so an
+  // There is no arm for a missing entity, and that is the pane address's doing rather than an
+  // omission: `routing/panes/pane-address.ts` makes the inspector's address REQUIRE one, so an
   // address with none is refused as `pane-entity-required` at the two untyped
   // boundaries — a restored layout row and a typed route — and never reaches a body.
   if (context.sessionStore === undefined) {

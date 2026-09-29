@@ -98,7 +98,7 @@ export function choiceOptionsFor(field: SchemaFieldDescriptor): readonly SchemaC
 /**
  * The whole answer, as the path that addresses it.
  *
- * Named rather than written as an empty literal at the one surface that asks for it,
+ * Named rather than written as an empty literal at the one caller that asks for it,
  * because `[]` at a call site reads as "no path yet" and this is the opposite — it is the
  * member a root constraint's finding is about. The validator spells it the same way
  * (`SchemaValidationIssue.memberPath` is empty for an issue about the whole answer), so
@@ -123,11 +123,12 @@ export const ROOT_MEMBER_PATH: SchemaMemberPath = [];
  *
  * EXACTLY THAT MEMBER, AND NEVER THE SUBTREE UNDER IT. `isSameMemberPath` compares the
  * lengths before the segments, so `["scope"]` matches a finding about the group and not
- * one about `["scope", "note"]` inside it — which is what lets every surface ask about
+ * one about `["scope", "note"]` inside it — which is what lets every control ask about
  * its own member and lets the form root ask about `ROOT_MEMBER_PATH` and receive only
  * what the schema said about the whole answer. A prefix reading would draw every finding
  * on the form a second time at the root, and a group's fieldset would repeat each of its
- * children's; the surfaces below rely on this rule rather than filtering afterwards.
+ * children's; the components that draw findings rely on this rule rather than filtering
+ * afterwards.
  */
 export function issuesForMember(
   report: SchemaValidationReport | undefined,
@@ -147,8 +148,8 @@ export function issuesForMember(
  * had a complaint about and rendered the complaint nowhere.
  *
  * The position is appended AS A NUMBER, which is what the reader reports and what keeps
- * this lookup off a property whose name is the digit. Composed here rather than at the
- * surface, and by appending to the same reader above, so one member path has one lookup.
+ * this lookup off a property whose name is the digit. Composed here rather than in the
+ * component, and by appending to the same reader above, so one member path has one lookup.
  */
 export function issuesForListEntry(
   report: SchemaValidationReport | undefined,

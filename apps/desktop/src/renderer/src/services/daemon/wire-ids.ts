@@ -10,7 +10,7 @@
 // CALLBACK rather than for a request is the one case this module deliberately does
 // not serve, because nothing checks it.
 //
-// WHY IT SITS BESIDE THE CALL DOOR AND NOWHERE ELSE. `callDaemon` parses the whole
+// WHY IT SITS BESIDE `callDaemon` AND NOWHERE ELSE. `callDaemon` parses the whole
 // request through the contracts schema before anything is sent, and that schema is
 // what OWNS the brand. So a widening performed for a call is checked rather than
 // merely asserted: a string that is not a well-formed id is refused as

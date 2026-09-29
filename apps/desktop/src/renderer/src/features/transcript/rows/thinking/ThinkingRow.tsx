@@ -3,7 +3,7 @@
 // A mount may supply `body` to replace it. `reasoning-reading.ts` carries the reading this
 // component renders.
 //
-// WHAT IT RENDERS, and why it is a real surface rather than a placeholder. Three of the
+// WHAT IT RENDERS, and why it is a real view rather than a placeholder. Three of the
 // four availability arms carry no entries at all, which means the whole of what a reader
 // sees for them is the sentence the state itself supplies. Showing nothing for those three
 // would be the exact defect the four-arm discriminant exists to prevent — `unavailable`,
@@ -11,7 +11,7 @@
 //
 // THE TAIL AND THE READ ARE TWO DIFFERENT THINGS AND ARE NOT RANKED AGAINST EACH
 // OTHER. The tail is text the reveal engine is publishing right now, cut to the
-// newest lines; the read is what the daemon says the durable surface holds. A turn
+// newest lines; the read is what the daemon says the durable reasoning holds. A turn
 // that is still streaming has a tail and no read, a settled turn has a read and no
 // tail, and a turn that streams while a reader expands it has both — so both render,
 // in that order, rather than one hiding the other. Ranking them would mean a reader
@@ -46,10 +46,10 @@ export interface ThinkingRowBodyProps {
   readonly reading: ReasoningReading;
 }
 
-/** What a mount hands the reasoning surface. */
+/** What a mount hands the reasoning row. */
 export interface ThinkingRowProps {
   /**
-   * A body that replaces the built-in surface, or `undefined` while the surface draws itself.
+   * A body that replaces the built-in view, or `undefined` while the row draws itself.
    *
    * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
    * compile error at the construction site rather than an absent key that renders
@@ -61,11 +61,11 @@ export interface ThinkingRowProps {
   /** Text the reveal engine is publishing for this row right now, while it streams. */
   readonly liveText: string | undefined;
   readonly reading: ReasoningReading;
-  /** Ask the daemon for this run's reasoning surface. */
+  /** Ask the daemon for this run's reasoning. */
   readonly onExpand: () => void;
 }
 
-/** The reasoning body: the built-in surface, or the supplied `body` when the run is known. */
+/** The reasoning body: the built-in view, or the supplied `body` when the run is known. */
 export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
   if (props.body !== undefined && props.runId !== undefined) {
     return (
@@ -89,7 +89,7 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
  * `aria-live` is deliberately absent. The lines change many times a second while a
  * turn streams, and a live region here would read a reasoning trace aloud over
  * whatever a person was doing; the settlement is what gets announced, by the
- * surfaces that own announcements.
+ * views that own announcements.
  */
 function renderReasoningTail(liveText: string | undefined): React.ReactNode {
   if (liveText === undefined) {
@@ -185,17 +185,17 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
 }
 
 /**
- * The one offer this surface makes.
+ * The one offer this row makes.
  *
  * Absent where the read cannot address the row, and absent once the read has
  * ANSWERED: a second press would re-ask a question that has an answer on screen, and
- * this surface holds no continuation cursor to spend on the bounded page's tail.
+ * this row holds no continuation cursor to spend on the bounded page's tail.
  *
- * A REFUSAL IS NOT AN ANSWER, so the control survives one. Rule 9 is explicit that "a
- * refusal never hides the control that produced it", and this surface was hiding
- * exactly that: a read refused by a transport that was down for a moment left the
- * refusal on screen with no way to ask again, and the only route back was to scroll
- * the row out of the mounted range and let the virtualizer discard the state. The
+ * A REFUSAL IS NOT AN ANSWER, so the control survives one: a refusal never hides the
+ * control that produced it. Hiding it would leave a read refused by a transport that
+ * was down for a moment on screen with no way to ask again, and the only route back
+ * would be to scroll the row out of the mounted range and let the virtualizer discard
+ * the state. The
  * label says which of the two presses this is, because "Show reasoning" over a
  * refusal already on screen reads as an offer that was never taken.
  */

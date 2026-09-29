@@ -1,10 +1,10 @@
-// The window's chrome, wrapped in the announcer that outlives every surface in it.
+// The window's chrome, wrapped in the announcer that outlives every view in it.
 //
 // THE WINDOW'S ONE LIVE ANNOUNCER IS MOUNTED HERE. `LiveAnnouncerProvider` renders
 // its two regions above the frame root, so they are outside the `inert` wrapper
 // `FrameChrome.tsx` hangs on its background and keep speaking while a dialog is
 // open — which is when a refusal is most likely to be raised. And the frame is the
-// widest thing that exists once per window: an announcer per surface would be N
+// widest thing that exists once per window: an announcer per view would be N
 // regions competing to be the one a reader hears, which is the defect the primitive
 // exists to make unrepresentable. The frame is also its first consumer — see
 // `hooks/useRefusalBannerAnnouncements.ts`.
@@ -12,13 +12,14 @@
 // AND IT RUNS ON THE WINDOW'S CLOCK, not on the wall clock. The announcer arms one
 // timeout — the hold before a standing message is cleared and the next one is spoken —
 // and that is a timer like any other, so the rule that the fixture clock is the only
-// clock the renderer reads in fixture mode binds it. Left on `RealClock` it was the one
+// clock the renderer reads in fixture mode binds it. On `RealClock` it would be the one
 // subsystem in a fixture window still reading wall time: a refusal raised by a scenario
-// beat cleared on how fast the runner happened to be, so what a reader hears and what a
-// screenshot captures both depended on the host. `useClock` is the same answer
-// `app/hooks/useUiStateStore.ts` and `app/hooks/useSessionStoreRegistry.ts` ask
-// for, and the frame is where it is asked because `primitives/` sits below `bridge/` in
-// the family DAG and cannot ask for itself.
+// beat would clear on how fast the runner happened to be, so what a reader hears and
+// what a screenshot captures would both depend on the host. `useClock` is the same
+// answer `app/hooks/useUiStateStore.ts` and `app/hooks/useSessionStoreRegistry.ts` ask
+// for, and the frame is where it is asked because the announcer lives in
+// `components/`, which sits below `services/` in the import layering and cannot ask
+// for itself.
 //
 // THE CHROME ITSELF IS `FrameChrome.tsx`, and the split is not only the
 // one-component rule: the banner announcement hook has to run BELOW this provider —
@@ -39,7 +40,7 @@ import "./app-frame.css";
  */
 export type AppFrameProps = FrameChromeProps;
 
-/** The window's chrome, wrapped in the announcer that outlives every surface in it. */
+/** The window's chrome, wrapped in the announcer that outlives every view in it. */
 export function AppFrame(props: AppFrameProps): React.JSX.Element {
   const announcerClock = useClock();
   return (

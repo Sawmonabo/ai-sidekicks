@@ -9,7 +9,7 @@
 // rather than inside the first press's own tick, which is the harder claim and the one
 // a person makes.
 //
-// AND THE SLOT HAS TO COME BACK ON EVERY WAY THE START CAN END. A key released only on
+// AND THE KEY HAS TO COME BACK ON EVERY WAY THE START CAN END. A key released only on
 // the answered arm leaves the control dead for the life of the window the first time
 // the call rejects.
 
@@ -48,9 +48,9 @@ describe("useDaemonStartAction", () => {
     await firstPress;
   });
 
-  it("gives the slot back once the start has answered", async () => {
+  it("gives the key back once the start has answered", async () => {
     // The positive control for the release: without it the case above is satisfied by
-    // an action that takes the slot once and never returns it, which is a control that
+    // an action that takes the key once and never returns it, which is a control that
     // works exactly one time per window.
     const starts: string[] = [];
     const start = recordingStart(starts, () => Promise.resolve());
@@ -62,7 +62,7 @@ describe("useDaemonStartAction", () => {
     expect(starts).toStrictEqual(["daemonStart", "daemonStart"]);
   });
 
-  it("gives the slot back when the start REJECTS, and hands over the rejection", async () => {
+  it("gives the key back when the start REJECTS, and hands over the rejection", async () => {
     // A rejected start ended the act as surely as an answered one, and leaving the key
     // held would kill the one control a stopped runtime has left.
     const starts: string[] = [];

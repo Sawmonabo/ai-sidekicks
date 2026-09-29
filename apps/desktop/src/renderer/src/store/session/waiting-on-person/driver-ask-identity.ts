@@ -1,17 +1,17 @@
 // What identifies one provider ask, and why its `askId` alone does not.
 //
 // A provider mints its ask ids per provider SESSION, so two runs blocked at once
-// legitimately raise `ask-1` each. Every surface that files a driver ask under that id
-// alone therefore lets one run's answer settle the other's, and the two shipped
-// surfaces fail in the two directions one defect has: the transcript's ask card reads as
+// legitimately raise `ask-1` each. Every view that files a driver ask under that id
+// alone therefore lets one run's answer settle the other's, and the two views that
+// read asks fail in the two directions one defect has: the transcript's ask card reads as
 // answered and loses its answer controls while its own run stays blocked, and the cast
 // bar's fold deletes the only entry it had and prints its all-clear line over a run
 // nobody can reach. This module is the one place the identity is composed, so those
-// two surfaces cannot disagree about what "the same ask" is.
+// two views cannot disagree about what "the same ask" is.
 //
-// AT THE FLOOR because its readers are two VIEW families — the transcript's ask card and
-// the session screen's session header — and view families are siblings, so neither may reach the
-// other and no family between them owns the question. That is `core/structural-key.ts`'
+// BELOW BOTH FEATURES because its readers are two features — the transcript's ask card
+// and the session screen's session header — and no feature imports another, so neither
+// can own the question for the other. That is `lib/structural-key.ts`'
 // own stated reason applied to a second subject, and this module needs nothing to be
 // here: no store type, no contracts schema, no React.
 //

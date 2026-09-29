@@ -9,25 +9,16 @@
 // around: a scroller with no height shows no rows. So a happy-dom case that asserts
 // anything about a rendered row has to say how tall its container is.
 //
-// PARAMETERIZED BY THE MEASUREMENT AND BY NOTHING ELSE. The diff pane and the restore
-// disclosure sit in different families and window different lists — different scroller class names, different row
-// elements, different heights, and the diff additionally grows one row when the wrap
-// toggle is on — so the RULE is each caller's. What is not each caller's is the shadow:
-// this class writes a property on `HTMLElement.prototype`, which is global to the
-// environment, and two independent copies of that write are two chances for one of them
-// to leak a shadow into every later file in the same worker. Written twice, they were.
+// PARAMETERIZED BY THE MEASUREMENT AND BY NOTHING ELSE. Windowed lists differ in their
+// scroller class names, row elements and heights, and the diff additionally grows one row
+// when the wrap toggle is on — so the RULE is each caller's. What is not each caller's is
+// the shadow: this class writes a property on `HTMLElement.prototype`, which is global to
+// the environment, and two independent copies of that write are two chances for one of
+// them to leak a shadow into every later file in the same worker.
 //
-// IT LIVES IN `primitives/` BECAUSE ITS TWO READERS SIT IN DIFFERENT FAMILIES. It measures
-// what `WindowedListRow` and `useWindowedRovingIndex` window, which is this family's
-// concern; parked in either reader's family it would have been a module one view family
-// reached into another for.
-//
-// IT IS IMPORTED BY NO RENDERING PATH, and the FILE NAME is what says so. A shim of this
-// reach called from a rendering path would be a production surface monkey-patching the
-// DOM. Under the `.test-support.ts` suffix the claim stops being a sentence in a header:
-// the shared source walk every architecture gate reads excludes these modules, and the
-// layering gate admits them as roots precisely because their only legitimate dependents
-// are the suites it removes from the graph.
+// IT IS IMPORTED BY NO RENDERING PATH. A shim of this reach called from a rendering path
+// would be production code monkey-patching the DOM, so it lives under `tests/`, beside the
+// suites that install it.
 
 /** What one element measures, in CSS pixels. Zero is what happy-dom answers anyway. */
 export type ElementHeightRule = (element: HTMLElement) => number;

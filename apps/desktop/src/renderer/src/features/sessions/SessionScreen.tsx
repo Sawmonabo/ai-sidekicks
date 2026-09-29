@@ -1,9 +1,10 @@
-// The session screen: the session header, the pane layout, and the composer's seat.
+// The session screen: the session header, the pane layout, and the composer's region.
 //
 // This is what a person is looking at when they are looking at a session. It
-// composes three things it does not own — `SessionHeader` (this family's), the pane layout's
-// panes (six families', through one mount door), and the composer (the composer
-// family's, through its seat) — and owns exactly one thing itself: the arrangement.
+// composes three things it does not own — `SessionHeader` (this feature's), the pane layout's
+// panes (six features', through the pane registry), and the composer (the composer
+// feature's, through its registered renderer) — and owns exactly one thing itself: the
+// arrangement.
 //
 // THE DECISIONS THIS SCREEN MAKES:
 //
@@ -26,8 +27,8 @@
 //     screen can do and takes the session screen banner.
 //   • **A banner belongs to the session it was raised in.** This screen is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
-//     went on saying what a save refused in the session somebody left, over the pane layout
-//     of the one they are looking at. The column rides `seats/session-subject.ts` on
+//     would go on saying what a save refused in the session somebody left, over the pane layout
+//     of the one they are looking at. The column rides `store/subject-scoped/session-subject.ts` on
 //     `(bridge, session)`, so the render that first sees the arriving session already
 //     reads an empty one, and a bridge replacement — which retires every call the
 //     refusals describe — clears it too.
@@ -87,7 +88,7 @@ export interface SessionScreenProps {
   readonly paneRegistry: PaneRegistry;
 }
 
-/** The session screen: header, pane layout, composer seat, and the banner column. */
+/** The session screen: header, pane layout, composer region, and the banner column. */
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
@@ -137,7 +138,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     (pane: SessionPane): PaneContext | Refusal => {
       // The kind and the entity arrived as a loose pair — off a restored snapshot, or
       // off a route somebody typed — so they become an ADDRESS here or they become a
-      // refusal here. The seat owns that rule and this screen applies it; deciding it
+      // refusal here. `parsePaneAddress` owns that rule and this screen applies it; deciding it
       // again would be a second answer to which entities a pane kind is a view of.
       const address = parsePaneAddress(pane.kind, pane.entity);
       if ("code" in address) {
@@ -154,7 +155,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         // The pane this one was opened beside, passed as an identifier and never as a
         // handle, so a linked pane stays independently movable and closable.
         linkedSourcePaneId: pane.sourcePaneId,
-        // Fail-closed, per the seat's own rule: the ring takes an actor's hue only
+        // Fail-closed, per `PaneContext`'s own rule: the ring takes an actor's hue only
         // where the pane's entity is a run or an agent, and an unattributed pane takes
         // the neutral boundary rather than somebody else's color. Resolving that hue
         // belongs to the lane that renders run and agent panes; nothing here guesses.

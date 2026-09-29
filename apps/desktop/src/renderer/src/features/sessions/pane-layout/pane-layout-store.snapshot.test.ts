@@ -3,11 +3,11 @@
 // The restore cases are the point of this file. Three of the five are ORDINARY —
 // a record written by another build, a pane kind this one has not got, an entity
 // that no longer validates — so each has to be dropped and REPORTED rather than
-// thrown, and the report has to be a value a surface can render. The fourth, the
+// thrown, and the report has to be a value a view can render. The fourth, the
 // cap, is what stands between a hand-edited record and a window that mounts panes
 // until it stops responding. The fifth is a record holding two pane ids at ONE
 // address: `open()` cannot repair that, because focusing the first pane is all it
-// ever does, so the duplicate mounts a second body, takes a second cap slot, and is
+// ever does, so the duplicate mounts a second body, counts a second time against the cap, and is
 // written straight back on the next save. It is coalesced during decoding instead,
 // first in position order winning.
 //
@@ -62,7 +62,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
   });
 
   it("never writes an ephemeral pane", () => {
-    // `seats/pane/pane-kinds.ts`'s `isEphemeralPaneKind`: a browser pane is never written to the
+    // `routing/panes/pane-kinds.ts`'s `isEphemeralPaneKind`: a browser pane is never written to the
     // layout snapshot, so a restart cannot reopen a page nobody asked for.
     const layout = twoPaneLayout();
     const source = layout.snapshot().panes[0];
@@ -161,7 +161,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   it("drops a pane whose entity kind that pane kind is not a view of", () => {
     // `transcript` is a view of the session; an artifact is not.
     // A weaker admission here passes the row on to a body that refuses it later,
-    // leaving a pane nothing can render sitting in one of the cap's slots — and
+    // leaving a pane nothing can render counted against the cap — and
     // written straight back out on the next save, so it survives every restart.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-95"] = {
@@ -298,7 +298,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     const report = new PaneLayoutStore({ restoredPaneCap: cap }).restore(snapshot);
 
     expect(report.restoredPaneCount).toBe(cap);
-    // The duplicate is the ONLY refusal: if it had consumed a slot, the last
+    // The duplicate is the ONLY refusal: if it had counted against the cap, the last
     // distinct pane would have been dropped and the cap refusal raised beside it.
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
       "pane-address-duplicate",
@@ -331,7 +331,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("names itself in every refusal it raises", () => {
-    // A refusal that names nobody is a refusal a surface three layers up cannot
+    // A refusal that names nobody is a refusal a view three layers up cannot
     // attribute — `core/refusal.ts`'s own reason for the field.
     const report = emptyLayout().restore(null);
     for (const refusal of report.refusals) {

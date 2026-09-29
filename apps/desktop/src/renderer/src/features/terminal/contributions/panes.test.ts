@@ -39,7 +39,7 @@ describe("terminal feature — claiming the pane layout's terminal pane", () => 
     expect(descriptor?.kind).toBe("terminal");
     expect(descriptor?.owner).toBe("terminal");
     // Kind and owner are the whole registration: whether the kind may be torn off
-    // is the window model's answer, and `seats/pane/pane-kinds.test.ts` holds it.
+    // is the window model's answer, and `routing/panes/pane-kinds.test.ts` holds it.
   });
 
   it("claims exactly one kind — V1 has one terminal per session", () => {

@@ -22,7 +22,7 @@ describe("reasoningTailOf", () => {
     expect(reasoningTailOf(text)).toHaveLength(REASONING_TAIL_LINE_COUNT);
   });
 
-  it("spends no slot on a blank line", () => {
+  it("spends no tail line on a blank line", () => {
     expect(reasoningTailOf("alpha\n\n\nbeta\n\ngamma\n")).toEqual(["alpha", "beta", "gamma"]);
   });
 
@@ -56,7 +56,7 @@ describe("REASONING_ARM_COPY", () => {
     expect(sentences.size).toBe(REASONING_AVAILABILITY_STATES.length);
   });
 
-  it("never says a withheld surface is an absent one", () => {
+  it("never says withheld reasoning is absent reasoning", () => {
     expect(REASONING_AVAILABILITY_COPY.policy_redacted.title).not.toBe(
       REASONING_AVAILABILITY_COPY.unavailable.title,
     );

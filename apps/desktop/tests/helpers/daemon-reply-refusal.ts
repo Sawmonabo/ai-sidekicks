@@ -1,4 +1,4 @@
-// What both `daemon-reply` suites need before they can call the door.
+// What both `daemon-reply` suites need before they can call `callDaemon`.
 //
 // Two roles, and neither belongs to one concern: the session id every case sends,
 // and the reader that takes the refusal off a reply. The parse suite and the
@@ -6,7 +6,7 @@
 // place a failure message comes from. It holds nothing a single suite uses — the
 // user id, the instant, the off-contract value, the served reply, and the
 // retry-bound reader stay beside their one reader, which is the line
-// `fixture-bridge.ts` next door draws for the same reason.
+// `fixture-bridge.ts` beside it draws for the same reason.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 

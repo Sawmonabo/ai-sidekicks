@@ -29,7 +29,7 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon");
-    // The response's own machine-readable cause, in the slot the console renders in
+    // The response's own machine-readable cause, in the field the console renders in
     // mono — never a category this module invented for it.
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("run.invalid_transition");
   });

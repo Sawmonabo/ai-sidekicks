@@ -2,8 +2,8 @@
 //
 // TWO INPUT MODES, ONE ANSWER. A schema the mapper drew controls for is answered by
 // those controls; a schema it could not is answered as JSON in the editor beside it.
-// Both compose the same value — the object a submission would carry — so the surface
-// that renders the verdict, and the owner plan that eventually sends it, read ONE member
+// Both compose the same value — the object a submission would carry — so the component
+// that renders the verdict, and the body that eventually sends it, read ONE member
 // rather than branching on which control a person happened to use.
 //
 // THE DRAWN ARM HOLDS A DRAFT TREE AND THE ANSWER IS A PROJECTION OF IT. What the
@@ -33,7 +33,7 @@
 // Nothing seeds or rewrites the text, so there is no control there to make displayed and
 // submitted agree: what is submitted from that arm is the schema's reading of what they
 // typed, which adds the members the schema declares values for and — measured at the
-// pinned reader, in `bridge/wire-shapes/json-schema-check.ts` — removes nothing they
+// pinned reader, in `json-schema-validator.ts` — removes nothing they
 // wrote. The two arms differ because their displays do, not because the rule does. They
 // also never coexist: the arm is a property of the PLAN, and a plan that drew controls
 // draws no editor, so a draft is never built from an answer and the projection runs one
@@ -112,7 +112,7 @@ export type RawAnswerReading =
   | { readonly status: "parsed"; readonly answer: unknown }
   | { readonly status: "unparsable"; readonly detail: string };
 
-/** Everything a schema form surface reads and everything it can ask for. */
+/** Everything a schema form component reads and everything it can ask for. */
 export interface SchemaFormState {
   /** Controls, or the raw editor and why. */
   readonly plan: SchemaFormPlan;
@@ -213,14 +213,14 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
       // fetch raises is about the transport, and the arm's own sentence is what a person
       // reads.
       //
-      // NO RETRY, AND THE SUBSTRATE'S OWN ONE IS NOT REACHABLE HERE. `seats/lazy-body/lazy-body.ts`
-      // offers one, but it is a MOUNT retry — a rejected load clears its memo and the
-      // surface error boundary remounts the subtree — and that shape needs a BODY to
-      // remount. What failed here is a value read inside a hook, and throwing it to a
-      // boundary would take down the form whose raw editor still works, which is the
-      // opposite of what this arm is for. So nothing here re-asks, which is that module's
-      // own rule as well; what re-asks is a schema that moves or a form opened again, and
-      // both run this effect afresh.
+      // NO RETRY, AND THE LOADER'S OWN ONE IS NOT REACHABLE HERE.
+      // `components/LazyBody/lazy-body.ts` offers one, but it is a MOUNT retry — a
+      // rejected load clears its memo and the `ErrorBoundary` around the body remounts
+      // the subtree — and that shape needs a BODY to remount. What failed here is a value
+      // read inside a hook, and throwing it to a boundary would take down the form whose
+      // raw editor still works, which is the opposite of what this arm is for. So nothing
+      // here re-asks, which is that module's own rule as well; what re-asks is a schema
+      // that moves or a form opened again, and both run this effect afresh.
       () => {
         round.settle(() => {
           setCompiled({ inputSchema, validator: CHECKER_UNAVAILABLE });

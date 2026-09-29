@@ -7,7 +7,8 @@
 // console's boundary agreed with each other and with nothing the daemon sends.
 //
 // WHAT IS NOT HERE. The round trip — composed envelope back through the console's
-// own decode boundary — spans two families, so it is not asserted here.
+// own decode boundary — spans the fixture and that boundary, so it is not asserted
+// here.
 
 import { describe, expect, it } from "vitest";
 

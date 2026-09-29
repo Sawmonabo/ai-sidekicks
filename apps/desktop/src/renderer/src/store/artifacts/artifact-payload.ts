@@ -1,4 +1,4 @@
-// What a served payload reply is, and the bounded preview a surface may draw from it.
+// What a served payload reply is, and the bounded preview the pane may draw from it.
 //
 // This module is the one place in the pane where an encoding is read and a `TextDecoder`
 // is run. It reaches neither the port nor the wire: it takes one served reply and answers
@@ -12,7 +12,7 @@ import type { ArtifactPayloadEncoding, ArtifactReadResponse } from "@ai-sidekick
  * A RENDERER bound and not a wire one, so it is picked here rather than mirrored
  * from a contract: an inline payload arrives whole and the pane has to decide how
  * much of it a person is shown before scrolling a hundred-megabyte log becomes the
- * surface's whole cost. Two thousand characters is a screenful and a half at the
+ * pane's whole cost. Two thousand characters is a screenful and a half at the
  * console's mono measure — enough to recognize what a payload IS, which is what the
  * preview is for, and far short of the point where a single text node degrades
  * layout. Truncation is always reported beside the text; the preview never silently
@@ -25,7 +25,7 @@ export const ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP = 2_000;
  *
  * `ArtifactReadResponse` is a union: the deferred arm hands back a content-addressed key and
  * no bytes, the inline arm hands back the bytes with the encoding to read them by. Both
- * are served answers a surface has to draw. The inline arm splits on whether the bytes
+ * are served answers the pane has to draw. The inline arm splits on whether the bytes
  * are text: a payload that decodes is previewable, and one that does not is reported as
  * what it is rather than drawn as replacement characters.
  *

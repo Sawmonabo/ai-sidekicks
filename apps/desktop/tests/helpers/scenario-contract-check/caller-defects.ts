@@ -10,7 +10,7 @@ import type { Scenario } from "../../../fixtures/scenario.js";
  * A stated caller who is not in the session, or `undefined` when the scenario is sound.
  *
  * `callerUserId` is what the caller-identity read answers with, and every
- * surface that attributes what it renders to this window resolves it by looking that
+ * view that attributes what it renders to this window resolves it by looking that
  * id up in the session's own user projection. An id outside
  * `userIdsInJoinOrder` resolves to nothing there, so the window's own rows are
  * attributed to nobody — which is invisible in the fixture, because it looks exactly
@@ -31,7 +31,7 @@ export function describeCallerDefect(scenario: Scenario): ScenarioContractDefect
     scenarioId: scenario.id,
     subject: `callerUserId "${callerUserId}"`,
     reason:
-      "the stated caller is not in `userIdsInJoinOrder`, so no surface can " +
+      "the stated caller is not in `userIdsInJoinOrder`, so no view can " +
       "resolve them in this session's own users. Name a user the " +
       "scenario actually joins, or leave the field absent and let the caller-identity " +
       "read refuse.",

@@ -15,7 +15,7 @@
 // A single-lane script would have rendered every one of those states too, one after
 // another — and would have proved nothing about the thing this console exists for,
 // which is several of them being true at once in different hues. The session's own
-// EMPTY state is the one composition no script reaches, and it lives next door in
+// EMPTY state is the one composition no script reaches, and it lives beside this one in
 // `empty-session.ts` for that reason.
 //
 // EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, under the two-leg
@@ -33,16 +33,16 @@
 //     `agent.provider_binding_changed` or `agent.provider_binding_change_failed` yet,
 //     so a beat playing one would be a frame about a wire that does not exist.
 //   • **An approval card.** `approval.requested` is a registered type, but the card it
-//     would draw belongs to the surface that renders approvals — so the run reaches
+//     would draw belongs to the view that renders approvals — so the run reaches
 //     `waiting_for_approval` and returns to `running`, which is the part of that story
 //     the log can tell.
 //   • **A cost or token reading.** Not because the members are unnamed — the taxonomy
 //     leg names them, and `concurrent-streaming.ts` meters a cost against exactly that row
 //     — but because this session's subject is the transcript frame, the run groups and the
 //     seams, and the meter is not on any of them. Concurrent streaming is
-//     the scenario that moves the meter; a second one here would be a reading no surface
+//     the scenario that moves the meter; a second one here would be a reading nothing
 //     in this session's frame reads. Scripting one would carry every member
-//     the usage-telemetry family makes required of a post-amendment
+//     the usage-telemetry events make required of a post-amendment
 //     emitter — `costStatus`, `costSource`, and `effectivePrincipal` — exactly as
 //     that scenario's own builder does.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
@@ -106,7 +106,7 @@ export const RUN_ARCHITECT_CHILD = "019b793b-7b60-740e-8140-d1a4c1150114";
  * provider and is unique only inside that provider's run scope, which is why the
  * console keys a subagent by the whole `(runId, provider, subagentId)` triple and
  * never by this string alone. Written in the provider's own shape so a fixture
- * cannot teach a surface to expect a session-wide identifier here.
+ * cannot teach a view to expect a session-wide identifier here.
  */
 export const SUBAGENT_REVIEWER = "sub_01k9wq4m2h";
 
@@ -129,7 +129,7 @@ const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  *
  * One table rather than a literal per beat, so two hand-written copies of one agent
  * cannot drift in the direction nothing catches. The drivers are mixed on purpose — a
- * fixture whose whole cast runs one provider cannot show a surface what a two-provider
+ * fixture whose whole cast runs one provider cannot show a view what a two-provider
  * session looks like.
  */
 const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
@@ -531,7 +531,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
     entries: TRANSCRIPT_STATES_SCRIPT,
   }),
   replies: [
-    // The run-scoped reasoning surface, on its `available` arm with a bounded page.
+    // The run-scoped reasoning read, on its `available` arm with a bounded page.
     //
     // A REGISTERED WIRE, so this reply is parsed against the contract's own schema.
     // The arm is `available` because the three empty arms need no scripted entries to
@@ -560,7 +560,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
     // The answer to the open ask. `DriverAckResult` is an ACKNOWLEDGEMENT that the
     // answer reached the driver and never a settlement of the ask — the scenario
     // scripts no `driver_ask.responded` beat behind it, because a fixture that
-    // settled the ask locally would be teaching the surface the one thing it must
+    // settled the ask locally would be teaching the view the one thing it must
     // never do. The registered ack is the EMPTY object — the acknowledgement is the
     // reply's arrival and carries no members at all — so an invented `status` here
     // would fail the strict parse the call goes through.
@@ -570,7 +570,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
     },
     {
       // `session.read`, not a `session.list`: the method registry carries no list
-      // verb, and a fixture answering one would put a call in front of a surface
+      // verb, and a fixture answering one would put a call in front of a view
       // that has nowhere to send it.
       call: "session.read",
       result: {

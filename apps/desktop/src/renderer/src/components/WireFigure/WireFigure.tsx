@@ -1,6 +1,6 @@
 // A figure the daemon sent, wearing the provenance signature.
 //
-// Design-language rule 4: every wire-true figure — costs, counts, SHAs, durations,
+// The design language: every wire-true figure — costs, counts, SHAs, durations,
 // token totals, timestamps — renders in mono. Mono is the signature that a number came
 // from the wire; prose never paraphrases a figure.
 //
@@ -14,7 +14,7 @@
 // ITS OWN MODULE, AND `DerivedFigure` BESIDE IT RATHER THAN INSIDE IT. The
 // distinction between the two is the console's most load-bearing typographic claim,
 // and a single component with a `mono` flag would let a call site get it wrong by
-// omission. Two modules is the same argument one step further: the class a surface
+// omission. Two modules is the same argument one step further: the class a caller
 // reaches for is the import it writes.
 //
 // `title` is where the exact wire value goes when the visible text is a formatted
@@ -32,7 +32,7 @@ export interface WireFigureProps {
   /**
    * Truncate at the measure inside a row that cannot hold the whole value.
    *
-   * The door a composing surface uses instead of declaring `.meridian-figure--wire`
+   * The prop a composing component uses instead of declaring `.meridian-figure--wire`
    * in its own stylesheet: one class has one owning sheet, and a value long enough to
    * need this is exactly the value whose `title` must still carry it whole.
    */

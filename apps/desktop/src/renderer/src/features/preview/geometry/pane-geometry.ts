@@ -60,8 +60,8 @@ export type GeometryInvalidationReason = (typeof GEOMETRY_INVALIDATION_REASONS)[
 
 /**
  * One reading of where the pane is, and whether the view may be shown there. It
- * travels WHOLE to the page host rather than as four numbers, because 12.3 forbids
- * assuming a rectangle is still current after an await: a page host handed the sample can
+ * travels WHOLE to the page host rather than as four numbers, because a rectangle is
+ * never assumed to be still current after an await: a page host handed the sample can
  * compare `key` against what it last applied, and one handed coordinates cannot.
  */
 export interface PaneGeometrySample {
@@ -152,9 +152,9 @@ export function intersectRects(first: PaneRect, second: PaneRect): PaneRect {
 }
 
 /**
- * Compose one sample — the whole of 12.3's arithmetic, as a pure function, because a
- * version reachable only by mounting a pane in a real window is one nobody could write
- * a negative control for.
+ * Compose one sample — the clip, the rounded rectangle, and whether the view may show
+ * past the overlays — as a pure function, because a version reachable only by mounting
+ * a pane in a real window is one nobody could write a negative control for.
  *
  * The host rectangle is narrowed by EVERY clipping ancestor, because a pane scrolled behind
  * an overflow edge has a valid bounding box that is nowhere the operator can see, and

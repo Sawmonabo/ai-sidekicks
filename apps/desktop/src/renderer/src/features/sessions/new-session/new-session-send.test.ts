@@ -122,9 +122,9 @@ describe("NewSessionDraft — the send", () => {
 
 describe("NewSessionDraft — what a send that REJECTED reports", () => {
   // The arm this answers is defensive and, in this build, unreachable through the
-  // bridge: `callDaemon` returns a typed reply for a rejected call, an absent door
-  // and a schema failure alike, so no fixture bridge can make `send()` reject. What
-  // shipped in its place was `undefined`, which cleared the result and left Send
+  // bridge: `callDaemon` returns a typed reply for a rejected call, an unsendable request
+  // and a schema failure alike, so no fixture bridge can make `send()` reject. An
+  // `undefined` in its place would clear the result and leave Send
   // pressable with nothing on screen, nothing announced, and nothing recorded — a
   // control that answers a press by doing nothing. So the SENTENCE is asserted here,
   // where it is built, rather than through a path a test would have to fake.

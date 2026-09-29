@@ -28,7 +28,7 @@ export type PaneLayoutDensity = (typeof PANE_LAYOUT_DENSITIES)[number];
 /**
  * What a new pane layout runs at, and what a restored snapshot falls back to.
  *
- * This family's own default, stated with the presets it chooses between: new panes
+ * The pane layout's own default, stated with the presets it chooses between: new panes
  * open at the standard preset.
  */
 export const DEFAULT_PANE_LAYOUT_DENSITY: PaneLayoutDensity = "standard";

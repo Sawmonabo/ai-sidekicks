@@ -38,11 +38,9 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/style
  * The two rendered fields are taken from `Refusal` rather than re-declared
  * beside it, so a producer spreads a refusal straight into a banner
  * (`{ id, dismissible, ...refusal }`) and the three renderings cannot drift into
- * three shapes. `origin` is deliberately NOT picked up: rule 9 fixes on-screen
- * refusal content at the code and the message, and the inline renderer made the
+ * three shapes. `origin` is deliberately NOT picked up: a refusal on screen shows its
+ * code and its sentence and nothing more, and the inline renderer made the
  * same choice — a banner is a rendering, not a second copy of the refusal record.
- *
- * A type-only import, so this adds no runtime edge from `store/` into `core/`.
  */
 export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly id: string;
@@ -74,9 +72,9 @@ export interface WindowStoreState {
   readonly schemePreference: SchemePreference;
   readonly isPaletteOpen: boolean;
   /**
-   * True while a modal surface the frame cannot NAME owns the window.
+   * True while a modal dialog the frame cannot NAME owns the window.
    *
-   * WHY THE FRAME CANNOT ASK. The adopted dialog family runs under `modal="trap-focus"`,
+   * WHY THE FRAME CANNOT ASK. The adopted dialog component runs under `modal="trap-focus"`,
    * which traps focus and leaves inerting the app root to the shell — so the shell has to
    * know that a dialog is up. It knows that for the palette, whose open state it owns. It
    * cannot know it for a card a feature renders: the frame imports no feature, so there
@@ -88,7 +86,7 @@ export interface WindowStoreState {
    * to disagree with the first. The frame folds the two at the one place that reads
    * both.
    *
-   * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped surfaces can be
+   * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped dialogs can be
    * up at once, and while each published this cell directly the first to close cleared
    * it under the one still open. {@link WindowStore.modalDialogClaims} holds the
    * claimants and owns the only write; this cell is `size > 0` and nothing else.
@@ -113,10 +111,9 @@ export interface WindowStoreState {
    * report.
    *
    * `store/window/main-process-state.ts` owns the vocabulary and the two derivations every reader
-   * shares; this store owns the one copy. It is here rather than in the frame family
-   * because its readers span the DAG in both directions — the palette below the
-   * frame, the settings pages and the sessions list above it — and a value declared
-   * in `frame/` is one none of them may import.
+   * shares; this store owns the one copy. It is in `store/` rather than in `layout/`
+   * because the settings pages read it, and a feature may not import `layout/`, which
+   * sits above every feature in the import direction.
    */
   readonly mainProcessState: MainProcessState;
 }
@@ -129,11 +126,11 @@ export interface WindowStoreOptions {
 export class WindowStore {
   readonly #store: StoreApi<WindowStoreState>;
   /**
-   * The open modal surfaces this window holds, and the one writer of the cell above.
+   * The open modal dialogs this window holds, and the one writer of the cell above.
    *
    * Constructed here rather than handed in, because its lifetime is this store's: the
    * register and the cell it derives are two halves of one fact, and a caller able to
-   * supply a second register could publish into a cell no surface's claim reached.
+   * supply a second register could publish into a cell no dialog's claim reached.
    */
   readonly #modalDialogClaims: ModalDialogClaims;
 
@@ -203,10 +200,10 @@ export class WindowStore {
   }
 
   /**
-   * Where a family-owned modal surface takes and gives up its claim on the window.
+   * Where a feature's modal dialog takes and gives up its claim on the window.
    *
    * Handed out rather than wrapped in a pair of methods on this class, so a claim is
-   * something a surface HOLDS: `modal-dialog-claims.ts` states why the register can
+   * something a dialog HOLDS: `modal-dialog-claims.ts` states why the register can
    * add and remove only the caller's own id and offers no clear-all.
    */
   public get modalDialogClaims(): ModalDialogClaims {
@@ -244,8 +241,9 @@ export class WindowStore {
   }
 
   /**
-   * Raise a refusal as the banner rendering — the third of rule 9's three, and the
-   * only one available to an act with no surface of its own.
+   * Raise a refusal as the banner rendering — the third of the three refusal renderings
+   * (inline, transcript card, banner), and the only one available to an act with no
+   * control or card of its own.
    *
    * The banner is keyed on the refusal's ORIGIN and CODE together, so a second
    * failure of one act replaces its own banner rather than stacking a duplicate of
@@ -281,7 +279,7 @@ export class WindowStore {
    *
    * Compared before it is written, on {@link setWindowFocused}'s reasoning: the
    * publisher writes from an effect that re-runs whenever its own inputs move, and an
-   * unguarded write on an unchanged value would re-render the rail, the surface, and
+   * unguarded write on an unchanged value would re-render the rail, the screen, and
    * every banner for a fact that did not move.
    */
   #setModalDialogOpen(isModalDialogOpen: boolean): void {

@@ -1,8 +1,8 @@
-// What each bound driver DECLARED, read once per bridge and shared by every surface.
+// What each bound driver DECLARED, read once per bridge and shared by every view.
 //
 // `driver.listCapabilities` answers with one report per driver, each naming itself, and it is
 // addressed at the node rather than at a run or a session, so the answer is a property of the
-// bridge and not of the surface that asked. The runs controls gate Rewind and Steer on it and
+// bridge and not of the view that asked. The runs controls gate Rewind and Steer on it and
 // the composer gates the compaction control on it; a read held by either would make the
 // other's copy a second read of one wire.
 //
@@ -12,12 +12,12 @@
 // `useDriverCapabilityRepairRead` beside it are the two entry points.
 //
 // A FAILED READ IS SAID OUT LOUD. A rejection and an unreadable reply both SETTLE, carrying
-// the daemon's own refusal on the readout for the surfaces to render: the flags stay absent,
+// the daemon's own refusal on the readout for the views to render: the flags stay absent,
 // which keeps the gating fail-closed, and the reason travels with them. A reply naming NO
 // driver is not a refusal: it is an answered read whose answer is that this node has no driver
 // to declare anything.
 //
-// AND NO SETTLEMENT IS TERMINAL FOR A BRIDGE. One read serves every surface, and refresh goes
+// AND NO SETTLEMENT IS TERMINAL FOR A BRIDGE. One read serves every view, and refresh goes
 // through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler` on exactly the three admitted
 // refresh reasons: subscribe, window focus, and reconnect. There is no interval and no retry
 // loop; a refusal is re-asked at the next reason. A settled readout stays on screen while the
@@ -97,9 +97,8 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   /**
    * Ask for a read.
    *
-   * Coalesced by the scheduler, so the four surfaces that mount together on one
-   * session still cost one call — which is the property the old latch was reaching
-   * for, obtained without making the answer permanent.
+   * Coalesced by the scheduler, so the four views that mount together on one
+   * session still cost one call, without making the answer permanent.
    */
   public requestRead(reason: RefreshReason): void {
     this.#scheduler.request(reason);
@@ -117,14 +116,14 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
    * Take the node's declarations, on the round the scheduler opened for this read.
    *
    * BOTH HALVES OF THE ROUND ARE USED AND THEY ANSWER DIFFERENT QUESTIONS. The signal
-   * goes to the call door, where it stops an abandoned read before its reply is
+   * goes to `callDaemon`, where it stops an abandoned read before its reply is
    * parsed; `settle` guards what reaches the readout, so a round this line has already
    * replaced installs nothing and wakes no watcher. Publishing an abandoned read's
-   * refusal would be the worse failure of the two — every surface holding this reading
+   * refusal would be the worse failure of the two — every view holding this reading
    * would render "nothing is waiting for it" as though the node had refused.
    */
   async #read(round: ReadRound): Promise<void> {
-    // One branch, because the door has already collapsed the three ways a read can
+    // One branch, because `callDaemon` has already collapsed the three ways a read can
     // fail into one: a request the registry would not admit, a rejection carrying the
     // daemon's own code, and a reply the registered shape does not accept all arrive
     // as a refusal with its code intact. A refused read declares NOTHING — the flags

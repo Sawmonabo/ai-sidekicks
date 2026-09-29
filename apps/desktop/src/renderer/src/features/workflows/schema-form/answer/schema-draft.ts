@@ -152,7 +152,7 @@ export function listDraftOf(entries: readonly SchemaScalarDraft[]): SchemaListDr
 /**
  * Every row one collection is drawing, which is none at all while nobody is answering it.
  *
- * The one reader of the inactive arm, so no surface asks a collection for entries it
+ * The one reader of the inactive arm, so no component asks a collection for entries it
  * cannot have: a row under a collection nobody is answering would be a row whose value
  * reaches nothing, exactly as a control under an inactive group would.
  */

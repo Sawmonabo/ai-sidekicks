@@ -10,10 +10,10 @@
 //
 // THE ANSWER THIS FILE IS ABOUT: nothing. The tree on screen is still painted, still
 // reading, and still being settled into by calls dispatched before the parked pass
-// began. An addressing that retired the committed one as it was minted took all three
-// away — the publisher the surface holds started refusing every settlement, the value
-// it had already been given was replaced by a seed for a subject nothing painted, and
-// for a resource the pass had opened a connection no commit would ever reach.
+// began. An addressing that retired the committed one as it was minted would take all
+// three away — the publisher the component holds would refuse every settlement, the
+// value it had already been given would be replaced by a seed for a subject nothing
+// painted, and for a resource the pass would open a connection no commit ever reaches.
 //
 // Every claim is paired with a NEGATIVE CONTROL driving the REAL holder in the
 // arrangement this replaced: `address` and `commit` in the same breath, from the
@@ -54,7 +54,7 @@ import {
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
 
-/** What the surface reads once the visit on screen has been settled into. */
+/** What the component reads once the visit on screen has been settled into. */
 const WHAT_THE_VISIT_ON_SCREEN_READ = "what the visit on screen read";
 
 /**
@@ -190,7 +190,7 @@ async function driveResourceCase(
 }
 
 describe("useSubjectScopedState — a parked pass leaves the visit on screen alone", () => {
-  it("settles through the publisher the surface has been holding all along", async () => {
+  it("settles through the publisher the component has been holding all along", async () => {
     const detour = await driveValueCase(DiscardedRenderValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
@@ -207,7 +207,7 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
     // The identical script against the arrangement this replaced. The parked pass
     // retired the visit on screen as it addressed, so the publisher that visit handed
     // out names an addressing nothing holds and its answer is refused — and the value
-    // the surface reads is a seed produced for a pass that never became a frame.
+    // the component reads is a seed produced for a pass that never became a frame.
     const detour = await driveValueCase(RenderTimeRetireValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
@@ -255,7 +255,7 @@ describe("useSubjectScopedResource — a parked pass's resource is closed, and o
   it("negative control: retiring at render time leaks that resource and re-opens", async () => {
     // The identical script against the shape the two frame subsystems ran. The parked
     // pass's connection is installed nowhere and closed by nothing, and the connection
-    // the surface was reading through is retired and opened again underneath it.
+    // the component was reading through is retired and opened again underneath it.
     const resources = await driveResourceCase(RenderTimeRetireResourceProbe);
 
     expect(resources.ledger.opened).toStrictEqual(["settled", "discarded", "settled"]);
@@ -266,8 +266,8 @@ describe("useSubjectScopedResource — a parked pass's resource is closed, and o
   });
 
   it("closes a parked pass's resource where the mount ends before any later render", async () => {
-    // The one bound the two supersession paths do not reach: a surface whose parked
-    // pass is followed by no render at all because the surface itself went away. The
+    // The one bound the two supersession paths do not reach: a component whose parked
+    // pass is followed by no render at all because the component itself went away. The
     // proposal is reachable through nothing else, so the mount's end is its last
     // moment.
     const ledger = new ResourceOpenCloseLog();

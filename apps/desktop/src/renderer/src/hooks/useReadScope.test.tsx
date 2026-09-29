@@ -8,7 +8,7 @@
 //
 // EVERY CASE IS PAIRED WITH THE READING TAKEN BEFORE THE ENDING. A hook that handed
 // out a born-aborted signal would satisfy "the signal is aborted after unmount"
-// perfectly, so each case first asserts the line is LIVE while the surface is on
+// perfectly, so each case first asserts the line is LIVE while the pane is on
 // screen. That pairing is the negative control, and it is why the assertions are two
 // and not one.
 //
@@ -16,7 +16,7 @@
 // the disposal that is terminal — is `hooks/subject-scoped/useSubjectScopedResource.ts`'s and is asserted
 // in its own suites. What is asserted here is that a read scope is wired to it
 // correctly: that the disposal really is the terminal arm, and that the re-mint the
-// double mount forces produces a line a returning surface can read through.
+// double mount forces produces a line a returning pane can read through.
 
 import { render } from "@testing-library/react";
 import { type ReactElement } from "react";
@@ -38,7 +38,7 @@ interface ReadLineProbeProps {
 }
 
 /**
- * A surface that opens one round per render, as a pane's read effect would.
+ * A component that opens one round per render, as a pane's read effect would.
  *
  * Opening in the render body rather than in an effect is deliberate for a probe: it
  * makes the round observable on the pass that produced it, which is what lets a case
@@ -60,12 +60,12 @@ function newestRound(rounds: readonly ReadRound[]): ReadRound {
 }
 
 describe("useReadScope — the line ends with the render that owned it", () => {
-  it("abandons the round when the surface unmounts", () => {
+  it("abandons the round when the pane unmounts", () => {
     const rounds: ReadRound[] = [];
     const view = render(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
     const mountedRound = newestRound(rounds);
 
-    // The control: while the surface is on screen the line is live on both readings.
+    // The control: while the pane is on screen the line is live on both readings.
     expect(mountedRound.signal.aborted).toBe(false);
     expect(mountedRound.isCurrent).toBe(true);
 
@@ -76,7 +76,7 @@ describe("useReadScope — the line ends with the render that owned it", () => {
     expect(mountedRound.settle(() => undefined)).toBe(false);
   });
 
-  it("abandons the old subject's round when the surface is re-addressed", () => {
+  it("abandons the old subject's round when the pane is re-addressed", () => {
     const rounds: ReadRound[] = [];
     const view = render(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
     const firstSubjectRound = newestRound(rounds);
@@ -88,7 +88,7 @@ describe("useReadScope — the line ends with the render that owned it", () => {
     expect(secondSubjectRound).not.toBe(firstSubjectRound);
     expect(firstSubjectRound.signal.aborted).toBe(true);
     // The new subject reads through a LIVE line: abandoning the old one must not
-    // leave the surface holding a corpse, which is the whole reason the disposal
+    // leave the pane holding a corpse, which is the whole reason the disposal
     // carries a reading beside it.
     expect(secondSubjectRound.signal.aborted).toBe(false);
     expect(secondSubjectRound.isCurrent).toBe(true);

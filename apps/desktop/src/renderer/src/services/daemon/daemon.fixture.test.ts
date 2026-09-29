@@ -2,15 +2,15 @@
 //
 // The fixture is shape-identical to `PlatformBridge`, and `bridge-shape.test.ts`
 // turns that into a checked claim. Shape is the cheap half. This file is one of the
-// three places where a fixture that matched the contract's SHAPE was still answering
-// something the live bridge never would: `daemon.subscribe` takes an event name and
-// the fixture ignored it, so a surface subscribed to `run.starting` was handed
+// three places where a fixture that matches the contract's SHAPE can still answer
+// something the live bridge never would: `daemon.subscribe` takes an event name, and
+// a fixture that ignored it would hand a view subscribed to `run.starting`
 // `session.created` and `agent.attached` too, each cast to the type it had asked for.
 // A screenshot or an end-to-end result taken against that is a result the live bridge
 // cannot produce.
 //
 // Two claims travel here rather than one, because a fixture can route by two
-// different keys and getting either wrong is invisible in a surface: a subscriber
+// different keys and getting either wrong is invisible on screen: a subscriber
 // naming an EVENT KIND is handed that kind, and a subscriber naming the whole-session
 // STREAM is handed every kind it carries. A table that routed nothing anywhere
 // satisfies both exact-set claims by delivering the empty set twice, so each carries
@@ -59,8 +59,8 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     // A subscriber that named one of the script's kinds is handed every beat of that
     // kind and nothing else — never `session.created`, which arrives first and is
     // what an unfiltered fixture delivers into a `run.starting` handler. The count is
-    // read off the script rather than written down, because the seat board plays as
-    // many runs as it has lanes.
+    // read off the script rather than written down, because the concurrent-streaming
+    // scenario plays as many runs as it has lanes.
     const startingBeatCount = concurrentStreamingBeatCountOfKind("run.starting");
     expect(startingBeatCount).toBeGreaterThan(0);
     expect(received.map((envelope) => envelope.type)).toStrictEqual(
@@ -142,7 +142,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
 
   it("negative control: the narrowed run stream and a bare event type stay live", () => {
     // Without this, an engine that replayed to every subscriber would pass the two
-    // cases above while handing a runs surface transitions it never subscribed in
+    // cases above while handing a run-stream subscriber transitions it never subscribed in
     // time for — a frame the daemon does not send on a live projection stream.
     const fixture = createFixture();
 

@@ -12,7 +12,7 @@ import { renderPane } from "./TerminalPane.test-support.js";
 
 describe("terminal pane — a pane opened without a session", () => {
   it("is named by the trail it sits on rather than by its kind alone", () => {
-    // Through `aria-labelledby` and never `aria-label`: `seats/PaneFrame` names
+    // Through `aria-labelledby` and never `aria-label`: `components/PaneFrame` names
     // every pane by its whole address — the session whose shell it holds, then what the
     // pane is — so two terminals in one pane layout are told apart. This mount addresses no
     // session, so the trail opens on the chrome's own no-address crumb, and the pane is

@@ -173,7 +173,7 @@
   cursor: pointer;
 }
 
-/* One primary action per surface: approve carries the accent — through
+/* One filled primary action per card: approve carries the accent — through
    `meridian-accent-fill`, whose ink is measured against that fill — and reject is
    quiet chrome. Reject is never red: a rejection is the console working. */
 .meridian-approval-card__actions {

@@ -14,7 +14,8 @@
 // sending an answer. They are declared as a base and an extension rather than as one
 // type with an optional member, because a body handed a mount whose `submit` might be
 // absent would have to decide what to do about a form it cannot send, and the answer is
-// that there is no such state: a body is mounted only where the seat has a submit for it.
+// that there is no such state: a body is mounted only inside the submit binding, which
+// always holds a submit for it.
 //
 // WHAT THE MOUNT OWES, AS A TYPE. Four things the mounting pane knows and the body must
 // not re-derive, and the first three are exactly what the submit request is addressed
@@ -36,14 +37,14 @@
 //     is addressed by a version NUMBER and a run carries one opaque version id.
 //
 // AND ONE THING THE MOUNT REFUSES TO OWE: whether the form may be submitted. That is the
-// daemon's adjudication, reaching the SEAT as a typed refusal, and a mount that predicted
-// it would be a second authority on a question the daemon owns. A stale-revision submit
+// daemon's adjudication, reaching the SUBMIT BINDING as a typed refusal, and a mount
+// that predicted it would be a second authority on a question the daemon owns. A stale-revision submit
 // is one of the uncoded refusal points, so the daemon's own message is the primary text
 // there.
 //
 // THE DRAFT IS NOT THIS MOUNT'S. Autosave is renderer-local and window-scoped; the
-// family's separate draft mount point carries it, and a draft that reached the durable store
-// would be user content in a durable home.
+// workflows feature's separate draft mount point carries it, and a draft that reached
+// the durable store would be user content in a durable home.
 
 /** The phase whose form is open, as the mounting pane resolved it out of the run read. */
 export interface HumanFormPhase {
@@ -64,7 +65,7 @@ export interface HumanFormPhase {
    * The revision this attempt's form is composed against, as the run read reported it.
    *
    * Never compared here: the pane carries the number and the daemon decides whether it
-   * is still current. What the seat sends is the value CAPTURED when the attempt opened
+   * is still current. What the submit binding sends is the value CAPTURED when the attempt opened
    * rather than this member re-read at press time — a run read that refreshes under a
    * live form moves this number without moving the answer somebody typed, and sending
    * the newer one would defeat the very comparison it exists for.
@@ -87,19 +88,19 @@ export interface HumanFormPhase {
   readonly inputSchema?: unknown;
 }
 
-/** The resolved phase, plus the one act the seat keeps and the body may not author. */
+/** The resolved phase, plus the one act the submit binding keeps and the body may not author. */
 export interface HumanFormMount extends HumanFormPhase {
   /**
    * Send this answer, whatever input mode composed it.
    *
-   * THE CHANNEL IS THE SEAT'S AND NOT THE BODY'S, which is the whole reason it is on
+   * THE CHANNEL IS THE RUN PANE'S AND NOT THE BODY'S, which is the whole reason it is on
    * the mount. The submit call, the single-flight guard, the revision this attempt was
    * composed against, the re-armed run read and the rendering of whatever came back are
    * all the run pane's, so a body that dispatched for itself would be a second
    * implementation of every one of them.
    *
    * Bound to the attempt on screen: a body may call it with the answer alone, and the
-   * run, the phase and the revision it travels with are the seat's own reading of which
+   * run, the phase and the revision it travels with are the submit binding's own reading of which
    * wait this is.
    */
   readonly submit: (answer: unknown) => void;

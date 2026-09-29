@@ -95,9 +95,9 @@ export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
  *
  * Shaped for the narrowing's ordering and for nothing else. The finished run's
  * members are `assistant_output` and the live run's is `tool_activity`, so the two
- * families name the two run groups: narrowing to the first can only be satisfied from
+ * categories name the two run groups: narrowing to the first can only be satisfied from
  * inside a run group that is folded shut by default, and narrowing to the second
- * empties that run group entirely. A single-family log would pass over a narrowing
+ * empties that run group entirely. A single-category log would pass over a narrowing
  * that never looked inside a fold at all.
  */
 export function foldedMessageRunGroupLog(): readonly ProjectedSessionEvent[] {

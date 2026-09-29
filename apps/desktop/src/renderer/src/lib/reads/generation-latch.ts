@@ -1,16 +1,14 @@
 // Whether an act may be dispatched at all, and what its reply is allowed to do.
 //
-// THE MUTABLE HALF OF `lib/subject-scoped/subject-scoped-holder.ts`'s RULE. That holder answers what a
-// surface RENDERS for the subject it is bound to. This one answers a question a
+// THE MUTABLE HALF OF `lib/subject-scoped/subject-scoped-holder.ts`'s RULE. That holder
+// answers what a component RENDERS for the subject it is bound to. This one answers a question a
 // handler has to settle inside its own tick, before any render: a rendered flag read
 // there is the one from the render that produced the handler, so two presses in one
-// frame both find the surface idle and both dispatch — two durable records for one
+// frame both find the component idle and both dispatch — two durable records for one
 // intended act, and two replies racing to decide which settlement is shown.
 //
-// SIX COPIES OF THIS WERE WRITTEN ACROSS FIVE FAMILIES, each with its own field
-// name, its own paragraph explaining the same three-line invariant, and its own
-// predicate. The place copies of a guard drift is the predicate, and a drifted
-// predicate is a stale value on screen that every test still passes.
+// ONE LATCH FOR EVERY ACT, because the place copies of a guard drift is the predicate,
+// and a drifted predicate is a stale value on screen that every test still passes.
 //
 // A MONOTONIC SERIAL, NOT AN `AbortController`, BECAUSE THE TWO ANSWER DIFFERENT
 // QUESTIONS. This one answers "may this settlement install", which is an ORDERING
@@ -31,10 +29,10 @@
 //
 // THE KEY IS WHAT THE RULE IS ABOUT, AND IT IS NEVER THE MOUNT. "One in flight" is
 // one per subject: one goal mutation per session, one send per composer address, one
-// control per run, one compaction per target. A boolean per mounted component said
-// otherwise — a surface re-addressed while a call was outstanding refused the NEW
-// subject's first act as though it already had one settling, and a call that never
-// answered refused it for as long as that surface stayed mounted. A caller whose rule
+// control per run, one compaction per target. A boolean per mounted component would
+// say otherwise — a component re-addressed while a call was outstanding would refuse
+// the NEW subject's first act as though it already had one settling, and a call that
+// never answered would refuse it for as long as that component stayed mounted. A caller whose rule
 // is one act at a time across every row states that by claiming ONE key, rather than
 // by asking this object for a mode it does not have.
 //
@@ -137,7 +135,7 @@ export class GenerationLatch {
   #serialsBySubject = new WeakMap<object, Map<string, number>>();
 
   /**
-   * Take one key's slot, or answer `undefined` because that key already holds it.
+   * Take one key's claim, or answer `undefined` because that key already holds one.
    *
    * `undefined` rather than a claim that reports itself stale, so a caller cannot
    * dispatch first and discover afterwards that it was not admitted.

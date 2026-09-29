@@ -7,10 +7,7 @@
 // shapes. Nothing here reads an event, a store, or a row; it reads an open record
 // and answers with a run id or nothing, which is the whole of it.
 //
-// It is reached deep by the sibling that folds the log rather than through
-// `index.ts`, on that door's own terms: no symbol declared here leaves `cards/`, so
-// publishing it on the family door would be a name whose home takes two hops to
-// find and whose only consumer is one file away.
+// Its consumers are the projection modules beside it; nothing here leaves `projection/`.
 
 import {
   type InterventionRequestPayload,
@@ -24,11 +21,11 @@ import {
  * The payload members that attribute a row to a run — THE CONTRACT'S OWN LIST.
  *
  * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` is `["runId", "targetRunId"]`, and the
- * second one is the whole finding: the event contract spells run identity `runId` on
- * every run-attributed family except interventions, whose registered shape names the run
- * `targetRunId`. The shell read the first member and nothing else, so every
- * `intervention.*` event projected as a session-level `general` row and sat outside
- * the run group it belongs to — on a transcript whose whole shape is runs.
+ * second one matters: the event contract spells run identity `runId` on every
+ * run-attributed event kind except interventions, whose registered shape names the run
+ * `targetRunId`. Reading only the first member would project every `intervention.*`
+ * event as a session-level `general` row outside the run group it belongs to — on a
+ * transcript whose whole shape is runs.
  *
  * CONSUMED RATHER THAN RE-DERIVED, because the contracts package already declares
  * this set once, with its reasoning, in the package that owns the wire. A second

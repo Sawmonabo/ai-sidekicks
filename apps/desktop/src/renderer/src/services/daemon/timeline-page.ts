@@ -5,8 +5,7 @@
 // `store/entities/entities.ts` puts exactly one module between the wire and everything above
 // it. This module is that boundary for the other frame the daemon answers a session's
 // log with — a `timeline.read` page — and it exists for the same reason: the store's
-// log is `ProjectedSessionEvent` and a family above the bridge may not read a wire
-// shape.
+// log is `ProjectedSessionEvent` and no feature may read a wire shape.
 //
 // WHY A PAGE IS DECODED BACKWARDS INTO THE LOG RATHER THAN RENDERED AS ROWS.
 // `TimelineRow` is the daemon's own read projection: it carries the canonical event's
@@ -68,7 +67,7 @@ export interface EarlierTimelinePage {
 /**
  * Read one backward `timeline.read` window into the console's event log.
  *
- * Takes the PARSED response rather than an `unknown`: the call door
+ * Takes the PARSED response rather than an `unknown`: `callDaemon`
  * (`daemon-reply.ts`) has already held the reply to the registered schema by the time
  * a caller has one of these, so a second parse here would be a second reading of one
  * seam — the thing the registry exists to prevent.

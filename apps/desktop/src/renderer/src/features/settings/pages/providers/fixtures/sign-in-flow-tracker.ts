@@ -22,7 +22,7 @@
 // cancel are acts a person takes, not answers that go stale, so this takes the
 // operations rather than the connection.
 //
-// AND WHAT IS IN THE WAY IS SAID ONCE. Two surfaces say it — the disabled control's
+// AND WHAT IS IN THE WAY IS SAID ONCE. Two places say it — the disabled control's
 // reason, and the refusal a press that got past that control is answered with — so the
 // words are composed here and the caller hands in the label it holds. Two spellings of
 // one fact drift apart, and the drift is invisible because both of them render.
@@ -120,9 +120,9 @@ export class SignInFlowTracker {
    * Held because the tail opens BEFORE `providerAccount.login` is called — the ordering
    * the registered contract states — so a flow that finishes fast reports its
    * completion while the start reply is still traveling. Without this the plane would
-   * seat an attempt that is already over and hold the key until somebody pressed
+   * record an attempt that is already over as running and hold the key until somebody pressed
    * cancel. ONE id and not a set: the daemon runs one brokered flow at a time, so the
-   * newest completion is the only one a seating attempt could be.
+   * newest completion is the only one an attempt being recorded could be.
    */
   #completedAttemptId: string | undefined = undefined;
   #snapshot: SignInFlowTrackerSnapshot = NOTHING_STARTED;
@@ -145,8 +145,8 @@ export class SignInFlowTracker {
   /**
    * Start a brokered sign-in for one account.
    *
-   * The surface disables every start control while the plane is held, so a press that
-   * reaches here is one that surface could not intercept — a stale frame, a keyboard
+   * The page disables every start control while the plane is held, so a press that
+   * reaches here is one that page could not intercept — a stale frame, a keyboard
    * activation racing a commit. Doing nothing would be indistinguishable from a broken
    * control, so the row that asked gets this plane's own refusal saying what is in the
    * way, and the flow that is running is not touched.
@@ -176,7 +176,7 @@ export class SignInFlowTracker {
         if (outcome.attempt.attemptId === this.#completedAttemptId) {
           // The registry reported this very attempt finished while its start reply was
           // still traveling, which the registered ordering makes ordinary: the tail is
-          // open before the call goes out. Seating it would put a card on screen for a
+          // open before the call goes out. Recording it would put a card on screen for a
           // flow that is over.
           claim.release();
           this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
@@ -224,7 +224,7 @@ export class SignInFlowTracker {
    *
    * The completion is REMEMBERED whether or not it matched, because a flow that
    * finishes fast reports its completion while its own start reply is still in flight —
-   * {@link start} reads it on the seating arm.
+   * {@link start} reads it on the arm that records the attempt.
    */
   public noteLoginCompleted(attemptId: string): void {
     if (this.#isDisposed) {
@@ -289,7 +289,7 @@ export class SignInFlowTracker {
 /**
  * The account whose sign-in is holding the plane, where one is.
  *
- * A function over the SNAPSHOT rather than a getter on the plane, because the surface
+ * A function over the SNAPSHOT rather than a getter on the plane, because the page
  * reads the snapshot through `useSyncExternalStore` and a getter reaching past it
  * would be a second reading of the same fact with no guarantee the two agree in one
  * render. The plane's own guard calls it too, so the derivation has one spelling.
@@ -302,7 +302,7 @@ export function findRunningSignInAccountId(
 }
 
 /**
- * What is in the way of a start, in the words both surfaces that say it use.
+ * What is in the way of a start, in the words both places that say it use.
  *
  * TWO SENTENCES UNDER ONE RULE, because what a person does next differs: their own
  * account's sign-in is already the one running, and another account's is in front of
@@ -327,7 +327,7 @@ export function describeRunningSignIn(options: {
  * Its own code rather than the daemon's `provideraccount.signin_in_flight` — that code
  * belongs to a call this plane deliberately did not make, and borrowing it would report
  * a daemon refusal that never happened. The detail is the sentence above without a
- * label, because a refusal reaches the row from here and the registry is the surface's.
+ * label, because a refusal reaches the row from here and the registry is the page's.
  */
 function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
   return refuse(

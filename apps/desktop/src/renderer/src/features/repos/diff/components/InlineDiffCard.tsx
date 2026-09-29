@@ -1,4 +1,4 @@
-// The diff card a transcript row carries, and the seat registration that fills it.
+// The diff card a transcript row carries, and the inline card registration that fills it.
 //
 // Diff cards go in the transcript at a height cap and then offer "show all", and THIS
 // CARD'S OWN RULE says exactly how
@@ -23,16 +23,16 @@
 //   • NO FADE WITH NOWHERE TO GO. The cap always ships with the controls that
 //     leave it, in the same footer, always rendered.
 //
-// TWO FEATURES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The transcript renders
-// the seat; this feature owns the body. The registration in `contributions/inline-cards.ts`
-// is the whole contact surface.
+// TWO FEATURES MEET AT THE INLINE CARD REGISTRY AND NEITHER IMPORTS THE OTHER. The
+// transcript renders the card's place in the row; this feature owns the body. The
+// registration in `contributions/inline-cards.ts` is the only point of contact.
 //
-// WHAT THE SEAT HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
+// WHAT THE REGISTRY HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
 // `DiffInlineCardProps` carries a `runId`, the `diffArtifactId` the registered diff
 // result names itself by, the `artifactManifestId` that diff minted, and — where the
 // row knows them — the pair of COMPARED STATES a diff was taken between. A unified
 // patch names neither of those states, so they can only arrive from the row, which is
-// why they are the seat's members and never a base and a head this card invented.
+// why they are members of `DiffInlineCardProps` and never a base and a head this card invented.
 //
 // THE PAIR IS WHAT SELECTS THE DENSITY, and the four clauses above are the rule for
 // the arm where it is absent. A row that names no comparison identifies a diff by its
@@ -99,7 +99,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
             subject and repeating it here would say nothing the transcript has not already
             said one line above. The manifest id is not rendered beside it — it is the
             provenance and retention of the same object, which is a reading the
-            artifact surfaces do, not a second name for what this card shows. */}
+            artifact views do, not a second name for what this card shows. */}
         <span className="meridian-diff-card__change-set" title={props.card.diffArtifactId}>
           {props.card.diffArtifactId}
         </span>
@@ -126,7 +126,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           ) : comparedStates !== undefined ? (
             // THE CHANGE SET, because the row named what was compared. The same body
             // the pane renders, so the compared states are drawn once and the changed
-            // files are reachable — see the header for why the seat's pair is what
+            // files are reachable — see the header for why the props' compared pair is what
             // selects this arm.
             <DiffChangeSet diff={props.diff} />
           ) : (

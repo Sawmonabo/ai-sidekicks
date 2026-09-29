@@ -1,20 +1,20 @@
 /*
- * The diff surfaces' own sheet — the pane chrome, the changed-file list, the rows,
+ * The diff views' own sheet — the pane chrome, the changed-file list, the rows,
  * and the inline transcript card.
  *
- * Imported by the two surfaces that reach these components: `DiffPane.tsx`, the pane's
+ * Imported by the two views that reach these components: `DiffPane.tsx`, the pane's
  * top view, and `InlineDiffCard.tsx`, which the transcript renders without the pane.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every color is read back out of a custom property.
  *
- * LONG AND DELIBERATELY NOT SPLIT, because the diff components share it as one surface.
+ * LONG AND DELIBERATELY NOT SPLIT, because the diff components share it as one sheet.
  * The section banners below let a reader find the changed-file list or the rows by
  * heading.
  */
 
 /*
- * THE TWO-HUE RULE, APPLIED TO THE ONE SURFACE THAT IS TRADITIONALLY PAINTED RED
+ * THE TWO-HUE RULE, APPLIED TO THE ONE VIEW THAT IS TRADITIONALLY PAINTED RED
  * AND GREEN. Amber is spent on "a person is needed" and red on "something failed", and
  * a deleted line is neither. So the
  * insert / delete distinction is carried by three signals that are not hue: the

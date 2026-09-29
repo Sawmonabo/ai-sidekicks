@@ -19,9 +19,9 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
  * What the test daemon below exposes to the bridge.
  *
  * `answer` rather than `call`, and held to that name deliberately: this object is a
- * per-method reply script, not the bridge every surface shares. A stand-in whose
+ * per-method reply script, not the bridge every view shares. A stand-in whose
  * operation were named `call` on a holder named for the daemon would be
- * indistinguishable in source text from a surface reaching the real call door —
+ * indistinguishable in source text from a view reaching the real `callDaemon` —
  * which is what a reviewer sweeping for one would flag, and it would flag this file.
  */
 export interface ScriptedDaemon {
@@ -29,7 +29,7 @@ export interface ScriptedDaemon {
 }
 
 /**
- * The real fixture bridge, answering this suite's scripted daemon through the call door,
+ * The real fixture bridge, answering this suite's scripted daemon through `callDaemon`,
  * and the engine whose frozen clock its window runs on.
  *
  * The calls reach the bridge's own call arm through the shared `withDaemonCall`, which is

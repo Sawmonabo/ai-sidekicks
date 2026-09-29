@@ -1,7 +1,7 @@
 // The pane layout's mount wears the console's one chrome, and the body adds no name of its own.
 //
 // THIS IS THE CLAIM THE SPLIT WAS MADE FOR. While one component drew its own section and
-// head, the pane layout never wrapped it in `seats/PaneFrame`. Nothing failed: the
+// head, the pane layout never wrapped it in `components/PaneFrame`. Nothing failed: the
 // chrome's own suite proves what it renders, and it was right, because the chrome was
 // never reached. The gap was in the REGISTRAR, so every case below drives the registrar
 // rather than the component.
@@ -38,10 +38,11 @@ const ADDRESSED_AGENT_ID = "agent-scout";
 /**
  * What the pane layout hands a pane body's render — derived, never imported by name.
  *
- * The door's own context type still carries a `@consumedBy` exemption for the five pane
- * bodies that have not landed, and knip counts a co-located test as a consumer: naming
- * the type here would retire an exemption four other tasks are still relying on. The
- * registry's method signature is the same contract with no tag on it.
+ * The context type the pane registry exports still carries a `@consumedBy` exemption
+ * for the five pane bodies that have not landed, and knip counts a co-located test as
+ * a consumer: naming the type here would retire an exemption four other tasks are
+ * still relying on. The registry's method signature is the same contract with no tag
+ * on it.
  */
 type RegisteredPaneContext = Parameters<
   NonNullable<ReturnType<PaneRegistry["descriptorFor"]>>["render"]
@@ -110,7 +111,7 @@ async function renderRegisteredAgentsPane(agentId: string | undefined): Promise<
 function accessibleName(named: HTMLElement): string {
   const labelledBy = named.getAttribute("aria-labelledby");
   if (labelledBy === null) {
-    throw new Error("the surface names itself by nothing");
+    throw new Error("the pane names itself by nothing");
   }
   const naming = named.ownerDocument.getElementById(labelledBy);
   if (naming === null) {

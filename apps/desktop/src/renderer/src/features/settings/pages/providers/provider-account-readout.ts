@@ -1,6 +1,6 @@
 // What a watcher of the account-plane reading sees, and the parts it is made of.
 //
-// THE SHAPE, NOT THE WIRE. This module declares what every surface in the window
+// THE SHAPE, NOT THE WIRE. This module declares what every view in the window
 // renders from the account plane: the quota rows, the registry's whole account list and
 // its readiness projection — three folds of one reply. It opens no tail and
 // takes no read.
@@ -34,7 +34,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    * Every account the registry carries, `accountId` to `displayLabel`.
    *
    * The same read and the same tail that feed the quota rows, folded a second way
-   * rather than fetched a second time: any surface that names a paying account holds
+   * rather than fetched a second time: any view that names a paying account holds
    * the daemon-minted handle and needs the operator's word for it, and this window
    * has exactly one reader of the account plane. Empty until the read has served,
    * which is what makes a missing entry mean "not read" rather than "no such
@@ -69,11 +69,11 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
   /**
    * The quota rows the fold currently holds, one per `(accountId, limitId)`.
    *
-   * The wire rows, for the surface that renders a window's own members — its source, its
+   * The wire rows, for the view that renders a window's own members — its source, its
    * reset horizon, the generation it was observed under. SUPERSEDED ALREADY, which is a contract and not a convenience: a
    * consumer renders these as they came and folds them no further, because a second
    * supersession rule downstream of the first does not stay in step with it and the
-   * disagreement is invisible — both surfaces render.
+   * disagreement is invisible — both views render.
    */
   readonly usageWindows: readonly ProviderAccountUsageWindow[];
   /**
@@ -81,8 +81,8 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    *
    * A REPORT AND NEVER A VERDICT. The registered contract is explicit that this says
    * the provider's flow ended and not that the account is authenticated; what it is
-   * good for is the surface that STARTED an attempt and has to know its flow is over,
-   * because a refused cancellation establishes nothing and that surface would otherwise
+   * good for is the view that STARTED an attempt and has to know its flow is over,
+   * because a refused cancellation establishes nothing and that view would otherwise
    * hold its single-flight claim for the life of the window.
    */
   readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
@@ -104,7 +104,7 @@ export interface ProviderAccountReadoutParts {
    * What the deliveries carry that the fold does not hold.
    *
    * The delivery READING rather than one hand-picked member of it: the tail contributes
-   * two things a surface renders and neither belongs to the fold, so a signature naming
+   * two things a view renders and neither belongs to the fold, so a signature naming
    * one of them would have to be widened by every later one — and the composer would
    * then be the place a reader has to look to find out what a tail can say.
    */

@@ -1,7 +1,7 @@
 /* The error boundary: its remount carrier, and its default failure card. */
 
 /* The error boundary's remount carrier. See `ErrorBoundary.tsx` — it holds a React
-   key and must hold no box, or it truncates the surface's percentage-height chain. */
+   key and must hold no box, or it truncates the wrapped region's percentage-height chain. */
 .meridian-render-region {
   display: contents;
 }

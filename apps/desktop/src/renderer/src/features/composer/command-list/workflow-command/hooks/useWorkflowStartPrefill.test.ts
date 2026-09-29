@@ -28,7 +28,7 @@ import { decideWorkflowStartPrefill, useWorkflowStartPrefill } from "./useWorkfl
 const DRAFT_KEY = "composer:workflow-start-prefill";
 
 /** The composer's line, mounted with its palette entry contributed. */
-function mountPrefillSurface(initialText?: string) {
+function mountComposerLine(initialText?: string) {
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   if (initialText !== undefined) {
     draftStore.write(DRAFT_KEY, initialText);
@@ -50,8 +50,8 @@ function lineText(draftStore: DraftStore): string | undefined {
 }
 
 afterEach(() => {
-  // The seat releases on unmount, but a case that threw mid-act would otherwise leave
-  // this window's registry holding the row for the next one.
+  // The hook releases its registration on unmount, but a case that threw mid-act would
+  // otherwise leave this window's registry holding the row for the next one.
   commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
 });
 
@@ -77,7 +77,7 @@ describe("decideWorkflowStartPrefill", () => {
 
 describe("the palette entry", () => {
   it("types the directive onto a line holding nothing", () => {
-    const { draftStore, rendered } = mountPrefillSurface();
+    const { draftStore, rendered } = mountComposerLine();
 
     pressPaletteRow();
 
@@ -88,7 +88,7 @@ describe("the palette entry", () => {
   it("negative control: it does not write over unsent text, and names what would go", () => {
     // The defect. An unconditional write left this line reading
     // `/workflow start ` with the message gone and nothing to recover it from.
-    const { draftStore, rendered } = mountPrefillSurface("ship the parser fix");
+    const { draftStore, rendered } = mountComposerLine("ship the parser fix");
 
     pressPaletteRow();
 
@@ -97,7 +97,7 @@ describe("the palette entry", () => {
   });
 
   it("writes once the person answers the question with Replace", () => {
-    const { draftStore, rendered } = mountPrefillSurface("ship the parser fix");
+    const { draftStore, rendered } = mountComposerLine("ship the parser fix");
     pressPaletteRow();
 
     act(() => {
@@ -109,7 +109,7 @@ describe("the palette entry", () => {
   });
 
   it("leaves the line exactly as it was when the person keeps it", () => {
-    const { draftStore, rendered } = mountPrefillSurface("ship the parser fix");
+    const { draftStore, rendered } = mountComposerLine("ship the parser fix");
     pressPaletteRow();
 
     act(() => {
@@ -124,19 +124,19 @@ describe("the palette entry", () => {
     // What the write must not destroy is whatever is in the line when the row is
     // pressed; a value closed over at render is a value from before the last
     // keystroke.
-    const { draftStore, rendered } = mountPrefillSurface();
+    const { draftStore, rendered } = mountComposerLine();
     act(() => {
-      draftStore.write(DRAFT_KEY, "typed after this surface rendered");
+      draftStore.write(DRAFT_KEY, "typed after this line rendered");
     });
 
     pressPaletteRow();
 
-    expect(lineText(draftStore)).toBe("typed after this surface rendered");
-    expect(rendered.result.current.displacedText).toBe("typed after this surface rendered");
+    expect(lineText(draftStore)).toBe("typed after this line rendered");
+    expect(rendered.result.current.displacedText).toBe("typed after this line rendered");
   });
 
   it("is registered under the command root, so one command has one name", () => {
-    mountPrefillSurface();
+    mountComposerLine();
 
     expect(commandRegistry.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
     // The superseded dotted id is nobody's command: the palette, the recognizer, and

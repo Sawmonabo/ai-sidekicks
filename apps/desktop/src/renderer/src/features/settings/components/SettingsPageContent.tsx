@@ -5,7 +5,7 @@
 // one brief highlight". Two of the three are this file's; the scroll is the
 // PLATFORM's, reached by moving focus to the page's heading. `scrollIntoView` is a
 // standing tripwire in this console, and the programmatic-scroll chokepoint the
-// transcript family owns does not exist in this tree yet — so a scroll writer minted
+// transcript feature owns does not exist in this tree yet — so a scroll writer minted
 // here would be exactly the second one that rule exists to prevent. Focus is not a
 // scroll writer: it is what a keyboard reader needs anyway, and the viewport
 // following it is the browser's own behavior rather than this module's.
@@ -28,7 +28,7 @@ export interface SettingsPageContentProps {
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
-   * How many search hits this surface has opened. Moves on every hit, including a
+   * How many search hits this pane has opened. Moves on every hit, including a
    * second hit on the section already open — the case a boolean could not express,
    * and the one where a reader most needs to be told they did not move.
    */
@@ -50,7 +50,7 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
   const { settleOrdinal } = props;
 
   useEffect(() => {
-    // Ordinal zero is the surface opening rather than a hit, so nothing settles
+    // Ordinal zero is the pane opening rather than a hit, so nothing settles
     // before anybody has searched — a page that flashed on arrival would be saying
     // "you landed here" to a person who navigated by the rail.
     if (settleOrdinal === 0) {

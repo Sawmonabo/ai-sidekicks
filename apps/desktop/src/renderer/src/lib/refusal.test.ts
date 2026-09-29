@@ -1,11 +1,11 @@
 // The refusal shape, driven rather than described.
 //
-// `Refusal` exists so that five producers stop minting five vocabularies for
-// three renderers, and the whole value of that is structural: the shape has to be
-// recognizable from OUTSIDE the module that built it, because a refusal crossing a
-// family boundary arrives as an `unknown` result or a caught error. So the cases
-// below are about recognition and about what survives the trip — the guard, the
-// message an error carries, and the refusal an error still holds after the throw.
+// `Refusal` gives five producers one vocabulary for three renderers, and the whole
+// value of that is structural: the shape has to be recognizable from OUTSIDE the module
+// that built it, because a refusal crossing a layer boundary arrives as an `unknown`
+// result or a caught error. So the cases below are about recognition and about what
+// survives the trip — the guard, the message an error carries, and the refusal an error
+// still holds after the throw.
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { RefusalError, isRefusal, refuse, type Refusal, type NarrowedRefusal } from "./refusal.js";
@@ -65,7 +65,7 @@ describe("refuse — the producer's own union survives the call", () => {
   it("negative control: a refusal typed to one member refuses another member's value", () => {
     // Without this, the case above would pass against a builder that answered `any`
     // on `code` — which narrows nothing and would let every producer's vocabulary
-    // through every producer's door. `NarrowedRefusal<"a">` is the target a producer
+    // through every producer's boundary. `NarrowedRefusal<"a">` is the target a producer
     // annotates, and a `"b"` refusal is not one.
     // @ts-expect-error TS2322: `"b"` is not assignable to the `"a"` this target holds.
     const mismatched: NarrowedRefusal<"a"> = refuse("producer", "b", "detail");
@@ -115,7 +115,7 @@ describe("RefusalError — a refusal that had to travel as an exception", () => 
   });
 });
 
-describe("isRefusal — recognition across a family boundary", () => {
+describe("isRefusal — recognition across a layer boundary", () => {
   it("accepts what refuse built", () => {
     expect(isRefusal(refuse("persistence", "quota-exhausted", "detail"))).toBe(true);
   });
@@ -166,9 +166,9 @@ describe("isRefusal — total, because every caller is already on a failure path
         },
       },
     );
-    // The negative control, and it is the whole reason this case exists: the read the
-    // guard used to perform THROWS on this value. A predicate that throws is not a
-    // guard — it escapes the `catch` that called it and unmounts the surface whose
+    // The negative control, and it is the whole reason this case exists: a direct read
+    // of this value THROWS. A predicate that throws is not a
+    // guard — it escapes the `catch` that called it and unmounts the component whose
     // only job was to report the failure.
     expect(() => readDirectly(hostile)).toThrow();
     expect(isRefusal(hostile)).toBe(false);

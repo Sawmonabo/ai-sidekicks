@@ -2,7 +2,7 @@
 // directory that need one as INPUT.
 //
 // The runtime imports no scenario from the corpus above it — that is what lets the
-// engine change without touching a family's fixture, and the corpus grow without
+// engine change without touching a feature's fixture, and the corpus grow without
 // touching the engine. A suite here that needs a scenario to drive therefore declares
 // one, and declares it once: three of them do, and a fourth copy of these eight members
 // would be a second answer to "what is the smallest scenario the runtime accepts".

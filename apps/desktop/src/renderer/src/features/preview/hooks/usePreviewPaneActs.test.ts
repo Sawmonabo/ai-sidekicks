@@ -71,7 +71,7 @@ function subject(paneId: string, bridge?: PlatformBridge): ActSubject {
 /**
  * The hook under one subject, with the re-render that hands it another.
  *
- * `renderHook`'s props are the whole point here: a pane layout rebinding a slot keeps the
+ * `renderHook`'s props are the whole point here: a pane layout rebinding a pane slot keeps the
  * hook instance and changes its inputs, and a suite that could only mount a fresh
  * hook would never reach the interval this module's stamp exists for.
  */

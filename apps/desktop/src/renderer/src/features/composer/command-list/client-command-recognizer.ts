@@ -2,8 +2,8 @@
 //
 // The slash prefix is reserved for CLIENT commands: a registered one is executed by
 // the client and never composes into a message, a context, or a provider turn on any
-// path. The other half is closed the same way — the provider's own commands are a
-// DISCOVERY surface, and exactly one enumerated entry, the compaction command, is
+// path. The other half is closed the same way — the provider's own commands are
+// DISCOVERY only, and exactly one enumerated entry, the compaction command, is
 // sent through its own control and never through a typed line.
 //
 // So this module answers exactly two things about a name, and both are about the
@@ -22,7 +22,7 @@
 // THE MATCH IS ON THE COMMAND ID, EXACTLY. Console command ids are the console's
 // public vocabulary — `frame.goToSettings`, `bridge.copyBuildDetails` — and a person
 // can bind one on the Keyboard page. A second, friendlier alias vocabulary resolved
-// here would be a naming scheme only this surface knew, and the first collision
+// here would be a naming scheme only this composer knew, and the first collision
 // between an alias and an id would be resolved by whichever branch was written first.
 // The discovery popover lists the ids, so the exact string is something a person
 // reads rather than guesses.

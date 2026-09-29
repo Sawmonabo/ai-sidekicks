@@ -1,12 +1,12 @@
 // Under what sandbox, network, and credential boundary the work actually ran.
 //
-// The session composer settles what a posture surface may claim: it renders the run's
+// The session composer settles what a posture card may claim: it renders the run's
 // stamped execution posture from the `run.running` row's `executionPosture` member — a
 // projection of the daemon's stamp and never of a request, because no wire member
 // carries a posture request — and it offers no mutation. The five Nevers below are this
 // component's own reading of that. The shape is the provider-driver contract's
 // `ExecutionPosture`, imported rather than restated — it is one of the few things on
-// this surface the wire actually registers today, and its two cross-field invariants
+// this card the wire actually registers today, and its two cross-field invariants
 // (`allowedDomains` only under `allowed-domains`, `credentialPolicyRef` required on
 // both sandboxed modes and forbidden under `trusted`) are encoded structurally there,
 // so this component renders them rather than re-checking them.

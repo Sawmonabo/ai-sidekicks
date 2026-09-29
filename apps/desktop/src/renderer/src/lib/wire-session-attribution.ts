@@ -8,14 +8,13 @@
 // so a payload variant the strict union does not register — which is most of them —
 // arrives whole and unexamined. A frame whose payload names another session therefore
 // reaches a fold that keys a mutation off it, and lands that session's entity in this
-// session's partition, where every surface reading the partition then treats it as a
+// session's partition, where every view reading the partition then treats it as a
 // member of this session.
 //
-// IT LIVES IN `core/` BECAUSE ITS READERS ARE AT THREE DIFFERENT HEIGHTS. The run fold
-// is in `frame/`, the approval fold in `bridge/`, and the presence fold in a VIEW
-// family — and a view family may import neither of the other two. The floor is the
-// only home all three share, and this module needs nothing to be there: no store type,
-// no contracts schema, no React. It is `core/wire-strings.ts`'s neighbor rather than
+// IT LIVES IN `lib/` BECAUSE IT NEEDS NOTHING ABOVE IT. Its readers are the store's
+// folds — the run fold, the approval fold, and the waiting-on-person identity check —
+// and this module needs nothing to sit below all of them: no store type, no contracts
+// schema, no React. It is `wire-strings.ts`'s neighbor rather than
 // another of its exports for that module's own stated reason — it is named for the
 // noun it owns and its header is the string rule end to end, and none of those
 // sentences is about two members that have to agree.

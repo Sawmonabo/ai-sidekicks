@@ -1,9 +1,7 @@
 // Who owns a session store's life.
 //
-// There is one zustand store behind each OPEN session. That sentence needs an owner,
-// and until this class there was none: the composition root held a bare `Map` in a ref
-// and constructed a store inside a render body, which is the shape the design rules
-// reject — a store created during render is created again on any discarded render pass,
+// There is one zustand store behind each OPEN session, and that needs an owner outside
+// React: a store created during render is created again on any discarded render pass,
 // and every event applied to the discarded one is silently gone.
 //
 // So the lifecycle lives here, in one encapsulated class. What ONE open session is
@@ -14,7 +12,7 @@
 //
 // TWO OPENS OF ONE SESSION ARE ONE STORE. `open` is idempotent by session id — a
 // second call returns the store the first made, because two stores for one session
-// would each hold half the event stream and every surface would render whichever
+// would each hold half the event stream and every view would render whichever
 // half it happened to be handed.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
@@ -87,7 +85,7 @@ export class SessionStoreRegistry {
   /**
    * Open a session, or return the store it already has.
    *
-   * Idempotent by design, so a second surface opening the same session joins the
+   * Idempotent by design, so a second view opening the same session joins the
    * first one's store rather than starting a rival projection of the same stream.
    */
   public open(sessionId: string): SessionStore {
@@ -129,7 +127,7 @@ export class SessionStoreRegistry {
   }
 
   /**
-   * How many sessions are open. An assertion seam: tests read it, and every surface
+   * How many sessions are open. An assertion seam: tests read it, and every view
    * that needs the SET reads `openSessionIds`, whose identity is stable enough to
    * subscribe through — which a count is not.
    */
@@ -240,9 +238,9 @@ export class SessionStoreRegistry {
    * What the newest completed read of one session said about resuming its stream,
    * or `undefined` when that session is not open or no read has landed on it.
    *
-   * The registry's own seam onto the entry's decision, so a surface that holds a
-   * session id can reach it without holding the entry — which nothing outside this
-   * family does, by design.
+   * The registry's own seam onto the entry's decision, so a view that holds a
+   * session id can reach it without holding the entry — which nothing outside the
+   * registry does, by design.
    */
   public timelineResumeFor(sessionId: string): TimelineResumeDecision | undefined {
     return this.#entriesBySessionId.get(sessionId)?.timelineResume;
@@ -266,7 +264,7 @@ export class SessionStoreRegistry {
   /**
    * How many reads a session's scheduler has performed. The coalescing assertion.
    *
-   * An assertion seam: its readers are tests, and no surface renders it. Said here
+   * An assertion seam: its readers are tests, and no view renders it. Said here
    * rather than left to be inferred, because a member with no production reader and
    * no stated intention is indistinguishable from one whose consumer was forgotten.
    */
@@ -278,7 +276,7 @@ export class SessionStoreRegistry {
    * How many drains a session's queue has performed. The coalescing assertion.
    *
    * An assertion seam, on the same terms as the read count above: tests read it and
-   * no surface does.
+   * no view does.
    */
   public applyDrainCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.applyQueue.drainCount ?? 0;
@@ -296,7 +294,7 @@ export class SessionStoreRegistry {
     return this.#changes.subscribe(listener);
   }
 
-  /** Listeners attached. Read by tests and by the diagnostics surface. */
+  /** Listeners attached. Read by tests. */
   public get listenerCount(): number {
     return this.#changes.sinkCount;
   }
@@ -307,7 +305,7 @@ export class SessionStoreRegistry {
    * them could be asked about.
    *
    * An assertion seam on the same terms as the read and drain counts: its readers are
-   * tests and no surface renders it. `disposeAll` clearing this emitter is otherwise
+   * tests and no view renders it. `disposeAll` clearing this emitter is otherwise
    * unobservable from outside — every entry is closed in the same act, so no later
    * settlement can be raised to prove the sinks went with them, and a subscriber left
    * attached to a disposed registry would keep a React tree's closure alive with

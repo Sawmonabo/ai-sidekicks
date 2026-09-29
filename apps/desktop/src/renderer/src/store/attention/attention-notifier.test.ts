@@ -39,7 +39,7 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
  * The address set is what makes a session's items announceable at all, and these
  * cases are about the OTHER rules — the dedup, the cap — so they read
  * over a window that has been watching both sessions all along. The ordering matrix
- * next door is where the set itself moves.
+ * in `attention-notifier.address-set.test.ts` is where the set itself moves.
  */
 const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 

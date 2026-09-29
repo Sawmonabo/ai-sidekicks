@@ -1,15 +1,10 @@
 // The four moments a console reading re-reads, wired once for every reading.
 //
 // A READING IS NOT A SUBSCRIPTION. Every read this console performs answers a
-// question at one instant, and four things make that answer stale: a surface
+// question at one instant, and four things make that answer stale: a view
 // arriving that has never had one, the window coming back after time passed
 // elsewhere, a stream that went away and came back, and an event in this session's
-// own timeline saying the answer changed. Each reading used to wire whichever
-// subset its author remembered — the approvals reader had all four, the
-// driver-capability read had three split across two hooks that each held their own
-// copy of the memory, and the queue and quota readings had none at all, so a list
-// read once at mount stayed on screen through a reconnect with nothing saying it
-// was old.
+// own timeline saying the answer changed.
 //
 // THE VOCABULARY IS `RefreshReason`'S AND THE COALESCING IS `RefreshScheduler`'S.
 // This module wires and schedules nothing itself: a reading hands it the one method
@@ -17,13 +12,9 @@
 // costs. What this module adds is that the wiring has ONE home, so a reading added
 // later cannot quietly ship with two of the four.
 //
-// WHERE THE REPAIR EDGE IS DETECTED. Here, and only here. The console used to carry
-// a `SessionRepairWatcher` in the bridge family that two callers each held their own
-// instance of; this family sits BELOW that one in the module DAG, so importing it
-// would have been exactly the upward edge the structure gate refuses. Rather than
-// keep a second copy of a four-line flip, the flip moved into this module's own
-// memory — beside the timeline cursor it is minted and discarded with, because they
-// are one memory of one session's history — and the bridge module was deleted.
+// WHERE THE REPAIR EDGE IS DETECTED. Here, and only here: the flip lives in this
+// module's own memory, beside the timeline cursor it is minted and discarded with,
+// because they are one memory of one session's history.
 import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 
@@ -38,8 +29,8 @@ export interface ReadTriggerTarget {
   /**
    * The session-event kinds whose arrival owes this reading a fresh read.
    *
-   * DECLARED BY THE READING and not passed by the surface that mounts it, because
-   * which events change an answer is a property of the QUESTION: two surfaces asking
+   * DECLARED BY THE READING and not passed by the view that mounts it, because
+   * which events change an answer is a property of the QUESTION: two views asking
    * the same one must not disagree about when it goes stale. An empty set is a real
    * answer rather than an omission — a reading whose own live tail is the authority
    * for what it holds learns nothing from the timeline, and says so.
@@ -80,7 +71,7 @@ export interface ReadTriggerTarget {
  * one mounted by React, one minted in a resource seam — and the comment at the head of
  * that module states the rule they are held to: two wirings are honest and two
  * VOCABULARIES are not. A reading whose frame-level admission was consulted by one of
- * them and not the other would go stale on exactly the surfaces wired the other way,
+ * them and not the other would go stale on exactly the views wired the other way,
  * which is a defect no test of either module alone would report.
  *
  * The kind is checked FIRST and the predicate only after, so a reading pays the cost of

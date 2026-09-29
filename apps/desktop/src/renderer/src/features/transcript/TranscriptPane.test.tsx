@@ -1,6 +1,6 @@
 // What this pane hands its chrome, and the hole in the middle of it.
 //
-// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/PaneFrame`'s:
+// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `components/PaneFrame`'s:
 // which controls it draws and when, that a pane is named by its whole trail, that an
 // unattributed pane borrows nobody's hue, and that a mismatched address is refused
 // rather than thrown are all claims about that component, asserted once beside it.
@@ -90,9 +90,10 @@ describe("TranscriptPane — what it hands the chrome", () => {
   });
 
   it("negative control: an unattributed pane has no hue written on it", () => {
-    // Fail-closed, rule 2, and the half this pane owns: it passes `undefined`
-    // through rather than defaulting to a token of its own. The neutral boundary
-    // the ring then takes is `seats/pane-chrome.css`' fallback, which is one answer
+    // Fail-closed, because a pane with no actor must not borrow somebody's hue, and the
+    // half this pane owns: it passes `undefined` through rather than defaulting to a
+    // token of its own. The neutral boundary the ring then takes is `PaneFrame.css`'
+    // fallback, which is one answer
     // rather than a default written here and a fallback written there.
     const pane = renderPane({ context: paneContext() });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("");
@@ -110,7 +111,7 @@ describe("TranscriptPane — the body", () => {
   });
 
   it("mounts the transcript and renders one row per admitted event", () => {
-    // The positive control for the whole composition: the seat is filled, a store is
+    // The positive control for the whole composition: a row renderer is registered, a store is
     // open, and a log has landed in it, so the projection has to reach the screen.
     // Every earlier case here is an absence, and a pane that rendered NOTHING but
     // absences would have passed all of them.

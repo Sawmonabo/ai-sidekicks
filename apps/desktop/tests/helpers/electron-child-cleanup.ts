@@ -11,7 +11,7 @@
 // profile before the spawn — the path is a spawn argument — and
 // `spawnManagedElectronChild` throws when its settle-time registration refuses,
 // which is what a spawn from `beforeAll` reaches. The kill is already covered
-// there: the door disposes the child before it rethrows. What survived was the
+// there: the spawner disposes the child before it rethrows. What survived was the
 // directory alone, and both of this package's Electron spawners had that shape
 // identically, which is why the guard is here rather than twice at the call sites.
 //
@@ -19,8 +19,8 @@
 // be: this module registered a second settle-time disposer of its own, after the
 // one the spawn armed — and Vitest runs those in registration STACK order, so
 // the removal ran first, under a tree whose kill the platform had refused, while
-// the door's own disposer killed it afterwards with no removal behind it. So the
-// release travels INTO the spawn as `releaseAfterTermination` and the door
+// the spawner's own disposer killed it afterwards with no removal behind it. So the
+// release travels INTO the spawn as `releaseAfterTermination` and the spawner
 // sequences both. `OrderedChildTeardown` in `electron-child.ts` has the leak.
 
 import {

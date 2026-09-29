@@ -3,18 +3,15 @@
 // `PlatformBridge.daemon.subscribe` is declared over the same `never`-shaped brand
 // its `call` sibling is: no string literal is assignable until that brand narrows to
 // the real name union, so every caller in this repository casts. This module is the
-// console's single copy, and it is a seat rather than any one family's module because
-// several view families subscribe through it — which is well past the second use
-// `apps/desktop/AGENTS.md` hoists on. When the brand narrows, exactly one file changes
-// and the models above it do not.
+// console's single copy, and it sits in `services/daemon/` rather than in any one
+// feature because several features subscribe through it, and a helper a second
+// feature needs is hoisted rather than written twice. When the brand narrows,
+// exactly one file changes and the models above it do not.
 //
-// THE CALL SIDE IS NOT HERE, AND ITS ABSENCE IS THE POINT. This module used to cast
-// `daemon.call` the same way, with each caller pinning the request and response
-// types by hand and nothing checking that the pin matched the wire. That is now
-// `services/daemon/daemon-reply.ts`: a registry keyed by method name, holding the contracts
-// package's own schemas, parsing the request before it goes and the reply when it
-// lands. A second call door here would be a second answer to which methods exist
-// and what they carry — so there is one, and it is next door.
+// THE CALL SIDE IS NOT HERE. `services/daemon/daemon-reply.ts` answers calls: a
+// registry keyed by method name, holding the contracts package's own schemas,
+// parsing the request before it goes and the reply when it lands. A second call path
+// here would be a second answer to which methods exist and what they carry.
 //
 // WHY A SUBSCRIPTION STILL CASTS. A subscribe names a STREAM and answers with an
 // unsubscribe handle; it has no reply to parse, so the registry has nothing to bind
@@ -29,16 +26,16 @@ import { type PlatformBridge } from "../platform/platform-bridge.js";
  * Subscribe to one daemon event.
  *
  * The handler's payload is typed by the caller for the same reason and from the
- * same place. A surface that treats the payload as an opaque change signal — which
+ * same place. A caller that treats the payload as an opaque change signal — which
  * is what presence does — types it as `void` and reads nothing out of it.
  *
- * THE OPEN IS REPORTED, through the bridge family's own rule for what an open proves
- * (`services/transport/observed-subscription.ts`). Every view family that subscribes
- * reaches the wire here, so this is one of the console's few live readings of whether
- * the transport is there at all — and the window's retry of a session whose own bind
+ * THE OPEN IS REPORTED, through `services/transport/observed-subscription.ts`, which
+ * holds what an open proves. Every feature that subscribes reaches the wire here, so
+ * this is one of the console's few live readings of whether the transport is there
+ * at all — and the window's retry of a session whose own bind
  * failed depends on a reading taken somewhere other than that binding.
  *
- * @consumedBy a surface that listens for one daemon event
+ * @consumedBy a view that listens for one daemon event
  */
 export function subscribeDaemonEvent<TPayload>(
   bridge: PlatformBridge,

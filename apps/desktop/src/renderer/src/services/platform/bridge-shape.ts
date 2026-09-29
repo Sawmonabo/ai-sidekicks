@@ -52,7 +52,7 @@ export const DESKTOP_BRIDGE_NAMESPACES: readonly DesktopBridgeNamespace[] = Obje
   BRIDGE_NAMESPACE_PRESENCE,
 ) as DesktopBridgeNamespace[];
 
-/** One bridge's runtime surface: namespace to `member: typeof` entries, sorted. */
+/** One bridge's runtime members: namespace to `member: typeof` entries, sorted. */
 export type BridgeShape = ReadonlyMap<string, readonly string[]>;
 
 /** A shape and what to call it in a difference report. */
@@ -78,7 +78,7 @@ const BRIDGE_SIGNAL_MEMBERS: Readonly<
  *
  * OWN enumerable keys only, at both levels. `contextBridge` hands the renderer a
  * plain object graph — nothing is a class instance and nothing inherits — so the
- * own keys are the whole surface, while walking the prototype chain would pick up
+ * own keys are every member there is, while walking the prototype chain would pick up
  * `Object`'s members and make every namespace look alike.
  *
  * Takes `PlatformBridge` and not `unknown`: the callers hold typed bridges, and a

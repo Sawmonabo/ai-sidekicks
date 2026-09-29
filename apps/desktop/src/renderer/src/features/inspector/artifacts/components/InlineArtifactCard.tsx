@@ -3,10 +3,11 @@
 // Diffs, attachments and published artifacts go in the transcript as cards inside the row
 // that produced them, because they belong to that turn.
 //
-// Two features meet at the seat and neither imports the other: the transcript renders the
-// seat and the inspector owns the body, registered from `contributions/inline-cards.ts`.
+// Two features meet at the inline card registry and neither imports the other: the
+// transcript renders the registered card and the inspector owns the body, registered from
+// `contributions/inline-cards.ts`.
 //
-// The seat hands over a `EntityRef` and no manifest or bridge, so this body makes no
+// The registry hands over an `EntityRef` and no manifest or bridge, so this body makes no
 // read: it renders the identity it was given, and the manifest row when its caller has one.
 
 import "./inline-artifact-card.css";

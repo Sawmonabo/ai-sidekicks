@@ -1,15 +1,15 @@
-// The screenshot tier: the workflows family's three surfaces, per scheme.
+// The screenshot tier: the workflows feature's three views, per scheme.
 //
 // `settled-capture.ts` owns the mechanism this file rides: every capture is written
 // into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether each surface can be captured at all.
+// gates on whether each view can be captured at all.
 //
-// WHAT IS PINNED. The family ships one destination screen and two panes, and each is
+// WHAT IS PINNED. The feature ships one destination screen and two panes, and each is
 // captured here as it draws with no call to read a run or a definition through: the
 // destination's frame, the run pane addressed at a run, and the builder pane on a
-// definition with its node-graph and drafts slots.
+// definition with its node-graph and drafts regions.
 //
-// Three surfaces and two schemes is six captures, written afresh on whichever host
+// Three views and two schemes is six captures, written afresh on whichever host
 // runs the tier.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
@@ -27,13 +27,13 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The surfaces this tier captures, each with the name its image is written under.
+ * The views this tier captures, each with the name its image is written under.
  *
  * A table rather than two near-identical suites: the cases differ only in which
- * surface is mounted, and a copy of the same six lines is a second place for the
+ * view is mounted, and a copy of the same six lines is a second place for the
  * scheme emulation or the skip guard to be forgotten.
  */
-const PINNED_SURFACES: readonly {
+const PINNED_VIEWS: readonly {
   readonly captureName: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
@@ -53,16 +53,16 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("screenshot — the workflows surfaces", () => {
-  for (const surface of PINNED_SURFACES) {
+describe("screenshot — the workflows views", () => {
+  for (const view of PINNED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
-      it(`renders ${surface.captureName} in the ${scheme} scheme`, async () => {
+      it(`renders ${view.captureName} in the ${scheme} scheme`, async () => {
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.
         await emulateSystemScheme(scheme);
-        const mounted = await surface.mount();
-        await captureSettled(mounted.element, `${surface.captureName}-${scheme}`);
+        const mounted = await view.mount();
+        await captureSettled(mounted.element, `${view.captureName}-${scheme}`);
       });
     }
   }

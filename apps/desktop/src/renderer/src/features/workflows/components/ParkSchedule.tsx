@@ -3,8 +3,8 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, which is the package's
 // one-component-per-`.tsx` rule: a module holding three components is a module whose
 // name answers for one of them, and the other two are reached only by reading the
-// file. `primitives/reading/ReadingNotice.tsx` is the precedent — a deep relative import from
-// its host, and no door line, because nothing outside this family composes it.
+// file. The badge imports it by relative path and the feature's `index.ts` does not
+// export it, because nothing outside the workflows feature composes it.
 //
 // THE UNSCHEDULED REMEDIES TRAVEL WITH IT. That table has exactly one reader and it is
 // the component below; a remedy sentence in one module and the only line that renders
@@ -37,9 +37,9 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
  * THE ARMED INSTANT CARRIES ITS DATE. A badge stands wherever a parked phase does —
  * in a run row, in the run pane's stack of cards — and none of those places carries a
  * day divider, which is the only thing that makes the transcript's date-free reading
- * unambiguous. This surface used to render that reading, so a resume armed for
- * tomorrow morning and one armed for next week's were the same four digits on screen,
- * and the wire instant behind them was reachable only by hovering. `formatDateTime`
+ * unambiguous. In that reading a resume armed for tomorrow morning and one armed for
+ * next week's would be the same four digits on screen, with the wire instant behind
+ * them reachable only by hovering. `formatDateTime`
  * is the figure chokepoint's reading for exactly this position.
  */
 export function ParkSchedule(props: {

@@ -34,12 +34,12 @@ export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
 /**
  * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
  *
- * A terminal is not a one-way door. A rollback accepted from a finished run appends
- * a pause and a rewind for that same run before it can resume, so a run group that
- * only ever ACQUIRED a terminal kept a completion the daemon had already undone: it
- * stayed folded by rule 7's default, its header went on reading the old ending, and
- * every row appended after the rewind sat behind a receipt for something that did
- * not happen.
+ * A terminal is not final. A rollback accepted from a finished run appends a pause and
+ * a rewind for that same run before it can resume, so a run group that only ever
+ * ACQUIRED a terminal would keep a completion the daemon had already undone: it would
+ * stay folded, since finished run groups fold by default, its header would go on
+ * reading the old ending, and every row appended after the rewind would sit behind a
+ * receipt for something that did not happen.
  *
  * WHY THESE SEVEN AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers
  * thirteen `run_lifecycle` types: the nine run-state-machine states, the forward

@@ -1,4 +1,4 @@
-// One scripted reply, settled on the frozen clock: the seam the fixture's call door
+// One scripted reply, settled on the frozen clock: the seam the fixture bridge's `call`
 // answers request/response calls through.
 //
 // `scenario.ts` deliberately stops short of naming a refusal: its `holdReply` reports
@@ -133,7 +133,7 @@ export async function settleScriptedReply(
  * not the fixture's, and `src/shared/wire-errors.ts` records that a wire refusal
  * reaches a renderer either as this plain object or as an `Error` carrying the same
  * `code` — `normalizeWireRejection` renders both as `code: message`. Wrapping it in a
- * `FixtureBridgeError` would replace the code a surface exists to show with a
+ * `FixtureBridgeError` would replace the code the refusal card exists to show with a
  * fixture-scoped one and make the rendered refusal a thing the live bridge never
  * produces.
  *
@@ -150,7 +150,7 @@ export async function resolveScriptedReply(
       throw new FixtureBridgeError(
         call,
         "reply-unscripted",
-        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the surface render an empty result for a call that would have failed.`,
+        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the view render an empty result for a call that would have failed.`,
       );
     case "unanswered":
       throw new FixtureBridgeError(call, settlement.code, settlement.detail);
@@ -167,8 +167,8 @@ export async function resolveScriptedReply(
  * THE SAME REGISTRY THE CONSOLE READS THROUGH. `daemon-reply.ts` parses every live
  * reply against `daemon-reply-registry.ts`; this reads the same table, so a scenario
  * that scripts a reply the wire could not send fails in the scenario's own tests
- * rather than in whichever surface renders it — the `scenario-wire-truth` posture,
- * moved onto the call door. Two tables would let the fixture teach a shape the
+ * rather than in whichever view renders it. The fixture bridge's `call` is held to the
+ * registered shapes as its event streams are. Two tables would let the fixture teach a shape the
  * console then refuses, with both halves green.
  *
  * ASSERTS, AND DOES NOT SUBSTITUTE. The ORIGINAL value travels on, never the parsed
@@ -192,7 +192,7 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
     throw new FixtureBridgeError(
       method,
       "reply-off-contract",
-      "the scenario scripts a reply this build does not register for that method. Script the registered shape rather than teaching a surface a frame the daemon cannot send.",
+      "the scenario scripts a reply this build does not register for that method. Script the registered shape rather than teaching a view a frame the daemon cannot send.",
     );
   }
   return value;
@@ -203,6 +203,6 @@ function unansweredReplyDetail(
   outcome: "abandoned" | "backlog-full",
 ): string {
   return outcome === "abandoned"
-    ? "the scenario engine was torn down before the frozen clock reached this reply. Advance the engine before disposing it, or drive this surface from a scenario that scripts no latency for the call."
+    ? "the scenario engine was torn down before the frozen clock reached this reply. Advance the engine before disposing it, or drive this view from a scenario that scripts no latency for the call."
     : `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies and takes no more. Advance the frozen clock to release them; a backlog this size means something is issuing requests without ever moving the scenario forward.`;
 }

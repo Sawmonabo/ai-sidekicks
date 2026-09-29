@@ -1,6 +1,6 @@
 // The re-attach a person pressed goes on being reported after the dialog shuts.
 //
-// THE SAME DEFECT AS `execution-roots/RootRemovalConfirmation.test.tsx` PINS, on the family's
+// THE SAME DEFECT AS `execution-roots/RootRemovalConfirmation.test.tsx` PINS, on the repo mounts'
 // other alert dialog. The confirm control is an `AlertDialog.Close`, so it sends and
 // closes in one act; a discard wired to every close fires straight after `attach()`
 // published `sending`, and the card falls back to idle with its trigger live again

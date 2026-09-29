@@ -1,7 +1,7 @@
 // The take control is gated on knowing which device this is.
 //
 // The last of the line's prohibitions, and its own file because it is the one that
-// withholds the control entirely: the surface acts on this device's behalf and the fold
+// withholds the control entirely: the control acts on this device's behalf and the fold
 // names the holder by user id, so until that identity has been READ there is no
 // control here at all, and no sentence standing where it would be. A control offered
 // without it is one the daemon will honor and this line will then report as a hold

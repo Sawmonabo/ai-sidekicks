@@ -27,9 +27,10 @@
 // that session and no stream feeding it.
 //
 // THERE IS NO BACKOFF HERE BECAUSE THERE IS NO TIMER HERE. A retry that fails again
-// reports `unreachable` through the same subscription door, which puts the signal back
-// where it was: the wire is away, and the NEXT returning edge is another attempt. That
-// is the whole retry ladder, and it is the signal's rather than this class's.
+// reports `unreachable` through the same `openObservedSubscription` call, which puts the
+// signal back where it was: the wire is away, and the NEXT returning edge is another
+// attempt. That is the whole retry ladder, and it is the signal's rather than this
+// class's.
 
 /**
  * What a pass needs of the binder around it, in the three questions it asks.

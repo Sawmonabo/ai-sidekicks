@@ -66,7 +66,7 @@ describe("the value-class enumeration is declared once and reaches a validator",
     // pass both cases above.
     expect(validatePersistedValue("scheme", "dark")).toBeUndefined();
     expect(validatePersistedValue("expansion", ["run-01", "run-02"])).toBeUndefined();
-    expect(validatePersistedValue("scroll-position", { timeline: 240 })).toBeUndefined();
+    expect(validatePersistedValue("scroll-position", { transcript: 240 })).toBeUndefined();
   });
 
   it("refuses prose through the write chokepoint, whatever class is claimed", () => {
@@ -101,10 +101,10 @@ describe("the value-class enumeration is declared once and reaches a validator",
 });
 
 describe("a persistence refusal IS a console refusal", () => {
-  it("carries the console's three fields, with this family named as the origin", () => {
+  it("carries the console's three fields, with persistence named as the origin", () => {
     const refusal = refusePersistence("quota-exceeded", "there is no room left");
 
-    // The point of the fold: a surface that renders console refusals renders this
+    // The point of the fold: a view that renders console refusals renders this
     // one without knowing the persistence subtree exists.
     expect(isRefusal(refusal)).toBe(true);
     expect(refusal.origin).toBe(PERSISTENCE_REFUSAL_ORIGIN);

@@ -2,14 +2,14 @@
 //
 // The console is held to WCAG 2.2 AA, and SC 1.4.10 (Reflow) is
 // the one criterion in it that no rule in this directory's axe runs can reach —
-// `axe-tags.test.ts` records that the 2.2 tags select `target-size` and nothing
+// `axe-run.test.ts` records that the 2.2 tags select `target-size` and nothing
 // else at this pin, and reflow is a property of a layout at a width rather than of
 // a node. So this file narrows the page to `REFLOW_MIN_WIDTH_PX`, the floor
 // `tokens/palette.ts` declares and `frame.css` spends, and reads what would still
 // need a sideways scroll.
 //
 // THE THREE RAIL DESTINATIONS, DERIVED AND NOT LISTED. `RAIL_DESTINATIONS` is the
-// routing family's closed tuple and `routeForDestination` is the frame's map from
+// routing module's closed tuple and `routeForDestination` is the frame's map from
 // one to an address, so a fourth destination is audited here the day it is declared
 // rather than the day somebody remembers this file. They are the whole of what the
 // main window opens at, which is what makes them the criterion's subject: reflow is
@@ -43,8 +43,8 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-// The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
-// family's stylesheet behind its own barrel, and the case below is about what that
+// The sessions feature's screen registration, imported for its side effect: it reaches the
+// flyout that imports the feature's stylesheet, and the case below is about what that
 // stylesheet computes to when the row is given a column narrower than its text.
 import "@renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
@@ -105,7 +105,7 @@ describe("reflow — the console at 320 CSS px", () => {
       // rather than inferred from the assertion that follows it.
       expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
       // The whole document, not the mounted container: the criterion is about a page
-      // scrolling in two dimensions, and a surface that pushes the document wider
+      // scrolling in two dimensions, and a view that pushes the document wider
       // does it through whichever boxes sit between them.
       expect(describeHorizontalOverflow(document.documentElement)).toStrictEqual([]);
     });
@@ -115,7 +115,7 @@ describe("reflow — the console at 320 CSS px", () => {
   // column: `settings-page.css` sets its prose measure in `ch`, lays field groups
   // out on an auto-fitting track, and caps a control at a px width — three things
   // that each hold a floor of their own and have to fit inside one 320 px viewport
-  // together. The set is `SETTINGS_PAGE_IDS`, the family's own closed tuple, so a
+  // together. The set is `SETTINGS_PAGE_IDS`, the settings feature's own closed tuple, so a
   // fourteenth page is audited the day it is declared.
   for (const page of SETTINGS_PAGE_IDS) {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
@@ -132,7 +132,7 @@ describe("reflow — the console at 320 CSS px", () => {
   it("holds the frame at the floor rather than squeezing below it", async () => {
     // The floor's production half. `frame.css` declares `min-width` from the token,
     // so a viewport NARROWER than the floor scrolls the document sideways — which is
-    // what 1.4.10 permits below 320 CSS px — instead of taking every surface inside
+    // what 1.4.10 permits below 320 CSS px — instead of taking every view inside
     // the frame further into a squeeze the criterion says nothing about. Without the
     // declaration the frame would simply track the viewport and this case would read
     // the frame at the narrower width.

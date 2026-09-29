@@ -1,9 +1,9 @@
-// The next move, per daemon refusal code, for every call this family makes.
+// The next move, per daemon refusal code, for every call the repo mounts make.
 //
-// ONE TABLE FOR THE WHOLE FAMILY, and that is the point rather than a convenience.
+// ONE TABLE FOR ALL THE REPO MOUNTS, and that is the point rather than a convenience.
 // What reaches the screen from the daemon is fixed — the code in mono, the message
 // verbatim, never paraphrased — and that leaves the
-// NEXT MOVE to the caller as a slot. Written per call site, that slot is where a code's
+// NEXT MOVE to the caller as a gap. Written per call site, that gap is where a code's
 // recovery gets invented twice and the two copies drift; written once, a code has one
 // answer wherever it surfaces, and the codes with no console-side move have visibly
 // none rather than a sentence somebody felt obliged to write.
@@ -29,7 +29,7 @@
 //     repository, and "not a git repository" already says that.
 //
 // WHAT IS DELIBERATELY ABSENT. `repo.detach_conflict` is registered beside these and is
-// not here, because no renderer surface in this family sends `repo.detach` — an entry
+// not here, because no renderer view in the repo mounts sends `repo.detach` — an entry
 // would be a next move for a refusal this console cannot receive. There is no force
 // option in any entry either: force-override is unscheduled and V1 has no
 // force-detach, so a recovery offering one would name a control that does not exist.
@@ -37,7 +37,7 @@
 // THE LOOKUP TAKES A `string`, not the union. A refusal arrives off the wire and the
 // console never asserts that a code it has not seen is one of these — an unlisted code
 // answers `undefined` and renders with no next move beside it, which is the honest
-// reading of a refusal this family has no move for.
+// reading of a refusal the repo mounts have no move for.
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
@@ -45,10 +45,10 @@ import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
 
 /**
- * Every daemon refusal code the repos mount surfaces can receive.
+ * Every daemon refusal code the repo mount views can receive.
  *
  * The repo, workspace, and worktree namespaces — the ones the `repo.*` methods this
- * console binds refuse in. A tuple rather than a count in prose, on the family's own
+ * console binds refuse in. A tuple rather than a count in prose, on the feature's own
  * rule: a number in a sentence is not something a missing code can fail against.
  */
 export const MOUNT_REFUSAL_CODES = [
@@ -71,7 +71,7 @@ export const MOUNT_REFUSAL_CODES = [
   "worktree.retire_conflict",
 ] as const;
 
-/** One code this family has a next move for. Derived, so the vocabulary has one home. */
+/** One code the repo mounts have a next move for. Derived, so the vocabulary has one home. */
 export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
 
 /**
@@ -222,7 +222,7 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
 };
 
 /**
- * The next move for one refusal code, or `undefined` where this family has none.
+ * The next move for one refusal code, or `undefined` where the repo mounts have none.
  *
  * TWO CODES ARE ANSWERED FROM THE CONTEXT AND NOT FROM THE TABLE. A
  * `workspace.mode_unsupported` refusal is paired with the mount's own reason for the

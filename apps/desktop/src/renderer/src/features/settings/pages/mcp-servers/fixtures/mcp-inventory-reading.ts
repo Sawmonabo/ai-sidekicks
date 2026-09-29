@@ -1,6 +1,6 @@
 // The inventory read the MCP shell is built on: one reply, three refresh signals.
 //
-// ONE READ, AND IT IS THE UNIFIED ONE. The governing surface reads a single unified
+// ONE READ, AND IT IS THE UNIFIED ONE. The design for this page reads a single unified
 // inventory across both providers and every scope, so a page that read per provider
 // would produce two arrival orders for one list and would have to decide, itself, how
 // a `(claude, user, filesystem)` row and a `(codex, project, …, filesystem)` row

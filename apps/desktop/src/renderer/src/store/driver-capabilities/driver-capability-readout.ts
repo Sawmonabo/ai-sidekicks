@@ -21,8 +21,7 @@ export interface DriverCapabilityReadout {
    * One entry per reported driver, keyed by the reply's own `driverName`.
    *
    * Retained, never folded: the reports are separate declarations by separate
-   * drivers, and any collapse of them is an answer to a question the surface does
-   * not ask.
+   * drivers, and any collapse of them is an answer to a question no reader asks.
    */
   readonly flagsByDriverName: ReadonlyMap<string, DeclaredDriverFlags>;
   /**
@@ -40,7 +39,7 @@ export interface DriverCapabilityReadout {
    * Why the declarations could not be read, where they could not be.
    *
    * Present exactly on the two failing terminals — the daemon rejected the read, or
-   * answered something the registered schema will not accept. A surface whose
+   * answered something the registered schema will not accept. A view whose
    * controls this readout gates renders it, so a control that is missing because
    * nobody could ask says so rather than looking like a control nothing declares.
    */

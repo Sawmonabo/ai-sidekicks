@@ -2,7 +2,7 @@
 //
 // Nine suites carried this loop with nine hard-coded bounds (3, 3, 3, 4, 4, 4, 6, 8)
 // and no way to assert anything across them. Each number was the depth of one
-// surface's own effect chain as its author found it, which is a fact that goes stale
+// component's own effect chain as its author found it, which is a fact that goes stale
 // the moment a read grows a link — and goes stale SILENTLY, because a case that stops
 // waiting long enough reports the absence of an answer still in flight.
 //
@@ -66,7 +66,7 @@ describe("the shared settle", () => {
 
   it("lands an arrival raised on a task, which no count of microtasks reaches", async () => {
     // The discriminating case. Every hard-coded bound this module replaced counted
-    // microtask passes, and a surface whose read completes on a timer is not one
+    // microtask passes, and a component whose read completes on a timer is not one
     // pass away from settling — it is unreachable that way at any count. A settle
     // that regressed to counting reports "outstanding" here.
     const { container } = render(<TaskArrival />);

@@ -1,7 +1,7 @@
 /* A whole-screen notice: the wrapper `ScreenNotice.tsx` beside this file draws. */
 
 /*
- * A route that resolves to no surface, composed as a deliberate state.
+ * A route that resolves to no screen, composed as a deliberate state.
  *
  * A flex COLUMN with `justify-content: center`, not a grid with `place-items`. The
  * grid version centers each row inside its own stretched track, which pushes the

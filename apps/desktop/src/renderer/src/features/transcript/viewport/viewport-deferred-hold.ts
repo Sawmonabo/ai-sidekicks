@@ -152,6 +152,6 @@ export class ViewportDeferredHold {
 interface PendingHeadHold {
   /** The row that was first before the page landed. */
   readonly rowKey: string;
-  /** The offset the surface was at when it was. */
+  /** The offset the scroll container was at when the page landed. */
   readonly scrollTopPx: number;
 }

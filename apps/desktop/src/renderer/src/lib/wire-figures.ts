@@ -124,8 +124,8 @@ export function formatWireString(value: string): string {
  * A structured wire value — an approval's `resourceDescriptor`, and anything else
  * the wire types `Record<string, unknown>` — decomposed into renderable pairs.
  *
- * Here rather than at the surface that first needed one, because deciding how a
- * non-string member READS is formatting, and a surface that made that decision for
+ * Here rather than in the component that first needed one, because deciding how a
+ * non-string member READS is formatting, and a component that made that decision for
  * itself would be the second implementation this module exists to prevent. Two
  * rules, and both are about not lying:
  *
@@ -278,16 +278,16 @@ export function formatClockTime(iso: string, locale?: string): string {
  *
  * `formatClockTime` beside it is deliberately date-free, and the reason is stated
  * there — a transcript row aligns under a day divider that carries the date once. A
- * surface with no divider has no such carrier, and rendering a bare clock reading
- * there makes two instants days apart identical on screen. That is the whole
- * distinction between the two: not precision, but whether anything else on the
- * surface says which day it is.
+ * view with no divider has no such carrier, and rendering a bare clock reading there
+ * makes two instants days apart identical on screen. That is the whole distinction
+ * between the two: not precision, but whether anything else in the view says which
+ * day it is.
  *
  * The field list is explicit rather than a `dateStyle` preset, so the reading stays
  * scannable at one width while the ORDER and the separators remain the locale's
  * own. Seconds are absent because the instants this answers for — an expiry, a
  * deadline — are not read to the second, and the same 24-hour clock as its
- * neighbor so two figures on one surface do not disagree about the format.
+ * neighbor so two figures in one view do not disagree about the format.
  */
 export function formatDateTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
@@ -362,7 +362,7 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
   } catch {
     // `Intl.NumberFormat` throws `RangeError` for any currency that is not three
     // ASCII letters, and the currency is a wire string this module does not get to
-    // validate. Throwing would take the surface down through its error boundary and
+    // validate. Throwing would take the component down through its error boundary and
     // hide a figure the daemon did send. So the two rules are applied separately
     // when they cannot be applied at once: the amount keeps its `Intl` formatting,
     // and the code the daemon sent renders verbatim beside it. There is no minor
@@ -383,9 +383,8 @@ function formatDescriptorMember(value: unknown): string {
  * The currency a cents figure the console's accountant supplied counts in.
  *
  * Not a guess and not a house default: the budget state a session's cost receipt IS
- * carries `hardCapUsdCents` on its unpriced-family caps, so the fold's own unit is a
- * US-dollar cent. It is half of what a cents figure MEANS, and the other half is the
- * divisor below.
+ * counts its caps in US-dollar cents, so the fold's own unit is a US-dollar cent. It is
+ * half of what a cents figure MEANS, and the other half is the divisor below.
  */
 const ACCOUNTANT_CURRENCY_CODE = "USD";
 
@@ -396,8 +395,8 @@ const CENTS_PER_CURRENCY_UNIT = 100;
  * Render a cents figure the accountant supplied as money.
  *
  * HERE RATHER THAN BESIDE EITHER READER. The cost-receipt settings page and the
- * session session header both render the same committed-spend figure from the same
- * accountant, and they are sibling view families that may not import each other. It
+ * session header both render the same committed-spend figure from the same
+ * accountant, and they sit in two features that may not import each other. It
  * belongs in this module on its own terms too: the precision is `formatMoney`'s and
  * none of it is re-decided — including its sub-unit arm, which keeps four fractional
  * digits below a whole unit so a figure of a few cents is not rounded to a number the

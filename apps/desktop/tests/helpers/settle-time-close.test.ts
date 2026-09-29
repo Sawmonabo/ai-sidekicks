@@ -16,10 +16,10 @@
 // cases are that judgment applied to the launched console.
 //
 // AND WHAT THAT REGISTERED CLOSE'S OWN FAILURE DOES TO THE RUN is the second
-// subject here, because it is the same registration. The shared settle-time door
-// swallows a disposal failure by default — the test has already settled and its
-// outcome is what explains the run — and this is the one caller that asks it not
-// to. On a vitest timeout nothing else closes the launch, the close is idempotent
+// subject here, because it is the same registration. The shared settle-time
+// registration, `disposeWhenTestFinishes`, swallows a disposal failure by default — the
+// test has already settled and its outcome is what explains the run — and this is the
+// one caller that asks it not to. On a vitest timeout nothing else closes the launch, the close is idempotent
 // so nobody can ask again, and its bounded retries against the tree are already
 // spent: a verdict of `unterminable` reaching here means a browser nothing could
 // kill is still running, which a green tier must not report over.
@@ -128,7 +128,7 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
   it("fails the test when the settled close could not terminate the tree", async () => {
     // THE FINDING. This registration is the ONLY close on a vitest timeout — the
     // body's settlement never runs — and its rejection used to be swallowed by
-    // the shared settle-time door, whose default is to keep the test's own
+    // `disposeWhenTestFinishes`, whose default is to keep the test's own
     // outcome the one a reader sees. Here there is no other outcome to protect:
     // `BoundedCleanup` has already spent its bounded retries by the time it
     // raises, so the verdict means an Electron nothing could kill is still

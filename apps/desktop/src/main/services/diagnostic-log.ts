@@ -1,10 +1,10 @@
 // The main process's own JSONL log.
 //
-// The main-process storage-and-logging slot asks for a JSONL logger, and this is
-// it: async append, size rotation, level filter. Main is the one process whose
+// Main needs a JSONL log of its own, and this is it: async append, size rotation,
+// level filter. Main is the one process whose
 // failures nothing else can report — a window that never opened has no
 // renderer to capture from, and the sidecar supervisor's refusals happen before any
-// surface exists to render them.
+// window exists to show them.
 //
 // IT FORWARDS NOWHERE, which is a scope statement rather than an omission. The
 // renderer's capture hands its batches to a forwarder the shell installs; this log

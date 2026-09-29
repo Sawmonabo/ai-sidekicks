@@ -1,6 +1,6 @@
 // Preparing an execution root: the check first, then the act, over scripted calls.
 //
-// The order is the subject. Without the reuse check the surface could not ask for the
+// The order is the subject. Without the reuse check the form could not ask for the
 // consent the dirty case needs, so every case below is about what the check tells the form.
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -102,9 +102,9 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
-  it("declares this family's event census, so a retired root re-asks the question", () => {
+  it("declares the repos feature's event census, so a retired root re-asks the question", () => {
     // A worktree appearing or being retired is exactly what makes a verdict wrong, and
-    // the census is the family's own rather than a list written in this module.
+    // the census is the repos feature's own rather than a list written in this module.
     const { controller } = open();
     expect([...controller.triggeringEventKinds].sort()).toStrictEqual(
       [...REPO_LIFECYCLE_EVENT_KINDS].sort(),
@@ -117,7 +117,7 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     // `ready` AND NOT `preparing`, which is a claim about the producer rather than
     // about the fixture: the execution-root service awaits the reprovision completion
     // before it answers and every path that does not reach it throws, so a settlement
-    // this surface renders as "prepared / provisioning" is a pair no daemon can send.
+    // this form renders as "prepared / provisioning" is a pair no daemon can send.
     const { controller, clock } = open();
     controller.checkReuse("feat/fresh-root");
     await settleCheck(controller, clock);

@@ -3,7 +3,7 @@
 //
 // A THIRD RULE HAS ITS OWN FILE. What the envelope's registered EXTENSIONS read — the
 // retry bound, the failed bindings, the manifests a blocked delete names — is
-// `wire-rejection.extensions.test.ts`: a different claim (a member reaches a surface
+// `wire-rejection.extensions.test.ts`: a different claim (a member reaches a component
 // only through a registered reader, off either of the two wire positions) over the same
 // function, and one that grows a case every time the registry does.
 //

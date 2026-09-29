@@ -112,7 +112,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
   it("negative control: one the beat omits is absent, not defaulted", () => {
     // The other half. A projector that stamped every optional would satisfy the case
     // above and put a `completionKind` on a run that never completed — a member the
-    // schema accepts and a surface renders.
+    // schema accepts and a view renders.
     const beat = runTransitionBeat(transitionPayload());
     const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
 
@@ -356,7 +356,7 @@ describe("run-stream projection — a member it will not compose", () => {
 
   it("refuses a state the registered vocabulary does not carry", () => {
     // `run.started` reads exactly like a real transition and names a state that does
-    // not exist. Admitted, it would reach a surface as a `currentState` typed at a
+    // not exist. Admitted, it would reach a view as a `currentState` typed at a
     // union it is not a member of.
     const unregistered = projectRunStreamDelivery(
       RUN_STATE_EVENT_STREAM,

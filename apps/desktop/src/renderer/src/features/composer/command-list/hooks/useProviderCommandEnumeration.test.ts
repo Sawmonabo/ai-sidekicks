@@ -1,6 +1,6 @@
 // The enumeration hook: when it reads, when it does not, and what it hands back.
 //
-// The surface's own view of the holder. An enumeration is a live read held as
+// The command list's own view of the holder. An enumeration is a live read held as
 // driver-session state rather than a stored registry, so what this asserts is when a
 // read is issued at all and what a reader sees while one is in flight.
 
@@ -20,7 +20,7 @@ import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("useProviderCommandEnumeration", () => {
-  it("asks nothing until the discovery surface is open", async () => {
+  it("asks nothing until the command list is open", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -40,7 +40,7 @@ describe("useProviderCommandEnumeration", () => {
     expect(enumerationCalls(recorded)).toHaveLength(0);
   });
 
-  it("reads the addressed agent once the surface opens", async () => {
+  it("reads the addressed agent once the command list opens", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();

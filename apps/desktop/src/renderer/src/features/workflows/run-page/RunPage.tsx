@@ -1,7 +1,7 @@
 // The run pane's body: the address checks and the three bodies that stand inside the
 // pane's frame.
 //
-// `seats/PaneFrame` draws the section, its accessible name, the breadcrumb and the
+// `components/PaneFrame` draws the section, its accessible name, the breadcrumb and the
 // actor's hue for every pane kind; this file returns only the body that goes inside it.
 // The frame is worn on every arm, so a pane that refused its address can still be closed.
 // Neither host control (close, tear off) is defaulted here: they are the pane layout's acts and

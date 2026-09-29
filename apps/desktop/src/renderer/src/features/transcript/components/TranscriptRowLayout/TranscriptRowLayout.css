@@ -1,19 +1,16 @@
 /*
- * Rule 1's shape, as a three-column grid: the 2 px edge, a fixed gutter, one measure.
+ * A transcript row is a flush-left ledger line, drawn as a three-column grid: the 2 px
+ * edge, a fixed gutter, one measure.
  *
- * Split out of the family sheet it grew inside: that file had reached 720 lines and
- * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
- * where a second treatment for one thing gets added without anybody noticing.
- * Imported from `primitives/index.ts` and from nowhere else, so a surface still
- * cannot render a primitive whose CSS did not arrive with it, and the bundler still
- * sees one edge per sheet rather than one per component.
+ * Imported by `TranscriptRowLayout.tsx` alone, so the component cannot render without
+ * its CSS.
  *
  * Hand-authored, unlike `meridian.css` — that file is generated from
- * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 1 (the row's anatomy), rule 3's
- * edge hues, and rule 7's hover footer.
+ * What governs this sheet: the row's anatomy (edge, gutter, one measure), actor hues on
+ * the edge and never behind text, and secondary controls that wait in a hover footer.
  *
  * The edge spans both rows of the grid so a revealed footer does not leave a gap in
  * the attribution — a transcript line is one line, footer or no footer.
@@ -64,7 +61,8 @@
 }
 
 /* The gutter's figures are the row's quietest reading, so it asks the figure for its
-   faint face through the figure's own door rather than declaring the figure here. */
+   faint face through the figure's own custom properties rather than declaring the
+   figure here. */
 .meridian-transcript-row-layout__gutter {
   --meridian-figure-wire-color: var(--meridian-text-faint);
   --meridian-figure-wire-size: var(--meridian-text-xs);
@@ -72,7 +70,7 @@
 
 .meridian-transcript-row-layout__body {
   grid-area: body;
-  /* "Content in a single measure" — rule 1, literally. */
+  /* Content in a single measure. */
   max-inline-size: 78ch;
   min-inline-size: 0;
   color: var(--meridian-text);
@@ -110,7 +108,7 @@
 }
 
 /*
- * Rule 7: a row's secondary controls live in its hover footer, never as a second
+ * A row's secondary controls live in its hover footer, never as a second
  * visible button. `:focus-within` is not an afterthought — without it the footer is
  * unreachable by keyboard, and `pointer-events` is what stops an invisible control
  * from swallowing a click. Tab reaches a `pointer-events: none` element perfectly
@@ -134,19 +132,19 @@
 }
 
 /*
- * The same reveal, as a slot a family can put its own control in.
+ * The same reveal, as a class a row can put its own control in.
  *
- * The footer above is a fixed grid area; a family that wants one control to appear on
- * the row's hover — a card's disclosure, say — has nowhere to put it and would have to
- * write `.meridian-transcript-row-layout:hover .its-own-class` in its own sheet. That is a second
- * family declaring this family's class, which makes the reveal a question the cascade
- * answers rather than a rule either sheet states. So the contract is a CLASS: the
- * primitive owns when a thing is revealed, and the family owns what the thing is.
+ * The footer above is a fixed grid area; a row that wants one control to appear on
+ * its hover — a card's disclosure, say — has nowhere to put it and would have to
+ * write `.meridian-transcript-row-layout:hover .its-own-class` in its own sheet. That is a
+ * second sheet declaring this component's class, which makes the reveal a question the
+ * cascade answers rather than a rule either sheet states. So the contract is a CLASS:
+ * this layout owns when a thing is revealed, and the row owns what the thing is.
  *
  * `pointer-events` is deliberately absent, unlike the footer's. The footer is a strip
  * that spans the row and would swallow clicks meant for the body; a control placed
  * inline is over nothing, and a guard here would break a click on a disclosure that a
- * family had left permanently visible under its own rule.
+ * row had left permanently visible under its own rule.
  */
 .meridian-transcript-row-layout__revealed {
   opacity: 0;

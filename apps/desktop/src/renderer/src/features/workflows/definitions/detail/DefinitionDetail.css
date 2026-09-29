@@ -5,8 +5,8 @@
  * the detail imports this sheet, so its rules are charged to no session that never opens
  * one.
  *
- * Every selector is this surface's own block: `meridian-definition-detail` appears in no
- * other family.
+ * Every selector is the detail's own block: `meridian-definition-detail` appears in no
+ * other sheet.
  */
 
 .meridian-definition-detail {
@@ -29,7 +29,7 @@
 /*
  * The identity block and the version block share one description-list shape, because
  * they are the same kind of thing — a labeled wire value — and two layouts for one
- * shape is how a surface starts looking like two surfaces.
+ * shape is how one view starts looking like two.
  */
 .meridian-definition-detail__facts {
   display: grid;
@@ -128,9 +128,9 @@
 }
 
 /*
- * Rule 3 spends the accent on interactive affordances, and these are the surface's
- * own: a bordered control on the surface ground, so the acts read as pressable beside
- * the facts they act on.
+ * The accent is kept for interactive controls, and these are the detail's own: a
+ * bordered control on the raised `surface` token whose border takes the accent on
+ * hover, so the acts read as pressable beside the facts they act on.
  */
 .meridian-definition-detail__act {
   font-family: var(--meridian-font-sans);

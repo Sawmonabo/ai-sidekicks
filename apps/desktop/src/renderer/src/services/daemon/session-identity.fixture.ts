@@ -49,7 +49,7 @@ export function scenarioSessionIdentity(
   if (title !== undefined && typeof title !== "string") {
     // A THROW rather than a dropped title: a scenario is in-tree source, so a
     // metadata title that is not a string is an authoring defect, and dropping it would
-    // make the session indistinguishable from the ordinary unnamed one the surface
+    // make the session indistinguishable from the ordinary unnamed one the view
     // must also draw.
     throw new RefusalError(
       refuse(

@@ -1,8 +1,8 @@
 // What the two sources compose into, and what survives the prefix.
 //
 // The rule that would rot silently: a provider entry keeps its own binding rather
-// than borrowing the group's by position. When the surface opens at all is the
-// family's own grammar and is asserted beside it, in `slash-command-syntax.test.ts`.
+// than borrowing the group's by position. When the command list opens at all is the
+// slash-command grammar's own rule and is asserted beside it, in `slash-command-syntax.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
@@ -132,7 +132,7 @@ describe("selectAddressedBindingGroup", () => {
   });
 
   it("selects nothing where two groups share the addressed driver and name no run", () => {
-    // A coin flip presented as routing is worse than an absence: the surface renders
+    // A coin flip presented as routing is worse than an absence: the command list renders
     // the absence and offers neither binding's entries.
     const sameDriver: readonly ProviderCommandBindingGroup[] = [
       GROUPS[0]!,

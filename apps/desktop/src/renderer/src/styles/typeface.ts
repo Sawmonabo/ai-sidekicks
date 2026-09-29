@@ -51,7 +51,7 @@
 //      face would not lose those runs: the browser would SLANT the outlines and paint a
 //      faux italic, a shear of the wrong drawing rather than the italic the
 //      foundry cut — whose own letterforms and spacing would then never reach the
-//      page. Rule 4 names the faces, and a transform of a face is not one. The
+//      page. The design language names the faces, and a transform of a face is not one. The
 //      bytes are the reason this looks expensive and is not: a browser fetches an
 //      `@font-face` file only when a run actually matches that rule, so the two
 //      italic files are on disk and in the budget and are requested by no session
@@ -84,20 +84,20 @@
 //      silently did not get; the mono faces therefore carry no `font-stretch`
 //      descriptor, because the files carry no axis to bound.
 //
-//   6. **The slashed zero rides the MONO FACE, not the tree.** Rule 4 makes mono
+//   6. **The slashed zero rides the MONO FACE, not the tree.** Mono is
 //      the signature that a number came from the wire, so the `zero` feature is a
 //      property of IBM Plex Mono and reaches nothing a mono rule does not select.
-//      It was declared on `body` first, and that could not hold the scoping:
-//      `font-feature-settings` INHERITS, so one root declaration put a slashed zero
-//      on every user name, repo path, and branch name in the console —
+//      Declared on `body` it could not hold the scoping:
+//      `font-feature-settings` INHERITS, so one root declaration would put a slashed
+//      zero on every user name, repo path, and branch name in the console —
 //      spending the design's own mark for a wire figure on prose — and CSS Fonts 4
 //      gives the property precedence over the features `font-variant-*` computes,
-//      so once it was on the root no descendant could narrow the feature again. As
+//      so once it is on the root no descendant can narrow the feature again. As
 //      an `@font-face` DESCRIPTOR it is scoped by construction instead: it sets the
 //      initial features of that face, so it applies wherever the face is selected
 //      and nowhere else. Chromium honors the descriptor from 140 (`@font-face` /
 //      `font-feature-settings` on MDN's compatibility table, the `FontFace`
-//      interface's `featureSettings` surface); Electron 44 runs Chromium 152, read
+//      interface's `featureSettings` property); Electron 44 runs Chromium 152, read
 //      off the pinned binary on 2026-09-09. `tnum` is deliberately NOT declared —
 //      see `styles/typography.ts` for the measurement that settles it.
 //

@@ -3,18 +3,17 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `WorkflowsScreen.tsx`, which is the
 // package's one-component-per-`.tsx` rule: a module holding two components is a
 // module whose name answers for one of them, and the second is reached only by
-// reading the file. `primitives/reading/ReadingNotice.tsx` is the precedent — a deep relative
-// import from its host, and no door line, because nothing outside this family
-// composes it.
+// reading the file. The screen imports it by relative path and the feature's `index.ts`
+// does not export it, because nothing outside the workflows feature composes it.
 
 import type { PaneAddress, PaneContext, ScreenContext } from "@renderer/console/seats/index.js";
 
 /**
  * The registered body for one address, or nothing when the kind has none.
  *
- * The pane is handed the surface context's own stores. Its body resolves from the pane
- * board on that context, the registry the composition around this surface registered
- * into, never from the process-wide one.
+ * The pane is handed the screen context's own stores. Its body resolves from the pane
+ * registry on that context, the one the Workflows screen's composition registered into,
+ * never from the process-wide one.
  */
 export function OpenPaneBody(props: {
   readonly address: PaneAddress;
@@ -39,8 +38,8 @@ export function OpenPaneBody(props: {
     sessionStore: context.sessionStore,
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
-    // Nothing linked this pane to another: this surface opens one pane at a time from
-    // its own lists, not from a pane beside it. A required member carrying `undefined`
+    // Nothing linked this pane to another: the Workflows screen opens one pane at a time
+    // from its own lists, not from a pane beside it. A required member carrying `undefined`
     // rather than an omitted one, which is the binding's own rule — an absent key
     // reads identically whether the host decided there was no source pane or forgot.
     linkedSourcePaneId: undefined,

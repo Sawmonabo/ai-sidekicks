@@ -9,7 +9,7 @@
 //
 // SO WHY DECLARE THEM. Because the run pane has to say WHEN its read goes stale, and
 // the console's refresh policy answers that with the terminal events the owning
-// wire names, because no console surface polls on an interval.
+// wire names, because nothing in the renderer polls on an interval.
 // A pane that could not name those events has two options and both are wrong: poll on
 // a timer, which that rule forbids outright, or re-read only when the operator at THIS
 // keyboard acts, so a run moved by another window, by another user, or by the engine
@@ -22,8 +22,8 @@
 // whatever the wire sent. A kind no daemon emits therefore never matches and the
 // reading simply refreshes on its other triggers; the day the registration lands it
 // starts matching with no edit here. That is the opposite posture from a payload
-// SHAPE, which a surface would read members off and be wrong about — which is why
-// `workflow-projection.ts` next door carries the shapes and this file carries none.
+// SHAPE, which a view would read members off and be wrong about — which is why
+// `workflow-projection.ts` beside it carries the shapes and this file carries none.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers the taxonomy, this module
 // is DELETED and its consumers derive the set from the registered `SessionEventType`
@@ -53,7 +53,7 @@ const WORKFLOW_LIFECYCLE_EVENT_TYPES = [
  *
  * `workflow.phase_suspended` is the park's own event and the one whose payload
  * carries the four members the run read projects live; `workflow.phase_waiting_on_pool`
- * is the diagnostic a phase blocked on `pty_slots` or `agent_memory_mb` emits.
+ * is the diagnostic a phase emits while it waits for memory.
  */
 const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = [
   "workflow.phase_admitted",
@@ -84,7 +84,7 @@ const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES = ["workflow.gate_resolved"] as const
  * belongs to which — the split the owning spec made deliberately, against one
  * monolithic `workflow_lifecycle`, so a query can be scoped. The four tuples are
  * module-private: nothing outside this file has asked a question about one category,
- * and a door line per category would be four exports with no reader.
+ * and exporting each category would be four exports with no reader.
  */
 export const WORKFLOW_EVENT_TYPES: readonly string[] = [
   ...WORKFLOW_LIFECYCLE_EVENT_TYPES,

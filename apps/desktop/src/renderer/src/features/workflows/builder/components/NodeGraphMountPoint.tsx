@@ -1,7 +1,7 @@
 // The node-graph canvas's mount point — two node kinds, one edge kind, and the connection
 // predicate that refuses a shape while it is being dragged rather than at save.
 //
-// OWNED BY THE WORKFLOW ENGINE. The canvas is its own authoring surface: the entry
+// OWNED BY THE WORKFLOW ENGINE. The canvas is the engine's own editor: the entry
 // node plus the four phase classes, the gate on a phase's outgoing shoulder, the
 // agent avatars and binding badge inside a node, the labeled back-reference, and
 // the seven shapes a connection may never complete. This console frames that canvas;
@@ -9,7 +9,7 @@
 //
 // THE RENDERING LIBRARY IS IN THE TREE, AND WHAT IT DRAWS HERE IS STILL NOT THIS
 // CANVAS. The console's library ruling adopts a graph-rendering library under named
-// constraints, and this family now uses it — for the RUN pane's read-only phase
+// constraints, and the workflows feature now uses it — for the RUN pane's read-only phase
 // sequence, which is a picture of a run the console already reads and owns. The
 // constraints that ruling attaches to the AUTHORING canvas are a different set and
 // all of them are properties of the body that draws editable nodes: controlled mode
@@ -18,7 +18,7 @@
 // a chrome that built it would be authoring the body this mount point exists to reserve.
 // The library reaching the run pane changes nothing about that: it arrives on a lazy
 // chunk that no initial bundle path imports, so the cost of the graph is paid by the
-// surface that draws one.
+// pane that draws one.
 //
 // WHAT THE MOUNT OWES, AS A TYPE — and each member is something this pane knows and
 // the body must not re-derive:

@@ -130,9 +130,9 @@ describe("readProjectedSessionEvent — the census pairing of type and category"
     // THE case this leg exists for, and the one the tolerant carrier cannot make:
     // `EventEnvelopeSchema` admits any registered category beside any bounded type
     // string, and the strict layer — where a category/type mismatch fails loud — is
-    // not the layer that runs here. Before this leg the pair parsed, `category` was
-    // dropped, and every projector above routed on `kind` alone, mutating the run
-    // partition off a combination the interpretation surface refuses outright.
+    // not the layer that runs here. Without this leg the pair would parse, `category`
+    // would be dropped, and every projector above would route on `kind` alone,
+    // mutating the run partition off a combination the strict layer refuses outright.
     const decoded = readProjectedSessionEvent(
       registeredEnvelope({ category: categoryOtherThan(REGISTERED_CATEGORY) }),
     );
@@ -203,7 +203,7 @@ describe("readProjectedSessionEvent — what it refuses", () => {
 
   it("refuses an envelope carrying no event id", () => {
     // The id is the handle every later read of this event's body is keyed by, so a
-    // delivery without one would put a row in the store no surface could open —
+    // delivery without one would put a row in the store no view could open —
     // and composing one out of the members that ARE present would look identical
     // from every other assertion in this file.
     expect(readProjectedSessionEvent(registeredEnvelope({ id: "" }))).toBeUndefined();

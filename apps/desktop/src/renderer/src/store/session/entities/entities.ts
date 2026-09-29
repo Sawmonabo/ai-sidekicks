@@ -18,9 +18,9 @@
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
- * The base every stored entity carries. Bodies are added per kind by the view
- * families; the substrate only needs identity and the wire-verbatim fields every
- * surface reads.
+ * The base every stored entity carries. Bodies are added per kind by the features
+ * that render them; the substrate only needs identity and the wire-verbatim fields
+ * every view reads.
  */
 export interface StoredEntity {
   readonly kind: EntityKind;
@@ -40,7 +40,7 @@ export interface StoredEntity {
    * run. Naming a KIND here would be the guess the decode boundary refuses to make.
    */
   readonly attributedTo?: string;
-  /** Kind-specific body, owned by the view family that registered the projector. */
+  /** Kind-specific body, owned by the feature that registered the projector. */
   readonly body?: Readonly<Record<string, unknown>>;
 }
 
@@ -118,7 +118,7 @@ export interface ProjectedSessionEvent {
 
 /**
  * Turns one event into entity mutations. Registered per event kind at store
- * construction, so a view family owns the projection of the events it renders and
+ * construction, so a feature owns the projection of the events it renders and
  * the substrate owns none of them.
  *
  * A projector is PURE. It may read the event and nothing else — not the store,

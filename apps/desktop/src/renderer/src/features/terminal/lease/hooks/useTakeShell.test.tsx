@@ -1,7 +1,7 @@
 // The take hook's renderer-local fact, and the subject it belongs to.
 //
 // Its own file rather than a block in `LeaseLine.take-shell.test.tsx` because the subject
-// is different: that file asserts what the SURFACE renders for a take, and this one
+// is different: that file asserts what the LEASE LINE renders for a take, and this one
 // asserts which subject a take's state belongs to — a question about the hook's own
 // arithmetic over `(bridge, sessionId)`.
 //

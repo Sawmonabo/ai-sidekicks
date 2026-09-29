@@ -147,7 +147,7 @@ describe("SignInPlane", () => {
     expect(findRunningSignInAccountId(plane.snapshot())).toBeUndefined();
 
     // The negative control for the guard itself: a single-flight key that were never
-    // released would make every later start unreachable, and the surface would sit
+    // released would make every later start unreachable, and the page would sit
     // with every control disabled for the rest of the page's life.
     plane.start(WAITING_ACCOUNT_ID);
     expect(plane.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
@@ -186,10 +186,10 @@ describe("SignInPlane", () => {
     expect(onFlowSettled).not.toHaveBeenCalled();
   });
 
-  it("ends a flow whose completion arrived before the start reply seated it", async () => {
+  it("ends a flow whose completion arrived before the start reply recorded it", async () => {
     // The tail opens BEFORE `providerAccount.login` is called — the registered ordering
     // — so a flow that finishes fast reports its completion while the start reply is
-    // still traveling. The plane would otherwise seat an attempt that is already over
+    // still traveling. The plane would otherwise record an attempt that is already over
     // and hold the key until somebody pressed cancel.
     const { plane, onFlowSettled } = planeOverServedCalls();
 

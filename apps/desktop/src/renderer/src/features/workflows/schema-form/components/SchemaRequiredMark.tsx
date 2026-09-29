@@ -13,7 +13,7 @@
 // in the refusal hue — nothing is wrong with a member nobody has answered yet.
 //
 // AND IT RENDERS NOTHING RATHER THAN AN EMPTY SPAN where the member is optional, so a
-// surface asking whether the mark is present gets an answer about the schema instead of
+// caller asking whether the mark is present gets an answer about the schema instead of
 // about the markup.
 
 /** Whether this member is one the schema demands. */

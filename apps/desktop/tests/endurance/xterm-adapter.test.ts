@@ -14,7 +14,7 @@
 //     is still holding them — the pair that makes "released" a claim about
 //     something rather than about a sampler that always reads the baseline;
 //   • a churn of open-and-close cycles leaves the page where it started — the
-//     renderer slot ledger empty and the retained bytes back near baseline —
+//     renderer pool's context ledger empty and the retained bytes back near baseline —
 //     because a console is left open for a working day and a pane is opened and
 //     closed dozens of times in one.
 //
@@ -250,7 +250,7 @@ describe("a working day of opening and closing the pane", () => {
   it("negative control: the ledger is capable of being non-zero", () => {
     // Without this the cycle case would pass against a counter stuck at zero —
     // which is exactly what a DOM-only environment produces on its own, since no
-    // instance here can acquire a WebGL slot. The pool's accounting is asserted
+    // instance here can acquire a WebGL context. The pool's accounting is asserted
     // directly, because that is the part this process can observe.
     const pool = new TerminalRendererPool();
     const lease = pool.acquire("proof-of-life");

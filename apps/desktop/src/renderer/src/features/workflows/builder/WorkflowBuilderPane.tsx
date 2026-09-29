@@ -1,6 +1,6 @@
 // The builder pane's body: the canvas's mount points, or the refusal or absence an address earns.
 //
-// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `components/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip and the body box for every pane
 // kind in the console; what this file returns is what stands inside it. So the pane is
 // named by its whole address trail rather than by the words "Workflow builder".
@@ -33,7 +33,7 @@
 // carried into a definition read and presented as the definition a person asked to
 // edit. The guard is a typed refusal rather than a throw, because one
 // mis-addressed pane must not take the pane layout down with it, and rather than a silent
-// empty arm, because a surface that renders nothing tells nobody what is wrong.
+// empty arm, because a pane that renders nothing tells nobody what is wrong.
 //
 // GEOMETRY IS NOT DEFINITION BYTES. Canvas layout is client-local: dragging a node
 // changes no byte, mints no content hash and creates no version. It is stated here
@@ -92,9 +92,9 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
     if (definition === undefined) {
       // The strip's own `refused` arm, which renders the refusal and NOT the
       // children — so the two reserved bodies stay unmounted and no read is composed
-      // for an id this surface cannot use. A banner across the body rather than a
+      // for an id this pane cannot use. A banner across the body rather than a
       // card in the transcript, because nothing entered the session's history here: what
-      // changed is what this whole surface can do, which is nothing.
+      // changed is what this whole pane can do, which is nothing.
       return (
         <WorkflowStateStrip
           summary={SUMMARY}

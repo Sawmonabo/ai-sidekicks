@@ -17,7 +17,7 @@ import { toneForServerStatus } from "../server-status-tone.js";
  * THE GRAIN IS PRESERVED RATHER THAN FOLDED. One configuration backs however many
  * concurrent sessions there are, and two legs of one binding can honestly disagree —
  * a session that authorized and one that has not, a process that died under one
- * session and not another. A surface that showed one scalar would report a partial
+ * session and not another. A row that showed one scalar would report a partial
  * outage as either fine or broken, and both readings would be wrong.
  *
  * AND EACH LEG IS KEYED BY THE PAIR THE DAEMON IDENTIFIES IT BY. `bindingId` names one

@@ -1,7 +1,7 @@
 // The one instant every frozen-clock suite in this console starts at.
 //
-// One reader for one stamp. Four homes held this literal — a view family's
-// `.test-support.ts` two other families cannot import, a copy inside one suite, and
+// One reader for one stamp. Four homes held this literal — a feature's
+// `.test-support.ts` two other features cannot import, a copy inside one suite, and
 // two `test/console/` tiers that spelled it `Date.parse("…")` — which the console
 // bans outright and for a reason that bites test data as hard as wire data:
 // `Date.parse` reads a timezone-less stamp in the HOST's zone, reads a date-only
@@ -14,8 +14,8 @@
 // read is a broken fixture, and standing one up at epoch zero would run every case
 // against a clock forty years from the data it drives.
 //
-// IT LIVES IN `core/` because `core/` is the bottom of the family DAG and every
-// family plus every `test/console/` tier may reach it.
+// IT LIVES IN `core/` because `core/` is the bottom of the import order and every
+// feature plus every `test/console/` tier may reach it.
 
 import { parseInstant } from "@renderer/lib/instant.js";
 

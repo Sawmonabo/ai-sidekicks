@@ -10,7 +10,7 @@
 //     teaches a person the setting does not exist.
 //   • **The rail never blocks on a section read.** Nothing here awaits anything.
 //     The rail is rendered from a closed tuple and the pane's read is the page's.
-//   • **No second copy of a value a wire read owns.** The only state this surface
+//   • **No second copy of a value a wire read owns.** The only state this screen
 //     holds is the search query, which is a person's keystrokes and not a wire
 //     value. Which section is open lives in the ROUTE, so a deep link and a rail
 //     click are the same act and the back button works.
@@ -51,7 +51,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   const { context, pages } = props;
   const { route } = context;
   const requestedPage = route.kind === "settings" ? route.page : undefined;
-  // Through the routing family's own accessor rather than a narrowing written here:
+  // Through the routing folder's own accessor rather than a narrowing written here:
   // the member is on one settings arm and off the other, and a second reader of that
   // union is a second chance to hand a page the selection a different address carried.
   const selection = settingsSelection(route);
@@ -68,7 +68,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // store held on that pass and nothing re-renders when it changes, so a session
   // opened in another destination would reach these pages only on the next
   // unrelated render. The frame's own readers subscribe through this hook and so
-  // does this one, which is also why the settings family holds no copy of the id.
+  // does this one, which is also why the settings feature holds no copy of the id.
   const retainedSessionId = useWindowStore(
     context.frameStore,
     (state) => state.lastOpenedSessionId,

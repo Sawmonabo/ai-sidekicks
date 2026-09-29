@@ -43,7 +43,7 @@ import type { SessionDegradedCause } from "@renderer/store/session-degradation.j
 import type { EntityFacet } from "../entity-facets.js";
 
 export interface EntityRecordProps {
-  /** The kind's glyph, from the token family's set. */
+  /** The kind's glyph, from the console's glyph set. */
   readonly glyph: GlyphName;
   /** What this kind is called, in the console's own words — "Run", "Workflow run". */
   readonly heading: string;

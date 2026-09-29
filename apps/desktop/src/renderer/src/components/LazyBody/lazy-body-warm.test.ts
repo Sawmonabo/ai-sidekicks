@@ -122,7 +122,7 @@ class RecordingBoard implements PreloadableRegistry<string> {
     this.#rejectingKeys = new Set(rejectingKeys);
   }
 
-  /** A family registering late, mid-walk. */
+  /** A feature registering late, mid-walk. */
   public addUnloaded(key: string): void {
     this.#unloaded.push(key);
   }
@@ -150,7 +150,7 @@ describe("the warm walk — one key per callback, once", () => {
   });
 
   it("re-reads the board between steps", () => {
-    // A snapshot taken at `start` would miss a family that registered late and would go
+    // A snapshot taken at `start` would miss a feature that registered late and would go
     // on requesting a body someone opened mid-walk.
     const board = new RecordingBoard(["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
@@ -239,7 +239,7 @@ describe("the warm walk — canceling it", () => {
 describe("the warm walk — a chunk that will not load", () => {
   it("carries on to the next key and raises nothing", async () => {
     // The walk is speculative: nobody asked for this pane, so the honest place for the
-    // failure is the mount, where the surface error boundary can say so. An unhandled
+    // failure is the mount, where the region's error boundary can say so. An unhandled
     // rejection here would surface as a crash report for a pane nobody opened.
     const board = new RecordingBoard(["diff", "inspector"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
@@ -257,7 +257,7 @@ describe("the warm walk — a chunk that will not load", () => {
     // THE SPIN THE ATTEMPTED SET EXISTS TO STOP. A released memo makes a failed key
     // indistinguishable from one never asked for, so a walk selecting on the board alone
     // alternates between two such keys forever — one background refetch per idle
-    // callback, for surfaces nobody has opened, on exactly the damaged install that can
+    // callback, for panes nobody has opened, on exactly the damaged install that can
     // least afford it. The retry a failed chunk gets is the one a person asks for.
     const board = new RecordingBoard(["diff", "inspector"], ["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();

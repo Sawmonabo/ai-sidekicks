@@ -40,9 +40,9 @@ export type PlatformBridgeSource = "live" | "fixture";
 
 /**
  * The bridge a window holds. The host capabilities — the daemon's JSON-RPC, the control
- * plane's tRPC and relay, host-mediated OS surfaces, the auto-updater's state and read-only
- * build meta, each group `readonly` and shape-identical across both sources — and the
- * signals every host answers.
+ * plane's tRPC and relay, the OS calls the host makes for the renderer, the auto-updater's
+ * state and read-only build meta, each group `readonly` and shape-identical across both
+ * sources — and the signals every host answers.
  */
 export interface PlatformBridge {
   readonly daemon: {

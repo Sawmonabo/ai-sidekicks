@@ -11,13 +11,13 @@
 // THE NARROWING RULE. A reading is produced only when every member it needs is present at
 // the right type; a payload short one member yields NO reading rather than a partial one,
 // because a meter drawn from half a payload is a meter that invented the other half. The
-// surfaces above render the "not checked" absence, which is the honest answer to "we have
+// views above render the "not checked" absence, which is the honest answer to "we have
 // not been told".
 //
 // THE MEMBERS ARE THE REGISTERED ONES. The registered usage-telemetry payload carries
 // `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`. The wire sends
 // counts and no percentage, so this module derives the presentation percentage from the
-// counts; a surface that read a percentage would be reading a member that does not exist.
+// counts; a view that read a percentage would be reading a member that does not exist.
 //
 // EVERY READING IS ONE RUN'S. A session holds as many provider conversations as it has
 // runs, and a context window belongs to one of them, so the reading takes the ADDRESSED run
@@ -86,14 +86,14 @@ export interface ContextWindowReading {
   /**
    * How the counts were obtained, when the wire named it.
    *
-   * Absent means the wire did not say, not a fourth grade, and a surface renders
+   * Absent means the wire did not say, not a fourth grade, and a view renders
    * provenance only where the wire named one.
    */
   readonly windowSource: ContextWindowSource | undefined;
   /**
    * The provider's own terminal statement that the window is exhausted.
    *
-   * Carried as sent. A surface renders the exceeded arm on `true` alone and never
+   * Carried as sent. A view renders the exceeded arm on `true` alone and never
    * on an absence, because absence is the wire not saying and not a provider saying
    * the window is fine.
    */
@@ -149,7 +149,7 @@ export function newestContextWindowReading(
  * Both arms are the wire's, and neither invents a count. A boundary carrying
  * `postCompactionTokens` restates the numerator against the window the superseded
  * update measured; one carrying none leaves the ratio UNKNOWN, and unknown is no
- * reading — the surfaces above then render the absence, which is the honest answer
+ * reading — the views above then render the absence, which is the honest answer
  * to "how full is it now" while the only figure available describes a conversation
  * the compaction ended.
  */

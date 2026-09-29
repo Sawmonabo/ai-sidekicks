@@ -1,14 +1,14 @@
 // A scenario cannot script a reply the wire could not send.
 //
 // The fixture already refuses to DELIVER a beat it cannot project into the shape a
-// narrowed stream registers (`beat-unprojectable`). The call door had no equivalent:
-// a scenario could answer `repo.mountRead` with anything at all, and the surface
-// reading that answer would render a frame the live daemon cannot produce — green
-// fixture, green screenshot, and a shape nobody has ever received.
+// narrowed stream registers (`beat-unprojectable`). The fixture bridge's `call` is
+// held to the same: without that, a scenario could answer `repo.mountRead` with
+// anything at all, and the view reading that answer would render a frame the live
+// daemon cannot produce — green fixture, green screenshot, and a shape nobody has
+// ever received.
 //
 // The check reads the SAME table `callDaemon` parses live replies against, so the
-// failure lands in the scenario's own tests rather than in whichever surface renders
-// it — the `scenario-wire-truth` posture, moved onto the call door.
+// failure lands in the scenario's own tests rather than in whichever view renders it.
 
 import { describe, expect, it } from "vitest";
 

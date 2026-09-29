@@ -6,16 +6,15 @@
 // and the two folds, which hold rows behind a run group header or a rewound band — and
 // `useTranscriptFind.ts` counts the matches each one hides.
 //
-// A COUNT OF WHAT IS HIDDEN IS NOT A NOTICE. This transcript wrote two of its own, and
-// six families wrote their own beside them, which is the drift `primitives/reading/partial-read.ts`
-// exists to end: the reading is `cut` — an enumeration the producer stopped short —
-// and the shared sentence says so once. What this module decides is the only thing
+// A COUNT OF WHAT IS HIDDEN IS NOT A NOTICE. Every feature says a list was cut short
+// through the one shared reading in `lib/partial-read.ts`: the reading is `cut` — an
+// enumeration the producer stopped short — and the shared sentence says so once. What this module decides is the only thing
 // left to decide, which is WHETHER the walk was cut at all.
 //
 // THE FIGURE IS WHAT WAS READ AND NOT WHAT WAS HIDDEN, which is the shared shape's
-// rule and costs this transcript something real: its own notices named how many matches
-// lay outside, and `cut` names how many lay inside. That is the honest limit of a
-// sentence six families share, and it is worth less than a seventh copy of it. The
+// rule and costs this transcript something real: `cut` names how many matches lay inside,
+// not how many lay outside. That is the honest limit of a sentence every feature shares,
+// and it is worth less than a second copy of it. The
 // count that decides the arm is still the hidden one, so a walk that reaches every
 // match says nothing at all.
 
@@ -27,7 +26,7 @@ import { type ReadingState } from "@renderer/console/primitives/index.js";
  * `servedMatchCount` is what the walk holds — the figure the notice leads with —
  * and `unreachedMatchCount` is what lies outside it, which decides the arm and is
  * never rendered. Zero unreached is `served`: the walk answered the whole question,
- * and a surface that mounts this then renders nothing.
+ * and a view that mounts this then renders nothing.
  */
 export function matchWalkReading(
   servedMatchCount: number,

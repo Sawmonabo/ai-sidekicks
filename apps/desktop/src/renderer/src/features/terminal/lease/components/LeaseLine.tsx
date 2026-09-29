@@ -1,4 +1,4 @@
-// The lease line: where the session's one shared shell is held, and the control slot
+// The lease line: where the session's one shared shell is held, and the control region
 // beside it.
 //
 // The pane shows output and this line only. The line states the holder from the fold
@@ -12,7 +12,7 @@ import { Chip, WireFigure, type ChipTone } from "@renderer/console/primitives/in
 import { LeaseHolderSentence } from "./LeaseHolderSentence.js";
 import { type TerminalLeaseHolder, type TerminalLeaseState } from "../lease-model.js";
 
-/** What the lease line shows: the folded state and an optional control slot. */
+/** What the lease line shows: the folded state and an optional control. */
 export interface LeaseLineProps {
   readonly state: TerminalLeaseState;
   /** What sits beside the holder statement: the take control, where a caller has one. */
@@ -36,7 +36,7 @@ const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolder, { label: string; tone:
   "unrecognized-transition": { label: "Unread transition", tone: "attention" },
 };
 
-/** The lease line: the holder chip and statement, the control slot, and the unread notice. */
+/** The lease line: the holder chip and statement, the control region, and the unread notice. */
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
   const { state } = props;
   const chip = HOLDING_CHIPS[state.holding];
@@ -54,7 +54,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
       {state.unreadTransition === undefined ? null : (
         <p className="meridian-lease-line__unread">
           The shell changed hands under a transition this build cannot read, so where it is held is
-          not shown and the surface stays read-only.
+          not shown and the shell stays read-only.
           {state.unreadTransition.reason === undefined ? null : (
             <>
               {" "}

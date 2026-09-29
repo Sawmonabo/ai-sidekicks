@@ -63,7 +63,7 @@ export interface TranscriptReadStateProps {
  */
 export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.Element | null {
   // The same reading the viewport's empty arm takes, through the same hook: two
-  // surfaces speaking about one moment, and never from two selectors.
+  // views speaking about one moment, and never from two selectors.
   const firstReadSettled = useTranscriptFirstReadSettled(props.sessionStore);
   const degradedCause = useSessionStore(props.sessionStore, readDegradedCause);
   // ASKED FIRST, so a first read that has already failed says so instead of drawing

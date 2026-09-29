@@ -77,8 +77,8 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           action={
             <button
               type="button"
-              // The transcript family's action-slot control, already the shape a `Nothing`
-              // action takes in this family. A second class for one more control would
+              // The transcript feature's retry control, already the shape a `Nothing`
+              // action takes in this feature. A second class for one more control would
               // be the second styling of one decision.
               className="meridian-transcript-retry"
               onClick={() => {

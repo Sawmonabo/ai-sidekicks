@@ -35,9 +35,9 @@
 //     console performs no child-run detail fetch to fail and holds no per-child
 //     backfill state.
 //
-// THE SUMMARY IS COMPOSED HERE AND NOT PARSED HERE. A console surface never runs a
-// contracts schema over a value — the wire's own shapes are narrowed at the call door
-// and nowhere else — and this value never crossed a wire in the first place: it is the
+// THE SUMMARY IS COMPOSED HERE AND NOT PARSED HERE. A view never runs a contracts
+// schema over a value — the wire's own shapes are narrowed where the daemon call
+// returns and nowhere else — and this value never crossed a wire in the first place: it is the
 // shell's reading of rows the store already holds. So the one refusal a schema would
 // have performed is performed in code beside the reason for it: a creation row naming
 // ITSELF as its parent produces no summary, because a self-parenting node makes the
@@ -138,7 +138,7 @@ interface ChildRunReading {
  * `parentRunId` is read as a wire string and nothing else is inferred: a creation row
  * naming no parent is an ordinary run's, and a row naming a parent this reader cannot
  * read as a string is malformed rather than parentless — both produce no reading, and
- * the difference between them is not one this surface can act on.
+ * the difference between them is not one the transcript can act on.
  */
 function admitChildRun(
   readingsByRunId: Map<string, ChildRunReading>,

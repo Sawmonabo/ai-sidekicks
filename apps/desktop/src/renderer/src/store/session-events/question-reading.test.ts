@@ -43,7 +43,7 @@ describe("readQuestion", () => {
     expect(ask).toEqual({
       askId: "ask-01",
       // Off the row's own arm rather than the payload — the projection is where a run
-      // is attributed, and the answer this surface dispatches is addressed by it.
+      // is attributed, and the answer this card dispatches is addressed by it.
       runId: SAMPLE_RUN_ID,
       state: "requested",
       prompt: "Which branch should this land on?",
@@ -76,8 +76,8 @@ describe("readQuestion", () => {
   });
 
   // THE NEGATIVE CONTROL for the routing rule: a permission ask belongs to the
-  // approvals surface, and the transcript card must refuse it rather than draw a second
-  // decision surface for one approval.
+  // approval flow, and the transcript card must refuse it rather than draw a second
+  // decision card for one approval.
   it("refuses a permission-kind ask", () => {
     expect(
       readQuestion(

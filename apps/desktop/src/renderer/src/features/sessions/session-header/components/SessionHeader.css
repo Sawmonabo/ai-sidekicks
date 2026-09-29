@@ -46,7 +46,7 @@
 /*
  * The opening placeholder is the SHAPE of what will fill the header and nothing else:
  * a fixed height and a plausible width, so the header's height is settled before the
- * session opens. No animation — a pulsing pill on a surface that is about to fill with a
+ * session opens. No animation — a pulsing pill on a header that is about to fill with a
  * real one is motion that reports nothing, and motion is spent on things that carry
  * meaning.
  */

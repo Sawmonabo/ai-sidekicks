@@ -1,21 +1,21 @@
 // Who holds this window's keybinding overrides, where they are kept, and what the
 // frame installs because of them.
 //
-// `keybinding-overrides.ts` next door decides what an override MEANS and whether one
+// `keybinding-overrides.ts` beside this module decides what an override MEANS and whether one
 // is admissible. This module is the state around that model, and three decisions
 // carry it:
 //
 //   • **One accessor, never the raw table.** The frame's key dispatch and the
 //     Keyboard page both read `snapshot.bindings`. A consumer reading the shipped table
 //     directly would install, or print, the chords a person replaced — and the two
-//     surfaces would then disagree about which keyboard this window has, which is the
+//     views would then disagree about which keyboard this window has, which is the
 //     exact defect a person cannot debug. The page needs the SHIPPED table too, to say
 //     which rows were changed, so the snapshot carries that as well rather than sending
 //     one reader back to the module the base is declared in.
 //   • **The base is READ, not captured.** `defaults` is a function and not an array,
 //     because the shipped table is composed from the frame's chords plus whatever the
-//     view families have contributed, and a family contributes from an effect — so a
-//     table captured once at construction is wrong the moment a family mounts later.
+//     features have contributed, and a feature contributes from an effect — so a
+//     table captured once at construction is wrong the moment a feature mounts later.
 //     A base that can move supplies `subscribeToDefaults` beside the reader, and this
 //     store re-composes on that signal like any other change it publishes.
 //   • **The override applies to this window before the write settles, and a refused
@@ -115,7 +115,7 @@ export class KeybindingOverrideStore {
     this.#isCommandRegistered = options.isCommandRegistered;
     this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
     // Never released, and that is the lifetime rather than an omission: this store is
-    // window-scoped and the surface it listens to is too, so both die with the window.
+    // window-scoped and the signal it listens to is too, so both die with the window.
     options.subscribeToDefaults?.(() => {
       this.#publish();
     });
@@ -137,7 +137,7 @@ export class KeybindingOverrideStore {
     return this.#snapshot;
   }
 
-  /** The overrides themselves, for a surface that draws which rows were changed. */
+  /** The overrides themselves, for a page that draws which rows were changed. */
   public get overrides(): KeybindingOverrideMap {
     return this.#overrides;
   }
@@ -291,7 +291,7 @@ export class KeybindingOverrideStore {
    * Write the map, and answer with the refusal if the store would not keep it.
    *
    * A window with no store attached answers `undefined` rather than a refusal it
-   * cannot name: the frame attaches before it renders a surface that can rebind, so
+   * cannot name: the frame attaches before it renders a page that can rebind, so
    * the only callers reaching that arm drive the model directly.
    */
   async #persist(): Promise<Refusal | undefined> {

@@ -38,12 +38,11 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
  * two reads says so by supplying two replies; the last one stands for every read
  * after it, which is what a node that stopped changing does.
  *
- * Over the family's own `bridgeAnswering` rather than a second one of this file's
- * own. What stood here was a private function of the same name built on an object
- * cast to `PlatformBridge`, which answered every other seam with whatever it happened
- * to carry and had to mint a hand-made scenario engine so the scheduler had a clock —
- * a member the fixture already has, and the reason `settleScheduledRead` can now
- * settle these reads with the same call every other console suite makes.
+ * Built on the shared `bridgeAnswering` rather than a private bridge cast to
+ * `PlatformBridge`: the fixture bridge answers every other member honestly and
+ * carries the scenario engine whose clock the scheduler runs on, which is why
+ * `settleScheduledRead` settles these reads with the same call every other suite
+ * makes.
  */
 export function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
   let answered = 0;
@@ -63,7 +62,7 @@ export function capabilityCallCount(counted: CountingBridge): number {
   return counted.calls.filter((call) => call.method === "driver.listCapabilities").length;
 }
 
-/** One consumer of the read, standing in for a view family that gates on it. */
+/** One consumer of the read, standing in for a feature that gates on it. */
 export function CapabilityProbe(props: {
   readonly bridge: PlatformBridge;
   readonly onReadout: (readout: DriverCapabilityReadout | undefined) => void;

@@ -7,12 +7,12 @@
 // reads. `workflow-definition-file-body.ts` beside this one owns what goes INSIDE the
 // hashed part, on the same terms and for the same reason.
 //
-// AND IT IS IN `bridge/` BECAUSE THE IMPORT SIDE IS A VALIDATOR. What arrives is text a
-// person pasted, and what has to come out is a typed request body — so this reads an
-// untyped value against closed sets and refuses what does not fit, which is precisely
-// what a view family may not hold. A pane consumes the ANSWER, here a parsed body or a
-// reason, and never the reading that produced one. `approvals/approval-records.ts` is
-// the same call made for the same reason one directory over.
+// AND IT IS A MODULE OF ITS OWN, APART FROM THE VIEWS, BECAUSE THE IMPORT SIDE IS A
+// VALIDATOR. What arrives is text a person pasted, and what has to come out is a typed
+// request body — so this reads an untyped value against closed sets and refuses what
+// does not fit, at the boundary where the text crosses in. A pane consumes the ANSWER,
+// here a parsed body or a reason, and never the reading that produced one.
+// `services/approvals/approval-records.ts` makes the same call for the same reason.
 //
 // WHAT THE FILE IS. YAML, and one dialect of it. The definition file form gives a
 // definition exactly one canonical file form and
@@ -30,7 +30,7 @@
 // carries — the version id, the content hash, where a file came from — is a fact about
 // the SERVER's copy, and writing it into the portable dialect would make every file
 // this console exported unreadable to a conforming parser, which treats an unknown
-// top-level key as a refusal. A surface that wants to show where a version came from
+// top-level key as a refusal. A view that wants to show where a version came from
 // reads it from the version read it already holds.
 //
 // THE MARKER IS A STRING THAT YAML WOULD OTHERWISE MAKE A NUMBER. `1.0` unquoted
@@ -51,8 +51,8 @@
 // parser that smuggled it into the request would be widening a registered shape.
 //
 // AND THIS MODULE IS OFF THE INITIAL IMPORT GRAPH, which is why the parser is imported
-// statically here. The door publishes `workflow-definition-file-codec.ts` beside this
-// one, and that module reaches this one through `import()` — so this module, its YAML
+// statically here. Callers import `workflow-definition-file-codec.ts` beside this one,
+// and that module reaches this one through `import()` — so this module, its YAML
 // parser, the body reader and the tool-binding reader under it are all emitted into one
 // chunk that a launch which never opens a definition never fetches. Deferring the parser
 // a second time from in here would split a chunk that is already only fetched on demand,
@@ -149,7 +149,7 @@ export interface WorkflowDefinitionImportTarget {
  * the definition read carries the identity and the phase sequence and no schema marker,
  * so a file written from it could not say which schema it is in.
  *
- * SYNCHRONOUS, AND THE DOOR'S ENTRY IS NOT — see the header. The writer is in the chunk
+ * SYNCHRONOUS, AND THE CODEC'S CALL IS NOT — see the header. The writer is in the chunk
  * this module was fetched in, so the only thing that can fail ahead of a serialization
  * is the fetch itself, which `workflow-definition-file-codec.ts` owns.
  */

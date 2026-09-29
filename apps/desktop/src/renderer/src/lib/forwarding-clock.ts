@@ -38,9 +38,9 @@ import type { Clock, ScheduledHandle } from "./clock.js";
  * Constructed once per mount and handed the window's CURRENT clock through
  * {@link holdClock} whenever that changes, rather than closing over a resolver: the
  * caller is a React hook, and a hook writes what it has from the layout phase for the
- * reason the resource substrate next door states — every layout effect for a commit
- * runs before any passive effect for it, so the clock this holds when a consumer's
- * effect reads it is the one that commit resolved.
+ * reason `hooks/subject-scoped/useSubjectScopedResource.ts` states — every layout
+ * effect for a commit runs before any passive effect for it, so the clock this holds
+ * when a consumer's effect reads it is the one that commit resolved.
  */
 export class ForwardingClock implements Clock {
   #clock: Clock;

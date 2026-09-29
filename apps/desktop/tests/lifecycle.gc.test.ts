@@ -6,7 +6,7 @@
 // past the `app.whenReady().then(...)` callback unwind. The smoke test
 // exits via `app.exit(0)` the moment the probe completes, so V8 never
 // reaches a major GC cycle — any future-Electron lifecycle regression is
-// silently masked at that surface.
+// silently masked in that test.
 //
 // What this test actually asserts:
 //   The observable lifecycle contract — across K=20 cycles of explicit GC

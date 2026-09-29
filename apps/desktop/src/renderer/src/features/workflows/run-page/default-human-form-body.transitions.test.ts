@@ -153,7 +153,7 @@ describe("a run read that refreshes under a live attempt", () => {
   });
 
   it("negative control: a new attempt captures afresh and sends the revision it opened at", async () => {
-    // Without this, the case above would pass over a surface that pinned the first
+    // Without this, the case above would pass over a mount point that pinned the first
     // revision it ever saw.
     const probe = watchingSubmits();
     const first = fixtureWaitPhase();

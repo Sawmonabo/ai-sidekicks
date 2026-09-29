@@ -15,7 +15,7 @@
 //   • **It does not render a preview.** The library's drag is the browser's own
 //     HTML5 drag, so the browser draws the dragged element and no React render
 //     happens per frame — which is the reason the row picks this library over the
-//     pointer-event families it names under AVOID.
+//     pointer-event libraries it names under AVOID.
 //   • **It does not offer a keyboard drag.** The library provides none by design
 //     (its accessibility guidance says so in terms), and the pane layout already has the
 //     accessible equivalent: Alt+Shift+Arrow moves the focused pane. The gesture is

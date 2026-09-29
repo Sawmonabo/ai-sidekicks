@@ -37,10 +37,10 @@ import type { ProjectedSessionEvent } from "@renderer/store/session/entities/ent
  * The envelope version every composed beat carries.
  *
  * `"MAJOR.MINOR"`, producer-set and never rewritten on read. It is the
- * one canonical member no beat states and no console surface reads, so the composer
- * supplies it rather than the scenario — the same position it held when only the
- * wire-truth probe composed envelopes, moved here so the probe and the delivery
- * cannot supply two different versions of one beat.
+ * one canonical member no beat states and no console view reads, so the composer
+ * supplies it rather than the scenario. The scenario contract check and the delivery
+ * both compose through here, so they cannot supply two different versions of one
+ * beat.
  */
 export const SCENARIO_ENVELOPE_VERSION: string = "1.0";
 

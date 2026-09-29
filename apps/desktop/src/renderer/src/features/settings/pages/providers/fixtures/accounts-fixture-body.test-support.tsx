@@ -162,7 +162,7 @@ export function registryReportingCompleted(attemptId: string): AccountListReadin
 }
 
 /**
- * Mount the shell under the two providers every console surface renders inside.
+ * Mount the shell under the two providers every console screen renders inside.
  *
  * A verb the case does not supply never answers. The operations object is created once so
  * a re-render does not rebuild the sign-in plane.

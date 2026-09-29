@@ -24,7 +24,7 @@
 // again or acknowledges it. The set of armed keys carries the same ceiling the drafts
 // do, for the same reason: a bound nothing enforces is a leak with a comment on it.
 
-/** One composer's unsent text, keyed by the surface that owns the composer. */
+/** One composer's unsent text, keyed by the view that owns the composer. */
 export interface DraftEntry {
   readonly draftKey: string;
   readonly text: string;
@@ -35,7 +35,7 @@ export interface DraftEntry {
 export interface DraftStoreOptions {
   /**
    * The reading the eviction order uses. A bare callback and NOT the console's
-   * `Clock` seam, which every other class in this family now takes: taking
+   * `Clock` seam, which the other store classes take: taking
    * the seam would mean importing it, and this module is the one place in the
    * console that must import nothing at all — the drafts tripwire asserts exactly
    * that, because acquiring anything here is the first move of persisting a draft.

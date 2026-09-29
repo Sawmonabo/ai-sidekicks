@@ -7,15 +7,13 @@
 // `failedBindingIds` a fan-out mutation names — and a widening is legitimate exactly
 // while it is REGISTERED. That is what this file is: the registry, and one reader per member.
 //
-// IT EXISTS BECAUSE THE NORMALIZER REBUILDS. `core/wire-rejection.ts` recognizes a
-// refusal structurally and then rebuilds it onto a fresh object rather than handing
-// the candidate back, because a candidate's second property read is free to throw
-// into a renderer that has already left every `catch`. That rebuild is correct and it
-// dropped everything it did not know about — so a refusal that traveled as a thrown
-// `RefusalError` reached a surface with its extensions gone, and the one answer
-// available was for the caller to skip the normalizer for that case and hand
-// the value back verbatim. Verbatim is the thing the rebuild exists to prevent. So
-// the rebuild learns the set instead, and there is no arm anywhere that returns a
+// IT EXISTS BECAUSE THE NORMALIZER REBUILDS. `wire-rejection.ts` recognizes a refusal
+// structurally and then rebuilds it onto a fresh object rather than handing the
+// candidate back, because a candidate's second property read is free to throw into a
+// renderer that has already left every `catch`. A rebuild drops everything it does not
+// know about, so a refusal thrown as a `RefusalError` would reach a component with its
+// extensions gone — and handing the value back verbatim is the thing the rebuild exists
+// to prevent. So the rebuild learns the set instead, and there is no arm anywhere that returns a
 // candidate by reference.
 //
 // THE SET IS CLOSED AND IT IS CLOSED HERE, not at each producer, and the two halves
@@ -49,7 +47,7 @@ import { readWireString } from "./wire-strings.js";
  * `resetAt` (an RFC 3339 instant) on the rate-limit envelope, and the JSON-RPC mapping
  * carries them through `data.fields`. Nothing is invented here — an envelope that names
  * neither produces no hint at all rather than a zero, because "retry immediately" and
- * "the refusing side said nothing about retrying" are different facts and a surface must
+ * "the refusing side said nothing about retrying" are different facts and a component must
  * not render the second as the first.
  *
  * `resetAt` is READ rather than carried: a hint that names an instant this console
@@ -76,11 +74,11 @@ export interface RefusalExtensions {
    * Registered by `core/wire-rejection.ts`: the bindings a fan-out mutation failed on.
    *
    * `error-contracts.md` puts `failedBindingIds` on `data.fields` for
-   * `session.goal_delivery_failed`, and a surface that says "no goal change" without
+   * `session.goal_delivery_failed`, and a component that says "no goal change" without
    * naming which legs refused leaves a person with nothing to check. These are
    * IDENTIFIERS rather than prose, which is what makes reading them off `data.fields`
    * different from reading a sentence out of it: the envelope's `message` is the
-   * sentence and this is a list a surface renders as wire figures.
+   * sentence and this is a list a component renders as wire figures.
    */
   readonly failedBindingIds?: readonly string[];
 }
@@ -160,7 +158,7 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
  * Every element must be a non-empty string, `readWireString`'s rule, imported rather
  * than restated; an element that fails it is dropped rather than rendered as a row
  * naming nobody. A source that is not an array, or whose elements are all
- * unreadable, answers `undefined` — an EMPTY list would tell a surface the daemon
+ * unreadable, answers `undefined` — an EMPTY list would tell a component the daemon
  * named no failing binding, which is a different fact from its having named none
  * this console could read.
  */

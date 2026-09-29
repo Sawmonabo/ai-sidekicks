@@ -4,7 +4,7 @@
 // `preload` the palette calls while its row is highlighted — speculative warming, fired
 // on a person READING rather than acting. A chord calls none of it: `KeybindingTable`
 // resolves the binding and runs the command, and that is the whole path. So a
-// destination whose surface is loader-backed navigated with its chunk unrequested, and
+// destination whose screen is loader-backed navigated with its chunk unrequested, and
 // the reserved frame the loader form exists to hide is what a keyboard user saw — the
 // one user who reached the destination fastest.
 //
@@ -54,7 +54,7 @@ function pressRebound(commandId: string): void {
 }
 
 describe("a rail destination reached by chord", () => {
-  it("warms the destination's surface on the run path, not only the palette's", async () => {
+  it("warms the destination's screen on the run path, not only the palette's", async () => {
     await mountApp();
 
     // The control, in line and not in a case of its own: the board is cold here, so the

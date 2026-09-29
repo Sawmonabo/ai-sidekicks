@@ -2,7 +2,7 @@
 //
 // This module renders nothing, calls nothing, and holds no copy about a refusal. The byte
 // bound is `attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
-// the deployment's own bound is made anywhere, so every surface reads the shipped default.
+// the deployment's own bound is made anywhere, so every view reads the shipped default.
 
 import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
 
@@ -13,7 +13,7 @@ import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
  * the same rule from the other side: the daemon refuses the whole staged list at acceptance
  * with `artifact.too_many_attachments`, so a console that stopped the eleventh attach
  * would be deriving eligibility the daemon owns and would be wrong the moment an
- * operator raises the bound. Nothing here answers "may I", and no surface reading this
+ * operator raises the bound. Nothing here answers "may I", and no view reading this
  * withdraws the picker.
  */
 export interface StagedAttachmentsFill {

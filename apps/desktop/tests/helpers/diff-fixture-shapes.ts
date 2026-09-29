@@ -1,4 +1,4 @@
-// The change-set shapes the diff surfaces are built and measured against, and the named
+// The change-set shapes the diff views are built and measured against, and the named
 // fixtures a case reaches for by name.
 //
 // SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A DESCRIPTION AND A BUILD. This
@@ -41,7 +41,7 @@ export interface DiffFixtureShape {
    * folding it into the header dimension would put a hunk inside a set documented as
    * having none. It is the only subject in this module on which the two rendered rows
    * are indistinguishable without the patch's own `\ No newline at end of file`
-   * marker, which is exactly why the surfaces need it.
+   * marker, which is exactly why the views need it.
    */
   readonly terminalNewlineFile: boolean;
 }
@@ -91,7 +91,7 @@ export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
  *
  * A SHAPE OF ITS OWN RATHER THAN A WIDENED `SMALL_DIFF_SHAPE`, so the cases written
  * against that shape keep counting the files they were written to count. This one is
- * the subject both the render cases and the surface tiers take: a file with no hunks
+ * the subject both the render cases and the screenshot and layout tiers take: a file with no hunks
  * reaches the file list and the row renderer as `+0 −0` under a bare path unless what
  * the patch declared is carried and drawn, which is exactly what an image holds and a
  * count assertion does not.
@@ -101,7 +101,7 @@ export const EXTENDED_HEADER_DIFF_SHAPE: DiffFixtureShape = {
   extendedHeaderFiles: true,
   // And the file whose whole change is its terminating newline, for the same reason
   // the four header files are here: two rows with identical text are what the two
-  // surfaces drew before the marker was carried, and what they draw now is a claim an
+  // views drew before the marker was carried, and what they draw now is a claim an
   // image holds and a count assertion does not.
   terminalNewlineFile: true,
 };

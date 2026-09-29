@@ -77,7 +77,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     expect(enumerationCalls(recorded)).toHaveLength(2);
   });
 
-  it("names a published entry to a reader that never opened the surface", async () => {
+  it("names a published entry to a reader that never opened the command list", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -105,7 +105,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     expect(enumeration.publishedEntryNamed("frame.goToSettings", ADDRESSED)).toBeUndefined();
   });
 
-  it("stops naming entries once the surface that opened the reading closes", async () => {
+  it("stops naming entries once the command list that opened the reading closes", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -128,7 +128,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       rerender(false);
     });
 
-    // The lifetime ends with the surface: what is left is a reading nobody has, not
+    // The lifetime ends with the command list: what is left is a reading nobody has, not
     // a list held for the next time somebody types a slash.
     expect(enumeration.snapshot().phase).toBe("not-checked");
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
@@ -174,7 +174,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
   it("drops a reply from the bridge that has been replaced", async () => {
     // The second half of the same defect: the outstanding read was guarded by a key
     // the swap did not move, so the old wire's catalog could land ON TOP of the new
-    // one's after the surface had already been re-served.
+    // one's after the command list had already been re-served.
     const recorded: RecordedDaemonCall[] = [];
     const parkedOnFirstBridge: ((reply: unknown) => void)[] = [];
     const firstBridge = recordingBridge(recorded, parkedOnFirstBridge);
@@ -242,16 +242,16 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
 });
 
 /**
- * The read's own lifetime: it ends with the surface that opened it.
+ * The read's own lifetime: it ends with the command list that opened it.
  *
- * An enumeration is surface-owned — the popover that opened it closes, or the composer
- * addresses another agent — so its round's signal reaches the call door and the read
- * itself ends rather than merely being ignored. Two claims, and they are separable:
- * that the signal REACHES the door, which the door's own pre-send guard makes
+ * The command list owns an enumeration — the popover that opened it closes, or the
+ * composer addresses another agent — so its round's signal reaches `callDaemon` and the
+ * read itself ends rather than merely being ignored. Two claims, and they are separable:
+ * that the signal REACHES `callDaemon`, which its own pre-send guard makes
  * observable in what the bridge was asked; and that a reply landing after the close is
  * never published, which the round's settlement decides.
  */
-describe("settleEnumeration — the round's signal reaches the call door", () => {
+describe("settleEnumeration — the round's signal reaches callDaemon", () => {
   it("puts nothing on the wire for a line that is already over", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
@@ -265,7 +265,7 @@ describe("settleEnumeration — the round's signal reaches the call door", () =>
       overLine.signal,
     );
 
-    // The door's own pre-send guard, which is only reachable if the signal was passed
+    // `callDaemon`'s own pre-send guard, which is only reachable if the signal was passed
     // to it at all — so the empty record is the evidence the parameter is wired.
     expect(enumerationCalls(recorded)).toHaveLength(0);
     expect(settled.phase === "refused" ? settled.refusal.code : undefined).toBe("read-abandoned");
@@ -289,10 +289,10 @@ describe("settleEnumeration — the round's signal reaches the call door", () =>
 });
 
 describe("ProviderCommandEnumeration — closing ends the read in flight", () => {
-  it("drops a reply that lands after the surface closed", async () => {
+  it("drops a reply that lands after the command list closed", async () => {
     const recorded: RecordedDaemonCall[] = [];
-    const parkedOnTheOpenSurface: ((reply: unknown) => void)[] = [];
-    const bridge = recordingBridge(recorded, parkedOnTheOpenSurface);
+    const parkedWhileTheListIsOpen: ((reply: unknown) => void)[] = [];
+    const bridge = recordingBridge(recorded, parkedWhileTheListIsOpen);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
       (isOpen: boolean) =>
@@ -307,16 +307,16 @@ describe("ProviderCommandEnumeration — closing ends the read in flight", () =>
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    // Held, so the read is genuinely in flight when the surface goes.
+    // Held, so the read is genuinely in flight when the command list goes.
     expect(enumerationCalls(recorded)).toHaveLength(1);
     expect(enumeration.snapshot().phase).toBe("not-loaded");
 
     await act(async () => {
       rerender(false);
     });
-    // The provider answers only now, to a surface that has gone.
+    // The provider answers only now, to a command list that has gone.
     await act(async () => {
-      parkedOnTheOpenSurface[0]?.(enumerationReplyNaming("answered-after-the-close"));
+      parkedWhileTheListIsOpen[0]?.(enumerationReplyNaming("answered-after-the-close"));
       await crossMacrotaskBoundary();
     });
 
@@ -324,12 +324,12 @@ describe("ProviderCommandEnumeration — closing ends the read in flight", () =>
     expect(enumeration.publishedEntryNamed("answered-after-the-close", ADDRESSED)).toBeUndefined();
   });
 
-  it("negative control: the same held reply lands while the surface is still open", async () => {
+  it("negative control: the same held reply lands while the command list is still open", async () => {
     // Without this the case above would hold over a holder that published nothing at
     // all, which is the same green for the opposite defect.
     const recorded: RecordedDaemonCall[] = [];
-    const parkedOnTheOpenSurface: ((reply: unknown) => void)[] = [];
-    const bridge = recordingBridge(recorded, parkedOnTheOpenSurface);
+    const parkedWhileTheListIsOpen: ((reply: unknown) => void)[] = [];
+    const bridge = recordingBridge(recorded, parkedWhileTheListIsOpen);
     const enumeration = new ProviderCommandEnumeration();
     renderHook(() =>
       useProviderCommandEnumeration({
@@ -344,7 +344,7 @@ describe("ProviderCommandEnumeration — closing ends the read in flight", () =>
     });
 
     await act(async () => {
-      parkedOnTheOpenSurface[0]?.(enumerationReplyNaming("answered-while-open"));
+      parkedWhileTheListIsOpen[0]?.(enumerationReplyNaming("answered-while-open"));
       await crossMacrotaskBoundary();
     });
 

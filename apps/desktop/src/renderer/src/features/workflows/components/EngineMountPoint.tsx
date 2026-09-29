@@ -14,9 +14,9 @@ export interface EngineMountPointProps<TMount extends object> {
   /** The body, or `undefined` while nobody has filled the mount point. */
   readonly body: ((mount: TMount) => React.ReactNode) | undefined;
   /**
-   * What the mounting surface hands the body.
+   * What the view doing the mounting hands the body.
    *
-   * Absent where the surface cannot meet it, which is one mount point's real state: the human form
+   * Absent where that view cannot supply it, which is one mount point's real state: the human form
    * is opened from a phase, and a form composed against a phase nobody resolved would be
    * answerable in appearance and unsubmittable in fact. No mount, no body, and the frame
    * stands empty.

@@ -127,7 +127,7 @@ describe("useWorkflowRunDirectory — the call is half of what the read is about
 
     await settle();
     // The reset is only half the claim: a hook that reset and never re-read would leave
-    // the surface reading forever under a call that can answer.
+    // the runs section reading forever under a call that can answer.
     expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["second call"]);
   });
 

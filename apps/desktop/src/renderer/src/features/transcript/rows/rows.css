@@ -9,7 +9,7 @@
   min-width: 0;
 }
 
-.meridian-message-card__family {
+.meridian-message-card__kind-label {
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -105,10 +105,10 @@
   cursor: pointer;
 }
 
-/* The row-hover arm is the PRIMITIVE's, reached by the class the disclosure carries:
-   `meridian-transcript-row-layout` is the primitives family's, and a rule here naming it would
-   make the reveal depend on which of the two sheets the bundler emits last. These two
-   arms name only this family's own class, so they stay. */
+/* The row-hover arm is the row layout's, reached by the class the disclosure carries:
+   `meridian-transcript-row-layout` belongs to `TranscriptRowLayout.css`, and a rule here
+   naming it would make the reveal depend on which of the two sheets the bundler emits
+   last. These two arms name only the tool card's own class, so they stay. */
 .meridian-tool-card__disclosure:focus-visible,
 .meridian-tool-card__disclosure[aria-expanded="true"] {
   opacity: 1;

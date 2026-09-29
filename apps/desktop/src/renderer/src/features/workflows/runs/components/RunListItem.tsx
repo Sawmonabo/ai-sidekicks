@@ -4,9 +4,9 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `RunList.tsx`, which is the package's
 // one-component-per-`.tsx` rule: a module holding two components is a module whose
 // name answers for one of them, and the other is reached only by reading the file.
-// `parks/ParkSchedule.tsx` and `definitions/DefinitionListItem.tsx` are this family's
-// own precedents — a deep relative import from the host list, and no door line,
-// because nothing outside the family composes a row on its own.
+// `RunList.tsx` imports it by relative path and the feature's public entry does not
+// export it, because nothing outside this feature composes a row on its own;
+// `components/ParkSchedule.tsx` is the same shape beside `ParkBadge.tsx`.
 //
 // WHAT A ROW SHOWS, and why it stops there. The definition's name, the run's status,
 // the run id, when it started, whichever parks are live, and whether the run's pin
@@ -75,7 +75,7 @@ interface RunReasonReading {
    *
    * `undefined` on the failure arm, which is the one arm whose treatment IS the name:
    * red prose under a failed run reads as the failure it is, and a label above it
-   * would be the surface saying twice what it has already said once.
+   * would be the row saying twice what it has already said once.
    */
   readonly label: string | undefined;
 }

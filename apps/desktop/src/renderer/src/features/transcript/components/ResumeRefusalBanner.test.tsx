@@ -1,18 +1,16 @@
 // The refused position reaches a screen, driven through the screen that mounts it.
 //
-// THE DEFECT THIS SUITE IS THE CONTROL FOR, IN BOTH DIRECTIONS. `timelineResumeFor`
-// had zero callers outside its own declaration once — the decision was computed on
-// every read, kept on the entry, forwarded by the registry, and rendered by nothing —
-// and the screen that closed that gap then rendered the WRONG arm: it reported a
-// version skew on every read from every responder, because the rule it consulted
-// required a cursor member the shipped schema forbids. So this suite drives the
-// REGISTERED session screen, and the arm it asserts on is a refusal the daemon
-// actually raised about a position this console actually sent.
+// WHAT THIS SUITE PROVES, IN BOTH DIRECTIONS. The resume decision reaches the screen
+// (a decision computed on every read but rendered by nothing is the failure one way),
+// and only its refused arm draws the banner (a banner on every ordinary read is the
+// failure the other way). So this suite drives the REGISTERED session screen, and the
+// arm it asserts on is a refusal the daemon actually raised about a position this
+// console actually sent.
 //
 // EVERYTHING BELOW THE SCREEN IS REAL: a real `SessionStoreRegistry` opening a real
 // entry, whose real scheduler performs real reads, the second of which carries the
 // position the first acknowledged. The only stand-in is the session screen BODY, which is
-// the composition root's parameter and is another family's component entirely.
+// the composition root's parameter and another feature's component entirely.
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -87,7 +85,7 @@ async function renderSessionScreen(input: {
   });
   const descriptor = screens.descriptorFor("session");
   if (descriptor === undefined) {
-    throw new Error("the transcript family registered no session screen");
+    throw new Error("the transcript feature registered no session screen");
   }
 
   for (let turn = 0; turn < input.refreshes; turn += 1) {
@@ -97,7 +95,7 @@ async function renderSessionScreen(input: {
   }
 
   // Under the provider, because this mounts the WHOLE session screen and the
-  // surfaces composed into it read the bridge the way every console surface does. The
+  // views composed into it read the bridge the way every view in the console does. The
   // scenario is the quiet one: this suite's subject is the resume decision, which the
   // registry above settles, so a scenario with a script would be beats nothing here
   // reads. The gap fill mounted beside the resume notice renders nothing for a window

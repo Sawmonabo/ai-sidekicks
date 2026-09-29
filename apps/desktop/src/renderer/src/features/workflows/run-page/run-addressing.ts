@@ -26,7 +26,7 @@ const WORKFLOW_RUN_PANE_ORIGIN = "workflow-run";
  *
  * `ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
  * kinds on purpose — a definition is authored, versioned and scoped and outlives
- * every run of it — and this surface shows the second. A binding rather than a
+ * every run of it — and this pane shows the second. A binding rather than a
  * literal at the guard, so the kind the pane admits and the kind its refusal names
  * cannot come apart.
  */

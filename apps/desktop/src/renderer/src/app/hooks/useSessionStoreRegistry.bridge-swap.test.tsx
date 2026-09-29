@@ -7,7 +7,7 @@
 // not re-mint them in that same render left a committed frame pairing the NEW bridge
 // with the OLD plumbing — a window reading sessions through a transport nothing was
 // serving, and a binder subscribed to it. Nothing in a snapshot shows that; the
-// surface renders a live session that simply never changes again.
+// screen renders a live session that simply never changes again.
 //
 // SO THE CLAIM IS ABOUT EVERY COMMITTED FRAME, not about where the window settles.
 // The shape this replaced settled correctly by accident: its disposal effect listed

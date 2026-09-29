@@ -1,7 +1,7 @@
 // The pane context, the render, and the log the transcript pane suite is driven over.
 //
-// The seat teardown is NOT here: it is an `afterEach`, which the suite states beside its
-// own cases.
+// The row renderer teardown is NOT here: it is an `afterEach`, which the suite states
+// beside its own cases.
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -51,9 +51,8 @@ export function paneContext(
 /**
  * Render one mount of the pane under a bridge, and answer the pane element.
  *
- * NO CHROME ARGUMENT ANY MORE. The frame is `seats/PaneFrame`, which the pane
- * imports downward through the seat door, so there is nothing left for a suite to
- * compose it with and the factory that existed to bind one is gone.
+ * NO CHROME ARGUMENT. The frame is `components/PaneFrame`, which the pane imports
+ * itself, so there is nothing for a suite to compose it with.
  *
  * The quiet scenario rather than a richer one: what these suites need from a bridge is
  * the frozen clock the viewport's scheduler runs on, and every row they assert on comes

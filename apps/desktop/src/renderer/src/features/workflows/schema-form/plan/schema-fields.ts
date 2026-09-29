@@ -12,9 +12,9 @@
 // could check, because a group holding groups is exactly the shape that has no bottom.
 // So a group holds leaves and a leaf is a field or a list, and the type says so.
 //
-// AND A MEMBER PATH IS THE BRIDGE'S OWN. `SchemaMemberPath` is declared once, in
-// `bridge/wire-shapes/schema-member-path.ts`, and both the schema reader that produces a
-// finding and every descriptor here take it from there — so a descriptor and a finding are
+// AND A MEMBER PATH IS DECLARED ONCE. `SchemaMemberPath` lives in
+// `schema-member-path.ts`, and both the validator that produces a finding and every
+// descriptor here take it from there — so a descriptor and a finding are
 // addressed in one representation and the lookup between them is a comparison rather than
 // a translation.
 
@@ -121,7 +121,7 @@ export function emptyControlValue(kind: SchemaFieldKind): unknown {
  * What the answer holds at a MEMBER NOBODY HAS ANSWERED. The one rule, stated once.
  *
  * A MEMBER IS PRESENT IN THE ANSWER EXACTLY WHILE SOMETHING ON THE SCREEN IS DISPLAYING A
- * VALUE FOR IT, AND WHERE THE SURFACE HAS NO WAY TO DISPLAY ABSENCE, REQUIREDNESS DECIDES.
+ * VALUE FOR IT, AND WHERE THE CONTROL HAS NO WAY TO DISPLAY ABSENCE, REQUIREDNESS DECIDES.
  * Four of the five controls have an empty state a person reads as "not answered" — a blank
  * text box, a number box with nothing in it, a select on its unanswered option — so a
  * member drawn through one of them is absent until somebody answers it and RETURNS to
@@ -279,7 +279,7 @@ export type SchemaFormEntry =
 /**
  * Where one leaf sits, whichever of the two forms it took.
  *
- * Declared here beside the two descriptors it reads rather than at any of the surfaces
+ * Declared here beside the two descriptors it reads rather than in any of the modules
  * that ask it: the mapper asks which root member a leaf answers under, the form asks
  * which path to address a finding at, and the answer asks where to write a value. One
  * question, and it is about the vocabulary rather than about any of the three.
@@ -316,8 +316,8 @@ export function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
  * `planSchemaForm` returns the first five and never the last two: whether a schema COMPILES
  * into something an answer can be checked against — and whether the thing that would have
  * compiled it arrived at all — are questions this module holds no answer to, and the caller
- * holding both readings composes them. The causes still live here, because a surface reads
- * one vocabulary and a second enumeration beside this one would be two closed sets
+ * holding both readings composes them. The causes still live here, because every reader
+ * reads one vocabulary and a second enumeration beside this one would be two closed sets
  * describing one arm.
  *
  * `schema-uncheckable` AND `checker-unavailable` ARE DELIBERATELY NOT ONE CAUSE, and the

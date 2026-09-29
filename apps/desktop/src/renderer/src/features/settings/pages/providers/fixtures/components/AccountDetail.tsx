@@ -29,7 +29,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       key: "accountId",
       term: <span>Account</span>,
       // The daemon-minted handle, verbatim and in mono. It is opaque and immutable and
-      // is what every other surface names this account by, so it is shown rather than
+      // is what every other view names this account by, so it is shown rather than
       // hidden behind the operator's label.
       definition: <WireFigure value={account.accountId} />,
     },

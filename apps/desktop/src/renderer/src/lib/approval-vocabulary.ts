@@ -1,27 +1,26 @@
-// The approvals surface's closed sets, declared exactly once.
+// The closed sets the approval card and the remembered-rules list render, declared exactly once.
 //
 // All six — seven canonical categories, five approval states, two decisions, two
-// remembered-scope kinds, and four invalidation triggers — are vocabularies the
-// daemon owns rather than ones the console may widen. The approvals payload
-// contracts are where they are written, and the approvals view names the scope kinds
-// on the surface itself, as a `RememberedScope { kind: 'run' | 'session' }` grant
-// with category-derived pattern semantics.
+// remembered-scope kinds, and four invalidation triggers — are vocabularies the daemon
+// owns rather than ones the console may widen. The approvals payload contracts are
+// where they are written, and the approval card names the scope kinds on screen, as a
+// `RememberedScope { kind: 'run' | 'session' }` grant with category-derived pattern
+// semantics.
 //
-// WHY THEY ARE DECLARED HERE AND NOT IMPORTED FROM `@ai-sidekicks/contracts`.
-// They are not registered there. `packages/contracts` carries the seven
-// `approval.*` event TYPES and their category, and no approval payload variant, no
-// `ApprovalState`, no `ApprovalCategory`, no `RememberedScope`, and no
-// `InvalidationTrigger` — the surface's whole wire column reads FIXTURE for that
-// reason. So these are renderer-local projection contracts on the same terms
-// `store/entities/entities.ts` states for `ProjectedSessionEvent`: the console narrows an
-// `unknown` reply at one boundary, and the day the contract package registers the
-// real unions this module is deleted rather than reconciled.
+// WHY THEY ARE DECLARED HERE AND NOT IMPORTED FROM `@ai-sidekicks/contracts`. They are
+// not registered there. `packages/contracts` carries the seven `approval.*` event TYPES
+// and their category, and no approval payload variant, no `ApprovalState`, no
+// `ApprovalCategory`, no `RememberedScope`, and no `InvalidationTrigger`. So these are
+// renderer-local projection contracts on the same terms `store/entities/entities.ts`
+// states for `ProjectedSessionEvent`: the console narrows an `unknown` reply at one
+// boundary, and the day the contract package registers the real unions this module is
+// deleted rather than reconciled.
 //
 // EVERY TABLE BELOW IS TOTAL OVER ITS SET BY CONSTRUCTION. A tenth category or a
 // sixth state fails to compile here rather than rendering as a nameless token in
 // whichever pane layout first opened the pane. A value the wire sends that this build
 // does not know is NOT asserted into a member: the classifiers at the bottom
-// answer `undefined`, and the surface renders the wire string verbatim under an
+// answer `undefined`, and the component renders the wire string verbatim under an
 // unrecognized treatment, which is the fail-closed projection rule.
 /** The seven canonical approval categories, verbatim. */
 export const APPROVAL_CATEGORIES = [
@@ -78,10 +77,10 @@ export type InvalidationTrigger = (typeof INVALIDATION_TRIGGERS)[number];
 /**
  * What a category is called on screen.
  *
- * The token itself is still rendered beside the phrase, in mono, because the token
- * is what the daemon sent and rule 4 gives a wire string the mono signature. The
- * phrase exists so a person reads a sentence rather than an identifier; it never
- * replaces the token.
+ * The token itself is still rendered beside the phrase, in mono, because the token is
+ * what the daemon sent and a wire string always renders in mono, the mark that a value
+ * came from the wire. The phrase exists so a person reads a sentence rather than an
+ * identifier; it never replaces the token.
  */
 export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>> = {
   tool_execution: "Run a tool",

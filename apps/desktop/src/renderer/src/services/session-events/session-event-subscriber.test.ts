@@ -1,4 +1,4 @@
-// The wire reaches the store, and only through the one door.
+// The wire reaches the store, and only through the one subscriber.
 //
 // Everything here runs against the REAL fixture bridge playing the REAL concurrent-streaming
 // scenario on the REAL frozen clock the engine builds. That is not ceremony: the

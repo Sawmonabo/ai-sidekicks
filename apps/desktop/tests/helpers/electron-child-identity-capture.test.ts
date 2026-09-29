@@ -8,7 +8,7 @@
 // wrong one for an ORDER: a capture that is never taken and a capture that is
 // taken too late both read exactly like a tree with nothing under it.
 //
-// So this file drives the moments through the real spawn door instead, and each
+// So this file drives the moments through the real spawner instead, and each
 // of them is a moment the design left to whoever happened to ask:
 //
 //   • THE SET IS RECORDED WHILE THE ROOT IS STILL HELD. A descendant set cannot
@@ -109,7 +109,7 @@ describe("a spawned tree's identity — recorded while the root is still held", 
   it(
     "records the tree at the owner's own moment, so the rootless arm has a kill list",
     async () => {
-      // THE FIRST HALF, driven end to end through the real door. Nothing between
+      // THE FIRST HALF, driven end to end through the real spawner. Nothing between
       // the spawn and the disposal asks this identity anything, so without a
       // moment the owner takes for itself the set the rootless arm is handed here
       // is empty — every attempt refuses, and the descendant outlives the run.

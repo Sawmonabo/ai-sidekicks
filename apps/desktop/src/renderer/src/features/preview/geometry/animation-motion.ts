@@ -7,13 +7,13 @@
 //
 // IT EXISTS BECAUSE "SOMETHING IS ANIMATING" IS NOT THAT QUESTION. Every `not-loaded`
 // skeleton runs an infinite opacity pulse (`meridian-skeleton-pulse`, in
-// `primitives/absence/nothing.css`), so a single
-// loading surface anywhere on screen made the document-wide reading true forever: the
-// frame sampler re-armed on every frame and ran a pane's geometry reads on every
+// `primitives/absence/nothing.css`), so without this question a single loading
+// skeleton anywhere on screen would make the document-wide reading true forever: the
+// frame sampler would re-arm on every frame and run a pane's geometry reads on every
 // frame, for as long as anything was loading, over an animation that cannot move a
 // box at all. A permanent RAF loop is exactly what the console's idle-CPU budget
-// forbids, and nothing about it was visible — the pane's rectangle was simply
-// recomputed forever and always came out the same.
+// forbids, and nothing about it would be visible — the pane's rectangle would simply
+// be recomputed forever and always come out the same.
 //
 // TWO BOUNDS, AND EACH ONE ALONE IS INSUFFICIENT: what a keyframe animates, and where
 // the animated box sits. Both fail SAFE — an animation this module cannot read, and a

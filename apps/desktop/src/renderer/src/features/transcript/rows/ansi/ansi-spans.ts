@@ -8,16 +8,16 @@
 //
 // THE COLORS ARE NAMES, NOT VALUES. The parse runs with `use_classes: true`, so anser
 // reports `ansi-red` rather than `rgb(187, 0, 0)` — a NAME the console resolves through
-// its own palette, exactly as the code highlighter resolves token families. A tool that
+// its own palette, exactly as the code highlighter resolves token kinds. A tool that
 // prints red gets the console's red, which is legible on both schemes and is the same
-// red every other failure in the surface uses. Resolved triples would put a stranger's
-// palette inside a console whose two-hue rule is the reason its surfaces read at all.
+// red every other failure in the transcript uses. Resolved triples would put a stranger's
+// palette inside a console where amber and red are the only colors that ask for attention.
 //
 // WHAT IS DELIBERATELY NOT REPRODUCED, and why each is a decision rather than a gap:
 //
 //   • **Blink.** The motion rule admits opacity and 2-4 px translation and nothing
 //     else; a blinking span is neither, and a console
-//     that let a tool's bytes start an animation would have handed the surface's motion
+//     that let a tool's bytes start an animation would have handed the transcript's motion
 //     budget to a subprocess.
 //   • **Conceal.** A console that hid bytes a tool printed would be misreporting what
 //     ran. The text renders; nothing about it is hidden.
@@ -244,7 +244,7 @@ export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
  * background, its reading of a conventional terminal's defaults.
  *
  * They are undone rather than rendered. The console binds `black` and `white` to two
- * points on its READING scale, so a run that reached the surface carrying anser's pair
+ * points on its READING scale, so a run that reached the screen carrying anser's pair
  * would paint muted gray on faint gray — a substitution that is invisible in this
  * console and reversed in none.
  *

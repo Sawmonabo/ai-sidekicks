@@ -6,7 +6,7 @@
  * Rows a single run group renders before its body clips.
  *
  * The cap on a run group's visible rows, held here rather than inside the fold so the
- * bound sits beside the rest of the structure family's. A run group is a nested scroller, so the
+ * bound sits beside the transcript structure's other bounds. A run group is a nested scroller, so the
  * cap is not about what fits on screen — it is about how many rows one run may
  * mount at once while three sibling runs stream beside it. 120 is four screens of
  * transcript at this density: enough that scrolling inside a run group is reading

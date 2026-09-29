@@ -2,7 +2,7 @@
 // than by the row count.
 //
 // Its own module because `apps/desktop/AGENTS.md` puts one component in a `.tsx`
-// file, and because the two arms are the surface's real content when there is
+// file, and because the two arms are the screen's real content when there is
 // nothing to list: the one decision that matters — which kind of nothing this is —
 // was buried inside a ternary about array length, in a file whose other job is the
 // list, the heading, and the start control.

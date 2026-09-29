@@ -9,7 +9,7 @@
 // A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the mount point above it. The
 // submit is addressed by an attempt that exists only where a phase is open, so a hook in the
 // wrapper would have to run on the render where nothing is waiting. `EngineMountPoint`
-// renders only its empty frame on that arm, so the channel is mounted as the seat's body and
+// renders only its empty frame on that arm, so the channel is mounted as the mount point's body and
 // the supplied body is composed inside it, which puts the hook behind the same absence check
 // the empty frame is behind.
 //
@@ -31,7 +31,7 @@
 // identity by `useSubjectScopedState`, so both halves of the form's state are scoped to
 // one attempt by two mechanisms that agree rather than by one that covers half.
 //
-// THE OUTCOME STANDS BENEATH THE BODY. It is the seat's reading of what the daemon
+// THE OUTCOME STANDS BENEATH THE BODY. It is this binding's reading of what the daemon
 // answered and not part of the form, so it sits under whatever the body drew rather than
 // inside it — and a supplied body gets the settlement rendered for it without owning a
 // line of it.

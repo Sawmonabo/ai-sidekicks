@@ -3,7 +3,7 @@
 // The all-sessions list answers "what am I in the middle of" in one screen, ordered so
 // the thing you touched last is where you left it. That rule is an ordering, and an
 // ordering is a pure function — so it lives here rather than inside a component,
-// where it could not be driven without a DOM and where a second surface wanting the
+// where it could not be driven without a DOM and where a second view wanting the
 // same order would copy it.
 //
 // FOUR RULES, IN PRECEDENCE ORDER, AND WHY EACH ONE IS WHERE IT IS

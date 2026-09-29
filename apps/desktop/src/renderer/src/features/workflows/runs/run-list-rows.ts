@@ -41,8 +41,8 @@ export type WorkflowParkReason = NonNullable<WorkflowPhaseState["parkReason"]>;
  * nothing. The difference matters at every call site downstream: a renderer handed
  * four optionals has to re-derive "is this parked" from the right one of them, and
  * the wrong one is `parkCause`, which is present whenever `parkReason` is and
- * therefore looks like it would do. Narrowing once here means no surface repeats
- * the discriminator rule, and no surface gets it wrong.
+ * therefore looks like it would do. Narrowing once here means no component repeats
+ * the discriminator rule, and no component gets it wrong.
  */
 export interface WorkflowPhasePark {
   readonly parkReason: WorkflowParkReason;
@@ -75,8 +75,8 @@ export type WorkflowPhaseStateRow = ProjectedFrom<
    * projects phases by `phaseId` and nothing else names them, so a row built from
    * the wire has an opaque identity and no label; a projection that required a name
    * would force its caller to invent one, and an invented phase name is
-   * indistinguishable on screen from an authored one. A surface without it shows the
-   * id as the wire value it is.
+   * indistinguishable on screen from an authored one. A row without it shows the id
+   * as the wire value it is.
    */
   readonly phaseName?: string;
 };
@@ -130,8 +130,8 @@ export interface WorkflowParkedPhase {
    *
    * Beside the park rather than derived from it at each reader, because the
    * classification is not `autoResumeAt === undefined`: a present instant that no
-   * parser accepts is unscheduled too, and a surface that re-derived from presence
-   * alone rendered a park as scheduled and then had no time to show for it.
+   * parser accepts is unscheduled too, and a reader that derived it from presence
+   * alone would render a park as scheduled and then have no time to show for it.
    */
   readonly schedule: WorkflowParkSchedule;
 }
@@ -143,18 +143,16 @@ export interface WorkflowParkedPhase {
  * park that armed a readable boundary resumes itself and asks nobody for anything. A
  * park that armed nothing waits for a person. And a park that armed an instant this
  * console cannot read waits for a person too — the fail-closed reading of "we cannot
- * tell when this resumes" — but it is not the same fact, and a surface that folded it
+ * tell when this resumes" — but it is not the same fact, and a badge that folded it
  * into the second would drop the only evidence a daemon sent something malformed.
  */
 export type WorkflowParkSchedule =
   /**
    * The wire's instant, carried verbatim, on the arm the reading admitted it to.
    *
-   * The parsed milliseconds used to ride this arm as well, for a row-level
-   * earliest-resume pick that has since been deleted for having no reader. Nothing
-   * compares two resumes now — every surface that draws one draws the park it belongs
-   * to — so the number would be a second derived value carried for nobody, which is
-   * the member class the projection next door records purging.
+   * No parsed milliseconds ride beside it: nothing compares two resumes — every
+   * component that draws one draws the park it belongs to — so a number here would be
+   * a second derived value carried for nobody.
    */
   | { readonly kind: "armed"; readonly autoResumeAt: string }
   | { readonly kind: "unscheduled" }
@@ -173,7 +171,7 @@ export type WorkflowParkSchedule =
  * quietly reads a second is where a producer's encoding change enters unremarked
  * instead of arriving as the unreadable value it is.
  *
- * `core/instant.ts` RATHER THAN A VALIDATOR OF THIS FAMILY'S OWN, and the check is
+ * `lib/instant.ts` RATHER THAN A VALIDATOR OF THIS FEATURE'S OWN, and the check is
  * the one a digit-shaped pattern cannot make: it validates the CALENDAR and the
  * CLOCK, not just the groups. Month `13`, day `31` in a 30-day month, `2027-02-29` in
  * a year that has no such day, hour `24`, and minute or second `60` are each refused,
@@ -195,10 +193,10 @@ export type WorkflowParkSchedule =
  * sort wants the reading itself, because `compareInstants` orders readings and is what
  * puts an unreadable start last in BOTH directions.
  *
- * Exported because those two are the only readers of a wire instant in this family,
+ * Exported because those two are the only readers of a wire instant in this feature,
  * and the plane's `"utc-only"` declaration said at two call sites is one rule with two
- * homes — which is how a console comes to refuse an encoding on one surface and accept
- * it on the next.
+ * homes — which is how a console comes to refuse an encoding in one list and accept
+ * it in the next.
  */
 export function workflowInstant(iso: string): InstantReading {
   return parseInstant(iso, "utc-only");
@@ -212,10 +210,10 @@ export function workflowInstant(iso: string): InstantReading {
  * both end when somebody ends them — an unreadable boundary is fail-closed into the
  * second group, because nothing legible says this run resumes itself.
  *
- * It exists as a function because two surfaces spend attention on the answer and
+ * It exists as a function because two components spend attention on the answer and
  * neither may spend it differently: the park badge chooses its tone from this, and
- * the run pane's phase graph chooses a node's border treatment from it. Rule 3 spends
- * amber on "a person is needed" and on nothing else, so a badge and a node
+ * the run pane's phase graph chooses a node's border treatment from it. Amber means
+ * "a person is needed" and nothing else, so a badge and a node
  * disagreeing about one phase is one of them telling an operator to look at something
  * the other says needs nobody. Each deriving `schedule.kind !== "armed"` for itself
  * is exactly how that disagreement arrives — silently, since both readings are

@@ -39,7 +39,7 @@ export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
     return (
       <span className="meridian-tool-kind-badge">
         <Chip label="Unrecognized tool kind" tone="neutral" />
-        <WireFigure value={reading.declared} title="Declared tool sub-family" />
+        <WireFigure value={reading.declared} title="Declared tool kind" />
       </span>
     );
   }

@@ -27,7 +27,7 @@
 }
 
 /*
- * The one caution in the set. Rule 3 spends amber on attention and red on failure,
+ * The one caution in the set. Amber is spent on attention and red on failure,
  * and `SYSTEM_MESSAGE_BINDINGS` marks exactly one member a caution — the failed provider
  * switch — so this class is reachable from one binding and no other.
  */

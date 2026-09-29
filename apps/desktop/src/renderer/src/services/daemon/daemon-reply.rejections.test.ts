@@ -12,7 +12,7 @@
 // its prototype crossing a boundary, one whose own getter throws, one carrying
 // nothing machine-readable, one that cannot be rendered at all, and a bridge that
 // throws in the caller's own frame. A shape missing from this list is a shape that
-// reaches a surface as a crash.
+// reaches the view as a crash.
 //
 // The PARSE arm is `daemon-reply.test.ts` beside this file, and the two roles both
 // suites play live in `daemon-reply.test-support.ts`.
@@ -26,12 +26,12 @@ import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js"
 /**
  * The retry bound a refusal carries, read structurally.
  *
- * `DaemonReply.refusal` is typed `Refusal` on purpose — a surface renders a
+ * `DaemonReply.refusal` is typed `Refusal` on purpose — a view renders a
  * refusal, and only one offering a retry has to know the member exists — while
  * `normalizeWireRejection` answers the `WireRefusal` that widens it by exactly this
  * optional member. Read here rather than imported so this suite does not become the
  * one consumer that retires the `@consumedBy` marker `core/index.ts` carries for a
- * type no surface reads yet.
+ * type no view reads yet.
  */
 function retryBoundOf(
   refusal: Refusal,
@@ -63,10 +63,10 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   });
 
   it("keeps the daemon's own dotted code off a JSON-RPC rejection", async () => {
-    // The arm that decides whether this door is a consumer of the console's one
-    // normalizer or an eleventh copy of it. `JsonRpcRemoteError` carries the
+    // The arm that decides whether `callDaemon` consumes the console's one
+    // normalizer or copies it. `JsonRpcRemoteError` carries the
     // JSON-RPC NUMERIC as `code` and the project's dotted code at `data.type`,
-    // which `packages/contracts` states callers must discriminate on — so a door
+    // which `packages/contracts` states callers must discriminate on — so a caller
     // guarding on `{ code: string }` sees a number, misses, and renders every
     // registered daemon refusal as one generic console code.
     const remote = Object.assign(new Error("no such session on this node"), {
@@ -81,15 +81,15 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
 
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("no such session on this node");
-    // Negative control on the body this door used to carry: it landed exactly here,
-    // on the console's own generic code, with the daemon's on the floor.
+    // Negative control: a `callDaemon` guarding on `{ code: string }` would land
+    // exactly here, on the console's own generic code, with the daemon's on the floor.
     expect(refusal.code).not.toBe("call-rejected");
   });
 
   it("carries a rate-limit envelope's retry bound through to the caller", async () => {
     // A bound the refusing side named is the difference between "try again in
-    // thirty seconds" and a surface that offers a retry it cannot time. It rides
-    // `data.fields`, which a door that never reads `data` at all cannot see.
+    // thirty seconds" and a view that offers a retry it cannot time. It rides
+    // `data.fields`, which a `callDaemon` that never read `data` at all could not see.
     const throttled: unknown = {
       code: -32000,
       message: "too many reads",
@@ -144,8 +144,8 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     // can break it: reading a member runs a getter, and a getter that throws does
     // it INSIDE the `catch` — past every guard, in the one function whose contract
     // is that it returns a refusal rather than throwing. An `async` function turns
-    // that into a rejected promise from the door every caller took so it would not
-    // need a `try` of its own.
+    // that into a rejected promise from `callDaemon`, which every caller uses so it
+    // needs no `try` of its own.
     class HostileRejection extends Error {
       public get refusal(): never {
         throw new Error("this getter is the defect");
@@ -172,9 +172,10 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   });
 
   it("survives a rejection that cannot be rendered at all", async () => {
-    // A null-prototype object throws inside `String(...)`. A refusal is a rendering
-    // surface, so it must not be the thing that crashes on the value it exists to
-    // describe. The sentence names the method and never the value: this door hands
+    // A null-prototype object throws inside `String(...)`. A refusal is what the
+    // screen renders when a call fails, so it must not be the thing that crashes on
+    // the value it exists to describe. The sentence names the method and never the
+    // value: `callDaemon` hands
     // the normalizer a fallback, so the terminal stringifier is not reached and
     // nothing off the wire is quoted into a sentence a person reads.
     const hostile: unknown = Object.create(null);

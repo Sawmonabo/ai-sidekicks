@@ -1,13 +1,13 @@
-// The agents family's surface, mounted once for the tiers that look at it.
+// The agents feature's pane, mounted once for the tiers that look at it.
 //
-// Not a test file — no `include` glob reaches it as one. It sits beside the other
-// family mount modules for their reason: `app-harness.ts` owns HOW the app is
-// mounted, and a module named for a family owns WHAT of that family is mounted into it.
+// Not a test file — no `include` glob reaches it as one. It follows the feature
+// mount modules in `tests/helpers/feature-mounts/`: `app-harness.ts` owns HOW the app is
+// mounted, and a module named for a feature owns WHAT of that feature is mounted into it.
 //
 // The console pane is mounted over an unscripted fixture bridge, with the roster handed in
 // as a plain call. Nothing here re-authors a fixture: the roster rows come from the
-// module the family already keeps them in, so a capture cannot drift from what the
-// family's own suites are driven with.
+// module the feature already keeps them in, so a capture cannot drift from what the
+// feature's own suites are driven with.
 //
 // THE SESSION STORE OPENS WITH THE WINDOW'S OWN FOLD — {@link COMPOSED_ENTITY_PROJECTORS}
 // and never a registrar this file picked — so a partition a column reads is the one a
@@ -15,7 +15,7 @@
 //
 // AND THE MOUNT SETTLES ITS OWN READS. `renderSettled` flushes promises and moves no
 // clock; the composition arms a `RefreshScheduler` on the fixture's frozen one, so the
-// advance is the second half of what settling MEANS for a surface that reads. The mount
+// advance is the second half of what settling MEANS for a view that reads. The mount
 // then WAITS ON THE THING IT EXISTS TO SHOW rather than returning on the settle alone,
 // because a capture of a skeleton is a green case in every tier that takes one.
 
@@ -46,7 +46,7 @@ import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-
 /** The session the store is open on, so the roster read is asked rather than skipped. */
 const SESSION_ID = "session-agents";
 
-/** The roster this surface shows: two agents on two providers, and no child runs. */
+/** The roster this pane shows: two agents on two providers, and no child runs. */
 const AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [AGENT_ON_CLAUDE, AGENT_ON_CODEX] }),
   readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
@@ -55,14 +55,14 @@ const AGENTS_PANE_CALLS: AgentsPaneCalls = {
 /**
  * The one element a mount hands back, or a throw naming what was missing.
  *
- * A throw rather than an optional return, so a surface that stopped rendering its root
+ * A throw rather than an optional return, so a pane that stopped rendering its root
  * fails here — where the message names the selector — instead of handing a tier an
  * absent element to compare a reference against.
  */
 function requireRendered(root: ParentNode, selector: string): HTMLElement {
   const element = root.querySelector<HTMLElement>(selector);
   if (element === null) {
-    throw new Error(`the agents family rendered no ${selector}, so there is nothing to mount`);
+    throw new Error(`the agents pane rendered no ${selector}, so there is nothing to mount`);
   }
   return element;
 }

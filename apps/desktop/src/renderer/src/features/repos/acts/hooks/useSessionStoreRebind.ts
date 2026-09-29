@@ -3,13 +3,13 @@
 //
 // `hooks/subject-scoped/useSubjectScopedResource.ts` holds one resource per `(subject,
 // key)`, and every reading in the console that watches a session has THREE collaborators
-// for those two slots — the bridge it calls through, the identity it is addressed by, and
+// for those two positions — the bridge it calls through, the identity it is addressed by, and
 // the store whose repair edge and named frames are two of the three admitted read
 // reasons. The bridge is the subject and the identity is the key, so the store is the one
 // left over: a projection rebuilt for the same session under an unchanged bridge keeps
 // the whole address, the seam holds the resource in place, and the resource goes on
 // listening to a store nothing else reads. Every refresh the new store publishes reaches
-// nobody, and the surface sits on the answer it read before the reconnect with nothing on
+// nobody, and the dialog sits on the answer it read before the reconnect with nothing on
 // screen saying why.
 //
 // THE RULE IS WRITTEN ONCE HERE. Every act controller reaches it through

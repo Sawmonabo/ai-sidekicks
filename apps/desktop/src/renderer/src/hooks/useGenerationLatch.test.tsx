@@ -16,7 +16,7 @@ function LatchProbe(props: LatchProbeProps): ReactElement {
 }
 
 describe("useGenerationLatch — one register per mount", () => {
-  it("supersedes every outstanding claim when the surface unmounts", () => {
+  it("supersedes every outstanding claim when the component unmounts", () => {
     let latch: GenerationLatch | undefined;
     const view = render(
       <LatchProbe

@@ -25,7 +25,7 @@
 // these hooks are the callers of), and derivation happens in the component under
 // `useMemo`.
 //
-// WHAT IS NOT HERE. `session-projection-hooks.ts` holds the readings that answer a
+// WHAT IS NOT HERE. `useSessionInitialized.ts` holds the readings that answer a
 // question ABOUT a session's projection rather than out of it — whether a base state
 // landed, whether the projection moved, whether it is known incomplete, and what the
 // newest read said about resuming the stream. This file resolves stores and selects
@@ -81,7 +81,7 @@ export function useOpenSessionStore(
  * Subscribed through the registry's own change emitter, so it costs no timer and no
  * poll, and the read returns the registry's stable array rather than building one.
  *
- * @consumedBy a surface that lists the sessions this window has open
+ * @consumedBy a view that lists the sessions this window has open
  */
 export function useOpenSessionIds(registry: SessionStoreRegistry): readonly string[] {
   const subscribe = useCallback(

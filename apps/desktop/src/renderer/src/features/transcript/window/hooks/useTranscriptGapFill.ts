@@ -27,7 +27,7 @@ const REPLAYING: TranscriptGapFillState = { status: "replaying" };
  * AND NO POLLING, on the session header's rule: the ask goes out once from the effect the
  * read chokepoint arms, and again only when the call or the hole moves. A hole that
  * closes re-addresses the holder to `undefined`, which re-seeds this to `whole` — so
- * the surface clears with the store's own repair rather than on a timer of its own.
+ * the notice clears with the store's own repair rather than on a timer of its own.
  *
  * The input is three facts rather than a store and a registry, so the rule above and
  * the settlement here are both drivable without mounting either. `TranscriptGapFill`

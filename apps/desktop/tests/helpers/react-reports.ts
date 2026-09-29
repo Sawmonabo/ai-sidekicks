@@ -5,7 +5,7 @@
 // on the one sentence React uses for two children under one key. The `console-unit`
 // project declares no `setupFiles` and fails on no warning, so React's duplicate-key
 // report is logged and never read unless a case captures it — and a capture written
-// four times is a capture fixed once, in the family every other family may reach.
+// four times is a capture fixed once, in `tests/helpers/`, where every suite may reach it.
 //
 // THE RESTORE IS UNCONDITIONAL. A spy left installed by a failing case would silence
 // every later file in the worker, which is why the spy lives inside a scope rather

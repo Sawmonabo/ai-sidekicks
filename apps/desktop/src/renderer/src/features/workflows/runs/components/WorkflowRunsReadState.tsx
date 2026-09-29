@@ -3,9 +3,9 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `WorkflowRuns.tsx`, which is the
 // package's one-component-per-`.tsx` rule and not a preference: a module holding two
 // components is a module whose name answers for one of them, and the second is
-// reached only by reading the file. `primitives/reading/ReadingNotice.tsx` is the precedent —
-// a deep relative import from its host, and no door line, because nothing outside
-// this family composes it.
+// reached only by reading the file. `WorkflowRuns.tsx` imports it by relative path and
+// the feature's public entry does not export it, because nothing outside this feature
+// composes it.
 //
 // EVERY ARM IS A DIFFERENT FACT and none of them is the others: nobody could ask (no
 // session is in scope, so nothing is drawn), the read is in flight, or an answer came
@@ -23,7 +23,7 @@ export interface WorkflowRunsReadStateProps {
   readonly directory: WorkflowRunDirectoryState;
   /** Built from the served state, so the two are narrowed together. */
   readonly projection: RunListProjection | undefined;
-  /** Opens one run. Absent while the mounting surface cannot address one. */
+  /** Opens one run. Absent while the screen that mounts the section cannot address one. */
   readonly onOpenRun: ((row: WorkflowRunListRow) => void) | undefined;
 }
 

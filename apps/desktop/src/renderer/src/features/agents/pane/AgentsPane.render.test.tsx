@@ -52,9 +52,9 @@ async function renderBody(agentId: string | undefined): Promise<HTMLElement> {
 }
 
 describe("Agents pane — the body draws no head of its own", () => {
-  it("draws no heading, no section, and no name for the surface it is inside", async () => {
+  it("draws no heading, no section, and no name for the pane it is inside", async () => {
     // The pane is named by the chrome's whole trail, so a name here would be a second
-    // answer to what this surface is called. The column heading stays: it names a part
+    // answer to what this pane is called. The column heading stays: it names a part
     // of this body rather than the body itself.
     const container = await renderBody("agent-scout");
     const body = container.querySelector(".meridian-agents");
@@ -66,7 +66,7 @@ describe("Agents pane — the body draws no head of its own", () => {
 
   it("negative control: it does still draw the heading that names its column", async () => {
     // Without this, the case above would pass over a body that had lost every heading
-    // it has rather than only the one that named the whole surface.
+    // it has rather than only the one that named the whole pane.
     const container = await renderBody("agent-scout");
     const columnTitles = [...container.querySelectorAll("h3")].map((title) => title.textContent);
     expect(columnTitles).toStrictEqual(["Binding"]);

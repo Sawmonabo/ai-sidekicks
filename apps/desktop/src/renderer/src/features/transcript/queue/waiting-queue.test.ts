@@ -62,7 +62,7 @@ describe("waitingQueueRows", () => {
 
   it("negative control: the rows it drops are still in the list it was given", () => {
     // The transcript's pending rows render them. A fold that deleted them would take them
-    // off both surfaces.
+    // off both views.
     const rows = [rowInState(WAITING_FIRST, "queued"), rowInState(CANCELED, "canceled")];
     waitingQueueRows(rows);
     expect(rows.map((row) => row.id)).toStrictEqual([WAITING_FIRST, CANCELED]);

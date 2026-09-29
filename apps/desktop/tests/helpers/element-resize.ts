@@ -1,16 +1,15 @@
 // The size observer the console arms, under test control.
 //
-// `element-resize.ts` beside this file is the console's one `ResizeObserver`
-// construction site, and four suites drive it: the seam's own callers in the browser
-// family — the overlay registry, the pane geometry publisher, and the motion module
-// that arms it over an ancestry — and the terminal emulator that re-fits its grid
-// from it. A fake per suite is the same duplication the seam itself exists to
-// prevent: four fakes drift, and the one that drifts is the one whose suite then
-// passes for the wrong reason.
+// `lib/element-resize.ts` is the console's one `ResizeObserver` construction site, and
+// several suites drive it: the seam's own, the preview feature's geometry suites — the
+// pane geometry publisher and the motion module that arms it over an ancestry — and the
+// terminal emulator's, which re-fits its grid from it. A fake per suite is the same
+// duplication the seam itself exists to prevent: the fakes drift, and the one that drifts
+// is the one whose suite then passes for the wrong reason.
 //
-// IT LIVES BESIDE THE SEAM rather than in the family that first needed it. The fake
-// follows the production module down the DAG, because a terminal suite reaching into
-// `browser/` for it would be the lateral edge the hoist removed, in the test tier.
+// IT LIVES IN `tests/helpers/` rather than in the feature that first needed it, because a
+// terminal suite importing it from the preview feature would be one feature reaching into
+// another.
 //
 // DELIVERY IS TARGETED, not just broadcast. A caller that observes N elements
 // arms N observers, so "an ancestor resized" and "everything resized" are

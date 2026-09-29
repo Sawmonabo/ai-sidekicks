@@ -50,7 +50,7 @@ export interface AppliedBatch {
    *
    * An absent state is not an empty one: a batch of pure duplicates changes nothing a
    * subscriber could render, and committing a fresh object for it would re-render every
-   * open surface on a re-delivery that cost nothing.
+   * open view on a re-delivery that cost nothing.
    */
   readonly nextState: SessionStoreState | undefined;
 }

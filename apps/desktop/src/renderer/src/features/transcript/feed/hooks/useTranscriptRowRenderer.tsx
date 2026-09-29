@@ -20,7 +20,7 @@ export interface TranscriptRowRendererOptions {
   readonly hueForActor: (userId: string) => AgentHueAssignment | undefined;
   readonly toggleRunGroup: (runGroup: RunGroup) => void;
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
-  /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
+  /** The registered row renderer. STABLE across renders, or the memo below moves with it. */
   readonly renderTranscriptRow: TranscriptRowRenderer;
 }
 
@@ -64,9 +64,8 @@ export function useTranscriptRowRenderer(
       }
       const actorHue = projected.actor === undefined ? undefined : hueForActor(projected.actor);
       const isSuperseded = transcriptWindow.supersededRowIds.has(projected.id);
-      // A SEAM IS THE TRANSCRIPT'S OWN ROW, so it is drawn before the seat is asked.
-      // The seat fills with whichever renderer owns a session's row BODIES, and a
-      // seam has none: it is a change in the run's condition, laid on one line from
+      // A SEAM IS THE TRANSCRIPT'S OWN ROW, so it is drawn before the row renderer is
+      // asked. The row renderer draws a session's row BODIES, and a seam has none: it is a change in the run's condition, laid on one line from
       // parts `system-message-classifier.ts` derived. Delegating it would render a rollback, a
       // compaction or a switch as an ordinary receipt and drop the boundary position,
       // the continuity, the losses and the reason.
@@ -74,7 +73,7 @@ export function useTranscriptRowRenderer(
       if (seam !== undefined) {
         return <SystemMessage seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;
       }
-      // THROUGH `TranscriptFeedRow` RATHER THAN STRAIGHT INTO THE SEAT, and the
+      // THROUGH `TranscriptFeedRow` RATHER THAN STRAIGHT INTO THE ROW RENDERER, and the
       // indirection is the memo boundary — see that file. This callback's identity
       // moves on every admitted event because it closes over the window, so the
       // viewport's own row memo cannot hold across one; the four values below are

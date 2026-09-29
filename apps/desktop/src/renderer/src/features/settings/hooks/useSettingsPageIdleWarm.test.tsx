@@ -1,9 +1,9 @@
 // The settings mount arms one walk over its own board, and releases it with itself.
 //
-// The claim here is the LIFETIME rather than the walking, which `seats/lazy-body/lazy-body-warm.test.ts`
+// The claim here is the LIFETIME rather than the walking, which `components/LazyBody/lazy-body-warm.test.ts`
 // already holds, and rather than the wiring, which `SettingsScreen.page-warm.test.ts`
-// holds through the surface. What can go wrong in a binding is a walk that starts again on
-// every render, one still re-arming against a board whose surface has unmounted — the leak
+// holds through the screen. What can go wrong in a binding is a walk that starts again on
+// every render, one still re-arming against a board whose screen has unmounted — the leak
 // that leaves no trace until a second settings window is opened and closed — and the
 // `StrictMode` replay, which fails silently in the one direction that matters: the board
 // simply stays cold and nothing reports it.
@@ -13,7 +13,7 @@ import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
-// suites belongs to the module beside it and not on the family's production door.
+// suites belongs to the module beside it and not in the feature's shipped exports.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
@@ -44,7 +44,7 @@ function composePages(loadedSections: string[]): SettingsPageRegistry {
   return pages;
 }
 
-/** A surface that does nothing but hold the binding, so the effect is the subject. */
+/** A component that does nothing but hold the binding, so the effect is the subject. */
 function WarmingSettingsScreen(props: {
   readonly pages: SettingsPageRegistry;
   readonly scheduler: ManualIdleWarmScheduler;
@@ -54,7 +54,7 @@ function WarmingSettingsScreen(props: {
 }
 
 describe("the settings page board's idle warm", () => {
-  it("arms one walk once the surface has mounted, and fetches nothing yet", () => {
+  it("arms one walk once the screen has mounted, and fetches nothing yet", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -77,7 +77,7 @@ describe("the settings page board's idle warm", () => {
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
-  it("does not re-arm when the surface re-renders", () => {
+  it("does not re-arm when the screen re-renders", () => {
     // The walk is built inside the effect, whose dependencies are the board and a pinned
     // scheduler — neither of which a re-render changes. Naming the scheduler PARAMETER as
     // the dependency instead would re-run the effect every pass, because its default
@@ -94,7 +94,7 @@ describe("the settings page board's idle warm", () => {
     expect(loadedSections).toStrictEqual(["notifications"]);
   });
 
-  it("releases the walk when the surface goes away", () => {
+  it("releases the walk when the screen goes away", () => {
     // The leak this is for: a settings window closed mid-walk would go on re-arming an
     // idle callback against a board that nothing reads any more.
     const loadedSections: string[] = [];
@@ -116,7 +116,7 @@ describe("the settings page board's idle warm", () => {
     // `StrictMode` runs every effect setup, its cleanup, and the setup again. A walk held
     // across that replay is silently fatal: the first setup starts it, the synthetic
     // cleanup cancels it, and the replayed setup finds the same object already started and
-    // already canceled and returns — so the board stays cold for the life of the surface
+    // already canceled and returns — so the board stays cold for the life of the screen
     // with nothing failing and nothing logged. Building it inside each setup is what makes
     // a replay a fresh walk.
     const loadedSections: string[] = [];

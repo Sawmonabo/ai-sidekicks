@@ -1,7 +1,7 @@
 // The two LIVE-NOW driver reads, and the selectors every axis control asks of them.
 //
 // `driver.listModels` and `driver.listCapabilities` are registered daemon methods
-// today — the only wires these surfaces have that are not fixture-only — and both
+// today — the only wires these forms have that are not fixture-only — and both
 // are no-arg group lists keyed by driver name. They are read TOGETHER because no
 // axis control can be composed from either alone: a model's effort vocabulary comes
 // from the model catalog, the output-speed vocabulary and the capability gate come
@@ -53,9 +53,9 @@ export function modelsFor(
 /**
  * One model's effort vocabulary.
  *
- * `undefined` means the model publishes no effort surface, and a form that gets it
+ * `undefined` means the model publishes no effort levels, and a form that gets it
  * shows NO effort control at all rather than an empty one — an empty select asserts
- * an axis exists with nothing on it, which is a claim no provider surface makes.
+ * an axis exists with nothing on it, which is a claim no provider makes.
  */
 export function effortLevelsFor(
   catalog: DriverCatalogReading,

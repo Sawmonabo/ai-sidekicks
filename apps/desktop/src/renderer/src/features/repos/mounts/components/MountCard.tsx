@@ -1,6 +1,6 @@
 // One repo mount, on two axes that never collapse into one.
 //
-// THIS CARD'S OWN JOB, decided here because each surface's composition — what it
+// THIS CARD'S OWN JOB, decided here because each view's composition — what it
 // renders, offers, refuses, and folds — lives in the console's code: the card says
 // which repository this is and whether it is still the repository it was attached as.
 // Its rules are structural rather than cosmetic, and each is visible in the markup

@@ -35,7 +35,7 @@ function probeProjector(
 describe("the console's entity-projector board — one owner per event kind", () => {
   it("refuses a second owner's claim on one kind, naming both", () => {
     // Never last-writer-wins: two folds for one kind would make which one runs
-    // depend on which family's module evaluated first, and the store would report a
+    // depend on which feature's module evaluated first, and the store would report a
     // partition built by whichever that happened to be.
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
@@ -50,7 +50,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
 
   it("lets one owner re-claim its own kind, as a hot reload does it", () => {
     // The other half of the owner-scoped policy, and the reason it is not plain
-    // `"throw"`: a family's module re-evaluating must not raise.
+    // `"throw"`: a feature's module re-evaluating must not raise.
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
@@ -61,7 +61,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
 
   it("negative control: two owners on two different kinds is not a conflict", () => {
     // Without it the case above would hold over a registry that refused every
-    // second registration, which is a board no two families could share.
+    // second registration, which is a board no two features could share.
     const registry = new EntityProjectorRegistry();
 
     expect(() => {

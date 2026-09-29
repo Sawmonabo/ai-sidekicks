@@ -15,7 +15,7 @@
 //   2. THE NODE'S DIRECTORY IS DECLARED STALE. The act has settled and carries the
 //      session it produced, so this schedules a read of something that HAPPENED.
 //   3. THE WINDOW NAVIGATES. Last, because it is the one step a person sees, and
-//      because it is the step that ends this surface's mount.
+//      because it is the step that ends this screen's mount.
 
 import type { ScreenContext } from "@renderer/console/seats/index.js";
 

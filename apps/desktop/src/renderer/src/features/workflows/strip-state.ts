@@ -19,7 +19,7 @@
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * Every state a workflows state strip can be in, in the order a surface moves through
+ * Every state a workflows state strip can be in, in the order a body moves through
  * them: the read is in flight, the read found none, the daemon refused, a body is
  * mounted.
  *
@@ -37,9 +37,9 @@ export type WorkflowStripStateKind = (typeof WORKFLOW_STRIP_STATES)[number];
  * What a workflows body is showing.
  *
  * Copy travels ON the state rather than being looked up from the kind, because the
- * surfaces are absent about different things — no runs, no phases, no definition to
+ * bodies are absent about different things — no runs, no phases, no definition to
  * author — and a shared lookup table would either say something vague enough to fit
- * all of them or grow a per-surface branch, which is the same table with extra steps.
+ * all of them or grow a per-body branch, which is the same table with extra steps.
  */
 export type WorkflowStripState =
   | { readonly kind: "not-loaded"; readonly title: string }

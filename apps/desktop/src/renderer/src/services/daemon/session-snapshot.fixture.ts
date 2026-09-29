@@ -20,7 +20,7 @@
 // one cannot until the wire does.
 //
 // IT CARRIES NO ENTITIES, AND THAT IS A READING RATHER THAN A GAP. Every partition a
-// surface reads is projected from the delivered log by a registered projector, so a
+// view reads is projected from the delivered log by a registered projector, so a
 // base state that filed rows of its own would be a second source of truth for them.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";

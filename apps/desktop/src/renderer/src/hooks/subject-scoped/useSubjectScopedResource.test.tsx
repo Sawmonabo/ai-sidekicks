@@ -283,7 +283,7 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
 
 describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {
   it("closes the resource the late open produced, and installs nothing", () => {
-    // A caller opens a connection for the visit on screen, the surface is
+    // A caller opens a connection for the visit on screen, the component is
     // re-addressed while that open is in flight, and the settlement names a visit
     // that is over. Nothing installs it, so no commit and no effect will ever see it
     // — the holder's refusal is the resource's last reachable moment, which is why
@@ -309,7 +309,7 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
 
     expect(ledger.opened).toStrictEqual(["discarded", "settled", "opened too late"]);
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late"]);
-    // And the surface goes on reading through the visit it is addressed at.
+    // And the component goes on reading through the visit it is addressed at.
     expect(view.container.textContent).toBe("settled");
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
 

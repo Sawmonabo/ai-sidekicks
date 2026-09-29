@@ -1,6 +1,6 @@
 // A read's settlement, said out loud exactly once.
 //
-// A surface that renders `not-loaded` and then a list has told everyone who can see the
+// A view that renders `not-loaded` and then a list has told everyone who can see the
 // screen that its read landed, and nobody else. The console's live announcer exists for
 // that gap, and the discipline it needs is narrower than "call `announce` when the
 // state changes": a read that refreshes on focus settles again on every refresh, a
@@ -15,28 +15,27 @@
 // changes on every push is a new sentence every time and this hook will say all of
 // them. Each caller's own test pins that with a negative control.
 //
-// IN `primitives/` BECAUSE THREE VIEW FAMILIES READ IT, counted rather than assumed:
-// `settings/` from the mount inventory and the updates block, `agents/` from the
-// definition registry view, and `sessions/` from the attention read. View families are
-// siblings, so no one of them can hold a hook the other two call — the family that
-// wrote it would be the family the others deep-import into. That is the same argument
-// `ScreenNotice` and `primitives/chord/chord-format.ts` are here on, and it is why this is a
-// primitive rather than a settings module that grew readers.
+// IN `hooks/` BECAUSE SEVERAL FEATURES AND THE LAYOUT READ IT: `settings/` from the
+// mounted folder list and the updates block, `agents/` from the definition library,
+// and the notifications list from the attention read. One feature never imports
+// another, so no one of them can hold a hook the others call. The same reasoning puts
+// `ScreenNotice` in `components/` and `chord-format.ts` in `lib/`, and it is why this
+// is a shared hook rather than a settings module that grew readers.
 //
-// IT OWNS NO LATCH. `reading-announcement.ts` next door states the "once per distinct
-// sentence, replaced each pass" rule and holds the ref that enforces it; this module is
-// the SCALAR arity of the same rule and composes over that latch rather than keeping a
-// second copy of it. The place two copies of a latch drift is the comparison, and a
-// drifted comparison is a sentence a person hears twice with every test still green.
-// What is left here is the one thing the two arities genuinely disagree about: an
-// unsettled read makes NO claim, where a complete reading claims that nothing is
+// IT OWNS NO LATCH. `useAnnounceOncePerSentence.ts` beside it states the "once per
+// distinct sentence, replaced each pass" rule and holds the ref that enforces it; this
+// module is the SCALAR arity of the same rule and composes over that latch rather than
+// keeping a second copy of it. The place two copies of a latch drift is the comparison,
+// and a drifted comparison is a sentence a person hears twice with every test still
+// green. What is left here is the one thing the two arities genuinely disagree about:
+// an unsettled read makes NO claim, where a complete reading claims that nothing is
 // incomplete — so this module hands the latch `undefined` and the set arity hands it an
 // empty array, and only the second forgets what it said.
 //
 // WHY IT IS NOT `frame/composition/banner-announcements.ts`. That module diffs a LIST by id and
 // speaks into the assertive lane, because a refusal banner says the whole room's
 // capabilities moved. This one holds a single string and speaks politely, because a
-// surface finishing its own read is news for the person reading that surface and
+// view finishing its own read is news for the person reading that view and
 // nobody else. Folding them together would need a shape that is a set on one side and
 // a scalar on the other, and would put the two politeness lanes behind one call.
 

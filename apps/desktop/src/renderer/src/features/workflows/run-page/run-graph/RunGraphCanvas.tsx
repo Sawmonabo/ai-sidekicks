@@ -19,12 +19,12 @@
 // against 181,064 B / 58,540 B at 12.11.6). The initial graph does not move at all —
 // 624,224 B raw and 187,562 B gzip on both — which is the lazy arrangement's whole
 // claim holding under a version move. The chunk's stylesheet is byte-identical across
-// the two releases, so the token set this family's sheet drives does not depend on
+// the two releases, so the token set `run-graph.css` drives does not depend on
 // which one is pinned.
 //
 // READ-ONLY IS EXPRESSED AS PROPS, NOT AS A CONVENTION. Dragging, connecting,
 // selecting, reconnecting, deleting and keyboard node movement are each switched off
-// below by the prop that governs them, so there is no gesture on this surface that
+// below by the prop that governs them, so there is no gesture on this canvas that
 // changes a run. The authoring canvas is another plan's body; this one is a
 // projection of a run that already happened or is happening.
 //
@@ -32,7 +32,7 @@
 // that does not fit, and a projection that could not be scrolled would simply hide
 // the phases past the fold. Nodes stay focusable so a keyboard reaches every phase.
 //
-// WHY `disableKeyboardA11y` IS SET ON AN ACCESSIBLE SURFACE, which reads backwards
+// WHY `disableKeyboardA11y` IS SET ON AN ACCESSIBLE CANVAS, which reads backwards
 // until you look at what the flag governs: it turns off arrow-key node MOVEMENT, the
 // selection-key handler, and the library's own `aria-live` region that narrates
 // those moves. None of the three has anything to narrate here — nothing moves and
@@ -83,7 +83,7 @@ const SEQUENCE_MARKER_COLOR: string = tokenReference("edge-strong");
 export interface RunGraphCanvasProps {
   /** The placed sequence. A malformed one never reaches here — the host refuses first. */
   readonly layout: DrawnPhaseSequence;
-  /** The region's accessible name, supplied by the surface that mounted the graph. */
+  /** The region's accessible name, supplied by the component that mounted the graph. */
   readonly label: string;
 }
 

@@ -67,7 +67,7 @@ function buildRefusingRead(
   };
 }
 
-describe("push-driven read — a refused open is not the end of the surface", () => {
+describe("push-driven read — a refused open is not the end of the read", () => {
   it("settles failed and holds no subscription when the open refuses", async () => {
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });
@@ -103,7 +103,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
 
     // Pinned BEFORE the read settles, because this is the moment the replaced shape
     // could not reach: the subscription is live and the refusal beside it has already
-    // stopped being true, so the surface says it is reading rather than that it broke.
+    // stopped being true, so the view says it is reading rather than that it broke.
     expect(harness.model.isSubscribed).toBe(true);
     expect(harness.model.state).toStrictEqual({ kind: "not-loaded" });
 
@@ -191,7 +191,7 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     latched.start();
     expect(latched.state.kind).toBe("failed");
 
-    // The repair a person performs: the seam works now, and the surface is asked again.
+    // The repair a person performs: the seam works now, and the read is asked again.
     opensAdmitted = true;
     latched.refresh();
     latched.start();

@@ -13,7 +13,7 @@
 // sweep that makes the pre-fold behavior — admit everything — fail on every pair rather
 // than on one hand-picked one.
 //
-// THE TWO ROW SUITES BELOW ASSERT AT BOTH DOORS, and that is deliberate rather than a
+// THE TWO ROW SUITES BELOW ASSERT AT BOTH ENTRIES, and that is deliberate rather than a
 // leak across the seam. A row is one fact; the union and the table are two readings of
 // it, and the failure those suites were written for was a row missing from BOTH. A suite
 // that proved the row only where it was already right would have passed through exactly

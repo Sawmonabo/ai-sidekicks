@@ -12,7 +12,7 @@
 // connect, because `workflow.runRead` carries an ordered array and no topology and
 // the answer has to come off the pinned definition's `dependsOn` lists. This module
 // asks that one for edges and places the phases; when there are none it says which
-// of the two reasons applies and hands that on, so the surface can put the picture's
+// of the two reasons applies and hands that on, so the graph can put the picture's
 // incompleteness in words rather than showing a run with no dependencies at all.
 //
 // WHY THE RANK IS STILL THE INDEX. Placement is the run's own order, one phase per
@@ -90,7 +90,7 @@ export interface DrawnPhaseSequence {
   /**
    * Absent exactly when the edges above are the definition's own.
    *
-   * Present means there are none and names which of the two reasons, so the surface
+   * Present means there are none and names which of the two reasons, so the caller
    * can say in words that the picture is a set of states rather than a graph. A
    * caller that ignored it would show a run with no dependencies at all, which is a
    * claim about the workflow rather than about what was read.
@@ -102,7 +102,7 @@ export interface DrawnPhaseSequence {
  * A sequence that cannot be drawn without losing a phase.
  *
  * The ids are carried so the refusal can say WHICH phase repeated. A refusal that
- * only said "malformed" would leave the operator with a blank surface and no way
+ * only said "malformed" would leave the operator with a blank pane and no way
  * to tell whether the run or the console is at fault.
  */
 export interface MalformedPhaseSequence {

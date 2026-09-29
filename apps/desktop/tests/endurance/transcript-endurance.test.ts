@@ -223,7 +223,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const transcriptWindow = deriveTranscriptWindow(timeline, false);
 
     // Every event the generator scripts is a registered kind the projection places,
-    // so every one becomes a row; a window that dropped an event family would
+    // so every one becomes a row; a window that dropped an event category would
     // otherwise still read as complete.
     expect(transcriptWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
     // The virtualizer's identity list and the body lookup are two views of one set:

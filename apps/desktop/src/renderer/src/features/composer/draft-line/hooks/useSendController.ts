@@ -11,12 +11,12 @@
 // than a row this hook draws, which is why there is no `sent` member here to render.
 //
 // EVERY OPERATION STATE IS KEYED TO THE ADDRESS THE ACT WAS ISSUED AT, and the latch is
-// not the status. `status` is what the surface RENDERS, and a handler reading it sees
+// not the status. `status` is what the button RENDERS, and a handler reading it sees
 // the value from the render that produced it — so two Enter presses in one frame would
 // both read `idle` and both dispatch. Neither is hook-wide: a send still traveling for
 // one target does not hold the composer when the person re-addresses it. Both halves
 // are keyed through the holders `console/bridge/` publishes rather than through
-// anything local: the console's one `GenerationLatch` holds the slot under
+// anything local: the console's one `GenerationLatch` holds the claim under
 // `(bridge, addressedOperationKey(draftKey, visit, operation))`, claimed before the
 // await and released in `finally`, and `use-composer-act-state.ts` beside this file
 // holds `status` under `(bridge, draftKey)`, reset during the render that first sees a
@@ -25,13 +25,13 @@
 // THE VISIT IS WHAT KEEPS THE LATCH AND THE STATUS SAYING THE SAME THING. The holder
 // re-seeds on every re-address, including a return to a target the composer has been
 // on before; a latch keyed on the draft key alone would not, so on the return trip
-// the button would render `idle` over a slot still held by the earlier visit's parked
-// call and Send would do nothing. `use-settlement-identities.ts` owns that serial and
+// the button would render `idle` over a claim still held by the earlier visit's parked
+// call and Send would do nothing. `useSettlementIdentities.ts` owns that serial and
 // says why it is the composer's mirror of the holder's own addressing epoch; every
-// keyed thing here carries it — the latch slot, the newest-attempt register, and the
+// keyed thing here carries it — the latch claim, the newest-attempt register, and the
 // settlement identity — so the three agree by construction rather than by three
 // authors remembering the same rule. Their dispositions for a late settlement differ,
-// deliberately: it releases the exact slot it claimed even after the composer has
+// deliberately: it releases exactly the key it claimed even after the composer has
 // moved on, while the READING it would have published is dropped — that reading
 // describes an act at an address this composer has left.
 //
@@ -41,7 +41,7 @@
 // `SentMessageHistories` keys them on the same draft key, so the composer walks
 // the history of the target it is addressed to and no other.
 //
-// WHAT THE SURFACE READS WHILE AN ACT TRAVELS IS ITS OWN MODULE. The status and the
+// WHAT THE BUTTON READS WHILE AN ACT TRAVELS IS ITS OWN MODULE. The status and the
 // refusal the button renders are two holders under one address, and
 // `use-composer-act-state.ts` beside this file owns them together with the writers a
 // settlement reaches them by. This hook BUILDS the acts — the router, the latch, the
@@ -58,7 +58,7 @@
 // it holds the per-address histories.
 //
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
-// session screen hands the composer seat a window-lifetime store, keyed per address; a
+// session screen hands the composer a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
 // differ exactly where it matters — a remount loses the local copy, and a prop-only
 // address change keeps it, so the person's words reappear under a target they did

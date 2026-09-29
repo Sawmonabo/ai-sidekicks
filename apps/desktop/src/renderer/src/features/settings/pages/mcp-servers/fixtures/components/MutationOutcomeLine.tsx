@@ -10,7 +10,7 @@ import type { McpMutationOutcome } from "../mcp-mutation.js";
  * on each live leg.
  *
  * A PARTIAL OUTCOME IS RENDERED AS A PARTIAL OUTCOME. A mutation can commit durably
- * and still fail on one session's leg, and the reply carries both facts. A surface
+ * and still fail on one session's leg, and the reply carries both facts. A line
  * that showed one aggregate verdict would report that as a success and leave a session
  * running against a binding the operator believes is off — which is the failure this
  * whole per-leg shape exists to prevent.

@@ -390,7 +390,7 @@ describe("the shipped table is read, not captured", () => {
   }
 
   it("composes over a table that grew after the store was built", () => {
-    // A view family contributes its chords from an effect, so the shipped table is not
+    // A feature contributes its chords from an effect, so the shipped table is not
     // whole when this store is constructed. A store holding the array it was handed
     // would install a keyboard missing every chord that arrived after it.
     const growable = growableBase();

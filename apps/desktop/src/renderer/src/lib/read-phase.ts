@@ -1,4 +1,4 @@
-// Where one read has got to, as a surface that renders from the read carries it.
+// Where one read has got to, as a view that renders from the read carries it.
 
 /**
  * Where one read has got to.

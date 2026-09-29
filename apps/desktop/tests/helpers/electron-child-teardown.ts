@@ -1,17 +1,17 @@
 // The single ordered teardown one spawned child settles through.
 //
 // Split out of `electron-child.ts` rather than left inside it because that
-// module is the SPAWN door — the one file under `test/` allowed to reach
+// module is the SPAWNER — the one file under `tests/` allowed to reach
 // `spawn` — and sequencing a settlement is a second job in the same file. It
-// sits BELOW the door rather than beside it: it imports the lifetime object
-// and nothing else, so the door can arm it and the spawn-and-release door can
-// stay a door.
+// sits BELOW the spawner rather than beside it: it imports the lifetime object
+// and nothing else, so the spawner can arm it and still do nothing but spawn
+// and release.
 //
 // It answers one question, and the question is an ORDER: a child holds a
 // resource, the platform may refuse to kill that child, and the resource must
 // come off disk after the LAST attempt rather than between two of them. What
 // makes that answerable at all is that there is exactly one of these per
-// spawned child and the door registers it and nothing else.
+// spawned child and the spawner registers it and nothing else.
 
 import { DISPOSAL_ATTEMPTS, type ManagedElectronChild } from "./managed-electron-child.js";
 
@@ -23,18 +23,18 @@ export type ChildRelease = () => void;
  *
  * THE LEAK THIS CLOSES IS AN ORDERING, NOT A MISSING CALL. The release used to
  * be a settle-time registration of the CALLER's, necessarily made after the one
- * the spawn door armed — and Vitest runs settle-time callbacks in registration
+ * the spawner armed — and Vitest runs settle-time callbacks in registration
  * STACK order, so the caller's ran FIRST. Under a platform that refused the
  * kill, that disposer spent its whole attempt bound against a child that was
  * never going to close, removed the profile under a live browser, and only then
- * did the door's own disposer take its turn and kill the tree: a FOURTH
+ * did the spawner's own disposer take its turn and kill the tree: a FOURTH
  * termination after the remover, with no removal anywhere behind it. On Windows
  * the directory still had live handles in it when the removal ran, so it failed
  * outright and the locked profile outlived the run.
  *
  * So one owner sequences every attempt and the release is the single act after
  * the last one. A later attempt is impossible BY CONSTRUCTION rather than by a
- * guard that hopes: the door registers this and nothing else, and the release
+ * guard that hopes: the spawner registers this and nothing else, and the release
  * travels as a spawn argument, so there is no second disposer that could hold a
  * kill for after the removal. `#settled` is re-entrancy and not the ordering
  * claim — a settlement driven twice releases once.

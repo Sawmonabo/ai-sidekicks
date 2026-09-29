@@ -1,5 +1,5 @@
 /*
- * The park badge, and the stack the surfaces that show more than one arrange them in.
+ * The park badge, and the stack the views that show more than one arrange them in.
  *
  * Owned and imported by `ParkBadge.tsx`. The stack rule travels with the badge rather than
  * with the run pane that places it, because a stack of badges is only ever a stack of these.
@@ -41,7 +41,7 @@
  * The phase's identity: its authored name where there is one, and its wire
  * identifier always. Baseline-aligned rather than stacked, because the two are one
  * reading of one phase and the mono figure beside prose is the badge's own
- * established shape — the park reason one slot to the left does exactly this.
+ * established shape — the park reason one position to the left does exactly this.
  */
 .meridian-park__phase {
   display: inline-flex;
@@ -85,7 +85,7 @@
 }
 
 /*
- * The route to this phase's own form, where the surface drawing the card can offer
+ * The route to this phase's own form, where the view drawing the card can offer
  * one. A control and not an adjudication: pressing it opens the form beside these
  * cards and asks the daemon nothing, which is why it carries the accent
  * reserved for something a person can act on.

@@ -1,6 +1,6 @@
 // The diff pane: a change set, or an honest absence.
 //
-// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `components/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
 // kind in the console; what this file returns is the BODY that goes inside it. The
 // section, its tab stop, its accessible name, and the actor's hue all arrive from
@@ -20,7 +20,7 @@ import { type DiffModel } from "../diff-model.js";
 /**
  * This body's own address arm, narrowed off the union the pane layout hands every pane.
  *
- * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
+ * `PaneContextOf` is the pane registry's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind and a body does not, so the narrowing is stated
  * once where the chrome states it. It is what makes `entity` required and its kind one
  * of the two a diff is opened over, by the compiler rather than by this file
@@ -32,8 +32,8 @@ type DiffPaneContext = PaneContextOf<"diff">;
  * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
  *
  * A diff is the changes of one checkout — a workspace or a worktree — and
- * `seats/pane/pane-address.ts` is where that list is declared. Deriving it means a kind
- * added there fails to compile in the table below until this family has said what that
+ * `routing/panes/pane-address.ts` is where that list is declared. Deriving it means a kind
+ * added there fails to compile in the table below until this feature has said what that
  * subject's changes render.
  */
 type DiffSubjectKind = DiffPaneContext["entity"]["kind"];

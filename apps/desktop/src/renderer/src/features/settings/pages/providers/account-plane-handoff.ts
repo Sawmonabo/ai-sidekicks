@@ -1,4 +1,4 @@
-// Which console surface closes an account-plane refusal, and which action it offers.
+// Which console screen closes an account-plane refusal, and which action it offers.
 //
 // An account-plane refusal can arrive anywhere — a run refused at admission, a
 // registry read refused on a settings page, a quota reading that never landed — and

@@ -4,11 +4,9 @@
 // an auxiliary window is its own renderer with its own overlays and its own native
 // views, and two windows must not yield to each other's dialogs.
 //
-// KEYED ON THE DOCUMENT, and that is the correction this move makes rather than a
-// consequence of it. The registry this replaces keyed on the console BRIDGE, because
-// it was minted in a family that had one — and the overlay primitives that have to
-// reach the same instance sit below `bridge/` on the console's DAG and cannot name
-// one. The document is what an overlay element and a pane host already share when
+// KEYED ON THE DOCUMENT, not on the platform bridge: the overlay components that have
+// to reach the same instance sit below `services/` in the import layering and cannot
+// name a bridge. The document is what an overlay element and a pane host already share when
 // they are in one window, and it is what they do not share when they are not, so it
 // is the key both sides can name and the key that means what the rule means.
 //

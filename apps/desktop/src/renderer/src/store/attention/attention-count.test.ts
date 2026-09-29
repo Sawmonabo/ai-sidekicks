@@ -1,7 +1,7 @@
 // What the rail is told, and the reading that tells it nothing.
 //
-// The count's whole value is that it is trustworthy: a number on the console's
-// most-seen surface that could be left over from a read that failed would be worse
+// The count's whole value is that it is trustworthy: a number on the rail, the part of
+// the window a person sees most, that could be left over from a read that failed would be worse
 // than no number at all. So every arm of the reading is asserted, and the zero case is
 // asserted to be an absence rather than a zero.
 

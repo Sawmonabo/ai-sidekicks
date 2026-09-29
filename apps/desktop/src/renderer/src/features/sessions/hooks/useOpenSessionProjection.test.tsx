@@ -10,7 +10,7 @@
 // The registry and the stores are the shipped ones. A fake registry could not answer
 // the release question at all — releasing is what this module does TO a real
 // subscription — so the only stand-in here is the read, which is the collaborator the
-// store family's own suites stand in for.
+// session store's own suites stand in for.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

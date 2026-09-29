@@ -3,8 +3,9 @@
 // The three members are the repo / workspace lifecycle payload's own:
 // `repoMountId`, `workspaceId`, and `actor`. The mount's health is deliberately not
 // among them: the wire's mount health is a two-member union read through a
-// different surface, and a record that showed a health it never read would be the
-// "not checked" collapse rule 8 exists to prevent.
+// different view, and a record that showed a health it never read would draw a
+// "not checked" absence as if it were a reading, and the console keeps every kind of
+// absence distinct because each one asks for a different next move.
 
 import { EntityRecord } from "./EntityRecord.js";
 import {

@@ -4,8 +4,8 @@
  * Owned and imported by `OperatorControls.tsx`, beside it, so the run page's chunk alone
  * carries these rules.
  *
- * THE BLOCK CARRIES THE FAMILY'S PREFIX, `meridian-workflow-run-controls`, so no other
- * family's sheet decides how THIS pane lays its controls out, whichever loads last, and
+ * THE BLOCK CARRIES ITS OWN PREFIX, `meridian-workflow-run-controls`, so no other
+ * sheet decides how THIS pane lays its controls out, whichever loads last, and
  * this body goes behind a loader without that answer changing. One class, one owner —
  * the module-shape rule in `apps/desktop/AGENTS.md` states it, and a second collision
  * is caught by reading it there rather than by a census.
@@ -18,7 +18,7 @@
  *
  * Equal because they are separately grantable and neither is subordinate: an
  * operator may hold cancel and not resume, and a layout that made one primary
- * would be the console guessing which. Rule 7's single-primary-action budget is
+ * would be the console guessing which. The one primary action a view is allowed is
  * spent on neither: this is the run's control cluster, and it sits in the body where
  * the run's own facts are rather than in the pane head above it.
  */
@@ -47,9 +47,9 @@
 }
 
 /*
- * Shares the family's own action treatment (`.meridian-workflow__action` in
- * `workflows.css`) rather than restating it: a run control and every other act this
- * family offers are the same kind of thing, and a second set of paddings here would
+ * Shares the workflows feature's own action treatment (`.meridian-workflow__action` in
+ * `WorkflowStateStrip.css`) rather than restating it: a run control and every other act this
+ * feature offers are the same kind of thing, and a second set of paddings here would
  * drift from that one at the first tweak.
  */
 .meridian-workflow-run-controls__action {
@@ -103,8 +103,8 @@
 
 /*
  * Prose, not a wire figure: the operator is writing a sentence, so it is set in the
- * sans face at the reading size rather than in the mono column rule 4 reserves for
- * strings the daemon sent.
+ * sans face at the reading size rather than in mono, which marks a string the daemon
+ * sent.
  */
 .meridian-workflow-run-controls__reason {
   font-family: var(--meridian-font-sans);

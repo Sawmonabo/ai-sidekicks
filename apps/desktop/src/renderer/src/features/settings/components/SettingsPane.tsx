@@ -18,7 +18,7 @@ export interface SettingsPaneProps {
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
-   * How many search hits this surface has opened. Moves on every hit, including a
+   * How many search hits this pane has opened. Moves on every hit, including a
    * second hit on the section already open — which is the case a boolean could not
    * express, and the one where a reader most needs to be told they did not move.
    */

@@ -44,8 +44,8 @@ const REFUSED_CALL = "session.read";
  *
  * A real registered code rather than an invented one: the rate-limit refusals are
  * exactly the class of typed daemon failure this arm exists to make
- * reachable, and a fixture refusing under a code no namespace owns would train a
- * surface against a value nothing sends.
+ * reachable, and a fixture refusing under a code no namespace owns would teach
+ * the views that render refusals a value nothing sends.
  */
 const SCRIPTED_REFUSAL: WireErrorEnvelope = {
   code: "ratelimit.exceeded",
@@ -73,7 +73,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
     const fixture = createFixture(scenarioWithRefusal());
 
     // `toStrictEqual` against the envelope itself, not a message match: the value a
-    // surface catches has to BE the daemon's refusal. A fixture that wrapped it
+    // caller catches has to BE the daemon's refusal. A fixture that wrapped it
     // would hand every refusal rendering a fixture-scoped code instead of the one
     // the person is meant to read.
     await expect(callThroughBridge(fixture, REFUSED_CALL)).rejects.toStrictEqual(SCRIPTED_REFUSAL);
@@ -96,7 +96,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
     });
     // Through `core/wire-rejection.ts` — the normalizer a console catch arm actually
     // calls — rather than `src/shared/`'s `Error`-returning one, which no console
-    // surface runs. What matters is that the daemon's CODE survives as the refusal's
+    // component calls. What matters is that the daemon's CODE survives as the refusal's
     // code, because that is the string a person pastes into an issue.
     const rendered = normalizeWireRejection("fixture-bridge", caught);
     expect(rendered.code).toBe(SCRIPTED_REFUSAL.code);

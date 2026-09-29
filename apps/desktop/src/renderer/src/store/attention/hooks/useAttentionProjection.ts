@@ -21,7 +21,7 @@
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
 // coalesce through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
-// reply wins, and never return a loaded surface to its loading shape. A second read
+// reply wins, and never return a loaded view to its loading shape. A second read
 // engine written here would be a second answer to all five of those questions; a
 // stream of settling events therefore costs one read rather than one read per event.
 //
@@ -29,7 +29,7 @@
 // `not-loaded | loaded | failed`, and the projection's "nothing was read" lives
 // inside the loaded arm as an absent value — because the reader answers `undefined`
 // for a question it could not put. That mapping is written here, in one function, so
-// no surface narrows on both vocabularies at once.
+// no view narrows on both vocabularies at once.
 
 import { useEffect, useMemo } from "react";
 

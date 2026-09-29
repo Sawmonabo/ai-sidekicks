@@ -1,8 +1,8 @@
-// The discovery surface: what the bound provider offers, and what this console can do.
+// The command list: what the bound provider offers, and what this console can do.
 //
 // It is a command-and-skill autocomplete listing the target agent's own provider
 // commands and skills with each entry's provider-supplied description — a DISCOVERY
-// surface that shows what the bound provider offers rather than a launcher. Two
+// list that shows what the bound provider offers rather than a launcher. Two
 // consequences are structural here rather than conventional:
 //
 //   • SELECTING A PROVIDER ENTRY INSERTS NOTHING into the message box and starts no
@@ -13,7 +13,7 @@
 //     own commands, which the prefix is reserved FOR — and `/workflow start <name>` is
 //     one of those, intercepted by the runtime and never forwarded anywhere. Typing its
 //     directive onto the line is therefore the opposite case, and it is the one write
-//     this seat makes to the line.
+//     this component makes to the line.
 //   • THE ONE ACT ON A ROW IS THE CONSOLE'S OWN. A console command's row carries a
 //     button — and that button runs the client-command executor, not a send. A
 //     provider row carries no button at all, because there is nothing this console may
@@ -21,7 +21,7 @@
 //
 // THE EMPTY STATE WAITS FOR EVERY APPLICABLE SOURCE. "No command matches what you
 // have typed" is a claim about a SEARCH THAT FINISHED, and this popover reads two
-// sources: the console's own command surface, which is local and always settled, and
+// sources: the console's own command registry, which is local and always settled, and
 // the provider enumeration, which has phases. So while that read is in flight or has
 // been refused, the popover says so — through the one statement that read owns — and
 // says nothing about matching, because the source that might hold the match has not
@@ -50,17 +50,17 @@
 // use, so both keys settle the active row through the SAME executor the row's own
 // button calls — one path, so a console act cannot behave differently by which
 // gesture reached it. A provider row has no such path by design, and the key is
-// therefore a no-op that SAYS SO: silence would be indistinguishable from a surface
+// therefore a no-op that SAYS SO: silence would be indistinguishable from a list
 // that had failed, and a disabled-looking control would assert the act exists here.
 //
-// THE SURFACE SPEAKS THROUGH ITS OWN STATUS REGION rather than through the window's
+// THE COMMAND LIST SPEAKS THROUGH ITS OWN STATUS REGION rather than through the window's
 // live announcer. The announcer exists so a read a person did not trigger and is not
 // looking at can still reach them; this popover is opened by their own keystroke and
 // is where their attention already is, so speaking through the window-wide region as
 // well would say everything twice.
 //
-// AND THIS SEAT IS WHERE THE WORKFLOW ACCELERATOR'S LINE-FACING HALF LIVES. The
-// palette entry types the directive into the composer's LINE, which is this seat's
+// AND THIS COMPONENT IS WHERE THE WORKFLOW ACCELERATOR'S LINE-FACING HALF LIVES. The
+// palette entry types the directive into the composer's LINE, which is this component's
 // own subject and not the send bar's.
 
 import { useCallback, useMemo } from "react";
@@ -78,10 +78,10 @@ import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowSt
 import "./CommandList.css";
 
 export type CommandListProps = ComposerProps & {
-  /** The composer region whose line this surface watches. It writes to none of it. */
+  /** The composer region whose line this list watches. It writes to none of it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /**
-   * The composer's one enumeration reading. THIS surface is what opens it: the
+   * The composer's one enumeration reading. THIS list is what opens it: the
    * leading slash in the line is what makes the reading live, and the send path
    * observes the same holder rather than reading the wire a second time.
    */
@@ -97,7 +97,7 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
   const { target } = useComposerAddress(props.sessionStore, props.focusedPane);
   const draftKey = composerDraftKey(target);
   // The same store and the same key the send bar reads its line from, so what this
-  // surface sees and what the line displays are one reading rather than two that
+  // list sees and what the line displays are one reading rather than two that
   // agree only while somebody is typing.
   const discovery = useCommandListTrigger(region, { draftStore, draftKey });
   const isOpen = discovery.prefix !== undefined;

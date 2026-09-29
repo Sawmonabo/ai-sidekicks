@@ -1,6 +1,6 @@
 // What a screen is handed, below every module that hands it one.
 //
-// HOISTED OUT OF `screen-registry.ts` for `seats/pane/pane-context.ts`'s reason and no other: the
+// HOISTED OUT OF `screen-registry.ts` for `registries/panes/pane-context.ts`' reason and no other: the
 // frame's board mounts a reserved frame while a loader-backed screen is in flight, so
 // the registry reaches `PendingScreenBody.tsx`, which names the context a screen is
 // mounted with. Declaring that context in the registry made the pair a cycle, and the
@@ -32,7 +32,7 @@ export interface ScreenContext {
    * The pane board THIS composition registered its bodies into.
    *
    * On the context rather than reached for, and here rather than as one screen's
-   * prop, because it is the same fact for every family: a screen that opens a pane
+   * prop, because it is the same fact for every feature: a screen that opens a pane
    * has to resolve it from the board the composition around it filled.
    * `registerFeatureContributions` already takes the registry as a parameter so a test and an
    * auxiliary window can compose their own — and a screen that then read the

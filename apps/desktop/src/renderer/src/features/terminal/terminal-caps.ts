@@ -1,4 +1,4 @@
-// The terminal family's bounds.
+// The terminal feature's bounds.
 
 // Spent by two modules in the terminal feature, and two of the numbers are also
 // read by a test tier that must not construct an emulator to learn one.
@@ -34,6 +34,6 @@ export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
  * disposed addon does not give its context back — so the ceiling is not "how many
  * terminals are open" but "how many contexts this page has ever created". Twelve
  * leaves four for the rest of the page and still covers every layout V1 ships,
- * since 8.8 gives a session exactly one shared shell.
+ * since a session has exactly one shared shell, held by one device at a time.
  */
 export const TERMINAL_WEBGL_POOL_CAP = 12;

@@ -2,7 +2,7 @@
 // total height.
 //
 // ONE ADOPTION SITE FOR TWO SCROLLERS. `@tanstack/react-virtual` is adopted with
-// constraints, and this family has two lists long
+// constraints, and the diff viewer has two lists long
 // enough to need it: the rows of a diff, and the CHANGED-FILE LIST beside them. The
 // file list used to add a scrolling class past its threshold and mount every entry
 // anyway, so a repository-wide patch cost thousands of buttons before the already

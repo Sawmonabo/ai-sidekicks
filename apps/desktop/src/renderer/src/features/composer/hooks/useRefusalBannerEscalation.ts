@@ -1,9 +1,9 @@
-// When a surface's refusal stops being that surface's business.
+// When a view's refusal stops being that view's business.
 //
 // `lib/refusal-remedies.ts` records which of three shapes a named code calls for, and
 // one of the three is the session screen banner — a refusal that changed what the whole room
-// can do. A surface cannot draw one: the banner spans the frame and is held by the
-// window's store, so what a surface does is HAND it over. That handover is this hook.
+// can do. A view cannot draw one: the banner spans the frame and is held by the
+// window's store, so what a view does is HAND it over. That handover is this hook.
 //
 // IT ESCALATES ONCE PER CONDITION, not once per render and not once per refusal
 // VALUE. A pane whose read refuses on every retry would otherwise re-raise on every

@@ -70,9 +70,9 @@ export function listPendingBodyNames(root: Element): readonly string[] {
 /**
  * The reserved region a loader-backed body with no chrome of its own draws.
  *
- * `hidden` rather than an empty visible box, on `PendingSurfaceBody`'s reasoning:
+ * `hidden` rather than an empty visible box, on `PendingScreenBody`'s reasoning:
  * `display: none` contributes no box, so what the wait costs the layout is nothing and
- * the surface around it is drawn exactly as it will be drawn once the chunk lands.
+ * the view around it is drawn exactly as it will be drawn once the chunk lands.
  *
  * The marker's VALUE is the body's own name, which is what makes a refused capture
  * actionable — `listPendingBodyNames` prints it, and "sign-in-card" names the thing that

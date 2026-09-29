@@ -8,9 +8,9 @@
 // a boolean `isExpanded` beside a separate error would have let a caller render
 // neither.
 //
-// THE CALL IS A REGISTERED WIRE, so it goes through the console's daemon call door:
+// THE CALL IS A REGISTERED WIRE, so it goes through `callDaemon`:
 // `timeline.childRunExpand` is published in `@ai-sidekicks/contracts` in both
-// directions. The door parses the reply against the registered schema, so what reaches
+// directions. `callDaemon` parses the reply against the registered schema, so what reaches
 // this module is either rows or a refusal — never an `unknown` that reads as success.
 //
 // WHAT IT DOES NOT DO. It pages nothing. `ChildRunExpandResponse` carries `hasMore`
@@ -40,7 +40,7 @@ import { ReadScope } from "@renderer/lib/reads/read-scope.js";
  */
 export type ChildRunExpansionStatus = "summarized" | "expanding" | "expanded" | "expand-failed";
 
-/** One child run's expansion, as a surface reads it. */
+/** One child run's expansion, as a view reads it. */
 export interface ChildRunExpansion {
   readonly status: ChildRunExpansionStatus;
   /** The entries the expansion returned, in the order the daemon sent them. */
@@ -121,7 +121,7 @@ export class ChildRunExpansionState {
    * SINGLE-FLIGHT PER CHILD RUN. A second press while one is in flight is answered
    * with the state already on screen rather than with a second call: the control is
    * on a row a person can press repeatedly, and two expansions of one child would
-   * race to write the same slot.
+   * race to write the same child's state.
    *
    * The failure arm never clears `entries`, so a re-expansion that fails leaves the
    * rows an earlier one delivered on screen and marks them incomplete — which is the
@@ -146,7 +146,7 @@ export class ChildRunExpansionState {
     // opened for a press this act drops would abort the expansion already in flight.
     const round = this.#readLineFor(childRunId).openRound();
     const reply = await readChildRunEntries(bridge, childRunId, round.signal);
-    // NO `catch` ARM, and its absence is the door's contract rather than an
+    // NO `catch` ARM, and its absence is `callDaemon`'s contract rather than an
     // omission: `callDaemon` answers `served` or `refused` for every outcome a
     // transport can have — a request the daemon would not accept, a rejected call,
     // a reply the registered schema does not admit — so a `catch` here would be a
@@ -221,9 +221,9 @@ export class ChildRunExpansionState {
  *
  * SEPARATE FROM THE STATE MACHINE ABOVE IT: the call is one line over one registered
  * pair, and what makes it a READ rather than an act is that the signal is REQUIRED —
- * there is no way to reach the door from here without naming the thing that abandons
- * it. Every parse, refusal code and rejection normalization is still the bridge
- * family's; nothing is re-authored here.
+ * there is no way to reach `callDaemon` from here without naming the thing that
+ * abandons it. Every parse, refusal code and rejection normalization is still
+ * `callDaemon`'s; nothing is re-authored here.
  */
 async function readChildRunEntries(
   bridge: PlatformBridge,

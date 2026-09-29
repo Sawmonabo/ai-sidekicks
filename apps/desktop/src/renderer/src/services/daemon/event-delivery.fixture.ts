@@ -57,7 +57,7 @@ export interface ScenarioSubscribeOptions {
    *
    * The registered behavior of the whole-session stream and of nothing else. A
    * narrowed run stream and the relay are live streams: replaying a projection into
-   * one would hand a runs surface transitions it is not opening a subscription for.
+   * one would hand a run-stream subscriber transitions it is not opening a subscription for.
    */
   readonly replayDeliveredPrefix?: boolean;
 }
@@ -67,7 +67,7 @@ export class ScenarioDelivery {
   // behaviors matter here specifically: delivery iterates a SNAPSHOT, so a pane
   // that unsubscribes during a beat cannot make a sibling pane miss the beat it was
   // still subscribed for; and a throwing sink does not silence the others, so one
-  // broken surface does not stop a scenario delivering to the rest.
+  // broken pane does not stop a scenario delivering to the rest.
   readonly #beats = new Emitter<readonly ProjectedSessionEvent[]>("scenario beat");
   readonly #advances = new Emitter<number>("scenario advance");
   // Where a delivered frame's position comes from, and the record a late subscriber is
@@ -146,7 +146,7 @@ export class ScenarioDelivery {
     return this.#log.delivered();
   }
 
-  /** How many beat sinks are attached. Read by tests and by the diagnostics surface. */
+  /** How many beat sinks are attached. Read through the engine's `sinkCount`, by tests. */
   public get beatSinkCount(): number {
     return this.#beats.sinkCount;
   }

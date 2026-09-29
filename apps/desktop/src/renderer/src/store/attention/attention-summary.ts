@@ -52,7 +52,7 @@ export type AttentionReading =
        * Every session this read asked about, carried through from the fan-out.
        *
        * The denominator the refusals are a numerator over, and the only member that
-       * says which sessions a settled read speaks FOR. A surface that renders the
+       * says which sessions a settled read speaks FOR. A view that renders the
        * projection needs neither; the emitter needs both, because an item from a
        * session this read has only just begun addressing is the state of the world
        * rather than something that happened.
@@ -176,7 +176,7 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
   }));
 }
 
-/** What every surface and every announcement calls what this read was of. */
+/** What every view and every announcement calls what this read was of. */
 export const ATTENTION_SUBJECT = "what needs you";
 
 /**
@@ -191,7 +191,7 @@ export const ATTENTION_SUBJECT = "what needs you";
  * `refusedSessions` is deliberately NOT folded in here. The nearest kind is a
  * refusal `beside-an-answer`, whose sentence carries no figure — and how many of the
  * sessions asked never answered is the whole of what that fact tells a person, so
- * mapping it there would trade a count for a grammar. It stays the family's own
+ * mapping it there would trade a count for a grammar. It stays the attention read's own
  * sentence until the vocabulary carries a counted coverage reading.
  *
  * The phase that is still reading maps to nothing: the panel renders it through

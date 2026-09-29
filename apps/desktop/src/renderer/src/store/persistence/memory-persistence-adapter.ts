@@ -9,7 +9,7 @@
 // The one thing it does differently is tell the truth, and it does so on BOTH read
 // models rather than only the prose one: `durable` is false, `describe()` says
 // preferences will not survive the window, and every gauge it hands back carries
-// the reason it is not durable, so a surface that renders only the gauge still
+// the reason it is not durable, so a view that renders only the gauge still
 // discloses the degradation instead of showing three empty numbers.
 
 import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";

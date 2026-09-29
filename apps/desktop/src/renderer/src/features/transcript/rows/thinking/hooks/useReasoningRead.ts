@@ -1,20 +1,13 @@
-// The read the fixture shell's rows make, and the state it holds.
+// The read a reasoning row makes, and the state it holds.
 //
-// A READ AND NOTHING ELSE, which is why the ask row's delivery moved to
-// `shell-ask-answer.ts` beside it. That call is a run-changing method and a dispatcher
-// of one may name no abort anywhere; this one is a read on a line that ENDS, and it
-// names the round that ends it. Splitting them is what lets either module's whole
-// relationship with cancellation be read off its imports.
-//
-// AND IT DIES WITH THE SHELL. This hook exists so the shell's reasoning rows are real
-// against the fixture scenarios before the transcript subtree's own rows land; the
-// change that registers those rows deletes this module with the rest of `shell/`.
+// A READ AND NOTHING ELSE: it runs on a line that ENDS, and it names the round that ends
+// it, so its whole relationship with cancellation can be read off its imports.
 //
 // THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon`:
 // `timeline.reasoningSurfaceRead` has request and response schemas the contracts
 // package publishes, so a refusal here is a real refusal from a real parse. It
 // additionally answers a CLOSED four-arm discriminant, so there is nothing for a
-// surface above to narrow by hand — the parse either produces one of the four arms or
+// component above to narrow by hand — the parse either produces one of the four arms or
 // refuses.
 //
 // NO SUBSCRIPTION, NO POLL, NO PREFETCH. The read is issued when a reader asks for it
@@ -25,7 +18,7 @@
 // AND IT IS NOT FIRE-AND-FORGET. `callDaemon` answers `served` or `refused` for every
 // outcome a transport can have, so a caller that ignored the reply would have decided
 // that a refusal looks exactly like a success — a read that was refused offered no way
-// to ask again. This hook holds what came back, and the surface above renders it.
+// to ask again. This hook holds what came back, and the row above renders it.
 
 import { useCallback, useState } from "react";
 
@@ -52,20 +45,20 @@ export interface ReasoningRead {
  *
  * A REFUSAL IS RETRYABLE AND A SETTLED READ IS NOT, and the two are different facts
  * rather than one "already asked". `read` has the daemon's answer on screen and this
- * surface holds no continuation cursor to spend on the bounded page's tail, so a
+ * row holds no continuation cursor to spend on the bounded page's tail, so a
  * second press would re-ask a question that has an answer. `refused` has no answer at
  * all, and its causes include a transport that was down for the moment the press
  * landed in — so the guard admits it, the refusal stays beside the control, and
  * pressing again issues a second read.
  *
- * AND THE READ IS ON A LINE THE ROW OWNS. A reasoning surface is read because somebody
+ * AND THE READ IS ON A LINE THE ROW OWNS. A run's reasoning is read because somebody
  * pressed for it, and that somebody can leave the pane or move the transcript to another
  * run before the answer lands — at which point the reply is still parsed against its
  * registered schema and folded into a state nothing renders. The line is addressed at
  * `(bridge, runId)`, which is the pairing this reading is ABOUT: a transport
  * replacement retires every call in flight through it, and a row re-addressed at
  * another run is not asking the question the outstanding read answers. `round.settle`
- * is what replaces the bare publish, so neither a superseded answer nor the door's own
+ * is what replaces the bare publish, so neither a superseded answer nor `callDaemon`'s own
  * `read-abandoned` refusal reaches the control — a departure is not a refusal a reader
  * should be offered a retry for.
  */
@@ -77,7 +70,7 @@ export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
   const expand = useCallback(() => {
     // Stated as the two states that REFUSE a press rather than as the two that admit
     // one, so a fifth reading arm added to the closed discriminant is retryable by
-    // default rather than silently inert — the surface's own fail-closed edge is that
+    // default rather than silently inert — the row's own fail-closed edge is that
     // it offers the read and renders whatever came back, never that it withholds one.
     if (runId === undefined || reading.status === "reading" || reading.status === "read") {
       return;

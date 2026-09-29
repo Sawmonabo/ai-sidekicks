@@ -5,7 +5,7 @@
 // the payload contracts register its shapes; `packages/contracts` carries none of
 // them, and neither does
 // the client SDK. A definitions page whose stored row exists nowhere would have to
-// invent it inside a view family, so the shape is declared here, on the substrate.
+// invent it inside a feature, so the shape is declared here, on the substrate.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and its importers take them from the contracts package instead.
@@ -20,9 +20,9 @@
 //
 // WHAT IS DELIBERATELY NOT HERE. The `agent.peerInvocationSet` pair. It is the
 // per-session opt-in rather than a definition, its durable home is a session event
-// rather than this registry, and no surface on this substrate sets it — a shape
+// rather than this registry, and nothing in the renderer sets it — a shape
 // declared for it now would be minted ahead of its reader. It comes here with the
-// surface that turns peer invocation on.
+// control that turns peer invocation on.
 
 /**
  * The execution postures a definition may pin. Closed, declared once, derived below.

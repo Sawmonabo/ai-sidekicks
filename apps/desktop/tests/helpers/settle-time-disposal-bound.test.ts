@@ -65,10 +65,10 @@ describe("settle-time disposal — one layer owns the attempt count", () => {
       // every ask reaches the terminator, so `requests.length` IS the bound this
       // path spends. Nine here was the nested loops multiplying; anything below
       // `DISPOSAL_ATTEMPTS` would be a retry that stopped early, which is the
-      // opposite defect and the one the refusal ordering case next door covers.
+      // opposite defect and the one the refusal ordering case beside it covers.
       //
-      // ONE REGISTRAR, which is the shape rather than an economy. The spawn door
-      // now arms the ONLY settle-time disposer a spawned child has, and the
+      // ONE REGISTRAR, which is the shape rather than an economy. The spawner
+      // arms the ONLY settle-time disposer a spawned child has, and the
       // release travels into it as `releaseAfterTermination` — so settling that
       // one registrar settles the whole teardown and `requests.length` is a
       // statement about every ask this child's settlement makes, not about one

@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // folding a crash into the store's count made the store invariant read as
     // broken every time any pane hit a rendering bug.
     reportTripwire(
-      "surface-render-failure",
+      "region-render-failure",
       `ErrorBoundary(${this.props.regionName})`,
       `${error.message}${describeComponentStack(errorInfo)}`,
     );

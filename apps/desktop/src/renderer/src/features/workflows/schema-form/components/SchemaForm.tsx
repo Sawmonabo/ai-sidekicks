@@ -24,8 +24,8 @@
 // A LIST IS ADDRESSED TWICE, BECAUSE THE VALIDATOR ADDRESSES IT TWICE. What the schema
 // says about the collection arrives at the array's own path; what it says about one entry
 // arrives at that path plus the index. Both readings are composed here, where the report
-// and the member path are both in hand, and each is handed to the surface it is about —
-// asking only for the unindexed path is what left an entry's finding drawn nowhere.
+// and the member path are both in hand, and each is handed to the control it is about —
+// asking only for the unindexed path would leave an entry's finding drawn nowhere.
 //
 // AND A FINDING CAN BE ABOUT THE ANSWER ITSELF, WHICH IS A MEMBER NOTHING HERE DRAWS. A
 // root constraint — `oneOf`, `not`, `minProperties` — is checked against the whole object

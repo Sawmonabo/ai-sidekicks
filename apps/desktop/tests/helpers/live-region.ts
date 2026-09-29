@@ -7,18 +7,16 @@
 // one suite comes to look for `[data-live-region]` and the other for a class name,
 // with nothing reporting the difference the day the attribute is renamed.
 //
-// AND THE SAME RULE REACHED THE LANE READING. Four suites had written their own
-// `[data-live-region="…"]` lookup — `AppFrame.announcer.test.tsx` as a throwing
-// element accessor, `reading-announcement.test.tsx` as a returned closure, and two
-// more on family branches — which is the fourth copy of a selector this module exists
-// to hold once.
+// AND THE LANE READING. Every suite that reads what a lane is saying reads it through
+// `liveRegionOf` and the text readers below, so the `[data-live-region="…"]` lookup is
+// written once.
 //
-// A MISSING REGION THROWS RATHER THAN READING AS SILENCE. Two of those copies
-// answered `?? ""`, which says "the announcer said nothing" for a window that mounted
-// no announcer at all — and every assertion over these lanes is `toBe("")` at least
-// as often as it is anything else, so the two states are exactly the ones a reader
-// cannot afford to have conflated. The throw names the politeness, because which lane
-// is missing is what a reader does something about.
+// A MISSING REGION THROWS RATHER THAN READING AS SILENCE. Answering `?? ""` would say
+// "the announcer said nothing" for a window that mounted no announcer at all — and every
+// assertion over these lanes is `toBe("")` at least as often as it is anything else, so
+// the two states are exactly the ones a reader cannot afford to have conflated. The throw
+// names the politeness, because which lane is missing is what a reader does something
+// about.
 
 import { type AnnouncementPoliteness } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 

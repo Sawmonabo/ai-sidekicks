@@ -9,7 +9,7 @@
 // and the file that held them was doing two jobs, which `apps/desktop/AGENTS.md`
 // rejects.
 //
-// WHY EXPANSION IS A COUNT PER GAP AND NOT A BOOLEAN. This family requires hunk-gap
+// WHY EXPANSION IS A COUNT PER GAP AND NOT A BOOLEAN. The diff viewer requires hunk-gap
 // expansion with predecessor retention: pressing expand a second time must not take
 // back what the first press revealed. A boolean cannot express a partially expanded
 // gap, so a second press would either do nothing or jump to the whole gap; a

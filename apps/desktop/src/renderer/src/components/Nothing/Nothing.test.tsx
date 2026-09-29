@@ -1,4 +1,4 @@
-// Rule 8, made countable — and the placement split, made independent of it.
+// The five kinds of nothing, made countable — and the placement split, made independent of it.
 //
 // "Five absences render differently because the operator's next move differs for
 // each … A renderer that collapses two of these into one is wrong." That is a claim
@@ -115,8 +115,8 @@ describe("Nothing — shape follows placement, and placement alone", () => {
       expect(rendered.tagName).toBe(shape.tagName);
       expect(rendered.classList.contains(shape.modifier)).toBe(true);
     }
-    // `not-checked` by name, because it is the default the fix could most easily
-    // have taken with it: rule 8 names a dotted BADGE, and it is still one here.
+    // `not-checked` by name, because it is the default most easily lost: the design
+    // language names a dotted BADGE, and it is still one here.
     const notChecked = renderNothing(<Nothing kind="not-checked" title="Not checked" />);
     expect(notChecked.tagName).toBe("SPAN");
     expect(notChecked.classList.contains("meridian-nothing--badge")).toBe(true);

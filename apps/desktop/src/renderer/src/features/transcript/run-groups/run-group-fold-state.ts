@@ -31,7 +31,7 @@ export class RunGroupFoldState {
    * Whether this run group renders its body.
    *
    * The live arm answers before any stored state is read, which is what makes
-   * rule 7's "the live run group stays open" unreachable rather than remembered.
+   * "the live run group stays open" unreachable rather than remembered.
    */
   public isOpen(runGroup: RunGroup): boolean {
     if (runGroup.lifecycle === "live") {

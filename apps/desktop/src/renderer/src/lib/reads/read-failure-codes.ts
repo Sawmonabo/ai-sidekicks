@@ -10,7 +10,7 @@
 // rules.
 
 /**
- * The codes this family mints when a failure carried none of its own.
+ * The codes the shared read helpers mint when a failure carried none of its own.
  *
  * Declared once and derived from, because both the read arm and the subscribe arm
  * name one of them and a second spelling in either place is a rename waiting to go

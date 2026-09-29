@@ -27,7 +27,7 @@
 // closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
 // takes back the `sending` that press had just published;
 // `hooks/useConfirmationLifecycle.ts` holds the two moments a discard belongs to,
-// and both of this family's alert dialogs wire it rather than each stating the rule.
+// and both of the repo mounts' alert dialogs wire it rather than each stating the rule.
 
 import "./attach.css";
 

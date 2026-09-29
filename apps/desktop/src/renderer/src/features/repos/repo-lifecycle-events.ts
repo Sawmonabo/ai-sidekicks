@@ -5,7 +5,7 @@
 //
 // The mechanism — window focus, the store's repair edge, and a named frame, each routed
 // to a `RefreshScheduler` — is `store/reads/session-refresh-triggers.ts`'s, and it is shared with
-// every other surface that performs its own reads. What is THIS family's is which
+// every other view that performs its own reads. What is THIS feature's is which
 // frames count as the terminal events for a repository, and that is the whole of this
 // module.
 //
@@ -37,7 +37,7 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 
 /**
- * The wire namespaces whose frames can change what this family has read.
+ * The wire namespaces whose frames can change what this feature has read.
  *
  * The two entities a session's stream announces: a workspace (`repo.workspaceList` and
  * the per-workspace capabilities read, and through it the mounts the section draws) and
@@ -53,7 +53,7 @@ const REPO_EVENT_NAMESPACE_PREFIXES = ["workspace.", "worktree."] as const;
  * adds in one of these namespaces is watched the day it is registered and a kind it
  * renames stops matching nothing silently. `SESSION_EVENT_CATEGORY_BY_TYPE` is the
  * canonical type registry — its keys are the whole census — and the filter selects by
- * NAMESPACE, which is the question this family is asking ("does this frame name a
+ * NAMESPACE, which is the question this feature is asking ("does this frame name a
  * workspace or a worktree"). It deliberately does not infer a category from a
  * prefix, which `packages/contracts/src/event.ts` warns against: a type's category is
  * the registry's to state, and this set never reads one.

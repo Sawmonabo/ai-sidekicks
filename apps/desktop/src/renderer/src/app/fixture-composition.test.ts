@@ -51,7 +51,7 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-/** Mount a window the way `App` does, and hand back the clock its surfaces read. */
+/** Mount a window the way `App` does, and hand back the clock its screens read. */
 function windowClock(launched: ReturnType<typeof composeFixtureLaunch>): Clock {
   const seen: Clock[] = [];
   function ClockProbe(): null {
@@ -66,7 +66,7 @@ function windowClock(launched: ReturnType<typeof composeFixtureLaunch>): Clock {
   );
   const clock = seen.at(-1);
   if (clock === undefined) {
-    throw new Error("the window rendered no surface to read its clock");
+    throw new Error("the window rendered no screen to read its clock");
   }
   return clock;
 }

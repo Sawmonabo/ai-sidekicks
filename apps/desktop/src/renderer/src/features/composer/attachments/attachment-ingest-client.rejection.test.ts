@@ -82,7 +82,7 @@ describe("ingest client — a file that stops being readable", () => {
 describe("ingest client — a subscriber that throws while the ledger publishes", () => {
   it("reports a publication that threw on the diagnostic band, not on the promise", async () => {
     // The write has landed by the time the emitter re-raises a sink that threw, so the
-    // record is ahead of every surface reading it: a defect in this console rather than
+    // record is ahead of every view reading it: a defect in this console rather than
     // an answer from anywhere, and it goes where defects go.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);

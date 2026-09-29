@@ -1,19 +1,17 @@
 // How a keyboard chord is printed and how it is spoken.
 //
-// WHY THIS LIVES IN `primitives/` AND NOT IN `palette/`
+// WHY THIS LIVES IN `lib/` AND NOT BESIDE THE KEYBINDING TABLE
 //
-// It was in `palette/keybindings/keybindings.ts`, beside the table that installs bindings,
-// and that placement inverted the console's import DAG: `ChordHint` is a
-// primitive, primitives are below palette, and the primitive was reaching UP into
-// palette for its vocabulary. The two concerns are genuinely separate — one
-// decides which command a keystroke runs, the other decides what a chord looks
-// like on a keycap — and only the second is what a renderer needs. Rendering is
-// the leafier half, so it moved down rather than the table moving up.
+// The two concerns are genuinely separate — the keybinding table decides which command
+// a keystroke runs, this module decides what a chord looks like on a keycap — and only
+// the second is what a renderer needs. `ChordHint` is a shared component, which sits
+// below the registries in the import layering, so the vocabulary it prints has to sit
+// below them too.
 //
-// `palette/keybindings/keybindings.ts` still imports one symbol from here,
+// `registries/keybindings/keybinding-chord.ts` imports one symbol from here,
 // `decodeChordKeyToken`, because its conflict comparator and this file's printer
-// have to agree that `k`, `K`, and `KeyK` are one keystroke. That is the correct
-// direction (palette → primitives) and it is deliberate that the SHARED half is
+// have to agree that `k`, `K`, and `KeyK` are one keystroke. That is the import
+// direction working as intended, and it is deliberate that the SHARED half is
 // the decoder rather than a copy in each place: the two spellings diverging is
 // exactly the defect the single table below exists to prevent.
 //
@@ -45,12 +43,10 @@ export const CHORD_PLATFORMS = ["darwin", "win32", "linux"] as const;
  * AZERTY or Dvorak layout the physical key a person reaches for is the same one,
  * and matching by `KeyboardEvent.code` is what preserves that.
  *
- * HERE RATHER THAN IN `palette/`, on this module's own precedent above. It was
- * declared beside the overlay that binds it, and three surfaces PRINT it: the
- * overlay itself, the keyboard settings page, and the whole-surface absence, which
- * is a primitive. So the primitive was reaching up into palette for a string, which
- * is the inversion the paragraph above describes and the reason chord printing
- * moved down in the first place. The binding still belongs to the overlay — it is
+ * HERE RATHER THAN BESIDE THE PALETTE, for the reason the header gives: three views
+ * PRINT it — the palette overlay itself, the keyboard settings page, and the
+ * whole-view absence, which is a shared component that cannot reach up into a
+ * feature for a string. The binding still belongs to the overlay — it is
  * the only reader that hands this to `parseChord` — but the LITERAL is console-wide
  * vocabulary, and one home for it is what keeps three hints spelling one chord.
  */
@@ -137,9 +133,9 @@ function detectHostChordPlatform(): ChordPlatform {
  * added here does not compile until both platforms say how it is printed and spoken.
  *
  * Exported because it is the vocabulary and not merely this printer's input. A caller
- * asking whether a chord holds a modifier at all — the browser family's page handback,
- * which may claim only a chord that does — was restating the set with a comment saying
- * it mirrored this one, which is the second union `apps/desktop/AGENTS.md` bans.
+ * asking whether a chord holds a modifier at all — the preview feature's page handback,
+ * which may claim only a chord that does — reads this set rather than restating it,
+ * because a second union mirroring a closed set drifts from it unseen.
  */
 export const CHORD_MODIFIER_TOKENS = [
   "$mod",
@@ -162,7 +158,7 @@ export type ChordModifierToken = (typeof CHORD_MODIFIER_TOKENS)[number];
  * substitutes through it before either table is consulted, which is why neither table
  * carries a `$mod` row of its own any more; and the page handback asks which of a
  * keystroke's two modifiers `$mod` names. tinykeys performs the same resolution
- * against the HOST at import time, so a surface rendering or deciding for a platform
+ * against the HOST at import time, so a view rendering or deciding for a platform
  * that is not the host cannot borrow it and has to read this.
  */
 export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "Control">> = {

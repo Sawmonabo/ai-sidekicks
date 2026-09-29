@@ -24,14 +24,14 @@
 
 /* The two panes become one column before the reflow floor, because they cannot
  * both hold a measure there: the rail's fixed 216px, the 2rem gutter, and the
- * surface's own 2rem padding on each side already come to 312px, and the whole
+ * screen's own 2rem padding on each side already come to 312px, and the whole
  * viewport at the floor is 320px minus the frame's 52px rail. Stacking is what
  * keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops sticking with it,
  * since a sticky rail above a stacked pane would hold the narrowest screen's
  * scarcest resource — vertical room — for a list a person has finished with.
  *
  * 60rem is the point `features/agents/library/agent-library.css` already
- * collapses at. This surface joins it rather than declaring a second one: the
+ * collapses at. This screen joins it rather than declaring a second one: the
  * console's breakpoint story is one floor and one collapse point, and a third
  * number here would make it neither.
  */
@@ -121,7 +121,7 @@
 }
 
 /* The current section carries a hairline in the accent rather than a fill: the
-   rail sits beside a pane that is already a surface, and a filled row would read
+   rail sits beside a pane that already has a filled background, and a filled row would read
    as a second panel rather than as a selection. */
 .meridian-settings__section[aria-current="page"] {
   background: var(--meridian-surface);

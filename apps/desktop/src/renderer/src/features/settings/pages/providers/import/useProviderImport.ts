@@ -46,7 +46,7 @@ export type ProviderImportBeginCall = (
   request: ProviderImportRequest,
 ) => Promise<ProviderImportAnswer>;
 
-/** Everything a surface needs to render one import, and the one act that starts one. */
+/** Everything a view needs to render one import, and the one act that starts one. */
 export interface ProviderImportModel {
   /** Where the progress subscription got to, in the producer's own words. */
   readonly progress: ImportProgressReading;

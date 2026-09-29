@@ -5,7 +5,7 @@
 // row carries the ask as the open `Record<string, unknown>` every projected row
 // carries. `wire-payload.ts` states the discipline for exactly this case: two typed
 // readers over an open record, an absent or wrongly-typed member reading as
-// `undefined`, and the surface rendering the named absence rather than a coerced
+// `undefined`, and the card rendering the named absence rather than a coerced
 // value. This module is that discipline applied to the ask's own members.
 //
 // THE THREE THINGS THE CARD MUST NEVER DO, and this module is where two of them are
@@ -13,7 +13,7 @@
 //
 //   • Never settle a terminal locally. The state is read from the row's own event
 //     TYPE, wire-verbatim, and there is no code path here that computes one. A
-//     countdown that reaches zero changes nothing about the state — the surface
+//     countdown that reaches zero changes nothing about the state — the card
 //     waits for the `driver_ask.expired` row, because an input ask that expires
 //     parks its run and a card that decided it had timed out could show a park that
 //     never happened.
@@ -21,15 +21,15 @@
 //     means the provider offered no choice set the driver could represent. The
 //     reader below drops a malformed entry rather than repairing it, and a set that
 //     reads as nothing is a set that renders as nothing.
-//   • Never render a permission-kind ask here. Permission asks ride the approvals
-//     surface; the reader's `kind` test is a positive test on the `input` literal
+//   • Never render a permission-kind ask here. Permission asks ride the approval
+//     flow; the reader's `kind` test is a positive test on the `input` literal
 //     rather than "not permission", so an ask whose kind this build does not know is
 //     excluded rather than admitted by default.
 //
 // THE EXPIRY IS A DISPLAY OF A STAMP AND NEVER A SECOND CLOCK. `expiresAt` is read
 // verbatim and handed to the caller; nothing here compares it to a time. The card
 // renders the remaining interval from the console's own clock and says "waiting for
-// the daemon" once it reaches zero, which is a statement about what the surface is
+// the daemon" once it reaches zero, which is a statement about what the card is
 // doing rather than about what the ask has become.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
@@ -37,7 +37,7 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "./wire-payload.js";
 
-/** The four event types this surface renders, and the only ones it renders. */
+/** The four event types this card renders, and the only ones it renders. */
 export const QUESTION_EVENT_TYPES = [
   "driver_ask.requested",
   "driver_ask.responded",
@@ -79,7 +79,7 @@ export interface QuestionReading {
    * per provider session, so two runs answering in parallel legitimately raise asks
    * under one id; the registered answer request addresses a run AND a request for the
    * same reason. It is read off the row rather than off the payload because the row is
-   * where the projection attributes a run, and the ask row and the answer this surface
+   * where the projection attributes a run, and the ask row and the answer this card
    * dispatches then name the same one by construction.
    */
   readonly runId: RunId | undefined;
@@ -95,12 +95,12 @@ export interface QuestionReading {
 }
 
 /**
- * Where the answer this surface last dispatched has got to.
+ * Where the answer this card last dispatched has got to.
  *
  * A DIFFERENT FACT FROM `QuestionState`, AND THE CARD MAY NEVER CONFUSE THE TWO. That
  * state is read from the row's own event type and says what the DAEMON has recorded;
  * this says what the console did with a press and what came back off the wire. So
- * `accepted` means the answer reached the driver and the surface is waiting for the
+ * `accepted` means the answer reached the driver and the card is waiting for the
  * `driver_ask.responded` row — the same sentence the countdown says past zero, about
  * the console rather than about the ask — and nothing here ever renders a terminal.
  *
@@ -136,7 +136,7 @@ export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "u
  *
  * `undefined` covers three distinct rejections and deliberately renders as the same
  * "this is not an ask row" for the caller: a row of another type, a permission-kind
- * ask, and an ask row carrying no usable `askId`. None of the three is a surface the
+ * ask, and an ask row carrying no usable `askId`. None of the three is a row the
  * transcript's ask card may draw, and a caller that wanted to tell them apart would be
  * asking this reader to classify rows it does not own.
  */

@@ -214,7 +214,7 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
   });
 
   it("negative control: two records in flight coalesce independently of each other", async () => {
-    // Without this the case above would pass over a writer holding one static slot
+    // Without this the case above would pass over a writer holding one static pending request
     // for every caller — which would make one record's write drop the pane layout's queued
     // arrangement, and the pane layout's drop the other's.
     const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
@@ -257,7 +257,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
     });
 
     writer.request(SESSION_A, snapshotAt(1));
-    // In the writer's pending slot, behind the write held open above.
+    // In the writer's pending request, behind the write held open above.
     writer.request(SESSION_A, snapshotAt(2));
     writer.flushAndClose();
     held.settle();

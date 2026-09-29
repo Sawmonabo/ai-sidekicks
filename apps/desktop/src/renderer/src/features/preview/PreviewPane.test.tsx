@@ -5,7 +5,7 @@
 // The address guard and the close-tab chord get adversarial cases rather than happy
 // ones, because each has exactly one catastrophic failure: a page navigated to a local
 // file, and a chord that closes the operator's window instead of a tab. What the field
-// does across readings is its own suite next door.
+// does across readings is its own suite beside this one.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -24,7 +24,7 @@ const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } 
 
 describe("preview pane chrome", () => {
   it("is named by the trail it sits on rather than by its kind alone", async () => {
-    // Through `aria-labelledby` and never `aria-label`: `seats/PaneFrame` names
+    // Through `aria-labelledby` and never `aria-label`: `components/PaneFrame` names
     // every pane by its whole address — the session it belongs to, then what the pane is
     // — so two preview panes in one pane layout are told apart. This mount addresses no session,
     // so the trail opens on the chrome's own no-address crumb.

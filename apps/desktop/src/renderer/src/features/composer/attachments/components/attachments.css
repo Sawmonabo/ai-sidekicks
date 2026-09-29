@@ -1,6 +1,6 @@
 /*
  * The attachment card and the wrapper `InlineAttachmentCard.tsx` draws around it.
- * `AttachmentCard.tsx` imports this sheet, so every surface that draws the card draws
+ * `AttachmentCard.tsx` imports this sheet, so every view that draws the card draws
  * it styled.
  */
 

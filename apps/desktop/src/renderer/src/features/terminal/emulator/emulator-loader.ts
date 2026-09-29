@@ -14,7 +14,7 @@
 // chunk and fetched the first time a terminal host mounts.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
-// terminal surfaces mounting in one frame must not start two fetches, and a
+// terminal panes mounting in one frame must not start two fetches, and a
 // remount must not re-enter the module. A module-level `let` holding that promise
 // is the state `apps/desktop/AGENTS.md` rejects, and it would also be untestable —
 // there would be no second instance to compare a first against. The memo is a
@@ -35,7 +35,7 @@ export type TerminalEmulatorModule = Pick<
 >;
 
 /**
- * The emulator chunk's loader: one fetch per page, however many surfaces ask.
+ * The emulator chunk's loader: one fetch per page, however many terminal panes ask.
  */
 export class TerminalEmulatorLoader {
   #modulePromise: Promise<TerminalEmulatorModule> | undefined;
@@ -47,7 +47,7 @@ export class TerminalEmulatorLoader {
 
   /**
    * The emulator chunk, fetched once. Every later call gets the same promise, so
-   * two surfaces mounting together share one fetch rather than racing two.
+   * two terminal panes mounting together share one fetch rather than racing two.
    */
   public load(): Promise<TerminalEmulatorModule> {
     this.#modulePromise ??= this.#fetchModule();

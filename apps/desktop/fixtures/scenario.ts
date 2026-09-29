@@ -43,13 +43,13 @@ export interface Scenario {
    * Which of those users this window IS, where the scenario states one.
    *
    * OPTIONAL, and the optionality is the point: join order is who opened the session
-   * and who followed, so reading its head as "me" is a fabrication — and a surface
+   * and who followed, so reading its head as "me" is a fabrication — and a view
    * handed a fabricated identity attributes rows to somebody who is not looking. A
    * scenario that does not say leaves this absent and the fixture refuses the
    * caller-identity read, which is the honest "not checked" answer.
    *
    * When present it must be one of `userIdsInJoinOrder`: an identity outside
-   * that list is the caller of some other session, and every surface that resolves it
+   * that list is the caller of some other session, and every view that resolves it
    * would look it up and find nothing.
    * `tests/helpers/scenario-contract-check/contract-check.ts` holds every scenario to
    * that.
@@ -86,7 +86,7 @@ export interface Scenario {
    * would make the never-checked arm unreachable, and that is the arm a fresh install
    * is actually in.
    *
-   * The updater is a main-process surface rather than a daemon one, so it is a scenario
+   * The updater is served by the main process rather than the daemon, so it is a scenario
    * member and not a `replies` row: the reply table is keyed by daemon method or
    * control-plane procedure name, and `update.getState` is neither.
    */

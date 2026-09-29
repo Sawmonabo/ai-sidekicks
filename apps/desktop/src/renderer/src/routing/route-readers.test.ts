@@ -1,4 +1,4 @@
-// The questions a surface asks of a route it already holds.
+// The questions a view asks of a route it already holds.
 //
 // SPLIT FROM `routes.test.ts` with the module it drives. That file owns the GRAMMAR —
 // the round trip and the malformed hashes — and this one owns the readers: which rail
@@ -32,7 +32,7 @@ describe("railDestinationFor — which rail icon is current", () => {
     // The session screen is reached FROM the sessions destination, so the rail
     // highlights that one while a person is inside a session. The alternative —
     // a `session` destination of its own — names an icon the rail does not
-    // render, which reads as the highlight going out on the busiest surface in
+    // render, which reads as the highlight going out on the busiest screen in
     // the console.
     expect(railDestinationFor({ kind: "session", sessionId: "session-1" })).toBe("sessions");
   });

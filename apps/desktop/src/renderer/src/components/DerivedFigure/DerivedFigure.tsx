@@ -3,11 +3,11 @@
 //
 // It is proportional precisely so it cannot be mistaken for something the daemon said.
 // Putting a wire number through it is the one misuse worth naming: it strips the
-// figure's provenance signature, which rule 4 reserves for the mono class
+// figure's provenance signature, which the design language reserves for the mono class
 // `WireFigure.tsx` beside this one renders.
 //
 // It offers no `title`, and that absence is deliberate rather than an omission: a
-// derived reading is not a formatting of a wire figure, so a slot for "the number
+// derived reading is not a formatting of a wire figure, so a prop for "the number
 // this is a reading of" would invite one to be put there.
 
 export interface DerivedFigureProps {

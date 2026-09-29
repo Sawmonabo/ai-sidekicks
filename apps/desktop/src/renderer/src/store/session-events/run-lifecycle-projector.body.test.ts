@@ -1,7 +1,7 @@
 // What the `run` partition's BODY carries, and what it refuses.
 //
 // The projector used to keep `runVersion`, the two state strings, and `agentId`
-// while claiming every kind in the family, so `executionPosture`, the
+// while claiming every run-lifecycle kind, so `executionPosture`, the
 // stop-condition `trigger`, the run's provenance, the admission stamps, and
 // the rollback `targetPosition` reached the timeline and never the `run`
 // partition. The claim that follows from the repair is this file's subject:
@@ -133,7 +133,7 @@ describe("the registered payload members the body carries", () => {
     // Stated as its own case so the regression has a name. A projector that kept
     // only `runVersion`, the two states, and `agentId` folds this payload to a
     // body of exactly two members, and every registered member beside them is the
-    // one a surface was built to read.
+    // one a component was built to read.
     const body = bodyOf(
       runEvent("run.running", {
         runId: "run-1",

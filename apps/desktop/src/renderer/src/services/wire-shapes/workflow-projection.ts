@@ -11,7 +11,7 @@
 // there is no `workflow` root in the daemon method union, no `PlatformBridge`
 // namespace naming one, and no phase or run type anywhere under `packages/`. A run
 // pane or a builder built against a shape that exists nowhere would have to invent
-// it inside a view family, so the shapes are declared here, on the substrate.
+// it inside a feature, so the shapes are declared here, on the substrate.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and its importers take them from the contracts package instead.
@@ -24,7 +24,7 @@
 //
 // WHAT IS DELIBERATELY NOT HERE. The request shapes. A request is read once at its
 // call site, and a named type per request would be a declaration with one reader. A
-// request shape comes here the day two surfaces share one.
+// request shape comes here the day two views share one.
 
 /**
  * Every run status, in the owning contract's DDL order.
@@ -49,8 +49,8 @@ export type WorkflowRunState = (typeof WORKFLOW_RUN_STATES)[number];
 /**
  * Every phase-run status, in the owning contract's order.
  *
- * Deliberately NOT widened with a `suspended` arm. The park surface below is what
- * separates a phase parked right now from one that has resumed past its park, and
+ * Deliberately NOT widened with a `suspended` arm. The park members below are what
+ * separate a phase parked right now from one that has resumed past its park, and
  * the owning document keeps this union coarse on purpose — a reader switching on
  * five values stays correct while the park members carry the finer fact.
  */
@@ -100,7 +100,7 @@ export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number
  * exactly those phases parked at the moment the response is built and emits none of
  * them for a phase that is not — so `parkReason`'s presence is the wire's park
  * discriminator, and its absence means this phase is not parked NOW rather than that
- * it never was. A surface that read absence as "unknown" would show a resumed phase
+ * it never was. A view that read absence as "unknown" would show a resumed phase
  * as still waiting.
  *
  * `prompt` and `inputSchema` are BOTH at once — additive-optional, because they are new
@@ -161,7 +161,7 @@ export interface WorkflowPhaseState {
 /**
  * One run's header and its per-phase projection, as the run read answers.
  *
- * The park surface rides on the phases and nowhere else: branches park
+ * The park members ride on the phases and nowhere else: branches park
  * independently against different provider accounts, so a run-level park member
  * could hold only one of them. The run's `suspended` state says that something is
  * parked and the phase states say what and why.
@@ -247,7 +247,7 @@ export interface WorkflowDefinitionSummary {
  * WHY A CHAIN READ EXISTS AND WHAT IT ANSWERS. A run carries one opaque
  * `workflowVersionId` and nothing else about the definition it was started from.
  * `workflow.versionRead` addresses a version by `(definitionId, versionNumber)` and
- * the definition enumeration carries only each definition's LATEST, so a surface
+ * the definition enumeration carries only each definition's LATEST, so a view
  * holding a run's pin can name no other version of the same definition — which is
  * exactly what an operator re-pinning a parked run has to do. The chain read closes
  * that: handed the pin, it answers the versions that pin's definition has.

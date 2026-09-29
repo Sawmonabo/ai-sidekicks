@@ -7,7 +7,7 @@
 // `bindingId` under two different `sessionId`s — which is exactly why both leg shapes
 // name both members. A list keyed on `bindingId` alone gives those two rows ONE React
 // identity, and React then reuses the wrong row the moment a leg is added, removed, or
-// reordered: one session's status renders beside the other session's id, on a surface
+// reordered: one session's status renders beside the other session's id, in a list
 // whose whole reason for keeping the per-leg grain is that two legs may honestly
 // disagree.
 //

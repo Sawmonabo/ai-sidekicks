@@ -8,8 +8,8 @@
 //
 // The refusals are written the same way. A definition the daemon would have rejected
 // at author time is not drawn PARTLY: a graph short of one dependency looks finished
-// and is wrong, which is the same failure the repeated-identifier refusal next door
-// exists to prevent.
+// and is wrong, which is the same failure the repeated-identifier refusal in
+// `phase-sequence-layout.ts` exists to prevent.
 
 import { describe, expect, it } from "vitest";
 

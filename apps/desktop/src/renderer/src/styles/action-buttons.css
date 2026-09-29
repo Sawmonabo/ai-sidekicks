@@ -30,7 +30,7 @@
 /* --- the approval card's and the remembered rules' controls -------------------- */
 
 /* Every one of these controls shares its METRICS. The face splits two ways below,
-   because rule 1's one primary action per surface is a difference in face and not
+   because a view's one filled control is a difference in face and not
    in size: the approve action carries `meridian-accent-fill`, and every other
    control here is quiet chrome. */
 .meridian-approval-card__scope-trigger,

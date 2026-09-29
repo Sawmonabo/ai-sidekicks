@@ -48,7 +48,7 @@ type TranscriptJumpAct = (
  *     run group's own row cap — toggling there would close the run group and take the rest
  *     of the run off screen too — so that case, and only that case, offers nothing.
  *   • A row the cap took is reachable by nothing. This console subscribes to the
- *     log and holds no read that fetches a range of it, so the honest surface is
+ *     log and holds no read that fetches a range of it, so the honest answer is
  *     the sentence alone.
  */
 const JUMP_ACTS = {

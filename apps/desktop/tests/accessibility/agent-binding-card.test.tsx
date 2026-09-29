@@ -1,7 +1,7 @@
-// The accessibility tier for the agents family.
+// The accessibility tier for the agents feature.
 //
 // The card is audited as a component rather than through a destination, because the
-// host that mounts an agent roster has not landed. The family's stylesheet is imported
+// host that mounts an agent roster has not landed. The agents feature's stylesheet is imported
 // because contrast is measured on the rendered composition rather than on the token
 // table, so a card audited unstyled would report a palette nobody ships.
 //

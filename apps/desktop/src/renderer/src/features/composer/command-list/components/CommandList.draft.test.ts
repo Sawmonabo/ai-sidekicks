@@ -1,23 +1,23 @@
-// The discovery surface against a draft that is written from somewhere else.
+// The command list against a draft that is written from somewhere else.
 //
-// Its own file because the claim is the inverse of the one next door: those cases
-// type into the line and watch the surface follow, and these write the draft through
-// the store and assert the surface follows THAT — the composer's line is a view of a
-// draft it does not own, and a surface that only tracked keystrokes would be right
+// Its own file because the claim is the inverse of the one in `CommandList.test.ts`:
+// those cases type into the line and watch the list follow, and these write the draft
+// through the store and assert the list follows THAT — the composer's line is a view
+// of a draft it does not own, and a list that only tracked keystrokes would be right
 // about the common case and wrong about every restore and rebind.
 
 import { describe, expect, it } from "vitest";
 import { UNMATCHED_PREFIX, mountComposer, typeIntoLine } from "../command-list.test-support.js";
 import { recordingBridge } from "../provider-command-enumeration.test-support.js";
 
-describe("CommandList — the surface follows every write to the draft", () => {
+describe("CommandList — the list follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */
   function isPopoverOpen(container: HTMLElement): boolean {
     return container.querySelector(".meridian-command-discovery") !== null;
   }
 
   it("closes when a write replaces the line with ordinary text", async () => {
-    // The finding: this surface subscribed to the line's native `input` event, which
+    // The finding: the command list subscribed to the line's native `input` event, which
     // fires for typing and for nothing else. A write through the draft store does not
     // fire it, so the popover stood open over a line that had stopped being a command.
     const mounted = await mountComposer({ bridge: recordingBridge([]), focusedPane: undefined });

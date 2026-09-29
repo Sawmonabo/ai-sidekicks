@@ -1,4 +1,4 @@
-// What a surface is told, and the one rule that can be proved rather than intended.
+// What a view is told, and the one rule that can be proved rather than intended.
 //
 // The two instants are the subject: a ceiling and a stall are both answers that MOVE,
 // and the module that answers them takes the instant rather than reading a clock, which

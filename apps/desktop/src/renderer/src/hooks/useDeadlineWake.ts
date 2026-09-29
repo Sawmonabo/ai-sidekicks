@@ -27,17 +27,17 @@ import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/dead
 const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
 /**
- * The instant a surface renders against, woken once at each outstanding deadline.
+ * The instant a component renders against, woken once at each outstanding deadline.
  *
  * The clock is the caller's rather than this module's, on the console's one clock
- * rule: a surface that constructed its own would be a second time base beside the
+ * rule: a component that constructed its own would be a second time base beside the
  * scenario's frozen one, and a frozen tick only names one exact frame if nothing
  * reaches past it. Under the fixture the clock passed in is the scenario's, so a
  * screenshot's countdowns are byte-stable.
  *
  * A REPLACEMENT CLOCK IS A NEW TIME BASE, and the instant is re-read from it during
  * the render that first sees it: the previous clock's reading measures nothing on
- * this one, and holding it would put every deadline behind the surface at once.
+ * this one, and holding it would put every deadline behind the component at once.
  *
  * At most one timeout is armed for the whole consumer, and none at all when nothing
  * is outstanding — which is what makes `ManualClock.pendingCount === 0` a checkable
@@ -97,7 +97,7 @@ export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): num
     armNextStep();
     return () => {
       // Canceled when the earliest deadline changes, when the wake-up has landed,
-      // and when the consumer unmounts — a timeout that outlived its surface would
+      // and when the consumer unmounts — a timeout that outlived its consumer would
       // set state on a component that is gone.
       if (armedHandle !== undefined) {
         clock.cancel(armedHandle);

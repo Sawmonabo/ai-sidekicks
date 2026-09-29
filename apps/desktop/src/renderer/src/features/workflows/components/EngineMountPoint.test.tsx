@@ -1,4 +1,4 @@
-// The one composition every mount point in this family goes through: whether a body is present,
+// The one composition every workflows mount point goes through: whether a body is present,
 // whether the mount obligation could be met, and how the body becomes a subtree. The
 // wrappers' own suites assert what each of them promises its body; these cases assert
 // what the mount does with a body and a promise once it has them.

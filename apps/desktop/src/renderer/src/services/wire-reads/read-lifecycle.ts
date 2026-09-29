@@ -9,7 +9,7 @@
 // THE COUPLING IS THE WHOLE SUBJECT, so it lives in one class with one meaning:
 // `readRefusal` says the NEWEST read failed, never that a read has failed at some
 // point. A served read clears it in the same act that moves the phase, and
-// {@link findReadRefusal} derives what a surface renders from the phase rather than
+// {@link findReadRefusal} derives what a view renders from the phase rather than
 // trusting the clear — two independent statements of one rule, so a later arm that
 // forgets the clear still renders honestly.
 //
@@ -35,9 +35,9 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 export type WireReadPhase = "reading" | "read" | "refused";
 
 /**
- * The phase-and-refusal pair every reading in this family publishes.
+ * The phase-and-refusal pair every wire reading publishes.
  *
- * Declared once and spread onto each reading's own readout, so a surface that renders
+ * Declared once and spread onto each reading's own readout, so a view that renders
  * "why is this empty" reads the same two members whichever reading it holds.
  */
 export interface WireReadState {
@@ -147,7 +147,7 @@ export class WireReadLifecycle {
 }
 
 /**
- * The refusal a surface renders for this reading, or `undefined` when there is none.
+ * The refusal a view renders for this reading, or `undefined` when there is none.
  *
  * THE PHASE-AWARE ACCESSOR EVERY CONSUMER GOES THROUGH, so the coupling between the
  * two members is stated once rather than at each call site. Two consumers read the

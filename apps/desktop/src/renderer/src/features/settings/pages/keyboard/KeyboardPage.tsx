@@ -61,7 +61,7 @@ export function KeyboardPage(): ReactNode {
   // The effective table, and whether the console keyboard is suspended. Read
   // through the frame's one accessor, so this page cannot draw a keyboard that
   // differs from the one installed.
-  const keybindingSurface = useKeybindingSnapshot(keybindingOverrides);
+  const keybindingSnapshot = useKeybindingSnapshot(keybindingOverrides);
 
   // Commands are read on EVERY render pass, not once per visit. The registry is a
   // mutable object with no change signal of its own, and the frame registers this
@@ -76,15 +76,15 @@ export function KeyboardPage(): ReactNode {
   const commands = commandRegistry.all();
   const rows = composeKeybindingRows({
     commands,
-    bindings: keybindingSurface.bindings,
+    bindings: keybindingSnapshot.bindings,
     // The SHIPPED table beside the effective one, so every row can name the chord its
     // reset restores. The effective table is this one with the overrides already
     // composed onto it, so reading a default out of it would answer with the override
     // the reset removes.
-    shippedBindings: keybindingSurface.shippedBindings,
+    shippedBindings: keybindingSnapshot.shippedBindings,
     overrides: keybindingOverrides.overrides,
   });
-  const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
+  const audit = useMemo(() => auditKeybindings(keybindingSnapshot.bindings), [keybindingSnapshot]);
   const visibleRows = matchKeybindingRows(rows, query);
   const changedRows = rows.filter((row) => row.overridden);
 

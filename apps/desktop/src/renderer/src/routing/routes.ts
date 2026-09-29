@@ -32,7 +32,7 @@ export type AppRoute =
   // three of those questions again and would have answered them the same way.
   //
   // WHY A PARKED PHASE NEEDS AN ADDRESS AT ALL. A `waiting-human` park ends when a
-  // person answers that phase's form, and the surfaces that say so — a park banner, a
+  // person answers that phase's form, and the places that say so — a park banner, a
   // run row, a notification — are frequently not in the window holding the run pane.
   // Without a written-down address the phase is reachable only by somebody who has
   // already navigated to it, which is the one person who does not need the link.
@@ -76,9 +76,8 @@ export type AppRoute =
   // every window, and a window whose composition registered no harness renders it as
   // not-found, exactly as it renders any other unknown address.
   //
-  // The pane kind travels as a bare `string` rather than as `PaneKind`, and that is
-  // the DAG rather than laziness: `seats/` sits four families above `routing/`, so
-  // this module cannot name that set. The surface the slot mounts holds the segment
+  // The pane kind travels as a bare `string` rather than as `PaneKind`, because an
+  // address arrives untyped: the screen the route mounts holds the segment
   // to `parsePaneAddress`, which is the console's one admission point for an
   // address that arrived untyped — the same predicate a restored layout snapshot is
   // held to, so a route a person types and a snapshot read off disk cannot disagree
@@ -162,7 +161,7 @@ export function parseRoute(hash: string): AppRoute {
   // composition registered no harness renders the address as not-found. The address is
   // `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are required: the pane
   // bodies this mounts are session-scoped, so an address with no session would open a
-  // harness that could only ever render the pane's own not-bound absence — a surface
+  // harness that could only ever render the pane's own not-bound absence — a screen
   // measuring nothing.
   if (head === "pane-harness") {
     const [paneKindSegment, sessionIdSegment] = rest;

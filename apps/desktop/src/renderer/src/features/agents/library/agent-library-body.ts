@@ -2,7 +2,7 @@
 //
 // A LOADER-BACKED BODY, so the page, its registry view, its rows and its sheet are not
 // on the initial import graph: nothing paints the library before a person opens it. The
-// sheet is named here and nowhere else, so it loads with the page and no other surface.
+// sheet is named here and nowhere else, so it loads with the page and no other view.
 
 import "./agent-library.css";
 

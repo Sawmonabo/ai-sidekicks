@@ -20,7 +20,7 @@
 
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 
-/** The console command id this family registers, recognizes, and is listed under. */
+/** The console command id the workflow command is registered, recognized, and listed under. */
 export const WORKFLOW_COMMAND_ROOT = "workflow";
 
 /**
@@ -54,8 +54,8 @@ export type WorkflowCommandReading =
  *
  * Takes the RAW line rather than a name and an argument, because both readers need
  * different halves of it: the directive handler wants the definition name a complete
- * line carries, and the discovery surface wants to know that the argument is being
- * typed while it still is. Splitting that into two parsers is how the surface offering
+ * line carries, and the command list wants to know that the argument is being
+ * typed while it still is. Splitting that into two parsers is how the command list offering
  * candidates and the path acting on them come to disagree about what a line says.
  *
  * The root is read through `directive-syntax.ts` rather than by a prefix test of this

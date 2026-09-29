@@ -14,7 +14,7 @@
 //     rather than a promise about it: the mutation call sits on one handler. The
 //     palette reaches the same act by ENTERING that confirmation — `useRevokeRuleCommands.ts`
 //     contributes a row per revocable rule, arming the control rather than replacing
-//     it, so there is no second path to a mutation this surface made deliberately
+//     it, so there is no second path to a mutation this list made deliberately
 //     hard. Which rules offer it is that module's `offersRevoke`, read here too, so
 //     the row and the button are offered on one reading rather than two that agree.
 //   • **No per-row "remembered today" chip.** The auto-approval resolves inside the

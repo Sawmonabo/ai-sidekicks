@@ -201,7 +201,7 @@ describe("PaneLayoutStore — the split act", () => {
 
   it("negative control: an open naming no source re-divides the whole pane layout", () => {
     // Without this the case above would pass over a pane layout that never equalized at
-    // all, and the list seating — the palette's and a rail destination's — is the common one.
+    // all, and the list placement — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "terminal" });
@@ -209,7 +209,7 @@ describe("PaneLayoutStore — the split act", () => {
     expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
   });
 
-  it("falls back to the list seating when the source is too narrow to halve", () => {
+  it("falls back to the list placement when the source is too narrow to halve", () => {
     // A pane at one permille has no width to give. The person still asked for a pane,
     // so they get one and the pane layout re-divides rather than the open being refused.
     const layout = emptyLayout();

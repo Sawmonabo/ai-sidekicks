@@ -7,17 +7,17 @@
  *
  * This sheet enters at the pane's chunk root, `preview-pane-body.ts`. It sits at the
  * feature root because it is the feature's own button shape, which the chrome bar
- * arranges through the doors declared below rather than by redeclaring the class.
+ * arranges through the custom properties declared below rather than by redeclaring the class.
  */
 
 /* ------------------------------------------------------------------ button */
 
 /*
- * The five custom properties below are this button's arrangement doors. A bar that
- * composes it into one centered row sets them on its own class; a caller that leaves
- * them unset gets the stacked shape, which is what `revert` restores. Each is a door
+ * The five custom properties below set this button's arrangement. A bar that composes
+ * it into one centered row sets them on its own class; a caller that leaves them unset
+ * gets the stacked shape, which is what `revert` restores. Each is a custom property
  * rather than an unconditional declaration, so one bar's arrangement never reaches a
- * surface that did not ask for it.
+ * control that did not ask for it.
  */
 .meridian-preview-action {
   align-self: var(--meridian-preview-action-align-self, flex-start);

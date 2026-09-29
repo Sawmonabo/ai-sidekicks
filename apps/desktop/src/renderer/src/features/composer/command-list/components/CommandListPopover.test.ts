@@ -1,8 +1,8 @@
 // The popover itself: which entries reach the list, which row is active, and what a
 // press on a row that cannot run is answered with.
 //
-// Split from the surface's own suite along the same seam the modules were: the
-// surface decides WHETHER a popover is open and what a selection sends, and these
+// Split from the command list's own suite along the same seam the modules were: the
+// command list decides WHETHER a popover is open and what a selection sends, and these
 // cases are about what an open one renders and how it is moved through. Still driven
 // through the whole composer, because that is where an open popover exists.
 
@@ -138,7 +138,7 @@ describe("CommandList — the list activates its active row", () => {
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     // Console entries lead the catalog, and HOW MANY of them there are is not this
-    // case's business: any console surface mounted beside this composer contributes
+    // case's business: any console feature mounted beside this composer contributes
     // its own, so a hard-coded step count turns a growing palette into a failure
     // about arithmetic. Step while the active row still carries the run affordance
     // and let the loop's exit condition be the claim the assertion then re-reads.
@@ -189,7 +189,7 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
    * The scenario's addressed group with one entry's `enabled` set as the case wants.
    *
    * Derived from the group the registered method already answered with rather than
-   * re-parsed: the flag is a wire member on a shape the call door checked, so the
+   * re-parsed: the flag is a wire member on a shape `callDaemon` checked, so the
    * only thing a second parse here would prove is that a spread of a parsed value
    * is still that value.
    */
@@ -220,12 +220,12 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   function soleRow(mounted: MountedComposer): HTMLElement {
     const row = mounted.container.querySelector('[role="option"]');
     if (!(row instanceof HTMLElement)) {
-      throw new Error("the surface rendered no row for the enumerated entry");
+      throw new Error("the popover rendered no row for the enumerated entry");
     }
     return row;
   }
 
-  /** What the surface answered the last press with. */
+  /** What the popover answered the last press with. */
   function pressNotice(mounted: MountedComposer): string | undefined {
     return (
       mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent ??
@@ -236,7 +236,7 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   it("marks the row the provider declared unavailable", async () => {
     // The finding: `enabled: false` is returned precisely so a client can tell a
     // disabled command from one that does not exist, and the row rendered it exactly
-    // like an available or unqualified entry — so the surface told a person the entry
+    // like an available or unqualified entry — so the popover told a person the entry
     // was among what the provider offers with no unavailable state anywhere on it.
     const row = soleRow(await mountFilteredToFlippedEntry(false));
 
@@ -271,7 +271,7 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   });
 
   it("negative control: the available entry answers the standing rule instead", async () => {
-    // Without this the case above would hold over a surface that had replaced the
+    // Without this the case above would hold over a popover that had replaced the
     // one sentence with the other for every provider row.
     const mounted = await mountFilteredToFlippedEntry(true);
     const list = await stepIntoList(mounted);

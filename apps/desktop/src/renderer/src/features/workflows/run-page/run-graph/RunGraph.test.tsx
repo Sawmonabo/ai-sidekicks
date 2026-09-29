@@ -1,5 +1,5 @@
 // The mount point: the four absences it can stand in the box, the picture it draws
-// once the renderer's code arrives, and the gestures that surface does not offer.
+// once the renderer's code arrives, and the gestures the canvas does not offer.
 //
 // THE LOADER IS THE REAL ONE. A stub that resolved the canvas synchronously would
 // test a component that does not exist — the whole point of the arrangement is that
@@ -175,7 +175,7 @@ describe("the drawn graph", () => {
     // The caption and not the edge count, on this file's own rule: the shim returns
     // zero for every rect and the library draws no edge element under it, so the
     // edge SET is asserted over values in the layout and topology suites beside this
-    // one. What this tier can see is whether the surface tells a person which
+    // one. What this tier can see is whether the graph tells a person which
     // picture they are looking at.
     expect(container.querySelector(".meridian-run-graph__caption")?.textContent ?? "").toContain(
       "has not been read here",
@@ -185,7 +185,7 @@ describe("the drawn graph", () => {
   it("negative control: a graph handed a definition captions nothing", async () => {
     // Without this the case above would pass over a component that captioned every
     // picture, which would tell a person their definition had not been read on the
-    // one surface where it had.
+    // one graph where it had.
     const { container } = render(
       <RunGraph phases={TWO_PHASES} topology={TWO_PHASE_TOPOLOGY} label="Phase sequence" />,
     );
@@ -210,10 +210,10 @@ describe("the drawn graph", () => {
   });
 
   it("draws the identifier as a wire figure and an authored name as prose", async () => {
-    // Rule 4: mono is the provenance signature. A phase id is a string the daemon
-    // sent, and it used to be drawn in the same sans face and weight an authored name
-    // would have had — so with no name available anywhere in this build, every box on
-    // this canvas presented an opaque key as something a person had chosen.
+    // Every figure the daemon sent renders in mono, the sign of where it came from. A
+    // phase id is a string the daemon sent; drawn in the sans face and weight an
+    // authored name has, it would present an opaque key as something a person had
+    // chosen, and no read in this build supplies a name to tell them apart.
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const node = container.querySelector('.react-flow__node[data-id="build"]');
@@ -230,7 +230,7 @@ describe("the drawn graph", () => {
   it("draws no name element for a phase the caller read no name for", async () => {
     // The case every read reachable from this build produces. Nothing stands in for
     // the name: the identifier is already on the box, in the face that says where it
-    // came from, and a second copy of it in the name's slot is the invention this
+    // came from, and a second copy of it in the name's place is the invention this
     // whole split exists to stop.
     const nameless: readonly RunGraphNode[] = TWO_PHASES.map((entry) => ({
       ...entry,
@@ -264,7 +264,7 @@ describe("the drawn graph", () => {
   });
 
   it("gives a scheduled park a treatment of its own rather than the amber one", async () => {
-    // Rule 3 spends amber on a person being needed. A phase parked on provider
+    // Amber means a person is needed and nothing else. A phase parked on provider
     // capacity that the engine armed a readable resume for needs nobody, and drawing
     // it in the same border as one waiting on a person is the pane asking for
     // attention nothing is owed.

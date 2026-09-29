@@ -1,7 +1,7 @@
 // The "N new" pill, and the pin's own notice.
 //
-// Its own module for the one-component rule. It is the reading anchor's whole
-// user-visible surface, which is why it reads better beside the anchor's promise than
+// Its own module for the one-component rule. It is everything the reading anchor
+// shows a person, which is why it reads better beside the anchor's promise than
 // inside the composition that mounts it.
 
 import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";

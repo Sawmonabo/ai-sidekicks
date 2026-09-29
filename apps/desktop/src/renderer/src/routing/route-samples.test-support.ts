@@ -1,4 +1,4 @@
-// One list of routes per family, read by both routing suites.
+// One list of routes per route kind, read by both routing suites.
 //
 // SHARED BECAUSE BOTH HALVES WALK THE SAME SET. The grammar suite round-trips every
 // main-window route and the reader suite asks each predicate about every route of

@@ -37,7 +37,7 @@ describe("the concurrent-streaming frame — the approval it asks and grants", (
   it("carries the approval pair and the run pair, both", () => {
     // Four beats about one moment, and neither pair is derivable from the other: a
     // run can block on an ask nobody answers, and the card renders from the approval
-    // rows alone. A session with only the run pair leaves the approvals surface with
+    // rows alone. A session with only the run pair leaves the approvals view with
     // nothing to draw, which is what this scenario used to ship.
     expect(SCRIPTED_KINDS).toContain("approval.requested");
     expect(SCRIPTED_KINDS).toContain("approval.approved");

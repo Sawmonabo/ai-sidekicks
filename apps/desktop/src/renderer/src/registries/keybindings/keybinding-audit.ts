@@ -10,15 +10,15 @@
 // candidate to a throwaway table and reading the diagnostic it reports for a row it
 // dropped. Neither question is answered here, and neither may be: a second overlap
 // rule and a second chord parser would agree with the service until the day they did
-// not, and then two surfaces would report a keyboard nobody has.
+// not, and then two views would report a keyboard nobody has.
 //
 // WHY THIS LIVES IN `palette/` AND NOT BESIDE THE KEYBOARD PAGE
 //
 // It was in `settings/pages/keyboard/keybinding-map.ts`, which is where its only reader was.
-// The override store next door is now a second reader, and it sits BELOW settings in
-// the console's family DAG — so leaving the table there would have meant either an
+// The override store beside this module is now a second reader, and it sits BELOW
+// settings in the console's import order — so leaving the table there would have meant either an
 // upward import or a second copy of the reserved-chord list and the probe loop. The
-// console hoists on the second use, and this is the lowest family both readers
+// console hoists on the second use, and this is the lowest folder both readers
 // already import.
 //
 // A CHORD CAN BE UNAVAILABLE BECAUSE THE HOST TAKES IT

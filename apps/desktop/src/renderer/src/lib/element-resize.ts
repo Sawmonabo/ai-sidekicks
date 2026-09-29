@@ -1,16 +1,14 @@
 // The console's one `ResizeObserver` construction site.
 //
-// Two families arm a size source: `browser/` — the overlay registry and the pane
-// geometry publisher — and `terminal/`, whose emulator re-fits its grid when the
-// host box changes. They sit at the same level of the console's DAG, so neither can
-// import the other's copy, and each writing its own was two feature detections and
-// two teardowns for one seam. `apps/desktop/AGENTS.md` calls that hoist-on-second-
-// use, and `primitives/` is the lowest family both consumers sit above.
+// Several features arm a size source — the preview's geometry publisher, the session
+// pane layout, and the terminal, whose emulator re-fits its grid when its box changes —
+// and so does the overlay-registration hook. One feature never imports another, so
+// each writing its own would be one feature detection and one teardown per copy for a
+// single seam; `lib/` is the one layer every consumer sits above.
 //
-// ITS OWN LEAF MODULE, for `primitives/chord/chord-format.ts`'s reason: a primitive never imports
-// upward, and this one imports a single type from the DAG floor and nothing else. It
-// renders nothing and holds no state, so it is a `.ts` module beside the components
-// rather than one of them.
+// ITS OWN LEAF MODULE: shared code never imports upward, and this one imports a single
+// type from `emitter.ts` and nothing else. It renders nothing and holds no state, so it
+// is a plain `.ts` module rather than a component.
 
 import type { Unsubscribe } from "./emitter.js";
 

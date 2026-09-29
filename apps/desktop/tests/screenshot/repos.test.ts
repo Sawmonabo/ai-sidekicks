@@ -1,8 +1,8 @@
-// The screenshot tier: the repos family's two surfaces, per scheme.
+// The screenshot tier: the repos feature's two views, per scheme.
 //
 // `settled-capture.ts` owns the mechanism this file rides: every capture is written
 // into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether each surface can be captured at all.
+// gates on whether each view can be captured at all.
 //
 // WHAT IS PINNED, AND WHY THESE TWO. Each is a different composition rather than a
 // state of one:
@@ -15,10 +15,10 @@
 //     is what an image holds and what a DOM assertion reads one attribute of;
 //   • the DIFF PANE over a parsed change set: the compared states in the header, the
 //     changed-file list, and the rows with their gutter marks — the diff pane's whole
-//     surface, and the one place the intraline highlight is visible as a highlight
+//     body, and the one place the intraline highlight is visible as a highlight
 //     rather than as a segment list.
 //
-// Two surfaces and two schemes is four captures, written afresh on whichever host runs
+// Two views and two schemes is four captures, written afresh on whichever host runs
 // the tier.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
@@ -32,13 +32,13 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The surfaces this tier pins, each with the capture name it is committed under.
+ * The views this tier pins, each with the capture name it is committed under.
  *
  * A table rather than one near-identical suite per row: the cases differ only in which
- * surface is mounted, and a copy of the same six lines per surface is one more place
+ * view is mounted, and a copy of the same six lines per view is one more place
  * for the scheme emulation or the skip guard to be forgotten in exactly one of them.
  */
-const PINNED_SURFACES: readonly {
+const PINNED_VIEWS: readonly {
   readonly captureName: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
@@ -58,16 +58,16 @@ afterEach(async () => {
 });
 
 describe("screenshot — the repos section and diff pane", () => {
-  for (const surface of PINNED_SURFACES) {
+  for (const view of PINNED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
-      it(`renders ${surface.captureName} in the ${scheme} scheme`, async () => {
+      it(`renders ${view.captureName} in the ${scheme} scheme`, async () => {
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.
         await emulateSystemScheme(scheme);
-        const mounted = await surface.mount();
+        const mounted = await view.mount();
 
-        await captureSettled(mounted.element, `${surface.captureName}-${scheme}`);
+        await captureSettled(mounted.element, `${view.captureName}-${scheme}`);
       });
     }
   }

@@ -3,8 +3,8 @@
 //
 // ONE IMPLEMENTATION, TWO CALLERS. The pane layout's own key handler (`SessionPaneLayout.tsx`) dispatches
 // these when focus is inside the pane layout, and the palette dispatches the same five from
-// anywhere in the session through the seat beside this file, so "move the pane" has one
-// answer.
+// anywhere in the session through `mounted-pane-layouts.ts` beside this file, so "move the
+// pane" has one answer.
 //
 // EVERY ACT SAYS WHAT HAPPENED. The pane layout's focus is a ring rather than DOM focus, so
 // a screen reader follows nothing when the focused pane changes: without a live-region
@@ -16,8 +16,8 @@
 // A BOUNDARY IS NOT A REFUSAL. Moving the leftmost pane left changes nothing, and
 // `paneDropAnnouncement` already carries that case in its assertive lane ("was not
 // moved"). What IS refused is an act with no subject at all — no pane layout mounted, or a
-// pane layout focusing nothing — and those two are said by the seat and by this file
-// respectively, because only one of them is a fact about the pane layout.
+// pane layout focusing nothing — and those two are said by `mounted-pane-layouts.ts` and
+// by this file respectively, because only one of them is a fact about the pane layout.
 
 import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import type { Announce } from "@renderer/console/primitives/index.js";

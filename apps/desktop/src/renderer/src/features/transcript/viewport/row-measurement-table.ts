@@ -25,7 +25,7 @@
 //     longer exists. The library has no notion of the display at all.
 //   • **Duplicate keys.** A repeat is a projection defect, and the library's caches
 //     are keyed by item key — two rows sharing a key share one measurement and one
-//     element slot, so the second silently displaces the first. Projecting a
+//     element entry, so the second silently displaces the first. Projecting a
 //     distinct virtual key per row keeps every row in the window and counts the
 //     defect, which is degrading rather than discarding.
 
@@ -118,7 +118,7 @@ export class RowMeasurementTable {
    *   • An observation inside the epsilon is the same height. This console never
    *     compares two measurements without one: sub-pixel layout noise would otherwise
    *     read as a resize and re-run the window on every frame.
-   *   • Anything else is accepted, and takes the newest slot in the bounded table.
+   *   • Anything else is accepted, and takes the newest entry in the bounded table.
    */
   public acceptedHeight(rowKey: string, observedHeightPx: number): number {
     const previous = this.#acceptedHeightByRowKey.get(rowKey);
@@ -212,7 +212,7 @@ export class RowMeasurementTable {
       if (seenKeys.has(rowKey)) {
         // The repeat is a different row wearing a name that is already taken. A
         // distinct virtual key keeps it in the window with a measurement and an
-        // element slot of its own, rather than displacing the row that got there
+        // element entry of its own, rather than displacing the row that got there
         // first — which is what sharing a key with the library's caches would do.
         duplicateKeyCount += 1;
         virtualKeys[index] = `${rowKey}${REPEAT_KEY_SEPARATOR}${String(duplicateKeyCount)}`;

@@ -1,15 +1,15 @@
 // One row of the execution-mode picker, and the one derivation that builds the set.
 //
-// A MODULE OF ITS OWN because two surfaces build these rows and two views draw them,
+// A MODULE OF ITS OWN because two components build these rows and two views draw them,
 // so the shape is the seam between them rather than either one's private vocabulary —
 // and a type declared in a parent component and imported by its child closes an import
 // cycle.
 //
-// AND THE DERIVATION LIVES HERE BESIDE THE SHAPE, because two surfaces need it. The mode
+// AND THE DERIVATION LIVES HERE BESIDE THE SHAPE, because two components need it. The mode
 // picker and the bind dialog each read one `repo.executionModeCapabilitiesRead` reply
 // into rows, and two separate readings could drift on the case that matters most: a mode
 // named in BOTH halves of the reply. If one kept the reason and the other blanked it, the
-// same malformed reply would disclose its restriction on one surface and hide it on the
+// same malformed reply would disclose its restriction in one component and hide it on the
 // other. One implementation serves both.
 
 import { type ExecutionMode } from "@ai-sidekicks/contracts";

@@ -49,8 +49,8 @@ describe("the file acts when the codec did not load", () => {
     });
 
     // `file-unreadable` is the reader's own verdict on a file. A chunk that did not
-    // arrive read nothing, so claiming the text was unreadable would be this surface
-    // reporting a fact it does not have.
+    // arrive read nothing, so claiming the text was unreadable would be the definition
+    // detail reporting a fact it does not have.
     await waitFor(() => {
       expect(refusalCode(mounted.current().outcomes.import)).toBe("call-rejected");
     });

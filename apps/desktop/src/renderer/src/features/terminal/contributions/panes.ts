@@ -3,11 +3,10 @@
 import type { PaneRegistry } from "@renderer/console/seats/index.js";
 
 /**
- * Claim the terminal family's pane kinds.
+ * Register the terminal feature's pane kinds.
  *
- * One kind, and structurally one: a session has exactly one terminal surface, and the
- * pane layout's single mount door makes a second claim on this kind an error rather than a
- * swap.
+ * One kind, and structurally one: a session has exactly one terminal pane, and the
+ * pane registry makes a second claim on this kind an error rather than a swap.
  */
 export function registerTerminalPane(registry: PaneRegistry): void {
   registry.register({

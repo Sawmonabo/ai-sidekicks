@@ -28,10 +28,10 @@
 // `import.meta.env.DEV`; what must be absent is a set of names, so the second check sweeps
 // the shipped text for them, imported from the modules that declare them.
 //
-// Stylesheets are neither: no source map lists one, and an owner-slot shell's sheet ships
-// its rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that
-// case as an import rule (`shell-stylesheet-outside-its-shell`,
-// `shell-stylesheet-from-outside-any-shell`).
+// Stylesheets are neither: no source map lists one, and a feature fixture's sheet ships its
+// rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that case as
+// an import rule (`fixture-stylesheet-outside-its-folder`,
+// `fixture-stylesheet-from-outside-any-fixtures-folder`).
 //
 // LIKE ITS NEIGHBORS, THIS NEVER SKIPS. A missing build, or one that wrote no source maps,
 // fails with the command that produces one: a sweep that finds nothing because it read
@@ -77,7 +77,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
  *
  * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
  * is also a `features/transcript/viewport/window-cap.ts` reason code and a
- * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by surfaces that
+ * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by modules that
  * have nothing to do with the meters: real product strings a clean release build carries
  * for their own reasons, so sweeping the tuple whole would fail on a correct bundle and be
  * silenced rather than believed. `"apply-latency"` and `"store-size"` are the meters' own
@@ -130,7 +130,7 @@ function fixtureOnlyModulesIn(maps: readonly BuiltSourceMap[]): readonly string[
   );
 }
 
-describe("release build — the fixture surface is absent, not merely unreachable", () => {
+describe("release build — the fixture code is absent, not merely unreachable", () => {
   const builtFiles = readBuiltTextOrFailLoudly();
   const sourceMapsPerTarget = BUILD_TARGETS.map(
     (target) => [target, readSourceMapsOrFailLoudly(target)] as const,

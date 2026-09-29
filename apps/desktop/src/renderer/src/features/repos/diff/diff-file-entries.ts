@@ -1,6 +1,6 @@
 // What the changed-file list holds: the rows it draws, in order, under one filter.
 //
-// A PURE MODEL BESIDE THE COMPONENT, on this family's own seam — `diff-model.ts`
+// A PURE MODEL BESIDE THE COMPONENT, on the diff viewer's own seam — `diff-model.ts`
 // beside the renderer, `hunk-row-layout.ts` beside the row index. The list is
 // windowed, and a window is addressed by INDEX: which row a scroll position needs,
 // which row an arrow key moves to, which row the selection is on. So the ordered

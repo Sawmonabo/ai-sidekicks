@@ -1,11 +1,11 @@
-// The accessibility tier over the repos family's two surfaces.
+// The accessibility tier over the repos feature's two views.
 //
-// `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
-// it, and it runs each surface scoped to itself rather than scanning the document,
-// so a violation names the surface that owns it.
+// `app-frame.test.tsx` runs the frame; this file runs what the feature mounts INTO
+// it, and it runs each view scoped to itself rather than scanning the document,
+// so a violation names the view that owns it.
 //
-// Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family has two surfaces the
+// Both schemes, for `app-frame.test.tsx`'s reason: contrast is the rule most likely
+// to pass in one and fail in the other, and this feature has two views the
 // palette tests cannot reach at all — a mount card tinted by its own health verdict,
 // and a diff row whose intraline highlight is a tint inside a line of text.
 //
@@ -31,8 +31,8 @@ import {
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
-/** The surfaces this family ships, each named as a reader would name it. */
-const AUDITED_SURFACES: readonly {
+/** The views this feature ships, each named as a reader would name it. */
+const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
@@ -50,11 +50,11 @@ afterEach(async () => {
 });
 
 describe("accessibility — the repos section and diff pane", () => {
-  for (const surface of AUDITED_SURFACES) {
+  for (const view of AUDITED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
-      it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
+      it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
-        const mounted = await surface.mount();
+        const mounted = await view.mount();
 
         expect(describeViolations(await runTierAxe(mounted.element))).toStrictEqual([]);
       });

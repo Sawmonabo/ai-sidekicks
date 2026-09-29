@@ -126,7 +126,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
     expect(finished.outcome).toBe("sent");
     // Every leg named once. The create is named because it EXISTS, not because this
-    // press made it — the slot's job is to say what is there.
+    // press made it — the completed-calls list's job is to say what is there.
     expect(finished.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
   });
 
@@ -161,8 +161,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
 describe("NewSessionDraft — the create it cannot answer for", () => {
   it("settles a create whose reply cannot be read on its own arm, not as a refusal", async () => {
-    // The defect: an unreadable reply surfaced as `session-create-failed`, which tells
-    // a person nothing was created and invites the press that makes a second session.
+    // An unreadable reply surfaced as `session-create-failed` would tell
+    // a person nothing was created and invite the press that makes a second session.
     const { draft } = countedDraftOverUnreadableCreate();
     draft.setFirstTurn("Start on the parser.");
 

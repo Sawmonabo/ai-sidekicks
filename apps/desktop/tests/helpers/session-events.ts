@@ -1,26 +1,9 @@
 // One admitted session event, built once for every suite that needs one.
 //
-// AT THE FAMILY ROOT AND NOT IN `entities/`, because it is not one sub-module's
-// scaffolding: suites in twelve families beside this one build their events through it,
-// and a role that many readers share belongs where every one of them already reaches —
-// the family's own directory — rather than one level further in, where its path would
-// name a sub-module none of those callers is inside.
-//
-// Seven copies of this four-line literal were in the tree at once — four spelling it
-// inline in a `store/` suite, two more inside sibling `.test-support` modules, and,
-// on the branches, three under the name `eventOfKind` in three different families.
-// They had already drifted in the two places drift is invisible: two spelled
-// `occurredAt` as a fixed literal, so every event a suite applied carried the same
-// instant and nothing ordered by time could be tested at all, and two derived it from
-// the sequence. Neither reports the other.
-//
-// It lives in `store/` rather than under a tier directory because the consumers are
-// co-located console suites, and `src/renderer/tsconfig.test.json` inherits
-// `rootDir: ".."` — `apps/desktop/src` — so a co-located test importing out of the
-// package's `test/` tree is TS6059 rather than a style question. `store/` is then the
-// lowest family on the DAG that every consumer sits at or above: the event type is
-// declared here, and the families that build one (`agents/`, `settings/`, and the
-// store's own suites) all import it from here already.
+// ONE BUILDER, because copies of this literal drift in the two places drift is
+// invisible: a copy that spells `occurredAt` as a fixed literal gives every event a
+// suite applies the same instant, so nothing ordered by time can be tested at all, and a
+// copy that derives it from the sequence disagrees with it. Neither reports the other.
 //
 // THE PAYLOAD IS OMITTED RATHER THAN EMPTIED when a caller supplies none, because the
 // two are different events to a projector that reads `event.payload?.[member]` and

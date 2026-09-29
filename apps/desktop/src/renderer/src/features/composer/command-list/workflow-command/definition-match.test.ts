@@ -1,6 +1,6 @@
 // Two readings of one name: what STARTS, and what is offered while it is typed.
 //
-// Both live in one module because the surface that offers a candidate and the path
+// Both live in one module because the command list that offers a candidate and the path
 // that starts it must agree on what a name matches; these cases hold that agreement
 // by driving the two functions over the same definitions.
 

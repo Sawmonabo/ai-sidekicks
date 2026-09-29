@@ -5,8 +5,8 @@
 // needs somebody.
 //
 // AND IT NEVER SHOWS A ZERO. Zero sessions needing a person is the ordinary state of
-// a healthy console, and a badge reading "0" on the most-seen surface in the product
-// would be permanent furniture reporting the absence of news.
+// a healthy console, and a badge reading "0" on the rail, the part of the window a
+// person sees most, would be permanent furniture reporting the absence of news.
 
 import type { AttentionReading } from "./attention-summary.js";
 

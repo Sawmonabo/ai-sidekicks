@@ -1,5 +1,5 @@
-// Rule 8's extra step, made countable: a state that is not `served` never renders as
-// complete, and a surface holding two readings can never show one of them.
+// The step past the five kinds of nothing, made countable: a state that is not `served`
+// never renders as complete, and a view holding two readings can never show one of them.
 //
 // The set is driven from `READING_STATE_KINDS` rather than from hand-listed arms, so
 // a state that fell through to the "no notice" shape — the one shape that claims the
@@ -59,7 +59,7 @@ describe("partial-read — completeness is claimed by exactly one state", () => 
   });
 });
 
-describe("partial-read — a surface hands over every reading it holds", () => {
+describe("partial-read — a view hands over every reading it holds", () => {
   it("answers a notice per reading that is not the whole of it", () => {
     // The defect the composition removes: a queue whose snapshot served and whose
     // tail carried an unreadable delivery used to render one notice or none,
@@ -105,8 +105,8 @@ describe("partial-read — the sentence set", () => {
   });
 
   it("gives each arm its own sentence", () => {
-    // Two arms sharing a sentence is the collapse rule 8 forbids for absences,
-    // applied to the states of an incomplete reading.
+    // Two arms sharing a sentence is the collapse the five kinds of nothing forbid for
+    // absences, applied to the states of an incomplete reading.
     const sentences = READING_STATE_KINDS.map((kind) => sentenceOf(STATE_BY_KIND[kind])).filter(
       (sentence) => sentence !== "",
     );
@@ -216,7 +216,7 @@ describe("partial-read — the producer shapes", () => {
   it("reads a count of zero as nothing to report, never as a partial reading", () => {
     // The nonsense notice in terms: `{ kind: "partial", unreadableCount: 0 }`
     // rendered "0 deliveries could not be read", a notice for an absence of anything
-    // to notice. The producer's own door is where that is settled.
+    // to notice. The producer's own call is where that is settled.
     expect(unreadableDeliveryReading(0, undefined)).toStrictEqual({ kind: "served" });
     expect(unreadableDeliveryReading(-1, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
     expect(unreadableDeliveryReading(1.5, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
@@ -224,7 +224,7 @@ describe("partial-read — the producer shapes", () => {
 
   it("negative control: a real count is a partial reading and keeps its refusal", () => {
     // Without this the zero rule above would also be satisfied by a constructor that
-    // answered `served` for everything, which is a surface that never says it is short.
+    // answered `served` for everything, which is a view that never says it is short.
     expect(unreadableDeliveryReading(2, PARSE_REFUSAL)).toStrictEqual({
       kind: "partial",
       unreadableCount: 2,
@@ -261,7 +261,7 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
 
   it("says what no other arm says: the shown answer covers less than was asked", () => {
     // The gap this arm was minted for. The nearest vocabulary was a `refused` reading
-    // beside an answer, whose sentence carries no figure at all — so a surface with
+    // beside an answer, whose sentence carries no figure at all — so a view with
     // four unanswered sources could say that something was missing and never how much.
     const coverage = sentenceOf(STATE_BY_KIND.unchecked);
     const besideAnAnswer = sentenceOf(STATE_BY_KIND.refused);

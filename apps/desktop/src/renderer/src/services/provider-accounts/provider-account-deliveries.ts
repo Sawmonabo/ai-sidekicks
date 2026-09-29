@@ -17,7 +17,7 @@
 // the provider that its own login process finished, not a reading of anything — the
 // daemon observes health next and publishes `account_changed`, which is the frame that
 // moves an account here. But it IS the node's evidence that one brokered attempt is
-// over, and the surface that started that attempt has no other way to learn it: a
+// over, and the view that started that attempt has no other way to learn it: a
 // refused cancellation establishes nothing, so without this the sign-in plane would go
 // on holding its single-flight claim for the life of the window. So the newest one is
 // held and published, correlated by the caller on its `attemptId` and never taken as a
@@ -62,7 +62,7 @@ import {
 } from "../wire-reads/unreadable-deliveries.js";
 import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
-/** What the reading hands over so a frame can reach a surface without this module publishing. */
+/** What the reading hands over so a frame can reach a view without this module publishing. */
 export interface ProviderAccountDeliverySink {
   /** Something moved, or a delivery was recorded unreadably. Publish. */
   readonly onChanged: () => void;
@@ -85,7 +85,7 @@ export interface ProviderAccountDeliverySink {
  * from its own read path is how a held frame comes to be applied twice.
  *
  * The FOLD is a constructor parameter rather than something built here: the reading
- * seats the registry snapshot's accounts into the same fold and composes its readout
+ * loads the registry snapshot's accounts into the same fold and composes its readout
  * off it, so a fold owned here would be a second one to keep in step with the first.
  *
  * @consumedBy the provider account service, which folds quota frames
@@ -144,7 +144,7 @@ export class ProviderAccountDeliveries {
    * ignoring it. It is COUNTED rather than ignored, though — a reading that went on
    * presenting its previous snapshot as current would be saying something it no
    * longer knows. A readable one either moves the fold now or is held until the
-   * opening read has seated — a question of ORDER and never of whether it is applied.
+   * opening read has landed — a question of ORDER and never of whether it is applied.
    */
   public deliver(payload: unknown): void {
     const parsed = ProviderAccountNotificationSchema.safeParse(payload);
@@ -212,7 +212,7 @@ export class ProviderAccountDeliveries {
         // The FOLD is untouched, deliberately: a provider reporting its flow finished
         // is not a reading of the account, and the daemon publishes `account_changed`
         // next for the part that is. What is recorded is that this attempt is over,
-        // which is the one thing a surface holding a brokered sign-in cannot learn any
+        // which is the one thing a view holding a brokered sign-in cannot learn any
         // other way — and it publishes, because a card that stays up over a flow the
         // node has reported finished is the state this exists to end.
         this.#newestLoginCompletion = notification;

@@ -1,5 +1,5 @@
-/* The agents family's own styles: the agent card, and the control shape every surface
- * in the family wears.
+/* The agents feature's own styles: the agent card, and the control shape every view
+ * in the feature wears.
  *
  * The axis field, the agent library and the pane's column each carry their own sheet
  * (`axis-field.css`, `agent-library.css`, `agents-pane.css`). What stays here is the

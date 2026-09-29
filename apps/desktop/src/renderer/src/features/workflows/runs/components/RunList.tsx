@@ -70,7 +70,7 @@ export function RunList(props: RunListProps): React.JSX.Element {
           THE BADGE COUNTS ENTRIES AND NOT RUNS, which is the fold's whole point:
           six runs parked on one spent provider account are one thing to look at,
           and a figure reading `6` here beside one line under it would undo the fold
-          on the surface most likely to be glanced at rather than read. It is
+          on the figure most likely to be glanced at rather than read. It is
           deliberately a different number from `Parked` above, which counts runs —
           the two answer different questions and agreeing by construction would mean
           one of them was not being asked.

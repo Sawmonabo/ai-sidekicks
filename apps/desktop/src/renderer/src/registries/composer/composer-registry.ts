@@ -30,8 +30,8 @@ export interface ComposerProps {
    * The window store the composer hands a refusal for the whole session screen to.
    *
    * The composer is window chrome and its Send reaches a wire, so it is one of the
-   * places that can learn the session is gone — and rule 9 puts that code across
-   * the frame rather than under one control. It has no other way to reach the frame:
+   * places that can learn the session is gone — and a refusal that changes what the
+   * whole session can do is drawn across the frame rather than under one control. It has no other way to reach the frame:
    * a pane is handed one on its context, and the composer is mounted by the session screen.
    *
    * Required and carrying no default, on `sessionStore`'s own reading: a mount that

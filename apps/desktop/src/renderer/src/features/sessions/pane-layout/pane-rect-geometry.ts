@@ -16,8 +16,8 @@
 // later simplification to an observer is a regression.
 //
 // WHICH ancestors clip is not this module's question. `lib/clipping-ancestors.ts`
-// owns that — the vocabulary, the predicate, and the walk — because the browser family's
-// geometry publisher asks it too and the two copies had already drifted three ways. What
+// owns that — the vocabulary, the predicate, and the walk — because the preview feature's
+// geometry publisher asks it too, and two copies would drift. What
 // stays here is what this module does with the answer: intersect.
 
 import { clippingAncestorsOf } from "@renderer/console/primitives/index.js";
@@ -66,7 +66,7 @@ export interface TrackedRect {
  * `getBoundingClientRect` reports the border box whether or not an ancestor clips
  * it, and a native view is composited by the host rather than laid out by the DOM —
  * so it is not clipped by the ancestor that clips the pane, and a pane scrolled half
- * out of the frame surface would have its view drawn over whatever is beside it.
+ * out of the frame would have its view drawn over whatever is beside it.
  * The intersection is the only rectangle a bounds setter can act on, so it is what
  * this module publishes.
  *

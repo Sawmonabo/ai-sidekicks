@@ -154,7 +154,7 @@ export function outcomeDetail(outcome: WorkflowDetailActOutcome): string {
 }
 
 /**
- * Assert one act refused with a code this surface DECLARES.
+ * Assert one act refused with a code the definition detail DECLARES.
  *
  * Two claims and not one: the specific code, and its membership in the closed tuple.
  * Without the second a refusal raised with a string nobody declared would pass every

@@ -1,8 +1,8 @@
-// A family composed after the window installed its chord table still gets its chords.
+// A feature composed after the window installed its chord table still gets its chords.
 //
 // The frame installs one `KeybindingTable` on `window` from an effect, and the
-// families contribute at composition time. Those two moments are not ordered: a
-// family composed later — a lazily-loaded chunk, a second composition into a window
+// features contribute at composition time. Those two moments are not ordered: a
+// feature composed later — a lazily-loaded chunk, a second composition into a window
 // that is already open — binds its chords into a list the table would never read
 // again. The failure is silent in both directions, which is why it needs a case: the
 // palette lists the command, the settings page prints the chord, and the key does
@@ -21,13 +21,13 @@ import { commandContributionRegistry } from "@renderer/registries/commands/comma
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { mountApp } from "@test/helpers/mount-app.js";
 
-/** The family this file composes as, so its rows are withdrawn by owner. */
+/** The feature this file composes as, so its rows are withdrawn by owner. */
 const CONTRIBUTING_OWNER = "frame-commands-contributions-test";
 
 const CONTRIBUTED_COMMAND_ID = "frameCommandsContributionsTest.act";
 
 /**
- * A chord no console family binds, and one no modifier is needed to press.
+ * A chord no console feature binds, and one no modifier is needed to press.
  *
  * Modifier-free because `$mod` resolves against the real host at listen time, so a
  * press built here would have to guess which modifier this runner's `tinykeys` is
@@ -39,7 +39,7 @@ function pressContributedChord(): void {
   window.dispatchEvent(new KeyboardEvent("keydown", { code: "F9", key: "F9" }));
 }
 
-describe("frame command surface — chords contributed after the table was installed", () => {
+describe("window commands — chords contributed after the table was installed", () => {
   // Owner-scoped replace is the withdrawal: contributing nothing under this owner
   // unregisters the command this file added, so the module-scoped registry is left
   // as it was found.
@@ -55,7 +55,7 @@ describe("frame command surface — chords contributed after the table was insta
     let runCount = 0;
     const contributedCommand: CommandDefinition = {
       id: CONTRIBUTED_COMMAND_ID,
-      title: "The act a late family contributed",
+      title: "The act a late feature contributed",
       group: "Test",
       run: () => {
         runCount += 1;
@@ -103,7 +103,7 @@ describe("frame command surface — chords contributed after the table was insta
       commands: [
         {
           id: CONTRIBUTED_COMMAND_ID,
-          title: "The act a late family contributed",
+          title: "The act a late feature contributed",
           group: "Test",
           run: () => {
             runCount += 1;

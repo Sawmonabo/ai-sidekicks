@@ -31,25 +31,25 @@ beforeEach(() => {
 describe("the scroll chokepoint — a resize publishes the box without a frame", () => {
   // THE ELEMENT IS REAL HERE AND A STAND-IN EVERYWHERE ELSE, because this is the one
   // claim about a path the stand-in cannot reach: `observeResize` narrows its subject
-  // with `instanceof Element` and skips anything else, so a structural surface installs
+  // with `instanceof Element` and skips anything else, so a structural stand-in installs
   // no observer at all. The geometry reads are defined onto it because `happy-dom`
   // answers zero for every one.
   //
   // AND THE BOX HAS TO ACTUALLY GROW. A publication whose sample matches the one the
   // subscribers already hold wakes nobody, by design — so a case that fired a resize
   // over an unchanged element would read as starvation whether or not the seam worked.
-  interface GrowableSurface {
-    readonly surface: ScrollContainer;
+  interface GrowableScrollContainer {
+    readonly scrollContainer: ScrollContainer;
     growTo: (clientHeight: number) => void;
   }
 
-  function growableElement(clientHeight: number, scrollHeight: number): GrowableSurface {
+  function growableElement(clientHeight: number, scrollHeight: number): GrowableScrollContainer {
     const element = document.createElement("div");
     let currentClientHeight = clientHeight;
     Object.defineProperty(element, "clientHeight", { get: () => currentClientHeight });
     Object.defineProperty(element, "scrollHeight", { get: () => scrollHeight });
     return {
-      surface: element,
+      scrollContainer: element,
       growTo: (grown: number) => {
         currentClientHeight = grown;
       },
@@ -93,7 +93,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     const mounted = growableElement(32, 9000);
     const received: ScrollGeometry[] = [];
 
-    controller.attach(mounted.surface);
+    controller.attach(mounted.scrollContainer);
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     received.length = 0;
     mounted.growTo(640);
@@ -113,7 +113,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     controller.observeOverflow((geometry) => measured.push(geometry.viewportHeight));
 
     const mounted = growableElement(32, 9000);
-    controller.attach(mounted.surface);
+    controller.attach(mounted.scrollContainer);
     mounted.growTo(640);
     observer.fireResize();
 

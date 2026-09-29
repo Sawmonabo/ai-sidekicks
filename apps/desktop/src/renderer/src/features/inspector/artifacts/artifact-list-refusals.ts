@@ -91,7 +91,8 @@ export function readFailureRefusal(error: unknown): WireRefusal {
  * on rather than the one that was pressed: a user told "something is in
  * flight" cannot tell what. The control that produced it is held while a fetch is
  * pending, so this is structurally unreachable from the section — and recorded anyway,
- * because a press that produced nothing at all is the silent no-op rule 8 forbids.
+ * because a press that produced nothing at all would be a silent no-op, and every
+ * press the console offers gets an answer.
  */
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal {
   return refuse(
@@ -109,7 +110,8 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal 
  * either order, so the older reply would put the staler row back. The control that
  * produced it is held while that row's read is pending, so this is structurally
  * unreachable from the section — and recorded anyway, because a press that produced
- * nothing at all is the silent no-op rule 8 forbids.
+ * nothing at all would be a silent no-op, and every press the console offers gets an
+ * answer.
  */
 export function manifestReadInFlightRefusal(artifactId: string): Refusal {
   return refuse(

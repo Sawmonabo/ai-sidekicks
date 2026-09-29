@@ -3,33 +3,33 @@
 // The airspace rule: registration happens once, at the primitive layer, never per
 // overlay instance, and no consumer registers an overlay by hand at a call site. This
 // hook is the primitive layer's half of both — one registration site the overlay
-// primitives share, so a surface that opens a dialog says which KIND of overlay it is
+// primitives share, so a component that opens a dialog says which KIND of overlay it is
 // and nothing else.
 //
-// THE REGISTRY IS `core/`'s AND THE OBSERVATION IS NOT. The set lives at the DAG
-// floor so this family can reach it at all; the size observation is armed here,
-// through the console's one `ResizeObserver` chokepoint, because that chokepoint is
-// this family's module and `core/` may not import it. Motion sampling — an overlay
-// carried across the screen with its box unchanged — is armed by the native-view
-// consumer through `AirspaceRegistry.installMotionObserver`, which is what keeps a
-// frame loop off a window that is drawing no native view.
+// THE REGISTRY IS A PLAIN MODULE AND THE OBSERVATION IS ARMED HERE. The set lives in
+// `lib/`, below everything that registers into it; the size observation is armed by
+// this hook, through the console's one `ResizeObserver` chokepoint, because the element
+// to observe arrives in this hook's ref callback. Motion sampling — an overlay carried
+// across the screen with its box unchanged — is armed by the native-view consumer
+// through `AirspaceRegistry.installMotionObserver`, which is what keeps a frame loop
+// off a window that is drawing no native view.
 //
 // THE RECTANGLE IS READ LIVE, never captured. A rectangle taken at registration is
 // where the overlay was before it opened, and a view that yielded to it would yield
 // to a box that has moved.
 //
 // A REF CALLBACK AND NOT AN EFFECT OVER AN `isOpen` FLAG, which is the shape that lets
-// the primitives own this rather than the surfaces above them. Base UI unmounts a
-// portal's children when its popup closes (`keepMounted` defaults to false on every
-// family), so the element ARRIVING is the overlay opening and the element leaving is
+// the primitives own this rather than the views above them. Base UI unmounts a portal's
+// children when its popup closes (`keepMounted` defaults to false on every popup
+// component), so the element ARRIVING is the overlay opening and the element leaving is
 // it closing — the one fact a wrapper already holds. An effect keyed on an `isOpen`
-// argument needed that flag threaded in from wherever the open state lived, and four
-// of the console's five overlay families are opened by their own trigger and hold no
-// such flag anywhere: the wrappers would have had to mint one and keep it in step with
-// the library's, which is a second source of truth for whether an overlay is on
-// screen. React 19 calls a ref callback's returned cleanup on detach and then does not
-// call the ref with `null`, so attach and release are one closure and neither can be
-// forgotten by a caller that never sees them.
+// argument would need that flag threaded in from wherever the open state lives, and
+// four of the console's five overlay kinds are opened by their own trigger and hold no
+// such flag anywhere: the wrappers would have to mint one and keep it in step with the
+// library's, which is a second source of truth for whether an overlay is on screen.
+// React 19 calls a ref callback's returned cleanup on detach and then does not call the
+// ref with `null`, so attach and release are one closure and neither can be forgotten
+// by a caller that never sees them.
 
 import { useCallback } from "react";
 

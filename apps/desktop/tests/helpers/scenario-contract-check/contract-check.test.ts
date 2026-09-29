@@ -6,7 +6,7 @@
 // THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER: `run-beats.test.ts`
 // for the run and rollback semantics, and `beat-order.test.ts` for the tick and log
 // position. Every one of them drives the aggregate entry rather than a leg directly,
-// because the aggregate is the only surface a family's scenario is measured through.
+// because the aggregate is the only function a feature's scenario is measured through.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,8 +18,8 @@ import type { Scenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 
-describe("scenario wire truth — the shipped seat board", () => {
-  it("accepts every scenario a family has landed on the board", () => {
+describe("scenario wire truth — the shipped scenarios", () => {
+  it("accepts every scenario a feature has landed in the registry", () => {
     expect(
       findScenarioContractDefects(SCENARIOS).map(
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
@@ -44,7 +44,7 @@ const CONCURRENT_STREAMING_USER_ID = CONCURRENT_STREAMING_SCENARIO.userIdsInJoin
 /**
  * The concurrent-streaming scenario playing exactly ONE beat, built from its own opening beat.
  *
- * A single beat is what every case below is about, and starting from the seat board's
+ * A single beat is what every case below is about, and starting from the shipped scenario's
  * own means the envelope members a case does not touch — the session it travels on,
  * the log position it opens at, the actor — are ones the predicate already accepts.
  */
@@ -95,7 +95,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   it("reports an identifier the branded id types do not accept", () => {
     // A readable identifier renders exactly like a real one and is rejected by every
     // branded schema the wire declares, so a scenario written from design notes rather
-    // than from the contract fails at the first surface that parses it.
+    // than from the contract fails at the first view that parses it.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-a-readable-identifier", (beat) => ({
         ...beat,
@@ -209,7 +209,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
 
   it("negative control: the same beat naming the state its kind announces is clean", () => {
     // Without it, a leg that reported every queue beat would pass both cases above and
-    // no family could script a queue row at all. `queue_item.created` is the row that
+    // no feature could script a queue row at all. `queue_item.created` is the row that
     // proves the mapping is read and not guessed: its kind says `created` and the state
     // it announces is `queued`.
     expect(
@@ -227,7 +227,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
 describe("scenario wire truth — the caller a scenario answers its identity read with", () => {
   it("reports a stated caller who is not in the scenario's own user list", () => {
     // A caller outside the join order resolves to no user entry, so every
-    // surface that attributes a row to this window silently attributes it to nobody —
+    // view that attributes a row to this window silently attributes it to nobody —
     // a defect that renders as a session nobody is looking at rather than as anything
     // wrong.
     const defects = findScenarioContractDefects([

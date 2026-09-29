@@ -37,7 +37,7 @@
 //   • **A re-entrant apply is queued, drained, and reported.** A subscriber that
 //     writes during notification is a defect; losing its event would be a second
 //     one, so the event is kept and the tripwire fires.
-//   • **The log grows at the head through one door, and only backwards.** A session's
+//   • **The log grows at the head through one method, and only backwards.** A session's
 //     stream replays from the position this user was last acknowledged at, so
 //     the rows below `windowHeadCursor` exist and were never delivered here.
 //     `prependEarlierEvents` is where a read of them lands, and it is not a second
@@ -88,9 +88,9 @@ import {
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
-// The store's own vocabulary, re-exported from the door consumers already use: the
-// declarations moved to the collaborators that own them, the names a caller writes
-// did not. `SequenceGap` is the one name that does not come back through here — no
+// The store's own vocabulary, re-exported from the module callers import the store
+// from, so a caller names these types without knowing which collaborator declares
+// them. `SequenceGap` is the one name that does not come back through here — no
 // module outside its owner imports it, so a second name for it would be an export
 // with no reader, which the dead-code gate rejects. It is reached at its owner.
 export type { SessionDegradedCause } from "../session-degradation.js";
@@ -310,7 +310,7 @@ export class SessionStore {
    * The apply chokepoint. The only writer of this store's state.
    *
    * Takes a BATCH so a frame's worth of events is one transition; `apply` below is
-   * sugar for a one-event batch and adds no second door.
+   * sugar for a one-event batch and adds no second write path.
    */
   public applyBatch(events: readonly ProjectedSessionEvent[]): ApplyOutcome {
     if (this.#applying) {

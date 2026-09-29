@@ -19,24 +19,20 @@
 // WHAT ARRIVES HERE. `session.subscribe` is registered as a long-lived consumer of
 // the canonical `EventEnvelope`, so the delivery is that envelope and this module
 // parses it with the registered schema rather than with a hand-written reader. The
-// two mappings below are the whole of the translation, and both were the defect
-// that made this module worth rewriting: the wire's event type is `type` and this
-// projection calls it `kind`, and the wire's attribution is `actor` where this
-// projection calls it `actorId`. A reader that looked for the console's
-// own names found neither, refused every live delivery as unreadable, and agreed
-// perfectly with a fixture that was handing it the console's shape to begin with.
-// `event-envelope.fixture.ts` closes the second half of that: the fixture now
-// composes the same registered envelope, so this parse is the one door both bridges
-// deliver through.
+// two mappings below are the whole of the translation: the wire's event type is
+// `type` and this projection calls it `kind`, and the wire's attribution is `actor`
+// where this projection calls it `actorId`.
+// `event-envelope.fixture.ts` composes the same registered envelope, so the live
+// bridge and the fixture bridge both deliver through this one parse.
 //
 // WHAT THE TOLERANT CARRIER DOES NOT CHECK, AND WHY THIS MODULE HAS TO. The
 // contracts package splits the two layers on purpose: the ENVELOPE layer is the
-// version-tolerant carrier, and the STRICT layer is "the interpretation surface,
-// where unknown types and category/type mismatches fail loud at parse time". Only
-// the first of those runs here. So an envelope pairing `run.running` with
-// `presence` parses — both members are individually registered — and this
-// boundary used to drop `category` on the floor, after which every projector routes
-// on `kind` alone and mutates the run partition off a pair the strict layer rejects.
+// version-tolerant carrier, and the STRICT layer is where unknown types and
+// category/type mismatches fail loud at parse time. Only the first of those runs
+// here. So an envelope pairing `run.running` with `presence` parses — both members
+// are individually registered — and every projector routes on `kind` alone, so
+// without the check below it would mutate the run partition off a pair the strict
+// layer rejects.
 // The census is exported for exactly this: `SESSION_EVENT_CATEGORY_BY_TYPE` is
 // published so consumers — projectors, replay machinery, integrity verifiers — can
 // assert category/type consistency without re-parsing the schema, and that is the

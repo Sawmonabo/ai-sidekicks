@@ -1,4 +1,4 @@
-// The two subjects every subject-keyed suite in this family is addressed at.
+// The two subjects every subject-keyed suite is addressed at.
 //
 // A subject is compared by IDENTITY — that is the whole of what `object` means in
 // `subject-scoped-holder.ts` and in `lib/reads/generation-latch.ts` — so a fixture subject is
@@ -16,7 +16,7 @@ export interface NamedFixtureSubject {
   readonly name: string;
 }
 
-/** The subject a surface starts addressed at. */
+/** The subject a component starts addressed at. */
 export const SUBJECT_ONE: NamedFixtureSubject = { name: "subject one" };
 
 /** The subject it is re-addressed to, and back from. */

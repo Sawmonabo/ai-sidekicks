@@ -1,13 +1,13 @@
-// The discovery surface's shared scaffolding: one composer, mounted for real.
+// The command list's shared scaffolding: one composer, mounted for real.
 //
-// Lives here because four suites drive the SAME composition — the surface watches a
+// Lives here because four suites drive the SAME composition — the command list watches a
 // line it does not own, opens on what a person types into it, and writes nothing
 // back — and a second mount helper written beside one of them would be a second
 // answer to what "the composer" means in these cases.
 //
 // THE STORE IS THE REAL ONE, fed the composer scenario's own beats through the
 // registered run projectors, so the address these cases resolve is the address the
-// shipped surface resolves. The bridge is the real fixture with `answer` in front of
+// shipped composer resolves. The bridge is the real fixture with `answer` in front of
 // `daemon.call`, so every reply, refusal, and clock reading is the fixture's own.
 
 import type { ProviderCommandBindingGroup, RunId } from "@ai-sidekicks/contracts";
@@ -49,8 +49,8 @@ export const UNADDRESSED_ENTRY_NAME = "status";
  * The run identifier the wire admits, or a loud failure.
  *
  * `runId` is a branded id, and a literal asserted into that brand would let a group
- * these cases treat as wire-shaped carry a value the wire would refuse. The bridge
- * family's own reader answers the brand; a fixture whose id the wire would not take
+ * these cases treat as wire-shaped carry a value the wire would refuse. The bridge's
+ * own reader answers the brand; a fixture whose id the wire would not take
  * fails here rather than reaching a case as if it had been enumerated.
  */
 function fixtureRunId(value: string): RunId {
@@ -66,7 +66,7 @@ function fixtureRunId(value: string): RunId {
  * addresses — the second group the agent-scoped reply can carry.
  *
  * A typed literal over the registered shape rather than a parse of an untyped one:
- * a surface's suite reads the reply the bridge family parsed and holds no parser of
+ * a view's suite reads the reply `callDaemon` parsed and holds no parser of
  * its own, and the annotation is the stronger claim — a member the wire does not
  * carry fails `typecheck` here rather than at the moment a case runs.
  */
@@ -89,7 +89,7 @@ export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
   readonly rerenderAt: (pane: PaneAddress) => Promise<void>;
-  /** Write the session-addressed draft through the store, as a surface elsewhere would. */
+  /** Write the session-addressed draft through the store, as a view elsewhere would. */
   readonly writeDraft: (text: string) => Promise<void>;
   /** Take the composer down, for the cases about what its teardown releases. */
   readonly unmount: () => void;
@@ -98,11 +98,11 @@ export interface MountedComposer {
 /**
  * The real fixture bridge with `answer` in front of `daemon.call`.
  *
- * The bridge family's own helper rather than a spread of this suite's: the replies,
+ * The fixture bridge's own helper rather than a spread of this suite's: the replies,
  * the refusals, and the scenario clock are all the fixture's own, and `answer`
- * decides only whether a call is forwarded to them or held. The call door's
- * chokepoint gate is why it is not spread here — a test outside `bridge/` stands in
- * for a surface, and a surface goes through the door.
+ * decides only whether a call is forwarded to them or held. The daemon-call
+ * chokepoint is why it is not spread here — a test outside `bridge/` stands in for a
+ * view, and a view reaches the daemon only through `callDaemon`.
  */
 export function composerBridgeAnswering(
   answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
@@ -140,7 +140,7 @@ export function bridgeHoldingTheEnumeration(): PlatformBridge {
 /**
  * The scenario's own enumerated groups, read through the registered method.
  *
- * The surface's own read path rather than a parser beside it: `settleEnumeration`
+ * The command list's own read path rather than a parser beside it: `settleEnumeration`
  * puts the scripted reply through `callDaemon`, which parses it against the shape
  * the registry binds to `driver.listProviderCommands`. So a fixture that has
  * drifted from the wire shape reaches these cases as a refusal — which this throws
@@ -308,7 +308,7 @@ export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElemen
   });
   const list = mounted.container.querySelector('[role="listbox"]');
   if (!(list instanceof HTMLElement)) {
-    throw new Error("the surface rendered no listbox");
+    throw new Error("the command list rendered no listbox");
   }
   return list;
 }

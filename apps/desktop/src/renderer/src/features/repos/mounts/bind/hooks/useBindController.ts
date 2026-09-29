@@ -12,7 +12,7 @@ import {
   type BindReading,
 } from "../bind-controller.js";
 
-/** What the hook hands a surface: the reading, and the three things it can ask for. */
+/** What the hook hands a dialog: the reading, and the three things it can ask for. */
 export interface BindBinding {
   readonly reading: BindReading;
   readonly requestCapabilities: () => void;
@@ -21,7 +21,7 @@ export interface BindBinding {
 }
 
 /**
- * Bind one mount's bind controller to a surface.
+ * Bind one mount's bind controller to a dialog.
  *
  * KEYED ON THE MOUNT, which is the whole of what the read and the act are scoped to.
  */

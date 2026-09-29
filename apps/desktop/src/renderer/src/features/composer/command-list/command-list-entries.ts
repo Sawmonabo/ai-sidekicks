@@ -1,7 +1,7 @@
 // What a leading slash OPENS, and what the popover lists once it is open.
 //
 // Pure, and separate from both the read and the component, because the two rules
-// worth pinning are decisions rather than renders: when the discovery surface is
+// worth pinning are decisions rather than renders: when the command list is
 // open at all, and which entries survive the prefix a person has typed.
 //
 // TWO SOURCES, ONE LIST, AND THEY ARE NOT INTERCHANGEABLE. A console entry is an act
@@ -95,7 +95,7 @@ export function addressedProviderBinding(target: ComposerTarget): AddressedProvi
  *      address carries the driver the agent is bound to, so a single group on that
  *      driver is the addressed binding by elimination.
  *
- * Anything else answers `undefined`, and the surface renders that as "this run's
+ * Anything else answers `undefined`, and the command list renders that as "this run's
  * binding published nothing here" rather than falling back to another binding's
  * entries. Ambiguity is refused rather than resolved by order: two groups claiming
  * one run is contradictory provenance, and two groups on one driver with no run

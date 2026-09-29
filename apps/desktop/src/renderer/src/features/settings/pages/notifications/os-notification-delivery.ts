@@ -1,6 +1,6 @@
 // Whether an OS notification this console emits will reach a person at all.
 //
-// OS notifications denied is a state the notification center is the only surface for.
+// OS notifications denied is a state only the notification center can show.
 // `native.showNotification` returns `void`, so a denial is indistinguishable from a
 // delivery at the moment of emission; the bridge's `native.getNotificationPermission`
 // is what reports it.
@@ -18,7 +18,7 @@
 // console honors nothing of its own. So a reading this console could not obtain
 // suppresses no emission — it would suppress every one on every live host, which is
 // exactly the state the main process was built to decide — and the one arm that changes what
-// a person sees is `withheld`, where the center says it is the only surface these
+// a person sees is `withheld`, where the center says it is the only place these
 // items reach.
 //
 // WHAT IS HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the rule
@@ -35,7 +35,7 @@ import type { OsNotificationPermissionReading } from "./os-notification-permissi
  * Three arms and not four: `granted` and `not-determined` are both `permitted`,
  * because a machine nobody has asked yet is a machine whose first emission raises the
  * system's own consent flow — and reporting that as a denial would put "this is the
- * only surface" in front of someone whose notifications work.
+ * only place" in front of someone whose notifications work.
  *
  * `unread` covers a read in flight and a platform the main process cannot read the permission
  * on. Both mean the console does not know, and there is nothing to say about a fact it

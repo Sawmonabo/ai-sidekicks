@@ -1,14 +1,14 @@
-// One capability read per bridge, however many surfaces want the answer — and no
+// One capability read per bridge, however many views want the answer — and no
 // answer that stands for the life of the window.
 //
 // Two claims, and both are arithmetic on the wire rather than anything on screen.
-// Two families gate controls on `driver.listCapabilities`, and before this module
-// each performed its own read, so a session view holding both put two calls on the
-// wire for one answer. And the read used to be latched, so a transient first-read
-// refusal hid Steer, Rewind, and the compaction control for as long as the window
-// stayed open. The counting is done against a bridge that records every call, on a
-// frozen clock so the scheduler's coalescing window is advanced explicitly and no
-// case depends on how fast the runner happens to be.
+// Two features gate controls on `driver.listCapabilities`, and a read of their own
+// each would put two calls on the wire for one answer in a session view holding
+// both. And a latched read would let a transient first-read refusal hide Steer,
+// Rewind, and the compaction control for as long as the window stayed open. The
+// counting is done against a bridge that records every call, on a frozen clock so the
+// scheduler's coalescing window is advanced explicitly and no case depends on how fast
+// the runner happens to be.
 //
 // The negative controls are a second bridge — which must read again, because the
 // cache is keyed by the bridge and a global "read once ever" would serve a second
@@ -153,7 +153,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
     await settleScheduledRead(counted.clock);
 
     // The gating stays fail-closed — no driver declares anything — and the reason is
-    // on the reading rather than swallowed, so a surface can say why its controls went.
+    // on the reading rather than swallowed, so a view can say why its controls went.
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
     // One ask for the two consumers that were mounted, not one each.
@@ -302,7 +302,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   });
 
   it("keeps the settled reading on screen while the refresh is in flight", async () => {
-    // Rule 8's `not-loaded` is entered once and never re-entered on a refresh: a
+    // The not-loaded state is entered once and never re-entered on a refresh: a
     // control that vanished and came back on every window focus would be a worse
     // reading than a slightly stale one.
     const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });

@@ -21,7 +21,7 @@
 // beside the roster, because it is true of every agent.
 //
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
-// interrupt-dispatch progress marker. Both live in the durable slot as recovery
+// interrupt-dispatch progress marker. Both live in the durable record as recovery
 // inputs and reach no caller at all.
 //
 // `createdAt` IS RENDERED, AND IN THE HEAD RATHER THAN THE EFFECTIVE LINE. It is part

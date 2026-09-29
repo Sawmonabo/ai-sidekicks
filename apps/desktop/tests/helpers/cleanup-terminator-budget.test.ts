@@ -6,7 +6,7 @@
 // pair is still two blocking `spawnSync` calls at `HOST_QUERY_TIMEOUT_MS` each:
 // half the registered cleanup budget apiece. So the second half of the fix is a
 // number traveling — from the deadline, through `ProcessTerminator`, into the
-// shared door in `readers.ts` that takes the smaller of that ceiling and what it
+// shared `runBoundedHostCommand` in `readers.ts` that takes the smaller of that ceiling and what it
 // is handed and spawns nothing at all once it reaches zero.
 //
 // A NUMBER THAT TRAVELS IS CHECKABLE, AND THAT IS WHY THE SEAM CARRIES IT. An
@@ -80,7 +80,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
   });
 
   it("stops at zero rather than charging a negative budget", async () => {
-    // The floor, and the reading the shared door depends on: at or below zero it
+    // The floor, and the reading `runBoundedHostCommand` depends on: at or below zero it
     // spawns nothing, so a negative figure arriving there would be the same
     // "unbounded" it exists to prevent, spelled as a number.
     const clock = new SteppedClock();
@@ -99,7 +99,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
     expect(recorded.terminate).toStrictEqual([TEST_BUDGET_MS]);
     expect(
       recorded.isRunning,
-      "the exhausted liveness read was charged something other than zero — the floor is missing and the door would spawn",
+      "the exhausted liveness read was charged something other than zero — the floor is missing and the host command would spawn",
     ).toStrictEqual([0]);
     expect(outcome.settlement).toBe("unterminable");
   });
@@ -131,7 +131,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
 
   it("forwards an exhausted budget through the real binding without spawning", async () => {
     // The binding itself, asked the only way a test may ask it. Both readings
-    // run with nothing left, so the shared door starts no process at all — and
+    // run with nothing left, so `runBoundedHostCommand` starts no process at all — and
     // both still answer, because the existence probe underneath is a syscall
     // rather than a command. A pid that is gone reads gone; this runner reads
     // running, which is the fail-closed direction the charge is allowed to take.

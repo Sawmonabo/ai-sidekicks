@@ -55,7 +55,7 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * it. The two `run.*` streams are registered PROJECTIONS —
  * `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` — and
  * `run-stream-projection.ts` builds one from the beat. Handing those two the
- * envelope, as this function used to, trained every runs surface on a frame the
+ * envelope would train every run-stream subscriber on a frame the
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
  * `currentState` where the envelope has `payload.newState`.
  *
@@ -66,7 +66,7 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * beat as a real sequence gap — its snapshot answers at cursor zero, so every
  * position in between counts as missing — and a store opened after the script
  * finished stayed empty for the life of the window. The two narrowed run streams take
- * no replay: they are live projections, and handing a runs surface the transitions it
+ * no replay: they are live projections, and handing a run-stream subscriber the transitions it
  * did not subscribe in time for would be inventing a subscription the daemon does not
  * serve.
  *
@@ -148,7 +148,7 @@ export function subscribeToScenario(
  * Composed rather than forwarded raw for the reason the two envelope arms above are:
  * the relay frame is a stub the corpus has not shaped yet, and whatever it
  * turns out to be, it is not this console's own projection type. Handing that type
- * out here would leave one door through which the fixture still teaches a surface a
+ * out here would leave one path through which the fixture still teaches a view a
  * shape no wire sends.
  */
 export function subscribeToScenarioRelay(

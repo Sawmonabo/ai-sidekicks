@@ -157,7 +157,7 @@ describe("the concurrent-streaming scenario's run, folded", () => {
     // no state it came from — `queued` is the destination of no row in the run state
     // machine's transition table. The run still has to reach the store from it,
     // because `run.subscribeState` does not carry the creation kind at all: this
-    // fold is the only way a surface learns the run exists.
+    // fold is the only way a view learns the run exists.
     const queued = firstBeatOfKind(concurrentStreaming, "run.queued");
     const beforeAnyTransition = {
       ...concurrentStreaming,
@@ -268,7 +268,7 @@ describe("the projector on a payload that does not carry its kind's state", () =
     // The beat reports two states at once and nothing above the fold rejects it:
     // no run-lifecycle payload variant is registered, so the strict layer never
     // sees the pair. Storing the payload's reading would put a failed run under a
-    // kind the timeline renders as running — one event, two surfaces, two answers.
+    // kind the transcript renders as running — one event, two views, two answers.
     expect(projectRunLifecycleEvent(runBeat("run.running", payloadNaming("failed")))).toStrictEqual(
       [],
     );
@@ -328,7 +328,7 @@ describe("the projector on a payload that does not carry its kind's state", () =
     // claim about the code. A `run.running` beat carrying no readable state used
     // to upsert the run: the state stayed `starting` while `touchedAt` advanced to
     // the malformed beat and its body members landed — a run reported as freshly
-    // touched, under a kind the timeline renders as running, still holding the
+    // touched, under a kind the transcript renders as running, still holding the
     // state it left. Now the second beat contributes nothing at all.
     const starting = runBeat("run.starting", payloadNaming("starting"));
     const statelessRunning: ProjectedSessionEvent = {
@@ -355,7 +355,7 @@ describe("the projector on a payload that does not carry its kind's state", () =
     // `run.queued` is the run's creation, and the mapping the guard reads claims
     // no state for it — deliberately, because it is the destination of no row in
     // the transition table. A guard that treated "the mapping answers nothing" as
-    // a failure would drop the only beat that tells a surface the run exists.
+    // a failure would drop the only beat that tells a view the run exists.
     expect(projectRunLifecycleEvent(runBeat("run.queued", payloadNaming("queued")))).toHaveLength(
       1,
     );
@@ -436,7 +436,7 @@ describe("the projector on a payload that names another session", () => {
 
   it("projects the beat whose payload names the envelope's own session", () => {
     // The control: the guard is checked once at the fold's entry for every kind in
-    // the family, so a projector that refused everything would pass every case
+    // the category, so a projector that refused everything would pass every case
     // above and this one names the difference.
     expect(
       projectRunLifecycleEvent(

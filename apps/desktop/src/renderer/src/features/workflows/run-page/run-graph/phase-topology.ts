@@ -58,24 +58,21 @@ export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
 /**
  * What a park on this canvas is waiting for, and exactly two answers.
  *
- * A BOOLEAN WOULD BE THE DEFECT. The node used to carry `isParked`, so every park
- * took the same amber border — including a provider-limited phase the engine had
- * armed a readable resume for, which needs nobody. Rule 3 spends amber on "a person
- * is needed" and on nothing else, and the park badge beside the graph had that right
- * while the node beside it did not: one phase, two attention readings, and nothing
- * failing.
+ * A BOOLEAN WOULD BE THE DEFECT. A parked flag gives every park the same amber
+ * border — including a provider-limited phase the engine armed a readable resume
+ * for, which needs nobody. Amber means "a person is needed" and nothing else, and
+ * the park badge beside the graph reads it that way: a flag on the node would give
+ * one phase two attention readings with nothing failing.
  *
  * The caller supplies the answer rather than deriving it here, and derives it
  * through `workflows/runs/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
- * badge takes its tone from, so the two cannot come apart again.
+ * badge takes its tone from, so the two cannot come apart.
  *
- * A UNION AND NOT AN EXPORTED TUPLE. It was `PHASE_PARK_ATTENTIONS` beside a
- * `(typeof …)[number]` alias, and nothing anywhere read the array — not this module,
- * not the graph, not a test. `run-list-rows.ts` states the rule the day it chose types
- * over `as const` maps: a value read only as a type is dead weight at runtime, and the
- * lint rules say so. Exporting it was worse than keeping it, because a closed set
- * published with no consumer is how the next surface comes to restate the literals
- * rather than import them. The marks table below is total over this union, so a third
+ * A UNION AND NOT AN EXPORTED TUPLE. Nothing reads these answers as an array — not
+ * this module, not the graph, not a test — and a value read only as a type is dead
+ * weight at runtime. An exported array with no consumer would be worse still, because
+ * a closed set published with no consumer is how the next module comes to restate the
+ * literals rather than import them. The marks table below is total over this union, so a third
  * reading is still one edit a reviewer sees.
  */
 export type PhaseParkAttention = "awaiting-person" | "scheduled";
@@ -103,12 +100,12 @@ export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, str
  * name is a fact about the run, and a graph that invented one would be asserting
  * something it never read.
  *
- * THE NAME AND THE IDENTIFIER ARE TWO MEMBERS, NOT ONE LABEL. A single `label` let a
- * caller with no name to give pass the phase id in its place, and the box then drew a
- * wire identifier in the same face and weight an authored name would have had — so
- * an opaque key read as something a person had chosen. Keeping them apart means the
- * absence of a name is representable, and the id can carry rule 4's mono provenance
- * signature wherever it is drawn.
+ * THE NAME AND THE IDENTIFIER ARE TWO MEMBERS, NOT ONE LABEL. A single `label` would
+ * let a caller with no name to give pass the phase id in its place, and the box would
+ * draw a wire identifier in the face and weight an authored name has — an opaque key
+ * read as something a person had chosen. Keeping them apart means the absence of a
+ * name is representable, and the id renders in mono wherever it is drawn, the sign
+ * that a figure came from the daemon.
  */
 export interface RunGraphNode {
   /** The run's own identity for this phase. Wire-verbatim; never parsed, never prettified. */

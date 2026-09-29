@@ -9,14 +9,14 @@
 // wire, rather than asserting on what the row rendered afterwards.
 //
 // The cases drive the real hook. What is supplied per case is `perform`, because
-// that is the seam the surface settles on: the canned outcomes below stand in for a
+// that is the seam the run controls settle on: the canned outcomes below stand in for a
 // dispatcher answer, and the two arms that matter — a settlement and a rejection —
 // are both driven through it.
 //
-// EVERY BRIDGE HERE IS MINTED ONCE AND HELD. The surface keys its records, its busy
+// EVERY BRIDGE HERE IS MINTED ONCE AND HELD. The hook keys its records, its busy
 // set and its latch on the bridge, so a stub rebuilt inside the hook callback would
 // be a different transport on every render — which is a fact about the double, not
-// about the surface. The last describe is the one that changes it deliberately.
+// about the hook. The last describe is the one that changes it deliberately.
 
 import type { RunControlAck } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
@@ -37,7 +37,7 @@ import {
   appliedIntervention,
 } from "../run-control-commands.test-support.js";
 
-/** A bridge is only the subject the surface's state belongs to: no case calls through it. */
+/** A bridge is only the subject the hook's state belongs to: no case calls through it. */
 function answeringNothing(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
@@ -52,7 +52,7 @@ const UNUSED_CALLS: RunControlCalls = {
   intervene: () => Promise.reject(new Error("this case dispatches through its own perform")),
 };
 
-/** A settlement the surface can record without any call being involved. */
+/** A settlement the hook can record without any call being involved. */
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",
@@ -166,7 +166,7 @@ describe("one control per run is in flight at a time", () => {
   });
 });
 
-describe("the surface belongs to the bridge it dispatched through", () => {
+describe("the run controls' state belongs to the bridge it dispatched through", () => {
   it("admits the same run and control at once through a replaced bridge", async () => {
     // The finding: only the dispatcher rotated on a swap. The held keys stayed with
     // the transport that was gone, so a retry through the new one was refused as
@@ -193,7 +193,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
     expect(performOnSecondBridge).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the replaced bridge an empty surface rather than the previous one's", () => {
+  it("shows the replaced bridge no records rather than the previous one's", () => {
     // The busy set and the records are the other two holders. A row rendered under
     // the new transport would otherwise be marked busy by a call that transport
     // never made.
@@ -237,7 +237,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
   });
 
   it("negative control: a settlement on the bridge that is still current is recorded", async () => {
-    // Without this, a surface that had simply stopped recording anything would pass
+    // Without this, a hook that had simply stopped recording anything would pass
     // every case above.
     const pending = pendingOutcome();
     const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {

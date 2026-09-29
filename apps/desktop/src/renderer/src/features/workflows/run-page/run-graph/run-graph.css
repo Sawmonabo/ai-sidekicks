@@ -18,7 +18,7 @@
  * from Meridian" rule cannot be met by tokens alone and the rules are overridden
  * directly:
  *   • `.react-flow__attribution a { color: #999 }` — this one RENDERS on this
- *     surface. On the console's own surface token it measures well under the 4.5:1
+ *     graph. On the console's `surface` color token it measures well under the 4.5:1
  *     the accessibility tier holds link text to, so it takes a Meridian text token
  *     and the console's smallest type step rather than the library's 10px.
  *   • `.react-flow__resize-control.handle { border: 1px solid #fff }` — this one
@@ -27,24 +27,26 @@
  *     dead CSS, and dead CSS is how a sheet stops describing what it paints.
  *
  * The console design governs the rest:
- *   • rule 3 — every foreground here is a token the contrast tier already measures
- *              against `surface`, so no pair on this surface is unmeasured. The
- *              failed and parked treatments carry their hue in the TEXT and the
- *              border, never as a node ground, which would put body text on a pair
- *              nothing checks.
- *   • rule 5 — nothing animates. The library's `dashdraw` keyframes reach only an
- *              `animated` edge, and this surface declares none.
- *   • rule 8 — the absence blocks are the primitives' and are not restyled here.
+ *   • contrast — every foreground here is a token the contrast tier already measures
+ *                against `surface`, so no pair on this graph is unmeasured. The
+ *                failed and parked treatments carry their hue in the TEXT and the
+ *                border, never as a node ground, which would put body text on a pair
+ *                nothing checks.
+ *   • motion — nothing animates. The library's `dashdraw` keyframes reach only an
+ *              `animated` edge, and this graph declares none.
+ *   • absences — the absence blocks are the shared primitives', which draw each kind
+ *                of absence differently because a person's next move differs; they
+ *                are not restyled here.
  */
 
 .meridian-run-graph {
   /*
-   * Local geometry, named here because it is this surface's and nothing else's.
+   * Local geometry, named here because it is this graph's and nothing else's.
    * Unitless where the library feeds the value to an SVG `stroke-width` attribute
    * and a length where it feeds a border shorthand — the two are not interchangeable.
    */
 
-  /* The one hairline this surface draws, matching the console's own 1px edges. */
+  /* The one hairline this graph draws, matching the console's own 1px edges. */
   --meridian-run-graph-hairline: 1px;
 
   /* Edge stroke. Half a step above the hairline so a connector reads as a line
@@ -56,8 +58,8 @@
 
   /* What the canvas is tall when nothing above it says otherwise: two ranks and most of a third at
      1×, rather than a collapsed hairline. Declared once and spent twice on the canvas below — as
-     the size it STATES and as the minimum a shorter seat may flex it to. The wrapper derives its
-     own minimum from that child: two copies of one number are two numbers once one is edited. */
+     the size it STATES and as the minimum a shorter pane body may flex it to. The wrapper derives
+     its own minimum from that child: two copies of one number are two numbers once one is edited. */
   --meridian-run-graph-canvas-block-size: 20rem;
 
   display: flex;
@@ -68,7 +70,7 @@
    * THE WRAPPER MAY NOT SHRINK BELOW WHAT IT PAINTS. `min-block-size: 0` is the
    * usual companion to `flex: 1` — it lets an item give up space to its siblings —
    * and it is wrong here, because the canvas inside carries a floor and keeps
-   * painting at it. Under the surface's own scroll container this box is one of
+   * painting at it. Under the run page's scroll container this box is one of
    * five children competing for a bounded height, so a wrapper allowed to collapse
    * left a full-height canvas overflowing its own bottom edge and covering the
    * first park card beneath it: an operator saw a graph sitting on top of the very
@@ -113,12 +115,12 @@
    * wherever an ancestor was content-sized: the root took zero height, the fit put the
    * whole picture inside it, `overflow: hidden` clipped every phase, and this box's
    * sunken ground stood alone under a caption saying the phases were shown. And
-   * content-sized is not the exotic case: `seats/pane-chrome.css` states no block size,
+   * content-sized is not the exotic case: `PaneFrame.css` states no block size,
    * so a pane is as tall as its body wherever nothing bounds it — mounted for a
    * capture, in a window of its own, or before a pane layout has laid it out. `flex: 1 1 auto`
    * keeps the growth this box always had: the basis is the declaration below, so a
-   * BOUNDED seat still stretches the canvas past that size, and the floor keeps a seat
-   * too short for it from shrinking it under the height it paints at.
+   * BOUNDED pane body still stretches the canvas past that size, and the floor keeps a
+   * pane body too short for it from shrinking it under the height it paints at.
    */
   flex: 1 1 auto;
   block-size: var(--meridian-run-graph-canvas-block-size);
@@ -132,7 +134,7 @@
 /* ------------------------------------------------- the library's own properties */
 
 /*
- * Scoped to this surface rather than set on `:root`: another canvas mounted by
+ * Scoped to this graph rather than set on `:root`: another canvas mounted by
  * another plan gets the library's defaults until it makes its own decision, and a
  * two-class selector also outranks `base.css`'s single class without `!important`.
  */
@@ -181,7 +183,7 @@
   --xy-background-pattern-lines-color-default: var(--meridian-edge);
   --xy-background-pattern-cross-color-default: var(--meridian-edge);
 
-  /* The built-in node box. This surface renders its own node, so these reach only
+  /* The built-in node box. This graph renders its own node, so these reach only
      a node kind it does not draw — set so an unknown kind falls back into Meridian
      rather than into the library's gray. */
   --xy-node-border: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
@@ -195,7 +197,7 @@
   --xy-handle-background-color: var(--meridian-edge-strong);
   --xy-handle-background-color-default: var(--meridian-edge-strong);
 
-  /* Selection and resize. Neither gesture exists on this surface. */
+  /* Selection and resize. Neither gesture exists on this graph. */
   --xy-selection-background-color: var(--meridian-surface-sunken);
   --xy-selection-background-color-default: var(--meridian-surface-sunken);
   --xy-selection-border: var(--meridian-run-graph-hairline) dashed var(--meridian-edge-strong);
@@ -263,8 +265,8 @@
 }
 
 /*
- * The phase's wire identifier. Always drawn, and always in the mono signature rule 4
- * gives a wire-true figure — the `WireFigure` inside carries the face; this span
+ * The phase's wire identifier. Always drawn, and always in mono, the face every figure
+ * the daemon sent wears — the `WireFigure` inside carries the face; this span
  * carries only the size, the color and the clip.
  *
  * Two lines when it stands alone, which is the case every read reachable today
@@ -303,7 +305,7 @@
 
 /*
  * The park mark. Its treatment is the park's ATTENTION reading and not the fact of a
- * park: rule 3 spends amber on "a person is needed", and a phase the engine armed a
+ * park: amber means "a person is needed" and nothing else, and a phase the engine armed a
  * readable resume for needs nobody — so it is marked and not tinted. The two rules
  * below are the whole of the difference; the mark's text differs with them, so the
  * distinction survives for a reader who sees no color at all.

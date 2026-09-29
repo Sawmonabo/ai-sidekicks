@@ -1,7 +1,7 @@
 // The conditions a capture is taken under, asserted before one is written.
 //
 // The tier compares nothing, and these pins are still load-bearing: a capture of a
-// surface carrying a formatted time is a recording of where the machine was unless the
+// view carrying a formatted time is a recording of where the machine was unless the
 // zone and the locale are pinned, and `vitest/screenshot-pins.ts` states both in one
 // place. Stating them is not the same as enforcing them — a pin the provider silently
 // stopped applying (a renamed context option, a provider upgrade, a project that forgot
@@ -10,14 +10,14 @@
 // console's state.
 //
 // WHAT WENT WRONG WITHOUT IT. `Intl.DateTimeFormat` with no `timeZone` resolves the
-// host's, and `primitives/figures/wire-figures.ts` supplies none — so a surface carrying a
+// host's, and `lib/wire-figures.ts` supplies none — so a view carrying a
 // formatted time captured the machine's offset rather than the console's state, and
-// two images of the same surface differed by the hour digits alone.
+// two images of the same view differed by the hour digits alone.
 //
 // SO THE ASSERTION DRIVES THE REAL FORMATTER rather than reading the emulated zone
 // back off `resolvedOptions()`. Reading it back would prove the option was applied;
 // formatting a fixed instant through the console's own function proves the thing the
-// captures actually depend on, which is what a surface renders. The two would agree
+// captures actually depend on, which is what a view renders. The two would agree
 // today and separate the day a formatter takes a zone of its own.
 
 import { describe, expect, it } from "vitest";

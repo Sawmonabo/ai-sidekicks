@@ -1,7 +1,7 @@
 // That a recognized command actually PERFORMS its act, and that the composer waits.
 //
 // Driven through the real registry — `commandRegistry`, the one the palette and the
-// chord table read — rather than a stand-in, so the claim is about the surface a
+// chord table read — rather than a stand-in, so the claim is about the registry a
 // person's `/name` really reaches. A local registry would prove the executor talks to
 // a registry and nothing about which.
 //
@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("createClientCommandExecutor", () => {
-  it("runs a registered console command through the console's own surface", async () => {
+  it("runs a registered console command through the console's own command registry", async () => {
     let ranCount = 0;
     registerCommand({
       id: RAN_COMMAND_ID,
@@ -149,10 +149,12 @@ describe("createClientCommandExecutor", () => {
       when: "onWorkflows",
       run: () => undefined,
     });
-    const surface = readComposerCommands(DEFAULT_ROUTE);
+    const composerCommands = readComposerCommands(DEFAULT_ROUTE);
 
-    expect(surface.registeredCommandIds).toContain(HIDDEN_COMMAND_ID);
-    expect(surface.offeredCommands.map((command) => command.id)).not.toContain(HIDDEN_COMMAND_ID);
+    expect(composerCommands.registeredCommandIds).toContain(HIDDEN_COMMAND_ID);
+    expect(composerCommands.offeredCommands.map((command) => command.id)).not.toContain(
+      HIDDEN_COMMAND_ID,
+    );
   });
 
   it("refuses a name the console never registered and dispatches nothing", async () => {

@@ -70,7 +70,7 @@ describe("the opener the screen hands its run list", () => {
   it("negative control: a different composition for opened panes is a different opener", () => {
     // Without this, the case above would pass over an opener memoized on an empty
     // dependency list — which would go on opening panes into the board the screen was
-    // mounted over first, however the surface above had since been recomposed.
+    // mounted over first, however the window around it had since been recomposed.
     const rendered = render(screenElement(composeWindow()));
     const openersBefore = handedDown.runOpeners.length;
     rendered.rerender(screenElement(composeWindow()));

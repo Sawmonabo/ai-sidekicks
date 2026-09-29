@@ -121,9 +121,8 @@ interface DetachedBindingProps {
 /**
  * A viewport, and beside it a binding nobody handed to it.
  *
- * This is the shape the transcript used to have: one binding held by the surrounding
- * surface for the find walk, and a second one — the viewport's own — holding the
- * element. The case below acts on the held one and watches the element not move.
+ * The shape the viewport must not have: one binding held by the surrounding feed for
+ * the find walk, and a second one — the viewport's own — holding the element. The case below acts on the held one and watches the element not move.
  */
 function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
   const detachedBinding = useTranscriptViewport({
@@ -276,7 +275,7 @@ describe("the transcript viewport — the feed", () => {
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("renders the ranked error slot above the feed", () => {
+  it("renders the ranked error entry above the feed", () => {
     withLaidOutViewport();
     render(
       <BoundTranscriptViewport
@@ -320,7 +319,7 @@ describe("the transcript viewport — the feed", () => {
     expect(screen.getByText("Some entries share an identifier.")).toBeDefined();
     expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(2);
   });
-  it("scrolls the surface through the binding its caller owns", () => {
+  it("scrolls the scroll container through the binding its caller owns", () => {
     withLaidOutViewport();
     withScrollableContent();
     const holder: BindingHolder = { binding: undefined };
@@ -333,18 +332,17 @@ describe("the transcript viewport — the feed", () => {
         holder={holder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(
+    const scrollContainer = container.querySelector<HTMLElement>(
       ".meridian-transcript-viewport__scroll-container",
     );
-    expect(surface).not.toBeNull();
-    expect(surface?.scrollTop).toBe(0);
+    expect(scrollContainer).not.toBeNull();
+    expect(scrollContainer?.scrollTop).toBe(0);
     act(() => {
       holder.binding?.jumpToTail();
     });
-    // The caller's binding reaches the element the caller can see. Before the
-    // viewport took its binding as a prop, this was the binding the surrounding
-    // surface held and the element belonged to a second one nobody else could name.
-    expect(surface?.scrollTop).toBeGreaterThan(0);
+    // The caller's binding reaches the element the caller can see, because the viewport
+    // takes its binding as a prop rather than holding a second one nobody else can name.
+    expect(scrollContainer?.scrollTop).toBeGreaterThan(0);
   });
 
   it("negative control: a binding the viewport was not handed scrolls nothing", () => {
@@ -360,13 +358,13 @@ describe("the transcript viewport — the feed", () => {
         holder={detachedHolder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(
+    const scrollContainer = container.querySelector<HTMLElement>(
       ".meridian-transcript-viewport__scroll-container",
     );
-    expect(surface).not.toBeNull();
+    expect(scrollContainer).not.toBeNull();
     act(() => {
       detachedHolder.binding?.jumpToTail();
     });
-    expect(surface?.scrollTop).toBe(0);
+    expect(scrollContainer?.scrollTop).toBe(0);
   });
 });

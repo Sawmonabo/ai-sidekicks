@@ -4,7 +4,7 @@
  * It is a SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership
  * follows the components: these rules dress `WorktreeCard.tsx`, which lives in this
  * directory, and `WorktreeCard.tsx` imports it. `execution-roots/` holds the two ACT
- * surfaces — preparing a root, and retiring one; a card is what an act produced, not the
+ * dialogs — preparing a root, and retiring one; a card is what an act produced, not the
  * act.
  *
  * No selector here appears in any other sheet, so the order this sheet loads in beside
@@ -61,7 +61,7 @@
 /*
  * The sub-state line reads louder than the state's own sentence, because it is the
  * one that answers "is this disk free" — the question `execution-root-model.ts` says the
- * surface exists to answer and the one a plain `retired` chip gets wrong.
+ * view exists to answer and the one a plain `retired` chip gets wrong.
  */
 .meridian-root-card__disposition {
   color: var(--meridian-amber-text);

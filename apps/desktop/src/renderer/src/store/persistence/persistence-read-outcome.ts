@@ -10,10 +10,10 @@
 //
 // A CLOSED UNION RATHER THAN A RECORD BESIDE A FLAG, so no caller can read one half
 // and forget the other: every arm is named, the discriminant is total, and a fourth
-// answer would have to be decided here before any surface could render it.
+// answer would have to be decided here before any view could render it.
 //
-// THE STORE STILL NEVER THROWS. `failed` is a VALUE — `ui-state-store.ts` rule 3 is
-// widened by this module, not withdrawn by it.
+// THE STORE STILL NEVER THROWS. `failed` is a VALUE, so `UiStateStore`'s promise that a
+// read never throws is widened by this module, not withdrawn by it.
 
 import { type StoredRecord } from "./persistence-adapter.js";
 

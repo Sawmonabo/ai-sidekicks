@@ -1,4 +1,4 @@
-// The collaborators the spawn door is GIVEN, each recording what it was asked.
+// The collaborators the spawner is GIVEN, each recording what it was asked.
 //
 // Split from `electron-child-lifetime.test-support.js` beside it on the seam that
 // file's own header already drew and then crossed: causing a lifetime is one job
@@ -93,7 +93,7 @@ export class RecordingSettleRegistrar {
    * Run what was registered, in the order the RUNNER would run it — REVERSE
    * registration order, because that is what `onTestFinished` does. This replayed
    * in registration order, which is exactly the order under which the
-   * teardown-ordering defect is INVISIBLE: the spawn door's disposer ran first,
+   * teardown-ordering defect is INVISIBLE: the spawner's disposer ran first,
    * so a caller's later registration could not be observed removing a resource
    * ahead of a kill the runner would really have issued after it.
    */

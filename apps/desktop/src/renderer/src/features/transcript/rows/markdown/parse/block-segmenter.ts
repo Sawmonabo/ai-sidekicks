@@ -2,7 +2,8 @@
 // tail begins.
 //
 // Settled blocks parse once with a two-block settle lag, and the delta-fed block
-// segmenter is own-built. `markdown-rules.ts` rule 1 owns the other half of the split —
+// segmenter is own-built. The committed-and-volatile split in `markdown-rules.ts` owns
+// the other half —
 // the volatile tail is the reveal engine's and an incomplete construct never mounts. The
 // measurement is why: a whole-message re-parse costs 94.3 ms at 64 KB
 // and is linear in length, so re-parsing per token is quadratic over a stream, while a

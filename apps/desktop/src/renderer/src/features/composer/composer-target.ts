@@ -4,9 +4,9 @@
 // nothing renders a value the wire has not supplied, so the resolver lives apart from
 // the components: a derivation inside a render body is one nobody can drive from a test.
 //
-// THE WIRE-READ FIELDS ARE `undefined`-ABLE ON PURPOSE. Each view family registers its own
+// THE WIRE-READ FIELDS ARE `undefined`-ABLE ON PURPOSE. Each feature registers its own
 // projector for the `agent` and `run` partitions, and the registry that takes them is built
-// above the composer seat, so the resolver can answer with an incomplete target. That is
+// above the composer, so the resolver can answer with an incomplete target. That is
 // the honest answer; defaulting a missing field is how a console starts asserting facts
 // nobody established.
 
@@ -70,7 +70,7 @@ export interface ComposerRunTarget {
 
 export type ComposerTarget = ComposerSessionTarget | ComposerRunTarget;
 
-/** What `resolveComposerTarget` is given. All of it comes from the composer seat. */
+/** What `resolveComposerTarget` is given. All of it comes from the composer's props. */
 export interface ComposerTargetInput {
   readonly sessionId: string;
   /** The pane a person is looking at, or `undefined` when focus is elsewhere. */

@@ -3,7 +3,7 @@
 // Its own module because more than the store reads it: the selectors project it,
 // the hooks type their callbacks against it, and the store commits it. A state
 // shape declared inside the class that writes it would force every reader to import
-// the writer, which is how a family acquires a cycle.
+// the writer, which is how a folder acquires an import cycle.
 
 import type { SessionDegradedCause } from "../session-degradation.js";
 import {

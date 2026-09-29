@@ -1,13 +1,13 @@
-// The codec, checked on the one claim it makes that its form module does not: the door's
-// two entries fetch the form and then answer exactly what the form answers.
+// The codec, checked on the one claim it makes that its form module does not: its two
+// calls fetch the form and then answer exactly what the form answers.
 //
 // WHAT IS NOT CHECKED HERE, AND WHERE IT IS. That the form stays off the initial import
 // graph is a fact about the emitted bundle, and asserting it from inside the module
 // graph is not possible — a transformed dynamic import resolves in the same tick. The
 // only guard for it is the `renderer-initial-bundle` byte budget, which bounds the
-// graph's SIZE rather than its membership — a static import of the form from the door
+// graph's SIZE rather than its membership — a static import of the form from the codec
 // puts those bytes back on the graph and is caught only if it moves the total past the
-// budget. That the door stays free of it is a reviewer's check.
+// budget. That the codec stays free of it is a reviewer's check.
 //
 // AND THE READING ITSELF IS NOT RE-CHECKED. Every refusal, every marker rule and the
 // round trip belong to `workflow-definition-file-form.test.ts`, which reads them off the
@@ -56,7 +56,7 @@ function versionBody(): WorkflowVersionBody {
   };
 }
 
-describe("the definition file codec — the door's two entries", () => {
+describe("the definition file codec — its two calls", () => {
   it("writes the bytes the form writes, once the form has arrived", async () => {
     const body = versionBody();
 

@@ -1,4 +1,4 @@
-// The settings family's bound: how many mounts an inventory reads in full.
+// The settings feature's bound: how many mounts an inventory reads in full.
 
 /**
  * Mounts a settings inventory reads in full before it stops naming them.

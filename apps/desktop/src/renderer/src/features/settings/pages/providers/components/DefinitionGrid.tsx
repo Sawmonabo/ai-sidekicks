@@ -15,7 +15,7 @@
 // rendered, and this component decides only the layout.
 //
 // It renders the LIST and not the block around it. Every settings page writes its
-// own `section` and heading, which is the family's shipped shape, and a component
+// own `section` and heading, which is the feature's shipped shape, and a component
 // that swallowed those would be a second way to build a settings block.
 
 import type { ReactNode } from "react";

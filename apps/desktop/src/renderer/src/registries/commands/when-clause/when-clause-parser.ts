@@ -23,7 +23,7 @@
 // c && …` parses iteratively and is unbounded, while `((((…))))` and `!!!!…`
 // recurse and are refused past the bound. Recursion is where a hostile or
 // generated clause could exhaust the stack, and a stack overflow inside a
-// visibility check would fail OPEN in the worst way — by crashing the surface
+// visibility check would fail OPEN in the worst way — by crashing the view
 // that was deciding what to hide.
 
 import { WHEN_CLAUSE_MAX_DEPTH } from "@renderer/styles/palette.js";

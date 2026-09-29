@@ -2,12 +2,12 @@
 //
 // The pane layout holds independent panes, each headed by an entity breadcrumb and a kind
 // glyph, with the actor's hue as the focus ring; one entity opens one pane,
-// structurally — a single mount door and a tripwire that fails on a second.
+// structurally — a single pane registry and a tripwire that fails on a second owner.
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
-// separators, the keyboard paths, and the one door each pane body is mounted
-// through. It is NOT any pane's content — every body comes from
-// `seats/pane/pane-registry.ts`, resolved by kind, so a second open of the same
+// separators, the keyboard paths, and the one place each pane body is mounted
+// from. It is NOT any pane's content — every body comes from
+// `registries/panes/pane-registry.ts`, resolved by kind, so a second open of the same
 // entity focuses the pane that already exists.
 //
 // FOUR DECISIONS WORTH STATING:
@@ -100,7 +100,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   const state = usePaneLayoutState(layout);
   const containerReference = useRef<HTMLDivElement>(null);
   // The window's own clock, not a second time base beside it. In fixture mode that
-  // is the scenario's FROZEN clock, which every other surface in the window already
+  // is the scenario's FROZEN clock, which every other view in the window already
   // reads: a pane layout that minted a `RealClock` ran its rect-flush coalescing on wall
   // time while the transcript and the reveal engine were frozen, so
   // whether a flush had happened when a screenshot was taken depended on how long

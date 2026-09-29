@@ -31,9 +31,9 @@ describe("CommandList — a cut enumeration is said, not treated as all of it", 
   }
 
   /**
-   * The cut notice's text, or `undefined` where the surface rendered none.
+   * The cut notice's text, or `undefined` where the command list rendered none.
    *
-   * The console's one partial-read notice rather than a line this family draws: the
+   * The console's one partial-read notice rather than a line this feature draws: the
    * `cut` reading is what a producer that stopped short renders as, everywhere.
    */
   function truncationLine(container: HTMLElement): string | undefined {
@@ -57,7 +57,7 @@ describe("CommandList — a cut enumeration is said, not treated as all of it", 
       "the answer for this run's command list was cut short",
     );
     // The count is the group's own served entries — the wire carries no figure for
-    // what was dropped, and this surface invents none.
+    // what was dropped, and this list invents none.
     expect(truncationLine(mounted.container)).toContain("2 ");
   });
 

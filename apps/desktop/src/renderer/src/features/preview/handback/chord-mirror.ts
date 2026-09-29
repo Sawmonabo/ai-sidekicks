@@ -22,8 +22,8 @@
 // skipping it leaves the old mirror installed in the page host: the host goes on
 // claiming chords the renderer's own projection no longer holds, so it takes each of
 // those keystrokes from the page and hands back a chord the replay declines. The
-// keystroke reaches neither surface. The register below is what separates the two, by
-// remembering the last key published INCLUDING the empty one.
+// keystroke reaches neither the page nor the console. The register below is what
+// separates the two, by remembering the last key published INCLUDING the empty one.
 
 /**
  * What a mirror key joins on, and what a chord may therefore never contain.

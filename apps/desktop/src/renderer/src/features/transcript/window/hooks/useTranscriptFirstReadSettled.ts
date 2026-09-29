@@ -2,13 +2,12 @@
 //
 // ONE SUBSCRIPTION, TWO READERS, AND THAT IS WHY IT IS A MODULE. `initialized` is the
 // store's own word for "a read response has established this window's base state", and
-// two surfaces turn on it: the skeleton next door draws shells until it is true, and
-// the viewport's empty window must not speak until it is. Written twice, the two would
-// be free to disagree — and the way they disagreed is the reason this exists: the
-// skeleton was reading the store and the empty window was reading only whether it had
-// rows, so a session whose first read was in flight rendered "Nothing has happened in
-// this session yet." directly above twelve loading shells. Two sentences about one
-// moment, and one of them false.
+// two views turn on it: the skeleton in `TranscriptReadState.tsx` draws shells until it
+// is true, and the viewport's empty window must not speak until it is. Written twice,
+// the two would be free to disagree: a skeleton reading the store and an empty window
+// reading only whether it had rows would render "Nothing has happened in this session
+// yet." directly above twelve loading shells while the first read was in flight. Two
+// sentences about one moment, and one of them false.
 //
 // SUBSCRIBED RATHER THAN READ ONCE, like every other store fact this pane holds: the
 // value is false at mount and true a moment later, which is precisely the transition

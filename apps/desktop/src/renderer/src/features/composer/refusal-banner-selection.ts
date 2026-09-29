@@ -14,8 +14,8 @@ import { type Refusal } from "@renderer/lib/refusal.js";
  * FOR THE CALLERS WHOSE REFUSALS ARRIVE AS A COLLECTION rather than one at a time —
  * a reader holding a refusal per resolved request and per revoked rule, or the run
  * controls holding one per dispatch they recorded — so each of them would otherwise
- * write this walk itself, and two copies of "which of these is a banner" is two places for rule 9's
- * reading to drift.
+ * write this walk itself, and two copies of "which of these is a banner" is two places for the
+ * reading of which refusals span the whole session to drift.
  *
  * ONE SELECTION AND NOT ONE ESCALATION EACH. The frame keys a banner on the refusal's
  * ORIGIN and CODE together, so three independent handovers of one vanished session
@@ -36,7 +36,10 @@ export function preferredBannerClassRefusalAmong(
   return undefined;
 }
 
-/** True where rule 9 puts this refusal across the frame rather than beside one control. */
+/**
+ * True where this refusal changes what the whole session can do, so it goes across the
+ * frame rather than beside one control.
+ */
 export function isBannerClass(refusal: Refusal): boolean {
   return refusalRemedyFor(refusal.code)?.rendering === "banner";
 }

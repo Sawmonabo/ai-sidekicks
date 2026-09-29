@@ -163,8 +163,9 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
   it("keeps the answer already on screen while the re-read is in flight", async () => {
     // The reason a stale directory advances a revision instead of re-addressing the
     // holder: re-addressing re-seeds to `reading`, which would blank the all-sessions
-    // list on every focus. Rule 8's `not-loaded` promises an answer that is still
-    // coming, and here one is already on screen.
+    // list on every focus. The five kinds of nothing render differently because the
+    // next move differs: `not-loaded` promises an answer that is still coming, and here one
+    // is already on screen.
     const counted = countedDirectoryCall();
     const observed = observeDirectory(counted.read);
     await settleReactWork();
@@ -179,8 +180,8 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
     expect(lastState(observed).status).toBe("served");
   });
 
-  it("reaches every surface reading the same call, not only the one that asked", async () => {
-    // Several families read this directory and only one of them settles an act. A
+  it("reaches every view reading the same call, not only the one that asked", async () => {
+    // Several features read this directory and only one of them settles an act. A
     // revision held per caller would leave the others rendering the list from before
     // the act that changed it.
     const counted = countedDirectoryCall();
@@ -209,8 +210,8 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
     });
     await settleReactWork();
 
-    // Two mounted surfaces, two reads on the first pass and two more on the bump.
-    // WHICH of the two later reads each surface holds is React's effect order and not
+    // Two mounted views, two reads on the first pass and two more on the bump.
+    // WHICH of the two later reads each view holds is React's effect order and not
     // this claim: what is asserted is that NEITHER is still rendering a first-pass
     // answer, which is the thing a per-caller revision would have got wrong.
     expect(counted.readCount()).toBe(4);
@@ -222,7 +223,7 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
   });
 });
 
-describe("offeredSessionIds — the union a surface offers", () => {
+describe("offeredSessionIds — the union a view offers", () => {
   it("puts the node's sessions first and appends what only this window knows", () => {
     const directory: SessionDirectoryState = {
       status: "served",
@@ -245,7 +246,7 @@ describe("offeredSessionIds — the union a surface offers", () => {
   });
 
   it("falls back to this window's own sessions while the directory has not answered", () => {
-    // A surface must keep offering what it can name rather than blanking while a read
+    // A view must keep offering what it can name rather than blanking while a read
     // is in flight.
     expect(offeredSessionIds({ status: "reading" }, ["session-local"])).toStrictEqual([
       "session-local",

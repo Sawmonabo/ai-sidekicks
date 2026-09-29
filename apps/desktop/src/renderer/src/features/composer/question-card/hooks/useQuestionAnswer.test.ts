@@ -1,9 +1,9 @@
 // The answer an ask row delivers, over a real bridge whose reply a case decides.
 //
 // `bridgeAnswering` rather than a hand-built port, for `child-run-expansion.test.ts`'
-// reason: the hook reaches the console's own call door, so a stand-in would prove the
-// case answers itself rather than that a refusal off the wire reaches the state a
-// surface renders.
+// reason: the hook reaches the console's own `callDaemon`, so a stand-in would prove
+// the case answers itself rather than that a refusal off the wire reaches the state
+// the question card renders.
 //
 // THE SUBJECT IS A REPLY THAT WAS CONSULTED FOR ITS SUCCESS ARM AND DISCARDED
 // OTHERWISE. The delivery stored nothing at all, so a refused answer left a blocked

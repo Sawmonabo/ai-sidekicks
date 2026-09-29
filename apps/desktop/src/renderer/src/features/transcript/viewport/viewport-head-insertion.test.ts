@@ -39,7 +39,7 @@ describe("the head-growth reading", () => {
 
   it("negative control: a set re-supplied after the cap trimmed reports nothing", () => {
     // THE CASE THAT DECIDES WHICH KEY THIS OBJECT REMEMBERS. The window's cap takes
-    // rows from the oldest end and the surrounding surface keeps handing over the
+    // rows from the oldest end and the surrounding feed keeps handing over the
     // whole projection, so the rows the cap took are back at the front of the very
     // next set. Read against the RETAINED head this is a page of history arriving;
     // read against the incoming one it is the ordinary reconcile it actually is.

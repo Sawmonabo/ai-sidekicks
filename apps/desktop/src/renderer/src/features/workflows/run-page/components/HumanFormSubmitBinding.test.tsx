@@ -40,7 +40,7 @@ function pressingBody(answer: Readonly<Record<string, unknown>>) {
 // Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
-describe("the seat keeps the submit and the settlement, and the body keeps neither", () => {
+describe("the submit binding keeps the submit and the settlement, and the body keeps neither", () => {
   it("composes the registered submit out of the mount when the body presses", async () => {
     const probe = watchingSubmits();
     const phase = fixtureWaitPhase();
@@ -54,7 +54,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     });
     await settle();
 
-    // The body passed the answer alone; the seat read every addressing member.
+    // The body passed the answer alone; the binding read every addressing member.
     expect(probe.requests).toStrictEqual([
       {
         workflowRunId: phase.workflowRunId,
@@ -77,7 +77,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     });
     await settle();
 
-    // In the live region, inside the seat's own slot rather than the body's.
+    // In the live region the binding draws beneath the body, rather than inside the body.
     expect(screen.getByRole("status").textContent).toContain(
       "The background service recorded this answer and one output came of it.",
     );
@@ -88,7 +88,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
 
   it("refuses a second press out loud, so a body needs no guard of its own", async () => {
     // A body pressing twice in one frame reads the same render's state both times, so
-    // the guard is the seat's, taken at dispatch.
+    // the guard is the binding's, taken at dispatch.
     //
     // Held, because the refusal lives between the press and the answer.
     const probe = holdingSubmits();
@@ -109,8 +109,8 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     );
   });
 
-  it("negative control: a body that never presses leaves the seat with nothing to say", async () => {
-    // Without this, the cases above would hold over a seat that drew its settlement
+  it("negative control: a body that never presses leaves the binding with nothing to say", async () => {
+    // Without this, the cases above would hold over a binding that drew its settlement
     // unconditionally — which would report an answer nobody had given.
     const probe = watchingSubmits();
     const { container } = await renderSwitchableMountPoint({

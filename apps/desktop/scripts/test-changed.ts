@@ -34,7 +34,7 @@
 // fetched. `--changed=<unknown>` is not an error to vitest: it resolves no
 // revision, selects no file, prints "No test files found" and EXITS 0. That is
 // byte for byte the false green the argument-position bug produced, arriving
-// through the other door — and it is the likelier of the two now that the
+// another way — and it is the likelier of the two now that the
 // position is fixed, because a stale ref is an ordinary thing for a lane to
 // hold. So the ref is resolved here, before vitest is spawned, and a ref that
 // names no commit is a misuse rather than a passing run. It is resolved to a
@@ -48,8 +48,8 @@
 // ref. A `main-unit` file — `src/main/**`, `src/shared/**`, `build/**`, and
 // this script's own test under `scripts/**` — is owned by a project that
 // selection excludes, so vitest was handed a filter naming a real test file,
-// matched it in no selected project, and exited 0. The third door onto the same
-// false green, and the one a lane walks through while doing exactly what the
+// matched it in no selected project, and exited 0. The third way into the same
+// false green, and the one a lane takes while doing exactly what the
 // documented workflow tells it to.
 //
 // The same reading settles what `--changed` may still narrow. It INTERSECTS
@@ -210,7 +210,7 @@ function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void
  * A forwarded file no unit project claims is a REFUSAL and never a narrowing.
  * Vitest treats a filter that matches nothing as an empty selection and exits
  * 0, so admitting it would report a run that never happened as a passing one —
- * this script's whole subject, arriving through a third door.
+ * this script's whole subject, arriving a third way.
  */
 async function unitProjectsClaiming(
   files: readonly string[],
@@ -357,7 +357,7 @@ async function runChangedTier(): Promise<void> {
       // the ordinary shape, since a change and its coverage are two files —
       // names a file `--changed` does not list, and the intersection is empty:
       // vitest reports no test files and exits 0, which is this script's whole
-      // subject arriving through the last door. A caller who names files has
+      // subject arriving yet another way. A caller who names files has
       // stated the selection, so the ref has nothing left to decide; it is still
       // required and still resolved, so a stale one is still reported.
       ...(fileFilters.length === 0 ? [`--changed=${baseRef}`] : []),

@@ -2,9 +2,9 @@
 // reserved bodies and says plainly that it cannot save.
 //
 // The addressed arm is asserted on the REGIONS it mounts rather than on its copy, which
-// is this family's to reword. Two of them are the reason the arm exists: an addressed
-// pane that dropped its mount points would look identical to one that had them and be useless
-// the day a body lands.
+// the workflows feature may reword freely. Two of them are the reason the arm exists:
+// an addressed pane that dropped its mount points would look identical to one that had
+// them and be useless the day a body lands.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -96,7 +96,7 @@ describe("workflow builder pane — with an address it does not author", () => {
   });
 
   it("mounts no body for a subject it will not open", () => {
-    // The refusal has to be the whole surface: a pane that refused in a banner and still
+    // The refusal has to fill the whole pane: a pane that refused in a banner and still
     // mounted its two mount points would have composed the read the banner says it did not.
     const section = renderPane(paneContext(MISADDRESSED));
     expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(0);
