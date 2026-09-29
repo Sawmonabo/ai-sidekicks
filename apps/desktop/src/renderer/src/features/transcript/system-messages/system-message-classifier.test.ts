@@ -13,7 +13,6 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/
 import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import { SWITCH_CONTINUITY_MEMO } from "./system-message-kinds.js";
 import { SystemMessageClassifier, type SystemMessageReading } from "./system-message-classifier.js";
 
 function classifyOne(row: TimelineRow): SystemMessageReading {
@@ -115,7 +114,7 @@ describe("seams — one row's classification", () => {
     expect(seam.boundaryPosition).toBe(3);
   });
 
-  it("carries a memo switch's declared losses verbatim", () => {
+  it("carries a switch's declared losses verbatim", () => {
     const seam = classifyOne(
       runRow({
         id: "s1",
@@ -124,12 +123,12 @@ describe("seams — one row's classification", () => {
         runId: "run-a",
         position: 5,
         payload: {
-          continuity: SWITCH_CONTINUITY_MEMO,
+          continuity: "brief",
           declaredLosses: ["turn_content_truncated", "a_kind_this_console_has_never_heard_of"],
         },
       }),
     );
-    expect(seam.continuity).toBe("memo");
+    expect(seam.continuity).toBe("brief");
     // Verbatim, unknown member included: the vocabulary is widened by amendment,
     // so a renderer that mapped the unrecognized one onto a fallback phrase would
     // stop reporting the newest kind of loss.
@@ -138,24 +137,6 @@ describe("seams — one row's classification", () => {
       "a_kind_this_console_has_never_heard_of",
     ]);
     expect(seam.wireRegistration).toBe("unregistered");
-  });
-
-  it("negative control: an in-place switch carries no loss clause even when the payload names one", () => {
-    // The loss clause is rendered ONLY for `memo`. A classifier that read the
-    // list unconditionally would put "context was lost" under a switch that lost
-    // nothing.
-    const seam = classifyOne(
-      runRow({
-        id: "s2",
-        sequence: 6,
-        type: "agent.provider_switched",
-        runId: "run-a",
-        position: 6,
-        payload: { continuity: "in_place", declaredLosses: ["turn_content_truncated"] },
-      }),
-    );
-    expect(seam.continuity).toBe("in_place");
-    expect(seam.declaredLosses).toStrictEqual([]);
   });
 
   it("names which state a block is waiting on", () => {

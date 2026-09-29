@@ -171,6 +171,3 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
     isCaution: false,
   },
 };
-
-/** The value `continuity` takes when the new provider works from a summary. */
-export const SWITCH_CONTINUITY_MEMO = "memo";

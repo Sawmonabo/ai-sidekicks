@@ -130,8 +130,8 @@ describe("the seam row — one kind at a time, over its registered members", () 
   });
 });
 
-describe("the seam row — the loss clause is the memo arm's and nobody else's", () => {
-  it("renders each declared loss as itself on a memo switch", () => {
+describe("the seam row — the loss clause", () => {
+  it("renders each declared loss as itself", () => {
     const line = renderSeam(
       seamOf(
         runRow({
@@ -141,38 +141,18 @@ describe("the seam row — the loss clause is the memo arm's and nobody else's",
           runId: "run-a",
           position: 7,
           payload: {
-            continuity: "memo",
+            continuity: "brief",
             declaredLosses: ["turn_content_truncated", "a_loss_this_build_never_heard_of"],
           },
         }),
       ),
     );
-    expect(line.textContent).toContain("memo");
+    expect(line.textContent).toContain("brief");
     expect(line.textContent).toContain("turn_content_truncated");
     // A value the closed wire vocabulary does not carry is still rendered as
     // itself. Mapping it onto a fallback phrase would go quiet on exactly the
     // newest kind of loss.
     expect(line.textContent).toContain("a_loss_this_build_never_heard_of");
-  });
-
-  it("negative control: a replayed switch renders the same line with no loss clause", () => {
-    // The other two continuity values lost nothing, so a clause on them would be a
-    // sentence this component invented. `declaredLosses` is empty on that arm by
-    // construction, which is what makes the absence of the clause checkable.
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "sr",
-          sequence: 8,
-          type: "agent.provider_switched",
-          runId: "run-a",
-          position: 8,
-          payload: { continuity: "replayed", declaredLosses: ["turn_content_truncated"] },
-        }),
-      ),
-    );
-    expect(line.textContent).toContain("replayed");
-    expect(line.textContent).not.toContain("turn_content_truncated");
   });
 });
 

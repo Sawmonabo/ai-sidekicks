@@ -35,7 +35,7 @@
 
 import { Glyph, LedgerRow, Nothing } from "@renderer/console/primitives/index.js";
 import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SYSTEM_MESSAGE_BINDINGS, SWITCH_CONTINUITY_MEMO } from "../system-message-kinds.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import { type SystemMessageReading } from "../system-message-classifier.js";
 
 import "./system-messages.css";
@@ -105,14 +105,11 @@ function seamBoundaryPosition(seam: SystemMessageReading): React.JSX.Element | n
 }
 
 /**
- * The switch's continuity, and its loss clause.
+ * The switch's continuity, and the losses it declared.
  *
- * The clause appears ONLY on the memo arm. `'in_place'` and `'replayed'` render the
- * same line without one, because nothing was lost — and an "and nothing was lost"
- * sentence on those two would be prose this component invented. Every loss is
- * rendered as the string the wire sent; the vocabulary is closed on the wire and
- * widened by amendment, so a mapping onto a fallback phrase here would go quiet on
- * exactly the newest kind of loss.
+ * An empty list is the switch's own claim that nothing was lost, so it draws no clause.
+ * Each loss is the string the wire sent: the vocabulary is widened by amendment, and a
+ * fallback phrase would go quiet on the newest kind of loss.
  */
 function seamContinuity(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.continuity === undefined) {
@@ -121,17 +118,13 @@ function seamContinuity(seam: SystemMessageReading): React.JSX.Element | null {
   return (
     <span className="meridian-system-message__continuity">
       <span className="meridian-system-message__figure">{seam.continuity}</span>
-      {seam.continuity === SWITCH_CONTINUITY_MEMO ? (
+      {seam.declaredLosses.length > 0 ? (
         <span className="meridian-system-message__losses">
-          {seam.declaredLosses.length === 0 ? (
-            <Nothing kind="empty" placement="inline" title="No losses were declared." />
-          ) : (
-            seam.declaredLosses.map((loss) => (
-              <span className="meridian-system-message__figure" key={loss}>
-                {loss}
-              </span>
-            ))
-          )}
+          {seam.declaredLosses.map((loss) => (
+            <span className="meridian-system-message__figure" key={loss}>
+              {loss}
+            </span>
+          ))}
         </span>
       ) : null}
     </span>

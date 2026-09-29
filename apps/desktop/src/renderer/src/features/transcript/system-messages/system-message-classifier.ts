@@ -23,7 +23,6 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/
 import {
   SYSTEM_MESSAGE_KINDS,
   SYSTEM_MESSAGE_BINDINGS,
-  SWITCH_CONTINUITY_MEMO,
   type SystemMessageKind,
   type WireTypeRegistration,
 } from "./system-message-kinds.js";
@@ -58,13 +57,9 @@ export interface SystemMessageReading {
   readonly boundaryPosition: number | undefined;
   /** The epoch the seam belongs to, where the arm carries one. */
   readonly epoch: number | undefined;
-  /**
-   * The switch's continuity value, verbatim. A loss clause is rendered ONLY
-   * when this reads `'memo'`; `'in_place'` and `'replayed'` render the same line
-   * without one, because nothing was lost.
-   */
+  /** How the conversation crossed the switch, verbatim. */
   readonly continuity: string | undefined;
-  /** The declared losses, verbatim, for a `'memo'` switch. Empty otherwise. */
+  /** What the switch declared lost, verbatim; empty is the claim that nothing was. */
   readonly declaredLosses: readonly string[];
   /** The failed switch's closed `reason`, verbatim. */
   readonly reason: string | undefined;
@@ -162,10 +157,7 @@ export class SystemMessageClassifier {
       boundaryPosition: kind === "compaction" && row.kind === "run" ? row.position : undefined,
       epoch,
       continuity: readString(row.payload, "continuity"),
-      declaredLosses:
-        readString(row.payload, "continuity") === SWITCH_CONTINUITY_MEMO
-          ? readDeclaredLosses(row.payload)
-          : [],
+      declaredLosses: readDeclaredLosses(row.payload),
       reason: readString(row.payload, "reason"),
       blockedOn: kind === "run-blocked" ? row.type : undefined,
     };
@@ -190,7 +182,7 @@ function readString(payload: Readonly<Record<string, unknown>>, key: string): st
 }
 
 /**
- * The declared losses a `'memo'` switch names, verbatim.
+ * The losses a switch declares, verbatim.
  *
  * Every entry is kept as the string the wire sent — the vocabulary is closed on
  * the wire and widened by amendment, so a renderer that mapped unknown members
