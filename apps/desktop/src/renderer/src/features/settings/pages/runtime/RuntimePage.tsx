@@ -63,19 +63,18 @@ import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 const DISPATCHED_REASON =
   "Sent. It cannot be taken back, so both actions wait until the runtime answers.";
 
-/** What each control does and what a person is agreeing to. Written once. */
+/** What each control does and the question its confirm asks. Written once. */
 const CONTROL_COPY: Readonly<
-  Record<DaemonControl, { readonly verb: string; readonly consequence: string }>
+  Record<DaemonControl, { readonly verb: string; readonly confirmation: string }>
 > = {
   stop: {
     verb: "Stop",
-    consequence:
-      "Work in flight on this machine stops. Nothing new can be started until the background service is running again, and starting it is a shell action rather than a control on this page.",
+    confirmation:
+      "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
   },
   restart: {
     verb: "Restart",
-    consequence:
-      "Work in flight on this machine stops. The background service is given ten seconds to flush before it goes down, and this window reconnects on its own once it is back.",
+    confirmation: "Restart the background service? Work in flight stops.",
   },
 };
 
@@ -143,7 +142,10 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
       </section>
 
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Controls</h3>
+        <h3 className="meridian-settings-page__block-title">Restart or stop it</h3>
+        <p className="meridian-settings-page__aside">
+          Both stop whatever is in flight on this machine.
+        </p>
         {confirming === undefined ? (
           <div className="meridian-settings-page__actions">
             <button
@@ -304,7 +306,7 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
 }
 
 /**
- * The confirm step: the verb, what it costs, and the two ways out of it.
+ * The confirm step: the question, the verb, and the two ways out of it.
  *
  * `dispatchedReason` is `undefined` while the confirmation is still a question and a
  * sentence once it has been answered — one value carrying both the disable and its
@@ -320,7 +322,7 @@ function renderControlConfirm(
   const isDispatched = dispatchedReason !== undefined;
   return (
     <div className="meridian-settings-page__state">
-      <p>{copy.consequence}</p>
+      <p>{copy.confirmation}</p>
       <div className="meridian-settings-page__actions">
         <button
           type="button"
