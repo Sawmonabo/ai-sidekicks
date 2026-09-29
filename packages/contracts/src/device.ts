@@ -16,6 +16,10 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import {
+  NotificationKindSwitchesSchema,
+  type NotificationKindSwitches,
+} from "./machine-settings.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import type { RuntimeNodeProcedureDescriptors } from "./runtime-node.js";
 import { wireFreeFormString } from "./session.js";
@@ -445,25 +449,6 @@ export const DevicePushAddressSetRequestSchema: z.ZodType<
       });
     }
   });
-
-/** The four notification kinds a device switches on or off, each on by default. */
-export interface NotificationKindSwitches {
-  waitingOnYou: boolean;
-  finished: boolean;
-  failed: boolean;
-  notifyStep: boolean;
-}
-const NotificationKindSwitchesSchema: z.ZodType<
-  NotificationKindSwitches,
-  NotificationKindSwitches
-> = z
-  .object({
-    waitingOnYou: z.boolean(),
-    finished: z.boolean(),
-    failed: z.boolean(),
-    notifyStep: z.boolean(),
-  })
-  .strict();
 
 /** A Web Push subscription's own keys (RFC 8291), base64url as the browser hands them over. */
 export interface WebPushKeys {

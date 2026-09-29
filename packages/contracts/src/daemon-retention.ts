@@ -1,0 +1,149 @@
+// The three retention bounds on Settings › Runtime, and `Delete old data`.
+//
+// Only two things go on their own past a bound: the service's diagnostic logs
+// and a workflow run's step data. `Keep sessions for` only makes a finished
+// session eligible; nothing removes a session except the purge, which the
+// person confirms after reading the count it would remove.
+import { z } from "zod";
+
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+
+const DaysSchema = z.number().int().positive();
+const TimestampSchema = z.iso.datetime({ offset: true });
+
+/** The three bounds, each in whole days. */
+export interface DaemonRetentionBounds {
+  /**
+   * The service's own logs and, in each account home, what the provider writes
+   * and never reads back for a session. Past thirty days the service records a
+   * warning about the setting; it still takes it.
+   */
+  keepDiagnosticLogsDays: number;
+  /** How long a finished session stays before it can be deleted. */
+  keepSessionsDays: number;
+  /** How long a workflow run keeps what each step read and wrote. */
+  keepRunDataDays: number;
+}
+const RetentionBoundsObjectSchema = z
+  .object({
+    keepDiagnosticLogsDays: DaysSchema,
+    keepSessionsDays: DaysSchema,
+    keepRunDataDays: DaysSchema,
+  })
+  .strict();
+/** Parses {@link DaemonRetentionBounds}. */
+export const DaemonRetentionBoundsSchema: z.ZodType<DaemonRetentionBounds> =
+  RetentionBoundsObjectSchema;
+
+/** What `Delete old data` would remove if it ran now. */
+export interface DaemonRetentionPurgePreview {
+  archivedSessionCount: number;
+  /** Sessions archived before this moment are the ones counted. */
+  cutoffAt: string;
+}
+
+/** `daemon.retentionRead` takes nothing. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface DaemonRetentionReadRequest {}
+/** Parses a {@link DaemonRetentionReadRequest}. */
+export const DaemonRetentionReadRequestSchema: z.ZodType<
+  DaemonRetentionReadRequest,
+  DaemonRetentionReadRequest
+> = z.object({}).strict();
+
+/** The bounds, and the count the purge's confirm names. */
+export interface DaemonRetentionReadResponse extends DaemonRetentionBounds {
+  purge: DaemonRetentionPurgePreview;
+}
+/** Parses a {@link DaemonRetentionReadResponse}. */
+export const DaemonRetentionReadResponseSchema: z.ZodType<DaemonRetentionReadResponse> =
+  RetentionBoundsObjectSchema.extend({
+    purge: z
+      .object({
+        archivedSessionCount: z.number().int().nonnegative(),
+        cutoffAt: TimestampSchema,
+      })
+      .strict(),
+  }).strict();
+
+/** `daemon.retentionUpdate`: exactly one bound. Setting a bound deletes nothing. */
+export interface DaemonRetentionUpdateRequest {
+  keepDiagnosticLogsDays?: number | undefined;
+  keepSessionsDays?: number | undefined;
+  keepRunDataDays?: number | undefined;
+}
+/** Parses a {@link DaemonRetentionUpdateRequest}: one bound, never none and never two. */
+export const DaemonRetentionUpdateRequestSchema: z.ZodType<
+  DaemonRetentionUpdateRequest,
+  DaemonRetentionUpdateRequest
+> = RetentionBoundsObjectSchema.partial()
+  .strict()
+  .refine((request) => Object.values(request).filter((bound) => bound !== undefined).length === 1, {
+    message: "A retention update carries exactly one bound.",
+  });
+
+/**
+ * `daemon.retentionPurge`: the cutoff the confirm was read against, so the
+ * purge removes exactly what the confirm named and a second press removes
+ * nothing more.
+ */
+export interface DaemonRetentionPurgeRequest {
+  cutoffAt: string;
+}
+/** Parses a {@link DaemonRetentionPurgeRequest}. */
+export const DaemonRetentionPurgeRequestSchema: z.ZodType<
+  DaemonRetentionPurgeRequest,
+  DaemonRetentionPurgeRequest
+> = z.object({ cutoffAt: TimestampSchema }).strict();
+
+/** How many sessions the purge removed. */
+export interface DaemonRetentionPurgeResponse {
+  deletedSessionCount: number;
+}
+/** Parses a {@link DaemonRetentionPurgeResponse}. */
+export const DaemonRetentionPurgeResponseSchema: z.ZodType<DaemonRetentionPurgeResponse> = z
+  .object({ deletedSessionCount: z.number().int().nonnegative() })
+  .strict();
+
+/** The retention verbs' descriptors. */
+export interface DaemonRetentionMethodDescriptors {
+  readonly "daemon.retentionRead": MethodDescriptor<
+    "daemon.retentionRead",
+    DaemonRetentionReadRequest,
+    DaemonRetentionReadResponse
+  > & { readonly procedureType: "query" };
+  readonly "daemon.retentionUpdate": MethodDescriptor<
+    "daemon.retentionUpdate",
+    DaemonRetentionUpdateRequest,
+    DaemonRetentionBounds
+  > & { readonly procedureType: "mutation" };
+  readonly "daemon.retentionPurge": MethodDescriptor<
+    "daemon.retentionPurge",
+    DaemonRetentionPurgeRequest,
+    DaemonRetentionPurgeResponse
+  > & { readonly procedureType: "mutation" };
+}
+export const DAEMON_RETENTION_METHOD_DESCRIPTORS: DaemonRetentionMethodDescriptors =
+  defineMethodDescriptors({
+    "daemon.retentionRead": {
+      method: "daemon.retentionRead",
+      procedureType: "query",
+      mutating: false,
+      requestSchema: DaemonRetentionReadRequestSchema,
+      responseSchema: DaemonRetentionReadResponseSchema,
+    },
+    "daemon.retentionUpdate": {
+      method: "daemon.retentionUpdate",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: DaemonRetentionUpdateRequestSchema,
+      responseSchema: DaemonRetentionBoundsSchema,
+    },
+    "daemon.retentionPurge": {
+      method: "daemon.retentionPurge",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: DaemonRetentionPurgeRequestSchema,
+      responseSchema: DaemonRetentionPurgeResponseSchema,
+    },
+  });
