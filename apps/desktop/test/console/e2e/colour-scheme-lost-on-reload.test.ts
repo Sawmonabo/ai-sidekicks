@@ -117,7 +117,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", (
       // command, store, chokepoint, IndexedDB — and a direct store call would
       // prove only that the store works, which the unit tier already knows.
       await openPalette(consoleApplication);
-      await consoleWindow.keyboard.type("Use the dark colour scheme");
+      await consoleWindow.keyboard.type("Use the dark color scheme");
       await consoleWindow.keyboard.press("Enter");
       await expect
         .poll(readScheme, {
