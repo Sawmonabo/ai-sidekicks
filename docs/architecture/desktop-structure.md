@@ -92,7 +92,7 @@ A folder is added only when needed.
 
 ```text
 features/<feature>/
-├── <Feature>Page.tsx     the feature's top view or views, at the root
+├── <View>.tsx           the feature's top view or views, at the root, named for what each is
 ├── components/           the feature's other components, each with its plain .css beside it
 ├── hooks/                the feature's hooks, one useThing.ts each
 ├── services/             the feature's own external calls, only if it has any
