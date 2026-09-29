@@ -27,7 +27,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     const state = projectTerminalLease(
       [
         transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "released", null, OTHER_DEVICE_ID),
+        transitionEvent(2, "auto_released_disconnect", null, OTHER_DEVICE_ID),
         transitionEvent(3, "taken", THIS_DEVICE_ID),
       ],
       { thisDeviceId: THIS_DEVICE_ID },

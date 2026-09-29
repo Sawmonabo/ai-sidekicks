@@ -63,8 +63,6 @@ describe("the holding line — every state the fold settles into", () => {
       leaseState({
         holding: "unrecognized-transition",
         unreadTransition: {
-          sequence: 9,
-          occurredAtIso: "2026-01-01T16:40:09.000Z",
           reason: "auto_released_quota_exhausted",
         },
       }),
@@ -85,8 +83,6 @@ describe("the holding line — every state the fold settles into", () => {
       leaseState({
         holding: "unrecognized-transition",
         unreadTransition: {
-          sequence: 9,
-          occurredAtIso: "2026-01-01T16:40:09.000Z",
           reason: undefined,
         },
       }),
@@ -116,8 +112,6 @@ describe("the holding line — every state the fold settles into", () => {
           leaseState({
             holding: "unrecognized-transition",
             unreadTransition: {
-              sequence: 9,
-              occurredAtIso: "2026-01-01T16:40:09.000Z",
               reason: "auto_released_quota_exhausted",
             },
           }),

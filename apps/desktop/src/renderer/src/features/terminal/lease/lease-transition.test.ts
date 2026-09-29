@@ -45,7 +45,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
   it("reads a release as naming nobody, which is the free lease explicitly", () => {
     const transition = readTerminalLeaseTransition(
       leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-        reason: "released",
+        reason: "auto_released_disconnect",
         holderUserId: null,
         previousHolderUserId: OTHER_DEVICE_ID,
       }),
@@ -67,7 +67,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
   });
 
   it("refuses a release that names a holder, however it was released", () => {
-    // The other expensive direction, in all four of its spellings: the user a
+    // The other expensive direction, in both of its spellings: the user a
     // release took the shell FROM travels as the previous holder, so a release naming
     // a holder is a payload contradicting itself.
     for (const reason of TERMINAL_LEASE_TRANSITION_REASONS.filter(
@@ -132,8 +132,6 @@ describe("reading the transition it could NOT read", () => {
       leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "auto_released_quota_exhausted" }),
     );
     expect(unread.reason).toBe("auto_released_quota_exhausted");
-    expect(unread.sequence).toBe(1);
-    expect(unread.occurredAtIso).toBe("2026-01-01T00:00:01.000Z");
   });
 
   it("negative control: a payload with nothing to name carries nothing", () => {

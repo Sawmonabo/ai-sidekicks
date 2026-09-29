@@ -11,9 +11,9 @@
 //
 // A HOLD ENDS THREE WAYS, AND THE SCRIPT REACHES EACH. There is no release control on a
 // shell: a device hands it back only by another device taking it, or by the hold ending
-// on its own. The automatic endings are the holder's connection ending, the holder
-// losing authorization, and the acquiring agent run leaving its running state. All
-// three appear below, in the order a session reaches them.
+// on its own. The automatic endings are the holder's connection ending and the
+// acquiring agent run leaving its running state. All three appear below, in the order
+// a session reaches them.
 //
 // AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
 // sequence no daemon produces is a fixture that looks exercised and is not, so the
@@ -295,25 +295,9 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       reason: "auto_released_disconnect",
       actorId: OTHER_DEVICE,
     }),
-    terminalLeaseTransitionBeat({
-      atMs: 2300,
-      sequence: 6,
-      holderUserId: OWNER,
-      previousHolderUserId: null,
-      reason: "taken",
-      actorId: OWNER,
-    }),
-    terminalLeaseTransitionBeat({
-      atMs: 2700,
-      sequence: 7,
-      holderUserId: null,
-      previousHolderUserId: OWNER,
-      reason: "auto_released_authorization_lost",
-      actorId: OWNER,
-    }),
     terminalScenarioBeat({
       atMs: 3000,
-      sequence: 8,
+      sequence: 6,
       kind: "run.queued",
       // The person who started the run, not the agent. `previousState` is absent
       // here and only here: a queued run is being born, and no document names the
@@ -329,7 +313,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3100,
-      sequence: 9,
+      sequence: 7,
       kind: "run.starting",
       // No actor: the daemon moves a run through its own states, and a user
       // id here would attribute a system transition to a person.
@@ -343,7 +327,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3200,
-      sequence: 10,
+      sequence: 8,
       kind: "run.running",
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -362,14 +346,14 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // ids, exactly as the terminal-control method registry declares.
     terminalLeaseTransitionBeat({
       atMs: 3300,
-      sequence: 11,
+      sequence: 9,
       holderUserId: OWNER,
       previousHolderUserId: null,
       reason: "taken",
     }),
     terminalScenarioBeat({
       atMs: 3600,
-      sequence: 12,
+      sequence: 10,
       kind: "run.completed",
       // The acquiring run's first lifecycle transition out of `running` — what the
       // auto-release below is a consequence of, rather than an asserted state.
@@ -383,7 +367,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 3700,
-      sequence: 13,
+      sequence: 11,
       holderUserId: null,
       previousHolderUserId: OWNER,
       reason: "auto_released_run_idle",
@@ -391,7 +375,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // The held-lease steady state: the holder the pane's header names.
     terminalLeaseTransitionBeat({
       atMs: 4100,
-      sequence: 14,
+      sequence: 12,
       holderUserId: OWNER,
       previousHolderUserId: null,
       reason: "taken",

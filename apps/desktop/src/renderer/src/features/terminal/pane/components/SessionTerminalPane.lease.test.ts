@@ -17,7 +17,7 @@ describe("terminal pane — bound to a session", () => {
   });
 
   it("renders the free lease the log's next transition establishes", () => {
-    // The second transition is a `released` carrying an explicit null holder.
+    // The second transition is an automatic release carrying an explicit null holder.
     const region = renderPane(storeThrough(2));
     expect(region.textContent).toContain("Free");
     expect(region.textContent).toContain("Nobody holds the shell.");

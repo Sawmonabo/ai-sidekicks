@@ -2,17 +2,16 @@
 // plays.
 //
 // The event kind and the reason vocabulary are IMPORTED from the fold rather than
-// restated here, so this file checks the fixture against the set the surface
-// actually renders. A second copy of the list would pass while the two drifted,
+// restated here, so this file checks the fixture against the set the reader
+// actually accepts. A second copy of the list would pass while the two drifted,
 // which is the failure the check exists to prevent.
 //
 // The second half is the one that earns a test. The reader accepts only the wire's
 // closed reason set and reads everything else as an unread transition, so a fixture
-// that scripted a reason outside the set, or only two of the five, would drive the
+// that scripted a reason outside the set, or only some of the three, would drive the
 // fold down arms the daemon never takes. So the fixture is held to reaching the take
-// and all three automatic releases, asserted against the wire's own closed set rather
-// than against whatever the scenario happens to contain. A person's own release is the
-// one reason it does not script.
+// and both automatic releases, asserted against the wire's own closed set rather than
+// against whatever the scenario happens to contain.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -62,15 +61,15 @@ describe("terminal family — claiming the pane layout's terminal pane", () => {
   });
 });
 
-describe("terminal scenario — the take and the three automatic releases, kept distinct", () => {
+describe("terminal scenario — the take and the two automatic releases", () => {
   it("is the scenario the seat board names", () => {
     expect(TERMINAL_LEASE_SCENARIO.id).toBe(TERMINAL_LEASE_SCENARIO_ID);
     expect(leaseTransitionReasons().length).toBeGreaterThan(0);
   });
 
-  it("reaches every reason in the closed set but a person's own release", () => {
+  it("reaches every reason in the closed set", () => {
     expect([...new Set(leaseTransitionReasons())].sort()).toStrictEqual(
-      LEASE_TRANSITION_REASONS.filter((reason) => reason !== "released").sort(),
+      [...LEASE_TRANSITION_REASONS].sort(),
     );
   });
 
@@ -91,7 +90,7 @@ describe("terminal scenario — the take and the three automatic releases, kept 
 
   it("negative control: a reason outside the set is not in it", () => {
     // Every case above would pass over a comparison that accepted anything, and
-    // over a scenario that scripted a sixth reason nobody registered.
+    // over a scenario that scripted a fourth reason nobody registered.
     expect(LEASE_TRANSITION_REASONS).not.toContain("auto_released_timeout");
     expect(leaseTransitionReasons()).not.toContain("auto_released_timeout");
   });

@@ -33,9 +33,7 @@ export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
   "taken",
-  "released",
   "auto_released_disconnect",
-  "auto_released_authorization_lost",
   "auto_released_run_idle",
 ] as const;
 
@@ -50,14 +48,14 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * tolerantly beside it: any non-empty string became a holder and everything else
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may take — and a `released` that carried this device's own id was presented
+ * anybody may take — and a release that carried this device's own id was presented
  * as `held-by-this-device`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.
  *
- * Two shapes and not five, because the direction is what the holder member reports:
- * a take names who holds it, and every release — the operator's own and the three
- * automatic ones alike — leaves nobody holding it. The member is documented as who
+ * Two shapes and not three, because the direction is what the holder member reports:
+ * a take names who holds it, and both releases — the holder's connection ending and
+ * the acquiring run leaving its running state — leave nobody holding it. The member is documented as who
  * holds the lease AFTER the transition, so a release that named a holder is
  * contradicting itself rather than naming the user it took the shell from;
  * that user is the `previousHolderUserId` the same payload carries.
@@ -65,16 +63,14 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * The check is HERE because there is nowhere else for it. `packages/contracts`
  * registers `pty.control_changed` as an event type and no payload variant for it, so
  * this module is the console's one declaration of the shape and the tolerant envelope
- * above it validates nothing. Keyed by the reason union so a sixth reason is a
+ * above it validates nothing. Keyed by the reason union so a fourth reason is a
  * compile error rather than a payload nothing checks.
  */
 const TRANSITION_HOLDER_SHAPES: Readonly<
   Record<TerminalLeaseTransitionReason, "names-the-holder" | "names-nobody">
 > = {
   taken: "names-the-holder",
-  released: "names-nobody",
   auto_released_disconnect: "names-nobody",
-  auto_released_authorization_lost: "names-nobody",
   auto_released_run_idle: "names-nobody",
 };
 
@@ -95,9 +91,6 @@ export interface TerminalLeaseTransition {
  * called it, and the projection settles into the arm that writes nothing.
  */
 export interface TerminalLeaseUnreadTransition {
-  /** The event's position in the session log. Stable across a replay. */
-  readonly sequence: number;
-  readonly occurredAtIso: string;
   /**
    * The reason the wire sent, when it sent a non-empty string — verbatim, for the
    * operator to paste somewhere. `undefined` when the payload named none at all,
@@ -119,7 +112,7 @@ export function asTerminalLeaseTransitionReason(
  * Both halves have to agree. A recognized reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
  * holder quietly normalized is how a malformed `taken` became a free lease and a
- * `released` carrying this device became `held-by-this-device`.
+ * release carrying this device became `held-by-this-device`.
  */
 export function readTerminalLeaseTransition(
   event: ProjectedSessionEvent,
@@ -152,12 +145,7 @@ export function readTerminalLeaseTransition(
 export function readTerminalLeaseUnreadTransition(
   event: ProjectedSessionEvent,
 ): TerminalLeaseUnreadTransition {
-  const reason = event.payload?.["reason"];
-  return {
-    sequence: event.sequence,
-    occurredAtIso: event.occurredAt,
-    reason: readWireString(reason),
-  };
+  return { reason: readWireString(event.payload?.["reason"]) };
 }
 
 /**
