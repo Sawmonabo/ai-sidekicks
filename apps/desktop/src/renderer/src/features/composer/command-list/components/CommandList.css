@@ -1,8 +1,8 @@
 /* The discovery popover, sitting above the line it watches.
  *
- * A sibling sheet rather than an addition to `composer.css`: the zone is one lane's
- * work behind one barrel, and a feature-wide sheet edited by every zone is a file
- * three branches conflict in. Meridian tokens only — no raw color reaches this file.
+ * A sheet of its own beside `CommandList`, the component it styles, rather than an
+ * addition to `Composer.css`: each sheet stays with the one thing it draws. Meridian
+ * tokens only — no raw color reaches this file.
  */
 
 .meridian-command-discovery {

@@ -27,8 +27,8 @@ import { captureSettled } from "./settled-capture.js";
 
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
-// The module itself: `LazyBodyModule` is the loader's own return type, and no production
-// code imports it through a barrel. The pane registry's `lazy-body` suites reach it the
+// The module that declares it: `LazyBodyModule` is the loader's own return type, and
+// every reader imports it from there. The pane registry's `lazy-body` suites reach it the
 // same way.
 import type { LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 

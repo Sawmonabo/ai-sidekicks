@@ -3,8 +3,8 @@
 // Every durable write in the console goes through `UiStateStore.write`. That is the whole
 // point of the class: a write outside the closed value-class enumeration is a tripwire
 // failure at the store's write chokepoint, and a chokepoint that callers can go around is
-// not one. The adapters are deliberately not exported from the console's barrel, so the
-// only reachable path to a durable byte is this class.
+// not one. No production module but this one imports an adapter, so the only reachable
+// path to a durable byte is this class.
 //
 // Four behaviors are worth stating because they are decisions rather than
 // mechanics:

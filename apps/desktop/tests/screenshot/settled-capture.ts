@@ -42,8 +42,8 @@
 import { expect } from "vitest";
 import { page } from "vitest/browser";
 
-// The module itself and not a barrel: `listPendingBodyNames` has no production reader, so
-// no public entry exports it — an export only a test reaches is what the module-shape
+// The module that declares it: `listPendingBodyNames` has no production reader, so no
+// other module passes it on — an export only a test reaches is what the module-shape
 // rules in `apps/desktop/AGENTS.md` reject.
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { settle } from "../helpers/settle.js";

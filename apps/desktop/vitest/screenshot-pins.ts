@@ -8,10 +8,10 @@
 // fractional downscale shows every glyph resampled off the pixel grid.
 //
 // These are the conditions Playwright can be TOLD — a context option, set once when
-// the page is built. The typeface is deliberately NOT among them any more: the
-// console self-hosts both families through `console/frame/bindings/typeface.ts`, so
-// a capture shows the product's own faces, and a pin here would show a face the
-// product does not ship.
+// the page is built. The typeface is deliberately NOT among them: the console
+// self-hosts both families through `src/renderer/src/styles/typeface.ts`, so a capture
+// shows the product's own faces, and a pin here would show a face the product does not
+// ship.
 
 import process from "node:process";
 
