@@ -87,6 +87,16 @@ export default {
           "\\.json$",
           "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
           "\\.test-support\\.(ts|tsx)$",
+          // A file kept whole for a consumer that is not built yet, exempted by its exact
+          // path beside its `ignoreFiles` entry in the root `knip.json`; each goes in the
+          // change that builds its consumer.
+          //
+          // Scripted diff patches kept as the fixtures' test data (register WT-14); the diff
+          // read that plays them is built with the Review pane (build units DM-16 and B9).
+          "^fixtures/data/repos-diff-patches\\.ts$",
+          // The artifact refusal codes, which move to the contracts package (registers CMP-2
+          // and ART-2); the exemption leaves with the move.
+          "^src/renderer/src/features/composer/attachments/artifact-refusal-copy\\.ts$",
         ],
       },
       to: {},

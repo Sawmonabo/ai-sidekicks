@@ -44,6 +44,8 @@ What lint does not carry: one component per `.tsx` (see [Desktop Structure](../.
 
 The dead-code gate has two exemptions. Per SYMBOL: an export tagged `@consumedBy <reason>` is excluded, and a symbol nothing will import is deleted rather than tagged. Tag the specifier knip reports, and delete the tag in the PR that imports the symbol. Per FILE: a whole file kept for a consumer that is not built yet takes one `ignoreFiles` entry in this package's workspace of the root `knip.json`, the exact path with a comment naming the design, plan or build unit that owns it, never a directory or a glob. An entry clears only the file it names, so a chain of unwired files takes one entry per file. The entry leaves in the change that builds its consumer. Nothing is wired to quiet the gate, and nothing the design requires is deleted to quiet it.
 
+The layering gate's `no-orphans` rule has the same per-file allowance, for a kept file that imports nothing and that nothing imports yet: its exact path, anchored, in that rule's `pathNot` in `.dependency-cruiser.mjs`, with the same owner comment as its `ignoreFiles` entry, never a directory or a pattern. It leaves in the same change as the `ignoreFiles` entry.
+
 ## Structure
 
 The renderer root `src/renderer/src/` holds `app/` (composition and bootstrap), `layout/` (persistent chrome), `features/` (one folder per user-facing capability), `registries/` (the registration mechanisms only), `services/`, `store/` (app-wide state), `routing/`, `components/` and `hooks/` (shared UI and hooks), `lib/` (generic non-UI code), `styles/` and `assets/`. Beside it: `src/main/`, `src/preload/`, `src/shared/`, and outside `src/`, `fixtures/` and `tests/`.
