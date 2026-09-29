@@ -37,7 +37,7 @@
 
 import { useEffect } from "react";
 
-import { consoleCommandSurface } from "@renderer/console/palette/commands/console-commands.js";
+import { consoleCommandSurface } from "../command-contributions.js";
 import type { ConsoleCommand } from "../command-types.js";
 
 /** No chords, always. Frozen so a caller cannot make this the exception. */

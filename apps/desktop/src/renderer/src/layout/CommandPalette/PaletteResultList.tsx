@@ -5,22 +5,18 @@
 // runs, the provenance mark, the chord). Both halves stay inside one
 // `Combobox.Root`: `Combobox.List` reads the items from that root's context, so
 // this component renders the list element itself rather than taking the groups as
-// a prop — the grouping function that feeds the root is exported beside it.
+// a prop — the grouping function that feeds the root is `group-results.ts` beside it.
 
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
-import { ChordHint, type ChordPlatform } from "../../primitives/index.js";
+import { ChordHint, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
 import type { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import type { PaletteRowPressOutcome } from "@renderer/layout/CommandPalette/palette-latch.js";
+import type { PaletteRowPressOutcome } from "./palette-latch.js";
+import type { CommandResultGroup } from "./group-results.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-/** Results for one category, in the order the best result in it appeared. */
-export interface CommandResultGroup {
-  readonly value: string;
-  readonly items: readonly CommandSearchResult[];
-}
-
+/** What the palette's listbox renders its rows against. */
 export interface PaletteResultListProps {
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
@@ -41,23 +37,6 @@ export interface PaletteResultListProps {
    * it was — so a row that did not run is never selected. See the call site below.
    */
   readonly onRunResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
-}
-
-export function groupResults(
-  results: readonly CommandSearchResult[],
-): readonly CommandResultGroup[] {
-  const itemsByGroup = new Map<string, CommandSearchResult[]>();
-  for (const result of results) {
-    const bucket = itemsByGroup.get(result.command.group);
-    if (bucket === undefined) {
-      itemsByGroup.set(result.command.group, [result]);
-    } else {
-      bucket.push(result);
-    }
-  }
-  // Insertion order is first-appearance order, so the best-ranked category leads
-  // and the categories do not reshuffle as a person types.
-  return [...itemsByGroup.entries()].map(([value, items]) => ({ value, items }));
 }
 
 /** The listbox: one group per category, one row per ranked result. */

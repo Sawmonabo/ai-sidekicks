@@ -37,13 +37,15 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 
+import "./command-palette.css";
+
 import {
   InlineRefusal,
   formatChordForPlatform,
   OverlayDialogPopup,
 } from "@renderer/console/primitives/index.js";
 import { PaletteAbsence } from "./PaletteEmptyState.js";
-import { PaletteResultList } from "@renderer/console/palette/overlay/PaletteResultList.js";
+import { PaletteResultList } from "./PaletteResultList.js";
 import { usePaletteOverlay, type PaletteOverlayProps } from "./hooks/useCommandPalette.js";
 
 /**

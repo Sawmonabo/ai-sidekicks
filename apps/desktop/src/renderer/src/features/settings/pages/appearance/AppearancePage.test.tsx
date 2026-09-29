@@ -11,7 +11,7 @@ import {
   AppearancePage,
   registerAppearancePage,
 } from "@renderer/console/settings/pages/appearance/AppearancePage.js";
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";
 

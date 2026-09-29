@@ -13,9 +13,9 @@ import { describe, expect, it } from "vitest";
 import { CommandRegistry } from "../command-registry.js";
 import {
   ConsoleFamilyContributions,
-  consoleCommands,
-} from "@renderer/console/palette/commands/console-commands.js";
-import { subscribeToConsoleKeyBindings } from "@renderer/console/palette/commands/command-surface.js";
+  subscribeToConsoleFamilyContributions,
+} from "../command-contributions.js";
+import { consoleCommands } from "../window-command-registry.js";
 import { useConsoleCommandSeat } from "./useRegisterCommands.js";
 import type { ConsoleCommand } from "../command-types.js";
 
@@ -55,7 +55,7 @@ describe("a surface's command seat", () => {
 
   it("tells the palette its list changed, so an open palette re-reads", () => {
     let signals = 0;
-    const stopWatching = subscribeToConsoleKeyBindings(() => {
+    const stopWatching = subscribeToConsoleFamilyContributions(() => {
       signals += 1;
     });
     const commands = [command("suite.signalled")];

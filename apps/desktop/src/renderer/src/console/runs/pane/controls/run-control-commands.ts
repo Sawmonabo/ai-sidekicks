@@ -26,7 +26,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
+import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "../../../primitives/index.js";
 import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
 import type { RunState } from "@ai-sidekicks/contracts";

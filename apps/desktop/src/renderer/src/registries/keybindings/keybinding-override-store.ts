@@ -38,22 +38,23 @@
 // nothing while a chord is being recorded, and the recorder reads the focused
 // control's own press.
 
-import { useCallback, useSyncExternalStore } from "react";
-
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleKeyBindings, subscribeToConsoleKeyBindings } from "../commands/command-surface.js";
-import { type KeyBinding } from "@renderer/registries/commands/command-types.js";
+import {
+  consoleFamilyKeyBindings,
+  subscribeToConsoleFamilyContributions,
+} from "../commands/command-contributions.js";
+import { type KeyBinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../primitives/index.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import {
   KEYBINDING_OVERRIDES_KEY,
   type KeybindingBindResult,
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
   type KeybindingSurface,
-} from "@renderer/registries/keybindings/keybinding-override-types.js";
+} from "./keybinding-override-types.js";
 import {
   composeEffectiveBindings,
   readOverrideMap,
@@ -61,7 +62,7 @@ import {
   type KeybindingOverride,
   type KeybindingOverrideMap,
   type KeybindingOverrideRefusal,
-} from "@renderer/registries/keybindings/keybinding-overrides.js";
+} from "./keybinding-overrides.js";
 
 /**
  * The latch key the hydration round is taken under.
@@ -319,30 +320,12 @@ export class KeybindingOverrideStore {
 /**
  * This window's overrides.
  *
- * Module scope IS window scope here, for the reason `palette/commands/command-surface.ts` gives about
- * the registry it holds the same way: an auxiliary window is its own renderer
+ * Module scope IS window scope here: every window is its own renderer
  * process, so no channel joins two windows' module graphs — and the settings page
  * reaches the seam the frame installs from without a store threaded through a page
  * contract that deliberately carries none.
  */
 export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
-  defaults: consoleKeyBindings,
-  subscribeToDefaults: subscribeToConsoleKeyBindings,
+  defaults: consoleFamilyKeyBindings,
+  subscribeToDefaults: subscribeToConsoleFamilyContributions,
 });
-
-/**
- * Read the seam from a component, re-rendering when an override is written.
- *
- * `useSyncExternalStore` rather than an effect writing into state: an override
- * written between a render and its subscription is missed by the effect shape, and a
- * keyboard silently disagreeing with the page describing it is the failure this seam
- * exists to prevent.
- */
-export function useKeybindingSurface(store: KeybindingOverrideStore): KeybindingSurface {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => store.subscribe(onStoreChange),
-    [store],
-  );
-  const read = useCallback(() => store.surface, [store]);
-  return useSyncExternalStore(subscribe, read, read);
-}

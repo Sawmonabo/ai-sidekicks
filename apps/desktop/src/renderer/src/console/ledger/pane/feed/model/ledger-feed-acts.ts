@@ -22,7 +22,7 @@
 import { useMemo } from "react";
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { raiseConsoleActRefusal } from "../../../../palette/index.js";
+import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
 
 import {
   useMountedLedger,

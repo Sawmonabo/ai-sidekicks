@@ -27,12 +27,12 @@
 // store, a bridge, or the DOM — which is what makes the whole contribution
 // testable by invoking `run` and watching the act fire.
 
+import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
 import {
-  raiseConsoleActRefusal,
   type ConsoleCommand,
-  type ConsoleCommandSurface,
   type KeyBinding,
-} from "../../palette/index.js";
+} from "@renderer/registries/commands/command-types.js";
+import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import {
   mountedLedger,
   type LedgerActName,

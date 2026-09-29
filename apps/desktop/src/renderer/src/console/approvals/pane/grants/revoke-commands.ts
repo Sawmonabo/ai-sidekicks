@@ -18,7 +18,8 @@
 import { useMemo } from "react";
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
+import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "../../../primitives/index.js";
 
 /** The owner these rows are contributed under. One per surface, one live at a time. */

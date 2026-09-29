@@ -27,7 +27,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { KeyBindingTable, consoleCommands } from "@renderer/console/palette/index.js";
+import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 

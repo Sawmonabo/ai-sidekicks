@@ -12,7 +12,7 @@ import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.j
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { LedgerFeed } from "./TranscriptFeed.js";
 import {
   LEDGER_FIXTURE_PANE_ID,

@@ -37,10 +37,7 @@ import {
 } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 import type { PaletteReadiness } from "../PaletteEmptyState.js";
-import {
-  groupResults,
-  type CommandResultGroup,
-} from "@renderer/console/palette/overlay/PaletteResultList.js";
+import { groupResults, type CommandResultGroup } from "../group-results.js";
 import {
   runLatchedCommand,
   type LatchedPaletteScope,

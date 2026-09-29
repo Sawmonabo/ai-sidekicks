@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { RememberedGrants } from "../components/RememberedRules.js";
 import { offersRevoke } from "@renderer/console/approvals/pane/grants/revoke-commands.js";
 

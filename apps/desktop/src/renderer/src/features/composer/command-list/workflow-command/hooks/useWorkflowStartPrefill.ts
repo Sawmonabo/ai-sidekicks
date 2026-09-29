@@ -21,7 +21,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useConsoleCommandSeat, type ConsoleCommand } from "@renderer/console/palette/index.js";
+import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { requestComposerFocus } from "@renderer/console/seats/index.js";
 import {

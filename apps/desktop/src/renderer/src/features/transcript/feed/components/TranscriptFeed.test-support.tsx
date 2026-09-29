@@ -23,7 +23,8 @@ import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.j
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { useLedgerRowLease } from "@renderer/console/ledger/frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { consoleCommandSurface, consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import {
   LEDGER_COMMAND_OWNER,
   registerLedgerCommands,

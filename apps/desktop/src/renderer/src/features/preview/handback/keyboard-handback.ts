@@ -75,7 +75,10 @@
 // for a named consumer and one nothing will ever import.
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { chordMatchesEvent, parseChord } from "@renderer/console/palette/index.js";
+import {
+  chordMatchesEvent,
+  parseChord,
+} from "@renderer/registries/keybindings/keybinding-chord.js";
 import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,

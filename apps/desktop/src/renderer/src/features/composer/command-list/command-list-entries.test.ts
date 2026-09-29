@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
-import type { ConsoleCommand } from "@renderer/console/palette/index.js";
+import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import {
   composeCatalog,
   filterCatalog,

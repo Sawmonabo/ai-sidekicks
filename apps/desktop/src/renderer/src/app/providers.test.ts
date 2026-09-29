@@ -37,7 +37,7 @@ import { consoleDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagn
 import { parseInstant } from "@renderer/lib/instant.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 

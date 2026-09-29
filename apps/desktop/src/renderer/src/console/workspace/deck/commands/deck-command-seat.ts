@@ -37,11 +37,9 @@
 import { useEffect } from "react";
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import {
-  raiseConsoleActRefusal,
-  type ConsoleCommand,
-  type ConsoleCommandSurface,
-} from "../../../palette/index.js";
+import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import type {
   DeckActName,
   DeckActs,

@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { UNFILTERED_LEDGER, emptyFindResult } from "@renderer/console/ledger/structure/index.js";
 import {
   LEDGER_NOTHING_FILTERED_REFUSAL,

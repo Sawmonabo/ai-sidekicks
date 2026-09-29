@@ -22,7 +22,7 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { type LedgerRowLease } from "../../../frame/index.js";
 import { sampleGeneralRow } from "@test/helpers/timeline-row-samples.js";
 import {

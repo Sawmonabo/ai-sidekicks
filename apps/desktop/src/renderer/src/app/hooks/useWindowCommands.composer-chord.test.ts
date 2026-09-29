@@ -21,7 +21,7 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { composerChordPrimaryModifier } from "@shared/composer-chord.js";
-import { CONSOLE_CHORD_PLATFORM } from "@renderer/console/palette/index.js";
+import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
 import { subscribeToComposerFocus } from "@renderer/console/seats/index.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 
@@ -40,7 +40,7 @@ function listenForComposerFocus(takeFocus: () => void): void {
  * something else there.
  */
 function pressKey(code: string, options: { readonly withPrimaryModifier: boolean }): void {
-  const usesMeta = composerChordPrimaryModifier(CONSOLE_CHORD_PLATFORM) === "meta";
+  const usesMeta = composerChordPrimaryModifier(HOST_CHORD_PLATFORM) === "meta";
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       code,

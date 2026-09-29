@@ -42,7 +42,7 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import { consoleCommandSurface } from "../palette/index.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import {

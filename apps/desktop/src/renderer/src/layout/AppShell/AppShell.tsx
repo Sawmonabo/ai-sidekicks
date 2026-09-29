@@ -53,11 +53,9 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
-import {
-  CONSOLE_CHORD_PLATFORM,
-  PaletteOverlay,
-  consoleCommands,
-} from "@renderer/console/palette/index.js";
+import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
+import { PaletteOverlay } from "../CommandPalette/CommandPalette.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { parseRoute } from "@renderer/routing/routes.js";
 import { railDestinationFor } from "@renderer/routing/route-readers.js";
@@ -74,7 +72,8 @@ import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { AppFrame } from "./AppFrame.js";
-import { describeScope, useFrameCommandSurface } from "@renderer/console/frame/frame-commands.js";
+import { useFrameCommandSurface } from "@renderer/app/hooks/useWindowCommands.js";
+import { describeScope } from "../CommandPalette/describe-palette-scope.js";
 import { applyConsoleScheme } from "@renderer/app/token-installation.js";
 import { useHashRouteBinding } from "@renderer/app/hooks/useHashRouteBinding.js";
 import { useLazyBodyIdleWarm } from "@renderer/app/hooks/useLazyBodyIdleWarm.js";
@@ -142,7 +141,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // header. A boolean, so zustand's `Object.is` compares it by value and a window
   // with no card up re-renders on nothing.
   const isModalSurfaceOpen = useFrameStore(frameStore, (state) => state.isModalSurfaceOpen);
-  const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
+  const { schemePreference } = useSchemePreference(frameStore, uiStateStore);
 
   // The sheet is already on the document — `ConsoleFrameHost` installed it above
   // the bridge gate. What is left here is the scheme attribute, which follows a
@@ -172,7 +171,6 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     lastOpenedSessionId,
     frameStore,
     uiStateStore,
-    chooseScheme,
     surfaceRegistry: consoleSurfaceRegistry,
   });
 
@@ -224,21 +222,17 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
             warmDestination(consoleSurfaceRegistry, destination);
             frameStore.navigate(routeForDestination(destination));
           }}
-          modalOverlayOpen={commandSurface.paletteOpen || isModalSurfaceOpen}
+          modalOverlayOpen={commandSurface.open || isModalSurfaceOpen}
           banners={banners}
           onDismissBanner={(bannerId) => {
             frameStore.dismissBanner(bannerId);
           }}
           overlays={
             <PaletteOverlay
+              {...commandSurface}
               registry={consoleCommands}
-              context={commandSurface.whenContext}
-              open={commandSurface.paletteOpen}
-              onOpenChange={commandSurface.setPaletteOpen}
-              platform={CONSOLE_CHORD_PLATFORM}
-              bindings={commandSurface.keyBindings}
+              platform={HOST_CHORD_PLATFORM}
               scopeLabel={describeScope(route)}
-              revision={commandSurface.commandRevision}
             />
           }
         >

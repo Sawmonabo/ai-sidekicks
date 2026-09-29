@@ -22,7 +22,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat, type ConsoleCommand } from "../../palette/index.js";
+import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {

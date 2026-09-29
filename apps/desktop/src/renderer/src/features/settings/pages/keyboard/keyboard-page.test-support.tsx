@@ -10,7 +10,8 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
 
-import { consoleCommands, consoleKeybindingOverrides } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { KeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
 

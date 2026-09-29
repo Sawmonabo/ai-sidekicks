@@ -17,7 +17,8 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { consoleCommandSurface, type ConsoleCommand } from "@renderer/console/palette/index.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 
 /** The family this file composes as, so its rows are withdrawn by owner. */

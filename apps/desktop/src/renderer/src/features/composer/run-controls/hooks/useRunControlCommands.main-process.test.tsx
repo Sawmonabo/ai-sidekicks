@@ -5,7 +5,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import { useRunControlCommands } from "@renderer/console/runs/pane/controls/run-control-commands.js";
 import {

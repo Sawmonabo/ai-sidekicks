@@ -6,7 +6,8 @@
 
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { ConsoleCommand, ConsoleCommandSurface, KeyBinding } from "../../../palette/index.js";
+import type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
+import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 
 import type { DeckActs } from "@renderer/features/sessions/pane-layout/pane-layout-acts.js";
 import {
