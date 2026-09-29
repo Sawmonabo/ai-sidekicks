@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { formatDateTime } from "@renderer/console/primitives/index.js";
 
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "./account-advisories.js";
-import { attachAccountAxisReadingFor, chosenAccountIn } from "./account-axis.js";
+import { accountAxisReadingFor, chosenAccountIn } from "./account-axis.js";
 import {
   OBSERVED_AT,
   account,
@@ -26,7 +26,7 @@ import {
 
 describe("the account axis's advisories — what it says about one account", () => {
   it("names the act a remedy calls for and never the provider's own sign-in command", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([account({ healthState: "reauth_required" })], [resolvedTo("acct-team")]),
       "claude",
     );
@@ -39,7 +39,7 @@ describe("the account axis's advisories — what it says about one account", () 
   });
 
   it("says what was stored even where no readiness entry resolved to the account", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([account({ healthState: "indeterminate", healthObservedAt: null })]),
       "claude",
     );
@@ -57,7 +57,7 @@ describe("the account axis's advisories — what the stored reading is allowed t
     overrides: Partial<ProviderAccount> = {},
     locale?: string,
   ): string | undefined {
-    const reading = attachAccountAxisReadingFor(served([account(overrides)]), "claude");
+    const reading = accountAxisReadingFor(served([account(overrides)]), "claude");
     const chosen = chosenAccountIn(reading, "acct-team");
     return chosen === undefined ? undefined : accountAdvisoriesFor(chosen, locale)[0];
   }
@@ -144,8 +144,8 @@ describe("the account axis's advisories — what the stored reading is allowed t
 
 describe("the account axis's advisories — where resolution reached no account", () => {
   /** A served `claude` reading whose entry resolved nothing and asks for a default. */
-  function withNoDefault(): ReturnType<typeof attachAccountAxisReadingFor> {
-    return attachAccountAxisReadingFor(
+  function withNoDefault(): ReturnType<typeof accountAxisReadingFor> {
+    return accountAxisReadingFor(
       served(
         [
           account({ accountId: registryAccountId("acct-team"), isDefault: false }),
@@ -182,12 +182,12 @@ describe("the account axis's advisories — where resolution reached no account"
     // Both readers reach the same table — the per-account list where an entry resolved
     // a row, and this rule where it resolved none — so which sentence a person meets
     // never depends on whether an account happened to resolve.
-    const resolvedReading = attachAccountAxisReadingFor(
+    const resolvedReading = accountAxisReadingFor(
       served([account({ healthState: "reauth_required" })], [resolvedTo("acct-team")]),
       "claude",
     );
     const chosen = chosenAccountIn(resolvedReading, "acct-team");
-    const registerReading = attachAccountAxisReadingFor(
+    const registerReading = accountAxisReadingFor(
       served(
         [],
         [
@@ -212,7 +212,7 @@ describe("the account axis's advisories — where resolution reached no account"
   it("negative control: says nothing where the entry did resolve an account", () => {
     // Without this the rule would speak over every reading, and the remedy would
     // render twice — once on the resolved row's own list and once beside it.
-    const resolvedReading = attachAccountAxisReadingFor(
+    const resolvedReading = accountAxisReadingFor(
       served([account()], [resolvedTo("acct-team")]),
       "claude",
     );
@@ -230,7 +230,7 @@ describe("the account axis's advisories — where resolution reached no account"
   it("negative control: says nothing where the read carried no entry for this provider", () => {
     // An absent entry and an entry that resolved no account are different facts, and
     // only the second is a default that does not exist.
-    const noEntry = attachAccountAxisReadingFor(served([account()]), "claude");
+    const noEntry = accountAxisReadingFor(served([account()]), "claude");
 
     expect(unresolvedDefaultAdvisoryIn(noEntry, undefined)).toBeUndefined();
   });

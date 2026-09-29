@@ -21,13 +21,13 @@ import {
   SERVED_DIRECTORY,
   composeWindow,
   loadRunPaneBody,
-  mountWorkflowsSlot,
+  mountWorkflowsScreen,
   pressFirst,
   pressOpenRun,
   probeRunPane,
   type ComposedWindow,
 } from "./WorkflowsScreen.test-support.js";
-import { WorkflowsDestination } from "./WorkflowsScreen.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
  * Mount the screen over a composition whose run body records what it was opened on.
@@ -44,7 +44,7 @@ function renderDestination(directoryProps: { readonly directory?: WorkflowRunDir
   const openedContexts = probeRunPane(composed.paneRegistry);
   const { container } = render(
     <LiveAnnouncerProvider>
-      <WorkflowsDestination context={composed.context} {...directoryProps} />
+      <WorkflowsScreen context={composed.context} {...directoryProps} />
     </LiveAnnouncerProvider>,
   );
   return { container, openedContexts };
@@ -52,7 +52,7 @@ function renderDestination(directoryProps: { readonly directory?: WorkflowRunDir
 
 /** Mount one already-composed window and hand back the tree it rendered into. */
 function renderComposed(composed: ComposedWindow): HTMLElement {
-  return mountWorkflowsSlot(composed).container;
+  return mountWorkflowsScreen(composed).container;
 }
 
 /** Compose a window and mount the screen into it. */

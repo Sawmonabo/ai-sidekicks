@@ -21,7 +21,7 @@
 // registry key — while an account's `provider` is a closed union, and the corpus says
 // the two vocabularies are the same set without giving the wire a type that says so.
 // A driver this build cannot match to a provider therefore answers
-// {@link AttachAccountAxisReading}'s own arm rather than falling through to "no
+// {@link AccountAxisReading}'s own arm rather than falling through to "no
 // accounts": offering another provider's accounts under it would pin a run to an
 // account nobody chose for it, and rendering an empty picker would say the registry
 // holds none when what happened is that nothing here could tell.
@@ -61,7 +61,7 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
  * test drives it with an object rather than by standing up a bridge. The readout
  * satisfies it structurally, which is what keeps this a narrowing and not a copy.
  */
-export interface AttachAccountRegistryReading extends WireReadState {
+export interface AccountRegistryReading extends WireReadState {
   /** Every account the registry carries, in the order the daemon sent them. */
   readonly accounts: readonly ProviderAccount[];
   /** What run admission would answer per provider, as the last READ computed it. */
@@ -69,7 +69,7 @@ export interface AttachAccountRegistryReading extends WireReadState {
 }
 
 /** One account the axis may take, with the stored reading that renders beside it. */
-export interface AttachAccountChoice {
+export interface AccountChoice {
   readonly accountId: string;
   /** Operator-chosen. What a person recognizes the account by. */
   readonly displayLabel: string;
@@ -96,7 +96,7 @@ export interface AttachAccountChoice {
  * a list are exactly the ones a picker rendered as empty would report as "no accounts
  * exist" — the conflation the console's kinds of nothing exist to refuse.
  */
-export type AttachAccountAxisReading =
+export type AccountAxisReading =
   | { readonly kind: "driver-unchosen" }
   | { readonly kind: "reading" }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
@@ -107,7 +107,7 @@ export type AttachAccountAxisReading =
       /**
        * This provider's own readiness entry, where the read carried one.
        *
-       * DERIVED ONCE, IN {@link attachAccountAxisReadingFor}. The projection is keyed
+       * DERIVED ONCE, IN {@link accountAxisReadingFor}. The projection is keyed
        * by provider and this arm is the one place the provider is settled, so a
        * component that re-found the entry would be a second answer to which entry
        * this axis is about — and the two would disagree the moment either match
@@ -115,7 +115,7 @@ export type AttachAccountAxisReading =
        * not the same fact as an entry that resolved no account.
        */
       readonly providerReadiness: ProviderReadiness | undefined;
-      readonly choices: readonly AttachAccountChoice[];
+      readonly choices: readonly AccountChoice[];
     };
 
 /**
@@ -127,10 +127,10 @@ export type AttachAccountAxisReading =
  * state — the default is marked on its row instead, which says the same thing without
  * moving anything.
  */
-export function attachAccountAxisReadingFor(
-  registry: AttachAccountRegistryReading,
+export function accountAxisReadingFor(
+  registry: AccountRegistryReading,
   driverName: string | undefined,
-): AttachAccountAxisReading {
+): AccountAxisReading {
   if (driverName === undefined || driverName === "") {
     return { kind: "driver-unchosen" };
   }
@@ -162,9 +162,9 @@ export function attachAccountAxisReadingFor(
 
 /** The choice this axis is currently on, or `undefined` where the value names none. */
 export function chosenAccountIn(
-  reading: AttachAccountAxisReading,
+  reading: AccountAxisReading,
   accountId: string | undefined,
-): AttachAccountChoice | undefined {
+): AccountChoice | undefined {
   if (reading.kind !== "served" || accountId === undefined) {
     return undefined;
   }
@@ -196,9 +196,9 @@ export function chosenAccountIn(
  * @param accountId The account this field PINS, or `undefined` where it pins none.
  */
 export function advisoryChoiceIn(
-  reading: AttachAccountAxisReading,
+  reading: AccountAxisReading,
   accountId: string | undefined,
-): AttachAccountChoice | undefined {
+): AccountChoice | undefined {
   if (accountId !== undefined) {
     return chosenAccountIn(reading, accountId);
   }
@@ -216,10 +216,7 @@ export function advisoryChoiceIn(
  * "not a member" would let a form call a caller's own pinned account unknown on the
  * strength of a read that never landed.
  */
-export function registryCarriesAccount(
-  reading: AttachAccountAxisReading,
-  accountId: string,
-): boolean {
+export function registryCarriesAccount(reading: AccountAxisReading, accountId: string): boolean {
   return (
     reading.kind !== "served" || reading.choices.some((choice) => choice.accountId === accountId)
   );
@@ -249,7 +246,7 @@ function providerForDriver(driverName: string | undefined): ProviderName | undef
 function accountChoiceFor(
   account: ProviderAccount,
   providerReadiness: ProviderReadiness | undefined,
-): AttachAccountChoice {
+): AccountChoice {
   return {
     accountId: account.accountId,
     displayLabel: account.displayLabel,

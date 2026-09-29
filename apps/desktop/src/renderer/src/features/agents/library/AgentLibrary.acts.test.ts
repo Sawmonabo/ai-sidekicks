@@ -8,7 +8,7 @@
 // The editor subject is here for the same reason: what a press selects, and on which
 // record, is an act and not a reading.
 //
-// What the page reads, shows, and announces is `AgentDefinitionsPage.read.test.tsx`.
+// What the page reads, shows, and announces is `AgentLibrary.read.test.ts`.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the registry calls are plain functions the stub there answers.
@@ -22,14 +22,14 @@ import {
   definition,
   press,
   pressWithoutSettling,
-  renderPage,
+  renderAgentLibrary,
   savedRegionOf,
   settle,
 } from "./agent-library.test-support.js";
 
 describe("the agent definitions page — the editor's subject", () => {
   it("selects the record whose edit was pressed", async () => {
-    const { container } = renderPage(new RegistryStub({ lists: [[definition()]] }));
+    const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     const edit = buttonNamed(container, "Edit Reviewer");
     expect(edit.getAttribute("aria-pressed")).toBe("false");
@@ -39,7 +39,7 @@ describe("the agent definitions page — the editor's subject", () => {
   });
 
   it("selects the compose arm for a new definition", async () => {
-    const { container } = renderPage(new RegistryStub({ lists: [[definition()]] }));
+    const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     const create = container.querySelector<HTMLButtonElement>(".meridian-agent-definitions__new");
     expect(create?.getAttribute("aria-pressed")).toBe("false");
@@ -52,7 +52,7 @@ describe("the agent definitions page — the editor's subject", () => {
   it("negative control: selecting one record does not mark its neighbor's", async () => {
     // Without this, both cases above would pass over a page that marked every row
     // as soon as any record was selected.
-    const { container } = renderPage(
+    const { container } = renderAgentLibrary(
       new RegistryStub({
         lists: [[definition(), definition({ definitionId: "definition-2", name: "Auditor" })]],
       }),
@@ -67,7 +67,7 @@ describe("the agent definitions page — the editor's subject", () => {
 describe("the agent definitions page — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {
     const stub = new RegistryStub({ lists: [[definition()]] });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     expect(container.textContent ?? "").toContain("Delete “Reviewer”?");
@@ -76,7 +76,7 @@ describe("the agent definitions page — deleting one", () => {
 
   it("keeps the record when the question is answered no", async () => {
     const stub = new RegistryStub({ lists: [[definition()]] });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     const keep = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -92,7 +92,7 @@ describe("the agent definitions page — deleting one", () => {
     // a page that dropped it locally, which would agree with a delete that may have
     // been applied differently or not at all.
     const stub = new RegistryStub({ lists: [[definition()], []] });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     await press(confirmDeleteIn(container));
@@ -112,7 +112,7 @@ describe("the agent definitions page — deleting one", () => {
         [definition({ definitionId: "definition-2", name: "Auditor" })],
       ],
     });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     await pressWithoutSettling(confirmDeleteIn(container));
@@ -134,7 +134,7 @@ describe("the agent definitions page — while one delete is running", () => {
       ],
       holdsDeletes: true,
     });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
 
     await press(buttonNamed(container, "Delete Reviewer"));
@@ -160,7 +160,7 @@ describe("the agent definitions page — while one delete is running", () => {
         [definition({ definitionId: "definition-2", name: "Auditor" })],
       ],
     });
-    const { container } = renderPage(stub);
+    const { container } = renderAgentLibrary(stub);
     await settle();
 
     await press(buttonNamed(container, "Delete Reviewer"));

@@ -110,7 +110,7 @@ export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, str
  * absence of a name is representable, and the id can carry rule 4's mono provenance
  * signature wherever it is drawn.
  */
-export interface PhaseGraphNode {
+export interface RunGraphNode {
   /** The run's own identity for this phase. Wire-verbatim; never parsed, never prettified. */
   readonly phaseId: string;
   /**
@@ -152,7 +152,7 @@ export interface PhaseSequenceEdge {
  * here because two call sites choosing it separately is how one of them comes to
  * announce a phase the other calls something else.
  */
-export function phaseDisplayText(phase: PhaseGraphNode): string {
+export function phaseDisplayText(phase: RunGraphNode): string {
   return phase.displayName ?? phase.phaseId;
 }
 
@@ -166,7 +166,7 @@ export function phaseDisplayText(phase: PhaseGraphNode): string {
  * written against.
  */
 export function declaredEdges(
-  phases: readonly PhaseGraphNode[],
+  phases: readonly RunGraphNode[],
   topology: PhaseTopology,
 ): readonly PhaseSequenceEdge[] | undefined {
   const phaseById = new Map(phases.map((phase) => [phase.phaseId, phase]));
@@ -281,7 +281,7 @@ export function phasesNeverEligible(topology: PhaseTopology): readonly string[] 
  * place: an edge whose id disagreed with its endpoints would collide on the canvas,
  * where node and edge identity are the only keys there are.
  */
-function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSequenceEdge {
+function dependencyEdge(sourcePhaseId: string, target: RunGraphNode): PhaseSequenceEdge {
   return {
     edgeId: `${sourcePhaseId}->${target.phaseId}`,
     sourcePhaseId,
@@ -299,7 +299,7 @@ function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSeq
  * again, one indirection further along.
  */
 function chainOverDeclarationOrder(
-  phaseById: ReadonlyMap<string, PhaseGraphNode>,
+  phaseById: ReadonlyMap<string, RunGraphNode>,
   topology: PhaseTopology,
 ): readonly PhaseSequenceEdge[] {
   const edges: PhaseSequenceEdge[] = [];

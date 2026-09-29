@@ -7,7 +7,7 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { WorkflowSlotMount } from "./EngineMountPoint.js";
+import { EngineMountPoint } from "./EngineMountPoint.js";
 
 interface ProbeMount {
   readonly sessionId: string;
@@ -25,13 +25,13 @@ function expectEmptyFrame(container: HTMLElement): void {
 
 describe("a slot's mount", () => {
   it("draws an empty frame while no body has been supplied", () => {
-    const { container } = render(<WorkflowSlotMount body={undefined} mount={PROBE_MOUNT} />);
+    const { container } = render(<EngineMountPoint body={undefined} mount={PROBE_MOUNT} />);
     expectEmptyFrame(container);
   });
 
   it("renders a supplied body, and hands it the mount verbatim", () => {
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
-    const { container } = render(<WorkflowSlotMount body={body} mount={PROBE_MOUNT} />);
+    const { container } = render(<EngineMountPoint body={body} mount={PROBE_MOUNT} />);
     expect(container.textContent).toContain("probe body for ses-slot-mount");
     expect(body.mock.calls[0]?.[0]).toStrictEqual(PROBE_MOUNT);
   });
@@ -40,7 +40,7 @@ describe("a slot's mount", () => {
     // A body composed against an obligation nobody could supply would be answerable in
     // appearance and unsubmittable in fact.
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
-    const { container } = render(<WorkflowSlotMount body={body} mount={undefined} />);
+    const { container } = render(<EngineMountPoint body={body} mount={undefined} />);
     expectEmptyFrame(container);
     expect(body).not.toHaveBeenCalled();
   });
@@ -54,10 +54,10 @@ describe("a slot's mount", () => {
       return <p>held {seen}</p>;
     }
     const { container, rerender } = render(
-      <WorkflowSlotMount body={StatefulBody} mount={undefined} />,
+      <EngineMountPoint body={StatefulBody} mount={undefined} />,
     );
     expectEmptyFrame(container);
-    rerender(<WorkflowSlotMount body={StatefulBody} mount={PROBE_MOUNT} />);
+    rerender(<EngineMountPoint body={StatefulBody} mount={PROBE_MOUNT} />);
     expect(container.textContent).toContain("held ses-slot-mount");
   });
 });

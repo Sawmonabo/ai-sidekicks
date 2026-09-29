@@ -15,7 +15,7 @@ import "./components/WorkflowStateStrip.css";
 import { createElement } from "react";
 
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import { WorkflowsDestination } from "./WorkflowsScreen.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
  * The workflows screen, at the route the frame committed. It takes the whole context
@@ -23,4 +23,4 @@ import { WorkflowsDestination } from "./WorkflowsScreen.js";
  * pane's own address.
  */
 export const Body: (context: ConsoleSurfaceContext) => React.ReactNode = (context) =>
-  createElement(WorkflowsDestination, { context });
+  createElement(WorkflowsScreen, { context });

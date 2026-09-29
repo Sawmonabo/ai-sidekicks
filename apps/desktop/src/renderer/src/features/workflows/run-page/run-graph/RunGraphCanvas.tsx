@@ -48,7 +48,7 @@ import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
 import { tokenReference } from "@renderer/styles/tokens.js";
 import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../workflows-caps.js";
 import { PHASE_NODE_TYPE } from "./run-graph-elements.js";
-import { usePhaseGraphElements } from "./hooks/useRunGraphElements.js";
+import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { PhaseNode } from "./PhaseNode.js";
 import type { DrawnPhaseSequence } from "./phase-sequence-layout.js";
 
@@ -80,7 +80,7 @@ const PHASE_GRAPH_FIT_VIEW_OPTIONS: FitViewOptions = { padding: PHASE_GRAPH_FIT_
  */
 const SEQUENCE_MARKER_COLOR: string = tokenReference("edge-strong");
 
-export interface PhaseGraphCanvasProps {
+export interface RunGraphCanvasProps {
   /** The placed sequence. A malformed one never reaches here — the host refuses first. */
   readonly layout: DrawnPhaseSequence;
   /** The region's accessible name, supplied by the surface that mounted the graph. */
@@ -88,8 +88,8 @@ export interface PhaseGraphCanvasProps {
 }
 
 /** One run's phase sequence, drawn. */
-export function PhaseGraphCanvas(props: PhaseGraphCanvasProps): React.JSX.Element {
-  const { nodes, edges } = usePhaseGraphElements(props.layout);
+export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
+  const { nodes, edges } = useRunGraphElements(props.layout);
 
   return (
     <div className="meridian-phase-graph__canvas">

@@ -32,11 +32,11 @@ import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/co
 import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  createAgentRoster,
-  createChildRunLinkage,
+  createAgentList,
+  createChildRunLinks,
   type AgentConsoleCalls,
-  type AgentRosterRead,
-  type ChildRunLinkageRead,
+  type AgentListRead,
+  type ChildRunLinksRead,
 } from "../agent-reads.js";
 
 /**
@@ -49,8 +49,8 @@ import {
  * `start()` is idempotent, so a second holder joining a live read starts nothing
  * twice.
  */
-export interface ChildRunLinkageLease {
-  readonly read: ChildRunLinkageRead;
+export interface ChildRunLinksLease {
+  readonly read: ChildRunLinksRead;
   /**
    * Give this grant back.
    *
@@ -68,17 +68,17 @@ export interface ChildRunLinkageLease {
  * teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with private
  * fields.
  */
-export class AgentConsoleModels {
+export class AgentsPaneModels {
   /**
    * The exact bridge and store this set was built for.
    *
-   * Public because it is what {@link useAgentConsoleModels} compares at render, and
+   * Public because it is what {@link useAgentsPaneModels} compares at render, and
    * the store is held rather than reduced to a `sessionId` for a second reason: a
    * child link and a refused create both arrive as session events, so the linkage
    * read needs the stream itself and not the name of the session it belongs to.
    */
   public readonly subject: SessionSubject;
-  public readonly roster: AgentRosterRead;
+  public readonly roster: AgentListRead;
 
   readonly #clock: ConsoleClock;
   readonly #calls: AgentConsoleCalls;
@@ -95,7 +95,7 @@ export class AgentConsoleModels {
     // is how a window ends up with stores on wall time while its scenario beats advance
     // on frozen time, which is the exact drift that seam was minted to end.
     this.#clock = consoleClockFor(bridge);
-    this.roster = createAgentRoster(sessionStore, this.#clock, calls.listAgents);
+    this.roster = createAgentList(sessionStore, this.#clock, calls.listAgents);
     this.roster.start();
   }
 
@@ -128,7 +128,7 @@ export class AgentConsoleModels {
    * starting opens a subscription and arms a scheduler, and the surface that takes
    * the lease does both from a mount effect, where a cleanup exists to undo them.
    */
-  public acquireLinkage(parentRunId: string): ChildRunLinkageLease {
+  public acquireLinkage(parentRunId: string): ChildRunLinksLease {
     const held = this.#linkage;
     if (held !== undefined && held.parentRunId === parentRunId) {
       this.#outstandingLinkageLeaseCount += 1;
@@ -137,7 +137,7 @@ export class AgentConsoleModels {
     this.#releaseLinkage();
     const linkage: HeldChildRunLinkage = {
       parentRunId,
-      read: createChildRunLinkage(
+      read: createChildRunLinks(
         this.subject.sessionStore,
         parentRunId,
         this.#clock,
@@ -167,7 +167,7 @@ export class AgentConsoleModels {
    * read, and a counter decremented by that cleanup would take the NEW run's read
    * down with it.
    */
-  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinkageLease {
+  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinksLease {
     let isReleased = false;
     return {
       read: linkage.read,
@@ -196,5 +196,5 @@ export class AgentConsoleModels {
 /** The linkage read the models hold, with the run it answers for. */
 interface HeldChildRunLinkage {
   readonly parentRunId: string;
-  readonly read: ChildRunLinkageRead;
+  readonly read: ChildRunLinksRead;
 }

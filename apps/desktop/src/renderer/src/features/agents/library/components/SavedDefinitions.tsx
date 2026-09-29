@@ -1,12 +1,12 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { type AgentRegistrySnapshot, type AgentRegistryView } from "../library-view.js";
+import { type AgentLibrarySnapshot, type AgentLibraryView } from "../library-view.js";
 import { NO_SAVED_DEFINITIONS } from "../definition-rows.js";
 import { SavedDefinitionRow } from "./SavedDefinitionRow.js";
 
 /** The saved column's three answers, one per arm of the reading. */
 export function SavedDefinitions(props: {
-  readonly snapshot: AgentRegistrySnapshot;
-  readonly view: AgentRegistryView;
+  readonly snapshot: AgentLibrarySnapshot;
+  readonly view: AgentLibraryView;
 }): React.JSX.Element {
   const { snapshot, view } = props;
   const { reading } = snapshot;

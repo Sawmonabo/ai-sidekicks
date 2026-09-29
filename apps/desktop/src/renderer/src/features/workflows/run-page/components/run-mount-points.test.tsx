@@ -11,12 +11,12 @@ import { PARKED_RUN } from "../../workflows-probe.test-support.js";
 import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import {
   answerSubmit,
-  renderSwitchableSlot,
+  renderSwitchableMountPoint,
   resolveSchemaFormChunks,
 } from "../default-human-form-body.test-support.js";
-import { HumanFormSlot } from "./HumanFormMountPoint.js";
+import { HumanFormMountPoint } from "./HumanFormMountPoint.js";
 import type { HumanFormMount, HumanFormPhase } from "../human-form-mount.js";
-import { RunDetailSlot, type RunDetailMount } from "./RunDetailMountPoint.js";
+import { RunDetailMountPoint, type RunDetailMount } from "./RunDetailMountPoint.js";
 
 /** The submit's request, read off the call's own type rather than restated. */
 type WorkflowHumanFormSubmitRequest = Parameters<WorkflowHumanFormSubmitCall>[0];
@@ -32,8 +32,11 @@ const OPEN_PHASE: HumanFormPhase = {
 
 /** Each slot's unfilled rendering, as one table so a third cannot skip a case. */
 const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
-  ["run detail", <RunDetailSlot key="run-detail" workflowRunId="wfr-01" />],
-  ["human form", <HumanFormSlot key="human-form" phase={undefined} submitForm={answerSubmit} />],
+  ["run detail", <RunDetailMountPoint key="run-detail" workflowRunId="wfr-01" />],
+  [
+    "human form",
+    <HumanFormMountPoint key="human-form" phase={undefined} submitForm={answerSubmit} />,
+  ],
 ];
 
 // Resolved once so every case renders a loaded form whose submit is armed.
@@ -59,7 +62,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // described. `toStrictEqual` is what makes that bite — it separates an absent
     // key from one carrying `undefined`.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
-    const { container } = render(<RunDetailSlot workflowRunId="wfr-01" body={body} />);
+    const { container } = render(<RunDetailMountPoint workflowRunId="wfr-01" body={body} />);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({ workflowRunId: "wfr-01" });
     expect(container.textContent).toContain("run detail body");
   });
@@ -71,7 +74,11 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // it on one screen.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     render(
-      <RunDetailSlot workflowRunId={PARKED_RUN.workflowRunId} snapshot={PARKED_RUN} body={body} />,
+      <RunDetailMountPoint
+        workflowRunId={PARKED_RUN.workflowRunId}
+        snapshot={PARKED_RUN}
+        body={body}
+      />,
     );
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       workflowRunId: PARKED_RUN.workflowRunId,
@@ -87,7 +94,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // bound submit the seat keeps. `toStrictEqual` is what makes that exact — a body
     // handed a member this slot did not promise is as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
-    await renderSwitchableSlot({ phase: OPEN_PHASE, body });
+    await renderSwitchableMountPoint({ phase: OPEN_PHASE, body });
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       ...OPEN_PHASE,
       submit: expect.any(Function),
@@ -99,7 +106,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // appearance and unsubmittable in fact, so the body is not called at all rather
     // than called with a placeholder.
     const body = vi.fn(() => <p>form body</p>);
-    const { container } = await renderSwitchableSlot({ phase: undefined, body });
+    const { container } = await renderSwitchableMountPoint({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
     expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
   });
@@ -131,7 +138,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   it("tears the body down when the phase closes and reopens it on the next one", async () => {
     const recordTeardown = vi.fn();
     const body = statefulFormBody(recordTeardown);
-    const slot = await renderSwitchableSlot({ phase: undefined, body });
+    const slot = await renderSwitchableMountPoint({ phase: undefined, body });
     await slot.switchTo(OPEN_PHASE);
     expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
 
@@ -218,7 +225,7 @@ describe("the human-form mount composes the registered submit on its own", () =>
       composed.push(submitRequestFor(mount, { approved: true }));
       return <p>form body</p>;
     };
-    await renderSwitchableSlot({ phase: OPEN_PHASE, body });
+    await renderSwitchableMountPoint({ phase: OPEN_PHASE, body });
 
     expect(composed).toStrictEqual([
       {

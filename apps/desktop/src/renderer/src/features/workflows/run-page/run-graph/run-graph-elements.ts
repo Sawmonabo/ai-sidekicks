@@ -12,7 +12,7 @@
 // identical on every machine.
 //
 // WHY THIS MODULE SITS IN THE LAZY CHUNK. It imports the library for values —
-// `MarkerType`, `Position` — and so is reachable only from `PhaseGraphCanvas.tsx`,
+// `MarkerType`, `Position` — and so is reachable only from `RunGraphCanvas.tsx`,
 // which is itself reached only through this directory's `index.ts`, the door
 // `phase-graph-loader.ts`'s `import()` names. The layout module beside it imports
 // nothing from the library at all, which is what lets the host decide whether a graph
@@ -32,7 +32,7 @@ import {
 import {
   PHASE_PARK_ATTENTION_MARKS,
   phaseDisplayText,
-  type PhaseGraphNode,
+  type RunGraphNode,
   type PhaseSequenceEdge,
 } from "./phase-topology.js";
 
@@ -43,7 +43,7 @@ import {
  * data to `Record<string, unknown>` and only an alias picks up the implicit index
  * signature that satisfies it.
  */
-export type PhaseNodeData = { readonly phase: PhaseGraphNode };
+export type PhaseNodeData = { readonly phase: RunGraphNode };
 
 /**
  * The one node kind this surface draws. The string is the `nodeTypes` key.
@@ -69,7 +69,7 @@ export type PhaseFlowEdge = Edge;
  * precisely the store re-entry the memo below exists to prevent. Nothing in this
  * directory mutates either array; the canvas passes each straight through.
  */
-export interface PhaseGraphElements {
+export interface RunGraphElements {
   readonly nodes: PhaseFlowNode[];
   readonly edges: PhaseFlowEdge[];
 }
@@ -93,7 +93,7 @@ export interface PhaseGraphElements {
  * told a scheduled park is scheduled — which is the whole of what the neutral
  * treatment says to a reader looking at it.
  */
-export function phaseNodeAccessibleName(phase: PhaseGraphNode): string {
+export function phaseNodeAccessibleName(phase: RunGraphNode): string {
   const parts = [`${phaseDisplayText(phase)}: ${phase.state}`, `gate ${phase.gateState}`];
   if (phase.parkAttention !== undefined) {
     parts.push(PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]);
@@ -113,7 +113,7 @@ export function sequenceEdgeAccessibleName(edge: PhaseSequenceEdge): string {
 }
 
 /** The renderer's arrays for one drawn sequence. Pure; the memo is the hook's job. */
-export function toPhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElements {
+export function toRunGraphElements(layout: DrawnPhaseSequence): RunGraphElements {
   const nodes: PhaseFlowNode[] = layout.nodes.map((placed) => ({
     id: placed.phase.phaseId,
     type: PHASE_NODE_TYPE,

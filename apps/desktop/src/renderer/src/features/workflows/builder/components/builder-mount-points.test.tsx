@@ -18,8 +18,8 @@ import { describe, expect, it, vi } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DraftsSlot, type DraftsMount } from "./DraftsMountPoint.js";
-import { NodeGraphSlot, type NodeGraphMount } from "./NodeGraphMountPoint.js";
+import { DraftsMountPoint, type DraftsMount } from "./DraftsMountPoint.js";
+import { NodeGraphMountPoint, type NodeGraphMount } from "./NodeGraphMountPoint.js";
 
 const DEFINITION_ID = "workflow-definition-01";
 
@@ -28,7 +28,7 @@ const DEFINITION_ID = "workflow-definition-01";
  *
  * The class itself and not a hand-made double, because what is under test is WHICH
  * store reaches the body and a double would prove only that a double was passed
- * along. Its own `opening()` factory is avoided for the reason `WorkflowRunPane`'s
+ * along. Its own `opening()` factory is avoided for the reason `RunPage`'s
  * tests give for casting a whole context: that path opens a database, and these
  * cases never read or write one. The constructor only wraps what it is handed, so a
  * pending adapter costs nothing and arms nothing.
@@ -42,7 +42,7 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
   return [
     [
       "node graph",
-      <NodeGraphSlot
+      <NodeGraphMountPoint
         key="node-graph"
         workflowDefinitionId={DEFINITION_ID}
         uiStateStore={unopenedUiStateStore()}
@@ -50,7 +50,7 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
     ],
     [
       "drafts",
-      <DraftsSlot
+      <DraftsMountPoint
         key="drafts"
         workflowDefinitionId={DEFINITION_ID}
         draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
@@ -74,7 +74,7 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
     const uiStateStore = unopenedUiStateStore();
     const body = vi.fn((_mount: NodeGraphMount) => <p>canvas body</p>);
     const { container } = render(
-      <NodeGraphSlot
+      <NodeGraphMountPoint
         workflowDefinitionId={DEFINITION_ID}
         uiStateStore={uiStateStore}
         body={body}
@@ -97,7 +97,9 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
   it("hands the drafts the definition and the window store, and no durable store", () => {
     const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
     const body = vi.fn((_mount: DraftsMount) => <p>inspector body</p>);
-    render(<DraftsSlot workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />);
+    render(
+      <DraftsMountPoint workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />,
+    );
     // The durable store is absent by design and not by omission: a draft that
     // survived a restart would be user prose in a durable home.
     expect(body.mock.calls[0]?.[0]?.draftStore).toBe(draftStore);

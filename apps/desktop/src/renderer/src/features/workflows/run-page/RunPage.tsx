@@ -24,7 +24,7 @@
 // guard, and both refuse through `workflows/pane/pane-addressing.ts`.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { ChatStartSlot } from "./components/ChatStartMountPoint.js";
+import { ChatStartMountPoint } from "./components/ChatStartMountPoint.js";
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
@@ -35,12 +35,12 @@ import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addre
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
 
 /** The context the deck resolved for a `workflow-run` pane. */
-export interface WorkflowRunPaneProps {
+export interface RunPageProps {
   readonly context: PaneContextOf<"workflow-run">;
 }
 
 /** The body of a run pane, drawn inside the pane chrome's frame. */
-export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
+export function RunPage(props: RunPageProps): React.JSX.Element {
   const { sessionStore, focusHue } = props.context;
   // Widened on purpose: this arm's `entity` is declared as a required run reference, but
   // `paneBodyForKind` narrows a context on its `kind` alone and a pane address is also
@@ -57,7 +57,7 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
       return (
         <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
           <Nothing kind="empty" placement="surface" title="This pane names no run." />
-          <ChatStartSlot sessionId={sessionStore?.sessionId} />
+          <ChatStartMountPoint sessionId={sessionStore?.sessionId} />
         </WorkflowStateStrip>
       );
     }

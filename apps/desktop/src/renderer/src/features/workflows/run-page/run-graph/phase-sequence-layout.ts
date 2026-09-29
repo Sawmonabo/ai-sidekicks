@@ -37,7 +37,7 @@
 
 import {
   declaredEdges,
-  type PhaseGraphNode,
+  type RunGraphNode,
   type PhaseSequenceEdge,
   type PhaseTopology,
   type PhaseTopologyAbsence,
@@ -75,7 +75,7 @@ export const PHASE_RANK_PITCH_PX: number = PHASE_NODE_HEIGHT_PX + PHASE_RANK_SPA
 
 /** A phase placed on the canvas. Position is in the flow's own coordinate space. */
 export interface PositionedPhaseNode {
-  readonly phase: PhaseGraphNode;
+  readonly phase: RunGraphNode;
   /** Longest-path rank. With one edge kind this is the phase's position in the run. */
   readonly rank: number;
   readonly x: number;
@@ -134,10 +134,7 @@ export class PhaseSequenceLayoutCache {
    * The layout for `phases` under `topology`, recomputed only when either moved.
    * The returned object is reference-stable across calls that describe one run.
    */
-  public layoutFor(
-    phases: readonly PhaseGraphNode[],
-    topology?: PhaseTopology,
-  ): PhaseSequenceLayout {
+  public layoutFor(phases: readonly RunGraphNode[], topology?: PhaseTopology): PhaseSequenceLayout {
     const signature = phaseSequenceSignature(phases, topology);
     const held = this.#layout;
     if (held !== undefined && this.#signature === signature) {
@@ -163,7 +160,7 @@ export class PhaseSequenceLayoutCache {
  * ran on.
  */
 export function layoutPhaseSequence(
-  phases: readonly PhaseGraphNode[],
+  phases: readonly RunGraphNode[],
   topology?: PhaseTopology,
 ): PhaseSequenceLayout {
   const repeated = repeatedPhaseIds(phases);
@@ -202,7 +199,7 @@ export function layoutPhaseSequence(
  * edgeless layout it computed first and never draw the dependencies at all.
  */
 export function phaseSequenceSignature(
-  phases: readonly PhaseGraphNode[],
+  phases: readonly RunGraphNode[],
   topology?: PhaseTopology,
 ): string {
   return JSON.stringify([
@@ -223,7 +220,7 @@ function rankOf(index: number): number {
 }
 
 /** Every phase id that appears more than once, in first-repeat order and once each. */
-function repeatedPhaseIds(phases: readonly PhaseGraphNode[]): readonly string[] {
+function repeatedPhaseIds(phases: readonly RunGraphNode[]): readonly string[] {
   const seen = new Set<string>();
   const repeated = new Set<string>();
   for (const phase of phases) {

@@ -41,7 +41,7 @@ import type { SchemaFormPreviewProps } from "./components/SchemaFormPreview.js";
  * runtime edge into the chunk this module exists to keep off the initial graph — and
  * reading the root's own shape means a rename behind it fails here instead of drifting.
  */
-export type SchemaFormKit = typeof import("./schema-form-body.js");
+export type SchemaFormModule = typeof import("./schema-form-body.js");
 
 /**
  * What a pending form stamps, so a capture can say WHICH body was still loading.
@@ -54,7 +54,7 @@ const SCHEMA_FORM_PENDING_BODY = "schema-form";
 
 /** The schema form chunk's loader: one fetch per page, however many forms ask. */
 export class SchemaFormChunk {
-  #modulePromise: Promise<SchemaFormKit> | undefined;
+  #modulePromise: Promise<SchemaFormModule> | undefined;
 
   /** Whether the chunk has been asked for yet. The memo, observable. */
   public get isLoadStarted(): boolean {
@@ -65,12 +65,12 @@ export class SchemaFormChunk {
    * The kit, fetched once. Every later call gets the same promise, so a run pane and a
    * definition row mounting together share one fetch rather than racing two.
    */
-  public load(): Promise<SchemaFormKit> {
+  public load(): Promise<SchemaFormModule> {
     this.#modulePromise ??= this.#fetchKit();
     return this.#modulePromise;
   }
 
-  async #fetchKit(): Promise<SchemaFormKit> {
+  async #fetchKit(): Promise<SchemaFormModule> {
     try {
       return await import("./schema-form-body.js");
     } catch (loadError) {

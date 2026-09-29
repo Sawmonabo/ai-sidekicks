@@ -11,7 +11,7 @@ import {
   fixtureWaitPhase,
   holdingSubmits,
   pressSubmit,
-  renderSwitchableSlot,
+  renderSwitchableMountPoint,
   resolveSchemaFormChunks,
   watchingSubmits,
 } from "../default-human-form-body.test-support.js";
@@ -44,7 +44,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
   it("composes the registered submit out of the mount when the body presses", async () => {
     const probe = watchingSubmits();
     const phase = fixtureWaitPhase();
-    await renderSwitchableSlot({
+    await renderSwitchableMountPoint({
       phase,
       submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
@@ -67,7 +67,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
 
   it("renders what the daemon answered beneath a body that renders no outcome at all", async () => {
     const probe = watchingSubmits();
-    const { container } = await renderSwitchableSlot({
+    const { container } = await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
       submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
@@ -92,7 +92,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     //
     // Held, because the refusal lives between the press and the answer.
     const probe = holdingSubmits();
-    const { container } = await renderSwitchableSlot({
+    const { container } = await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
       submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
@@ -113,7 +113,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     // Without this, the cases above would hold over a seat that drew its settlement
     // unconditionally — which would report an answer nobody had given.
     const probe = watchingSubmits();
-    const { container } = await renderSwitchableSlot({
+    const { container } = await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
       submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),

@@ -83,7 +83,7 @@ import { issuesForListEntry } from "../components/field-control-props.js";
 import { memberKeyOf } from "../plan/schema-fields.js";
 import { planSchemaForm } from "../plan/schema-form-plan.js";
 import {
-  armFor,
+  choosePlanForValidator,
   CHECKER_UNAVAILABLE,
   COMPILING_VALIDATOR,
   VALIDATOR_COMPILE_KEY,
@@ -238,7 +238,7 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   // the memo and the state above already hold — the mapper's plan itself, or the one held
   // fallback — so the result is stable across a re-render without a third cache to keep in
   // step.
-  const plan = armFor(mappedPlan, validator);
+  const plan = choosePlanForValidator(mappedPlan, validator);
   // Seeded per control from what the plan says each one opens holding, and read once: the
   // header's reason, and why this is an initialiser rather than anything that re-runs.
   const [draft, setDraft] = useState<SchemaFormDraft>(() => seedDraftFromPlan(plan));

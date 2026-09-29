@@ -39,7 +39,7 @@
 // here it would be a second authority on a question the daemon re-evaluates at save
 // and answers authoritatively.
 
-import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
+import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
 /** What the builder pane hands the node-graph body. */
@@ -63,7 +63,7 @@ export interface NodeGraphMount {
 export type NodeGraphBody = (mount: NodeGraphMount) => React.ReactNode;
 
 /** The node-graph mount plus the body, once there is one. */
-export interface NodeGraphSlotProps extends NodeGraphMount {
+export interface NodeGraphMountPointProps extends NodeGraphMount {
   /**
    * The body, once there is one.
    *
@@ -76,7 +76,7 @@ export interface NodeGraphSlotProps extends NodeGraphMount {
 }
 
 /** The node graph's frame: the engine's canvas once its body is supplied, empty until then. */
-export function NodeGraphSlot(props: NodeGraphSlotProps): React.JSX.Element {
+export function NodeGraphMountPoint(props: NodeGraphMountPointProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return <WorkflowSlotMount body={body} mount={mount} />;
+  return <EngineMountPoint body={body} mount={mount} />;
 }

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
-import type { PhaseGraphLoader, PhaseGraphModule } from "../run-graph-loader.js";
+import type { RunGraphLoader, RunGraphModule } from "../run-graph-loader.js";
 
 /** Where the renderer's code is: still coming, here, or refused. */
 export type PhaseGraphModuleState =
   | { readonly status: "loading" }
-  | { readonly status: "loaded"; readonly module: PhaseGraphModule }
+  | { readonly status: "loaded"; readonly module: RunGraphModule }
   | { readonly status: "failed"; readonly refusal: WireRefusal };
 
 /** Where the chunk got to, and how a person asks for it again. */
@@ -55,8 +55,8 @@ const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
  * clears that one, so the answer to "was this settlement still wanted" is the identity
  * of the run that asked rather than a second look at the state it would write into.
  */
-export function usePhaseGraphModule(
-  loader: PhaseGraphLoader,
+export function useRunGraphModule(
+  loader: RunGraphLoader,
   isNeeded: boolean,
 ): PhaseGraphModuleFetch {
   const [graphModule, setGraphModule] = useState<PhaseGraphModuleState>(LOADING_GRAPH_MODULE);

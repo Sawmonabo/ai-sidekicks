@@ -17,11 +17,11 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PhaseGraph } from "./RunGraph.js";
-import { phaseGraphLoader } from "./run-graph-loader.js";
-import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
+import { RunGraph } from "./RunGraph.js";
+import { runGraphLoader } from "./run-graph-loader.js";
+import type { RunGraphNode, PhaseTopology } from "./phase-topology.js";
 
-function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
+function phase(overrides: Partial<RunGraphNode> & { readonly phaseId: string }): RunGraphNode {
   return {
     displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
@@ -31,7 +31,7 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
   };
 }
 
-const TWO_PHASES: readonly PhaseGraphNode[] = [
+const TWO_PHASES: readonly RunGraphNode[] = [
   phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
   phase({
     phaseId: "build",
@@ -58,7 +58,7 @@ const TWO_PHASE_TOPOLOGY: PhaseTopology = [
  */
 async function settleGraphLoad(): Promise<void> {
   await act(async () => {
-    await phaseGraphLoader.load();
+    await runGraphLoader.load();
   });
 }
 
@@ -72,7 +72,7 @@ function absenceClassName(container: HTMLElement): string {
 
 describe("a run with nothing to draw", () => {
   it("says the run has no phases rather than drawing an empty canvas", () => {
-    const { container } = render(<PhaseGraph phases={[]} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={[]} label="Phase sequence" />);
     expect(absenceClassName(container)).toContain("meridian-nothing--empty");
     expect(container.querySelector(".react-flow")).toBeNull();
   });
@@ -81,7 +81,7 @@ describe("a run with nothing to draw", () => {
     // `not-loaded` would say the picture is coming and `error` would say something
     // went wrong. Both are claims about this console; the run having no phases is a
     // fact about the run.
-    const { container } = render(<PhaseGraph phases={[]} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={[]} label="Phase sequence" />);
     const className = absenceClassName(container);
     expect(className).not.toContain("meridian-nothing--not-loaded");
     expect(className).not.toContain("meridian-nothing--error");
@@ -89,13 +89,13 @@ describe("a run with nothing to draw", () => {
 });
 
 describe("a sequence that cannot be drawn", () => {
-  const REPEATED: readonly PhaseGraphNode[] = [
+  const REPEATED: readonly RunGraphNode[] = [
     phase({ phaseId: "build", displayName: "Build" }),
     phase({ phaseId: "build", displayName: "Build again" }),
   ];
 
   it("refuses, and names the identifier that repeated", () => {
-    const { container } = render(<PhaseGraph phases={REPEATED} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={REPEATED} label="Phase sequence" />);
     expect(absenceClassName(container)).toContain("meridian-nothing--error");
     expect(container.textContent).toContain("build");
     expect(container.querySelector(".react-flow")).toBeNull();
@@ -104,14 +104,14 @@ describe("a sequence that cannot be drawn", () => {
   it("negative control: a well-formed sequence is not refused", () => {
     // Without this the refusal above would also fire on a run that merely has two
     // phases, and no run would ever draw.
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     expect(absenceClassName(container)).not.toContain("meridian-nothing--error");
   });
 });
 
 describe("the renderer's code is fetched, not linked", () => {
   it("stands the box in as a read-in-flight absence before the chunk lands", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     // Synchronously after the mount there is no canvas, because the module that
     // draws one has not arrived.
     expect(absenceClassName(container)).toContain("meridian-nothing--not-loaded");
@@ -126,7 +126,7 @@ describe("the renderer's code is fetched, not linked", () => {
   });
 
   it("negative control: the waiting absence is not the kind that would look finished", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     const className = absenceClassName(container);
     expect(className).not.toContain("meridian-nothing--empty");
     expect(className).not.toContain("meridian-nothing--not-checked");
@@ -136,14 +136,14 @@ describe("the renderer's code is fetched, not linked", () => {
 
 describe("the drawn graph", () => {
   it("carries the caller's name on the graph region", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const region = container.querySelector('[role="application"]');
     expect(region?.getAttribute("aria-label")).toBe("Phase sequence");
   });
 
   it("draws one keyboard-reachable box per phase, named from the phase", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const nodes = [...container.querySelectorAll(".react-flow__node")];
     expect(nodes).toHaveLength(TWO_PHASES.length);
@@ -155,7 +155,7 @@ describe("the drawn graph", () => {
   });
 
   it("offers no gesture that would change the run", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     // The library's own marks for the two gestures. Read together with the count
     // above, an empty result here means the nodes are there and neither draggable
@@ -169,7 +169,7 @@ describe("the drawn graph", () => {
     // paints disconnected boxes — which on screen is indistinguishable from a
     // workflow whose phases genuinely depend on nothing. The caption is the only
     // thing that tells those two apart.
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
 
     // The caption and not the edge count, on this file's own rule: the shim returns
@@ -187,7 +187,7 @@ describe("the drawn graph", () => {
     // picture, which would tell a person their definition had not been read on the
     // one surface where it had.
     const { container } = render(
-      <PhaseGraph phases={TWO_PHASES} topology={TWO_PHASE_TOPOLOGY} label="Phase sequence" />,
+      <RunGraph phases={TWO_PHASES} topology={TWO_PHASE_TOPOLOGY} label="Phase sequence" />,
     );
     await settleGraphLoad();
 
@@ -196,7 +196,7 @@ describe("the drawn graph", () => {
   });
 
   it("prints the same words it announces", async () => {
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const parked = container.querySelector('.meridian-phase-node[data-park="awaiting-person"]');
     expect(parked?.textContent).toContain("running");
@@ -214,7 +214,7 @@ describe("the drawn graph", () => {
     // sent, and it used to be drawn in the same sans face and weight an authored name
     // would have had — so with no name available anywhere in this build, every box on
     // this canvas presented an opaque key as something a person had chosen.
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const node = container.querySelector('.react-flow__node[data-id="build"]');
 
@@ -232,11 +232,11 @@ describe("the drawn graph", () => {
     // the name: the identifier is already on the box, in the face that says where it
     // came from, and a second copy of it in the name's slot is the invention this
     // whole split exists to stop.
-    const nameless: readonly PhaseGraphNode[] = TWO_PHASES.map((entry) => ({
+    const nameless: readonly RunGraphNode[] = TWO_PHASES.map((entry) => ({
       ...entry,
       displayName: undefined,
     }));
-    const { container } = render(<PhaseGraph phases={nameless} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={nameless} label="Phase sequence" />);
     await settleGraphLoad();
 
     expect(container.querySelectorAll(".meridian-phase-node__name")).toHaveLength(0);
@@ -248,7 +248,7 @@ describe("the drawn graph", () => {
   it("draws the state and the gate state as wire figures, and the word gate as prose", async () => {
     // Both are closed enum values the daemon sent, so both wear the signature. The
     // word "gate" is the console's own and does not.
-    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const state = container.querySelector(
       '.react-flow__node[data-id="build"] .meridian-phase-node__state',
@@ -268,7 +268,7 @@ describe("the drawn graph", () => {
     // capacity that the engine armed a readable resume for needs nobody, and drawing
     // it in the same border as one waiting on a person is the pane asking for
     // attention nothing is owed.
-    const scheduled: readonly PhaseGraphNode[] = [
+    const scheduled: readonly RunGraphNode[] = [
       phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
       phase({
         phaseId: "build",
@@ -277,7 +277,7 @@ describe("the drawn graph", () => {
         parkAttention: "scheduled",
       }),
     ];
-    const { container } = render(<PhaseGraph phases={scheduled} label="Phase sequence" />);
+    const { container } = render(<RunGraph phases={scheduled} label="Phase sequence" />);
     await settleGraphLoad();
 
     expect(container.querySelector('.meridian-phase-node[data-park="awaiting-person"]')).toBeNull();

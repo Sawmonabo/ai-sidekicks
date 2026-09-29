@@ -23,7 +23,7 @@ import { parseWorkflowDefinitionFile } from "../definition-file/workflow-definit
 import { type WorkflowDefinitionCreateBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import {
   actKey,
-  publishCodecAbsence,
+  publishCodecUnavailable,
   publishOutcome,
   type AuthoringRuntime,
 } from "./definition-authoring-runtime.js";
@@ -85,7 +85,7 @@ async function readDefinitionFile(
       refusal: detailRefusal("file-unreadable", reading.reason),
     });
   } catch (readerRejection: unknown) {
-    publishCodecAbsence(runtime, "import", readerRejection);
+    publishCodecUnavailable(runtime, "import", readerRejection);
   }
   return undefined;
 }

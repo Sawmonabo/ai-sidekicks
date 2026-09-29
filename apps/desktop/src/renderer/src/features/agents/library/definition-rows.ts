@@ -38,10 +38,10 @@ import { formatCount } from "@renderer/console/primitives/index.js";
  * `wire` is the registry's own string, shown verbatim in mono. `console` is a
  * sentence or a count this module composed, which mono would misattribute.
  */
-export const SIDEKICK_AXIS_SOURCES = ["wire", "console"] as const;
+export const AGENT_AXIS_SOURCES = ["wire", "console"] as const;
 
 /** One axis's provenance. Derived, so the vocabulary has one home. */
-export type AgentAxisSource = (typeof SIDEKICK_AXIS_SOURCES)[number];
+export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
 
 /** One line of a row: what is being named, what it says, and who said it. */
 export interface AgentDefinitionAxis {

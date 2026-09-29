@@ -21,7 +21,7 @@ import { refuse } from "@renderer/lib/refusal.js";
 
 import {
   advisoryChoiceIn,
-  attachAccountAxisReadingFor,
+  accountAxisReadingFor,
   chosenAccountIn,
   registryCarriesAccount,
 } from "./account-axis.js";
@@ -32,7 +32,7 @@ const ACCOUNT_PLANE = "account-plane";
 
 describe("the account axis — which accounts it may offer", () => {
   it("offers only the accounts belonging to the chosen driver's provider", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([
         account({ accountId: registryAccountId("acct-claude"), provider: "claude" }),
         account({
@@ -51,7 +51,7 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("keeps the registry's own order rather than hoisting the default", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([
         account({
           accountId: registryAccountId("acct-personal"),
@@ -74,7 +74,7 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("names an unchosen driver rather than offering every account on the node", () => {
-    const reading = attachAccountAxisReadingFor(served([account()]), undefined);
+    const reading = accountAxisReadingFor(served([account()]), undefined);
 
     expect(reading.kind).toBe("driver-unchosen");
   });
@@ -84,14 +84,14 @@ describe("the account axis — which accounts it may offer", () => {
     // account's provider is a closed set, so a driver outside that set has no
     // accounts of its own — and falling through to a list would pin a run to an
     // account belonging to a provider nobody chose.
-    const reading = attachAccountAxisReadingFor(served([account()]), "gemini");
+    const reading = accountAxisReadingFor(served([account()]), "gemini");
 
     expect(reading).toEqual({ kind: "unknown-provider", driverName: "gemini" });
   });
 
   it("says the registry could not be read rather than saying it holds nothing", () => {
     const refusal = refuse(ACCOUNT_PLANE, "provideraccount.permission_denied", "not an operator");
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       { phase: "refused", readRefusal: refusal, accounts: [], readiness: [] },
       "claude",
     );
@@ -102,7 +102,7 @@ describe("the account axis — which accounts it may offer", () => {
   it("reports a healed reading as served even though it once refused", () => {
     // The phase-aware accessor is the whole point: the member survives the failure
     // and a reader that took it bare would render one refusal for the window's life.
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       {
         phase: "read",
         readRefusal: refuse(ACCOUNT_PLANE, "provideraccount.permission_denied", "stale"),
@@ -116,7 +116,7 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("says the read is still in flight rather than saying the provider has no accounts", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
       "claude",
     );
@@ -125,7 +125,7 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("says a provider with no registered accounts holds none", () => {
-    const reading = attachAccountAxisReadingFor(served([account({ provider: "codex" })]), "claude");
+    const reading = accountAxisReadingFor(served([account({ provider: "codex" })]), "claude");
 
     expect(reading.kind === "served" ? reading.choices : ["unexpected"]).toEqual([]);
   });
@@ -134,7 +134,7 @@ describe("the account axis — which accounts it may offer", () => {
 describe("the account axis — which account a readiness entry is about", () => {
   it("attributes a readiness entry only to the account it resolved to", () => {
     const resolved = resolvedTo("acct-team");
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served(
         [
           account({ accountId: registryAccountId("acct-team") }),
@@ -164,7 +164,7 @@ describe("the account axis — which account a readiness entry is about", () => 
         credentialHomePath: "/homes/team",
       },
     };
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })], [crossProvider]),
       "claude",
     );
@@ -177,7 +177,7 @@ describe("the account axis — which account a readiness entry is about", () => 
     // Named on the served arm so no component re-finds it: two readers matching the
     // projection by hand are two answers to which entry this axis is about.
     const resolved = resolvedTo("acct-team");
-    const reading = attachAccountAxisReadingFor(served([account()], [resolved]), "claude");
+    const reading = accountAxisReadingFor(served([account()], [resolved]), "claude");
 
     expect(reading.kind === "served" ? reading.providerReadiness : undefined).toEqual(resolved);
   });
@@ -189,7 +189,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
     // field in and it is a REQUEST for the provider's default, so an axis that
     // answered `undefined` here left a known-unhealthy default unmentioned until the
     // daemon refused the request.
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served(
         [
           account({ accountId: registryAccountId("acct-team") }),
@@ -213,7 +213,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
     // REACHED, computed by the same resolution the spawn path performs. Where they
     // disagree the entry is the spawn path's answer, so a field keyed on the flag
     // would report the health of an account this run is not going to use.
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served(
         [
           account({ accountId: registryAccountId("acct-team"), isDefault: true }),
@@ -233,7 +233,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("keeps the pinned account where the form pins one", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served(
         [
           account({ accountId: registryAccountId("acct-team") }),
@@ -250,7 +250,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   it("negative control: a pinned value the registry lacks never falls through to the default", () => {
     // Without this the pinned arm could answer the default, and the field would show
     // one account's readings under a value naming another.
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
       "claude",
     );
@@ -259,7 +259,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("answers nothing where the entry resolved no account at all", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served(
         [account({ isDefault: false })],
         [
@@ -280,7 +280,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("negative control: an unserved reading resolves nothing to speak for", () => {
-    const unread = attachAccountAxisReadingFor(
+    const unread = accountAxisReadingFor(
       { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
       "claude",
     );
@@ -292,7 +292,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
 
 describe("the account axis — a value the registry does not carry", () => {
   it("reports a pinned account the served registry lacks", () => {
-    const reading = attachAccountAxisReadingFor(
+    const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })]),
       "claude",
     );
@@ -301,11 +301,11 @@ describe("the account axis — a value the registry does not carry", () => {
   });
 
   it("answers yes wherever nothing could tell, so an unread registry never disowns a caller's value", () => {
-    const unread = attachAccountAxisReadingFor(
+    const unread = accountAxisReadingFor(
       { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
       "claude",
     );
-    const unknownProvider = attachAccountAxisReadingFor(served([account()]), "gemini");
+    const unknownProvider = accountAxisReadingFor(served([account()]), "gemini");
 
     expect(registryCarriesAccount(unread, "acct-team")).toBe(true);
     expect(registryCarriesAccount(unknownProvider, "acct-team")).toBe(true);

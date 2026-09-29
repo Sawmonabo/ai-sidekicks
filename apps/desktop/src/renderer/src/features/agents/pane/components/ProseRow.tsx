@@ -1,4 +1,6 @@
 import { RESOLVED_PROSE_INLINE_CAP } from "../../agents-caps.js";
+
+/** One labeled row of an agent's resolved configuration, its prose clamped at the named bound. */
 export function ProseRow(props: {
   readonly label: string;
   readonly text: string | undefined;
@@ -18,7 +20,7 @@ export function ProseRow(props: {
 }
 
 /** Leading prose, clamped at the named bound. Never re-wrapped and never summarized. */
-export function clampProse(text: string): string {
+function clampProse(text: string): string {
   return text.length <= RESOLVED_PROSE_INLINE_CAP
     ? text
     : `${text.slice(0, RESOLVED_PROSE_INLINE_CAP)}…`;

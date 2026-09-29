@@ -27,7 +27,7 @@ type AddressedEntity = ConsoleEntityRef | undefined;
 /**
  * The fields the pane and its chrome read, and nothing else.
  *
- * Cast rather than constructed, the idiom `WorkflowRunPane.test-support.tsx`
+ * Cast rather than constructed, the idiom `RunPage.test-support.tsx`
  * established: a real pane context carries three stores, one of which opens a database
  * on construction. The two stores travel as markers because this pane only hands them
  * on — the slots' own tests are where what a body receives is checked.

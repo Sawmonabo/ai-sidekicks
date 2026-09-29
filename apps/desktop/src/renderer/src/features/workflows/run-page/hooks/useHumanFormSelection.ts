@@ -8,7 +8,7 @@
 // snapshot to change, and hope the next one became first.
 //
 // ONE FORM IS OPEN AT A TIME, AND THE CARDS CHOOSE WHICH. The pane mounts a single
-// `HumanFormSlot` — the mount is a seat another plan fills, and two of them side by side
+// `HumanFormMountPoint` — the mount is a seat another plan fills, and two of them side by side
 // would be two bodies composed against two revisions in one column of chrome — so the
 // selection is a phase id and every addressable card carries the action that sets it.
 // Nothing is hidden by the choice: every park still renders its own card, and the card

@@ -11,7 +11,7 @@ import {
 } from "./useWorkflowRunSnapshot.js";
 
 /** The round every case but the re-arm ones reads at; the hook reads once per round. */
-export const FIRST_ROUND = 0;
+export const FIRST_REFRESH = 0;
 
 /** Mounts the hook and hands every rendered state to `onObserve`. */
 export function SnapshotProbe(props: {
@@ -21,7 +21,7 @@ export function SnapshotProbe(props: {
   readonly onObserve: (state: WorkflowRunSnapshotState) => void;
 }): React.JSX.Element {
   props.onObserve(
-    useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.readRound ?? FIRST_ROUND),
+    useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.readRound ?? FIRST_REFRESH),
   );
   return <></>;
 }
@@ -38,7 +38,7 @@ export function runReadingCall(): WorkflowRunReadCall {
 }
 
 /** The probe mounted, with the handle a re-render at another round needs. */
-export function observeRounds(readRun: WorkflowRunReadCall): {
+export function observeRefreshes(readRun: WorkflowRunReadCall): {
   readonly observed: readonly WorkflowRunSnapshotState[];
   readonly renderAtRound: (workflowRunId: string, readRound: number) => void;
 } {

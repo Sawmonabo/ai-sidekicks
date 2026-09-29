@@ -12,15 +12,15 @@
 // one line of error text for the life of the field.
 
 import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
-import type { AttachAccountAxisReading } from "../account-axis.js";
+import type { AccountAxisReading } from "../account-axis.js";
 
-export interface AccountChoiceAbsenceProps {
-  readonly reading: AttachAccountAxisReading;
+export interface AccountChoiceEmptyStateProps {
+  readonly reading: AccountAxisReading;
   /** Ask the node's one account-plane reading for a fresh read. */
   readonly onReopen: () => void;
 }
 
-export function AccountChoiceAbsence(props: AccountChoiceAbsenceProps): React.JSX.Element {
+export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): React.JSX.Element {
   const { reading, onReopen } = props;
   if (reading.kind === "driver-unchosen") {
     return (

@@ -1,7 +1,7 @@
 // What the agent definitions page HOLDS: the registry read, the delete in flight, and which
 // record the editor is open on.
 //
-// It is a module of its own rather than a class at the top of `AgentDefinitionsPage.tsx`
+// It is a module of its own rather than a class at the top of `AgentLibrary.tsx`
 // because the two are different jobs — one owns a state machine over the registry calls,
 // the other renders whatever that machine settled on — which is the seam the
 // module-shape rule in `apps/desktop/AGENTS.md` splits on. The page imports the hook
@@ -54,7 +54,7 @@ export type AgentDefinitionEditorSubject =
   | { readonly kind: "new" };
 
 /** Everything the page renders from, in one value. */
-export interface AgentRegistrySnapshot {
+export interface AgentLibrarySnapshot {
   readonly reading: AgentDefinitionReading;
   /** The row whose delete has been asked but not confirmed. One at a time. */
   readonly armedDeletionId: string | undefined;
@@ -66,7 +66,7 @@ export interface AgentRegistrySnapshot {
   readonly revision: number;
 }
 
-const NOTHING_READ: AgentRegistrySnapshot = {
+const NOTHING_READ: AgentLibrarySnapshot = {
   reading: { kind: "not-loaded" },
   armedDeletionId: undefined,
   deletingId: undefined,
@@ -76,7 +76,7 @@ const NOTHING_READ: AgentRegistrySnapshot = {
 };
 
 /** The subsystem name the refusals this view raises on its own carry. */
-export const AGENT_REGISTRY_REFUSAL_ORIGIN = "agent-registry-view";
+export const AGENT_LIBRARY_REFUSAL_ORIGIN = "agent-registry-view";
 
 /** The one key a registry read is taken under; a refresh supersedes whoever holds it. */
 const REGISTRY_READ_KEY = "registry-read";
@@ -98,7 +98,7 @@ const REGISTRY_READ_KEY = "registry-read";
  * therefore both the lock and the record of which delete is running — one field, so
  * the guard and the page's own disabled controls cannot disagree.
  */
-export class AgentRegistryView implements ReadTriggerTarget {
+export class AgentLibraryView implements ReadTriggerTarget {
   /**
    * No terminal event refreshes this read, and the empty set states it.
    *
@@ -110,8 +110,8 @@ export class AgentRegistryView implements ReadTriggerTarget {
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #calls: AgentRegistryCalls;
-  readonly #changes = new Emitter<AgentRegistrySnapshot>("agent registry change");
-  #snapshot: AgentRegistrySnapshot = NOTHING_READ;
+  readonly #changes = new Emitter<AgentLibrarySnapshot>("agent registry change");
+  #snapshot: AgentLibrarySnapshot = NOTHING_READ;
   #hasStarted = false;
   #isDisposed = false;
   /**
@@ -134,7 +134,7 @@ export class AgentRegistryView implements ReadTriggerTarget {
     });
   }
 
-  public snapshot(): AgentRegistrySnapshot {
+  public snapshot(): AgentLibrarySnapshot {
     return this.#snapshot;
   }
 
@@ -287,7 +287,7 @@ export class AgentRegistryView implements ReadTriggerTarget {
    * `useSyncExternalStore` compares identity: a getter returning a fresh object on
    * every call renders forever.
    */
-  #publish(changes: Partial<Omit<AgentRegistrySnapshot, "revision">>): void {
+  #publish(changes: Partial<Omit<AgentLibrarySnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit(this.#snapshot);
   }
@@ -302,7 +302,7 @@ export class AgentRegistryView implements ReadTriggerTarget {
  */
 function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
   return refuse(
-    AGENT_REGISTRY_REFUSAL_ORIGIN,
+    AGENT_LIBRARY_REFUSAL_ORIGIN,
     "delete-already-running",
     isTheSameRecord
       ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."

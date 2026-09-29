@@ -11,7 +11,11 @@ import { createElement } from "react";
 
 import { AgentDefinitionsFrame } from "./AgentLibrary.js";
 
-/** The saved-definition registry page's frame, as the settings board loads it. */
+/**
+ * The saved-definition registry page's frame, as the settings board loads it.
+ *
+ * @consumedBy the agent library screen, once its registration mounts this chunk
+ */
 export function Body(): React.ReactNode {
   return createElement(AgentDefinitionsFrame);
 }

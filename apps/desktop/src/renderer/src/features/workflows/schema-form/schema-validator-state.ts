@@ -74,7 +74,7 @@ export type SettledSchemaValidator =
  * added there would have made every reader of a compiled validator re-check whether an
  * answer had arrived at all, and a fourth would have made the door speak about a fetch it
  * does not perform. Here they are one union in one module, above the two consumers that
- * branch on it ({@link armFor} and the raw editor), and the door's shape is untouched.
+ * branch on it ({@link choosePlanForValidator} and the raw editor), and the door's shape is untouched.
  */
 export type SchemaValidatorState = { readonly status: "compiling" } | SettledSchemaValidator;
 
@@ -182,7 +182,10 @@ const RAW_ARM_FALLBACKS: Record<SchemaValidatorState["status"], SchemaFallback |
  * keep that promise any better than a schema that would not compile — the two differ in
  * the sentence they carry and in nothing else here.
  */
-export function armFor(plan: SchemaFormPlan, validator: SchemaValidatorState): SchemaFormPlan {
+export function choosePlanForValidator(
+  plan: SchemaFormPlan,
+  validator: SchemaValidatorState,
+): SchemaFormPlan {
   const fallback = RAW_ARM_FALLBACKS[validator.status];
   if (plan.shape === "raw" || fallback === undefined) {
     return plan;

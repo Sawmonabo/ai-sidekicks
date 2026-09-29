@@ -14,16 +14,16 @@ import {
   type DrawnPhaseSequence,
   layoutPhaseSequence,
 } from "./phase-sequence-layout.js";
-import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
+import type { RunGraphNode, PhaseTopology } from "./phase-topology.js";
 import {
   PHASE_NODE_TYPE,
   phaseNodeAccessibleName,
   sequenceEdgeAccessibleName,
-  toPhaseGraphElements,
+  toRunGraphElements,
 } from "./run-graph-elements.js";
-import { usePhaseGraphElements } from "./hooks/useRunGraphElements.js";
+import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 
-function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
+function phase(overrides: Partial<RunGraphNode> & { readonly phaseId: string }): RunGraphNode {
   return {
     displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
@@ -33,7 +33,7 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
   };
 }
 
-const SEQUENCE: readonly PhaseGraphNode[] = [
+const SEQUENCE: readonly RunGraphNode[] = [
   phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
   phase({ phaseId: "build", displayName: "Build", state: "running" }),
 ];
@@ -51,7 +51,7 @@ const SEQUENCE_TOPOLOGY: PhaseTopology = [
 ];
 
 function drawnSequence(
-  phases: readonly PhaseGraphNode[] = SEQUENCE,
+  phases: readonly RunGraphNode[] = SEQUENCE,
   topology: PhaseTopology = SEQUENCE_TOPOLOGY,
 ): DrawnPhaseSequence {
   const layout = layoutPhaseSequence(phases, topology);
@@ -63,7 +63,7 @@ function drawnSequence(
 
 describe("the renderer's node array", () => {
   it("keys a node by its phase id and hands the phase through untouched", () => {
-    const { nodes } = toPhaseGraphElements(drawnSequence());
+    const { nodes } = toRunGraphElements(drawnSequence());
     expect(nodes.map((node) => node.id)).toStrictEqual(["plan", "build"]);
     expect(nodes.every((node) => node.type === PHASE_NODE_TYPE)).toBe(true);
     expect(nodes[0]?.data.phase).toBe(SEQUENCE[0]);
@@ -73,7 +73,7 @@ describe("the renderer's node array", () => {
     // A node without dimensions is drawn hidden until a `ResizeObserver` reports
     // one, and its neighbours move when it does. Both are the reasons the layout
     // owns these numbers rather than the browser.
-    const { nodes } = toPhaseGraphElements(drawnSequence());
+    const { nodes } = toRunGraphElements(drawnSequence());
     for (const node of nodes) {
       expect(node.width).toBe(PHASE_NODE_WIDTH_PX);
       expect(node.height).toBe(PHASE_NODE_HEIGHT_PX);
@@ -82,7 +82,7 @@ describe("the renderer's node array", () => {
 
   it("carries the placed position without adjusting it", () => {
     const layout = drawnSequence();
-    const { nodes } = toPhaseGraphElements(layout);
+    const { nodes } = toRunGraphElements(layout);
     expect(nodes.map((node) => node.position)).toStrictEqual(
       layout.nodes.map((placed) => ({ x: placed.x, y: placed.y })),
     );
@@ -91,7 +91,7 @@ describe("the renderer's node array", () => {
 
 describe("the renderer's edge array", () => {
   it("draws one directed edge per declared dependency", () => {
-    const { edges } = toPhaseGraphElements(drawnSequence());
+    const { edges } = toRunGraphElements(drawnSequence());
     expect(edges.map((edge) => [edge.source, edge.target])).toStrictEqual([["plan", "build"]]);
     // The arrowhead is what makes the picture directed for a reader who is looking
     // at it; the accessible name does the same job for one who is not.
@@ -177,7 +177,7 @@ describe("the element memo", () => {
   it("holds the arrays still while the layout holds still", () => {
     const layout = drawnSequence();
     const { result, rerender } = renderHook(
-      (current: DrawnPhaseSequence) => usePhaseGraphElements(current),
+      (current: DrawnPhaseSequence) => useRunGraphElements(current),
       { initialProps: layout },
     );
     const first = result.current;
@@ -193,7 +193,7 @@ describe("the element memo", () => {
     // Without this the case above would pass against a memo that never recomputed,
     // which would leave the canvas showing the first run it was ever handed.
     const { result, rerender } = renderHook(
-      (current: DrawnPhaseSequence) => usePhaseGraphElements(current),
+      (current: DrawnPhaseSequence) => useRunGraphElements(current),
       { initialProps: drawnSequence() },
     );
     const held = result.current;

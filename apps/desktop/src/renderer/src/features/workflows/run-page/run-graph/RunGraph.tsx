@@ -5,7 +5,7 @@
 // definition's topology where it has one, and a name for the region. This file
 // places them, decides whether the sequence can be drawn at all, fetches the
 // renderer's code, and stands an absence in the box until it lands. The drawing
-// itself belongs to `PhaseGraphCanvas.tsx`, on the far side of the `import()` that
+// itself belongs to `RunGraphCanvas.tsx`, on the far side of the `import()` that
 // names this directory's `index.ts`, so a surface that mounts this component never
 // names the graph library and never pulls a byte of it into the initial bundle.
 //
@@ -55,14 +55,14 @@
 // whose identity holds still while the run does.
 
 import { Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
-import { phaseGraphLoader } from "./run-graph-loader.js";
-import type { PhaseGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
+import { runGraphLoader } from "./run-graph-loader.js";
+import type { RunGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
 import { usePhaseSequenceLayout } from "./hooks/usePhaseSequenceLayout.js";
-import { usePhaseGraphModule, type PhaseGraphModuleState } from "./hooks/useRunGraphModule.js";
+import { useRunGraphModule, type PhaseGraphModuleState } from "./hooks/useRunGraphModule.js";
 
-export interface PhaseGraphProps {
+export interface RunGraphProps {
   /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */
-  readonly phases: readonly PhaseGraphNode[];
+  readonly phases: readonly RunGraphNode[];
   /**
    * The pinned definition's phases, where the surface holds one.
    *
@@ -90,14 +90,14 @@ const TOPOLOGY_ABSENCE_CAPTIONS: Readonly<Record<PhaseTopologyAbsence, string>> 
 };
 
 /** One run's phase sequence, read-only, drawn once its renderer arrives. */
-export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
+export function RunGraph(props: RunGraphProps): React.JSX.Element {
   const layout = usePhaseSequenceLayout(props.phases, props.topology);
   // The chunk is asked for only when there is a picture to fetch it for. Both of the
   // conditions are named: an empty run lays out cleanly — a drawable sequence of no
   // phases — so `drawn` alone would fetch a renderer for a canvas with nothing on it.
   const isCanvasNeeded = layout.status === "drawn" && props.phases.length > 0;
-  const { state: graphModule, retry: retryChunk } = usePhaseGraphModule(
-    phaseGraphLoader,
+  const { state: graphModule, retry: retryChunk } = useRunGraphModule(
+    runGraphLoader,
     isCanvasNeeded,
   );
 
@@ -135,10 +135,10 @@ export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
 
   // Bound to a capitalised local because JSX reads a lowercase leading identifier as
   // a tag name; the component itself is the one the loader resolved.
-  const LoadedPhaseGraphCanvas = graphModule.module.PhaseGraphCanvas;
+  const LoadedRunGraphCanvas = graphModule.module.RunGraphCanvas;
   return (
     <div className="meridian-phase-graph">
-      <LoadedPhaseGraphCanvas layout={layout} label={props.label} />
+      <LoadedRunGraphCanvas layout={layout} label={props.label} />
       {layout.topologyAbsence === undefined ? null : (
         <p className="meridian-phase-graph__caption">
           {TOPOLOGY_ABSENCE_CAPTIONS[layout.topologyAbsence]}

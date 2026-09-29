@@ -4,7 +4,7 @@ import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/co
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { WorkflowRunLiveRounds } from "../run-live-refresh.js";
+import { WorkflowRunLiveRefresh } from "../run-live-refresh.js";
 
 /**
  * Mint one live-round reading for the window's bridge, the session, and the run shown.
@@ -31,7 +31,7 @@ import { WorkflowRunLiveRounds } from "../run-live-refresh.js";
  *
  * @consumedBy the run pane's live refresh
  */
-export function useWorkflowRunLiveRounds(
+export function useWorkflowRunLiveRefresh(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
   workflowRunId: string | undefined,
@@ -41,7 +41,7 @@ export function useWorkflowRunLiveRounds(
   // the world it watches ran on the window's.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const openRounds = useCallback(
-    () => new WorkflowRunLiveRounds({ clock, sessionStore, workflowRunId }),
+    () => new WorkflowRunLiveRefresh({ clock, sessionStore, workflowRunId }),
     [clock, sessionStore, workflowRunId],
   );
   const { value: rounds, settle } = useSubjectScopedResource(

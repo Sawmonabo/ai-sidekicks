@@ -27,7 +27,7 @@ import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 
 /** What the surface seat hands the workflows screen. */
-export interface WorkflowsDestinationProps {
+export interface WorkflowsScreenProps {
   /**
    * The whole surface context, because a pane context is composed from it.
    *
@@ -43,7 +43,7 @@ export interface WorkflowsDestinationProps {
 }
 
 /** The workflows screen: the runs it is handed, or the pane a person opened from them. */
-export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JSX.Element {
+export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element {
   const { context, directory } = props;
   // The board THIS composition registered its bodies into, off the surface context rather
   // than the process-wide singleton, which would warm production's board from a window

@@ -29,7 +29,7 @@ import {
 import { registerWorkflowPanes } from "./contributions/panes.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
 import { PROBE_RUNS } from "./workflows-probe.test-support.js";
-import { WorkflowsDestination } from "./WorkflowsScreen.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /** The probe runs as an enumeration serves them. */
 export const SERVED_DIRECTORY: WorkflowRunDirectoryState = {
@@ -86,12 +86,12 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
 }
 
 /** Mount the screen against one composition, handing back React's own render result. */
-export function mountWorkflowsSlot(composed: ComposedWindow): ReturnType<typeof render> {
+export function mountWorkflowsScreen(composed: ComposedWindow): ReturnType<typeof render> {
   return render(inWindowChrome(screenOver(composed)));
 }
 
 /** Re-render the mounted screen against `composed`, which a swap case uses for the swap. */
-export function remountWorkflowsSlot(
+export function remountWorkflowsScreen(
   rendered: ReturnType<typeof render>,
   composed: ComposedWindow,
 ): void {
@@ -144,7 +144,7 @@ export function pressOpenRun(container: HTMLElement): void {
 
 /** The screen over one composition, with the served run directory. */
 function screenOver(composed: ComposedWindow): React.JSX.Element {
-  return <WorkflowsDestination context={composed.context} directory={SERVED_DIRECTORY} />;
+  return <WorkflowsScreen context={composed.context} directory={SERVED_DIRECTORY} />;
 }
 
 /**

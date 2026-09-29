@@ -20,10 +20,10 @@
 import { Combobox } from "@base-ui/react/combobox";
 
 import { OverlayComboboxPopup, WireFigure } from "@renderer/console/primitives/index.js";
-import type { AttachAccountAxisReading } from "../account-axis.js";
+import type { AccountAxisReading } from "../account-axis.js";
 
 export interface AccountChoiceListProps {
-  readonly reading: Extract<AttachAccountAxisReading, { kind: "served" }>;
+  readonly reading: Extract<AccountAxisReading, { kind: "served" }>;
   readonly value: string | undefined;
   readonly onValueChange: (accountId: string | undefined) => void;
   /** The id of the field's visible label, which is what names the trigger. */

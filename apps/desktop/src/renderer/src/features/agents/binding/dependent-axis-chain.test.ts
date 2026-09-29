@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PROVIDER_AXES } from "@renderer/console/agents/agent-wire.js";
-import { DEPENDENT_AXES, unvouchedAxesOf } from "./dependent-axis-chain.js";
+import { DEPENDENT_AXES, findAxesOutsideCatalog } from "./dependent-axis-chain.js";
 import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "./driver-catalog.test-support.js";
 
 const CATALOG = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
@@ -17,13 +17,19 @@ const CATALOG = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
 describe("the dependent-axis chain — what a published vocabulary vouches for", () => {
   it("vouches for a chain every vocabulary carries", () => {
     expect(
-      unvouchedAxesOf({ driverName: "claude", modelId: "shared-model", effort: "high" }, CATALOG),
+      findAxesOutsideCatalog(
+        { driverName: "claude", modelId: "shared-model", effort: "high" },
+        CATALOG,
+      ),
     ).toEqual([]);
   });
 
   it("refuses a model the named driver does not carry", () => {
     expect(
-      unvouchedAxesOf({ driverName: "codex", modelId: "claude-only", effort: "low" }, CATALOG),
+      findAxesOutsideCatalog(
+        { driverName: "codex", modelId: "claude-only", effort: "low" },
+        CATALOG,
+      ),
     ).toEqual(["modelId", "effort"]);
   });
 
@@ -32,44 +38,55 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
     // `codex` publishes only `low` for the same id, so an inherited effort is wrong
     // the moment the driver above it moves — with nothing about the effort edited.
     expect(
-      unvouchedAxesOf({ driverName: "codex", modelId: "shared-model", effort: "high" }, CATALOG),
+      findAxesOutsideCatalog(
+        { driverName: "codex", modelId: "shared-model", effort: "high" },
+        CATALOG,
+      ),
     ).toEqual(["effort"]);
   });
 
   it("refuses a driver the catalog never named", () => {
-    expect(unvouchedAxesOf({ driverName: "gemini" }, CATALOG)).toEqual(["driverName"]);
+    expect(findAxesOutsideCatalog({ driverName: "gemini" }, CATALOG)).toEqual(["driverName"]);
   });
 
   it("reports the axes parent first, so a person reads the cause before the consequence", () => {
     expect(
-      unvouchedAxesOf({ driverName: "gemini", modelId: "shared-model", effort: "low" }, CATALOG),
+      findAxesOutsideCatalog(
+        { driverName: "gemini", modelId: "shared-model", effort: "low" },
+        CATALOG,
+      ),
     ).toEqual(["driverName", "modelId", "effort"]);
   });
 
   it("negative control: an unsettled axis is not a refused one", () => {
     // Without this the cases above would pass over a rule that refused everything it
     // could not find, which would make an empty form report three refusals.
-    expect(unvouchedAxesOf({}, CATALOG)).toEqual([]);
-    expect(unvouchedAxesOf({ driverName: "claude" }, CATALOG)).toEqual([]);
+    expect(findAxesOutsideCatalog({}, CATALOG)).toEqual([]);
+    expect(findAxesOutsideCatalog({ driverName: "claude" }, CATALOG)).toEqual([]);
   });
 
   it("refuses a settled axis whose parent is unsettled rather than excusing it", () => {
     // An effort chosen against a model that has since been dropped is exactly the
     // entry the rule exists to catch: there is no vocabulary that could carry it, and
     // treating the second absence as permission is how it survived to the daemon.
-    expect(unvouchedAxesOf({ driverName: "claude", effort: "low" }, CATALOG)).toEqual(["effort"]);
+    expect(findAxesOutsideCatalog({ driverName: "claude", effort: "low" }, CATALOG)).toEqual([
+      "effort",
+    ]);
   });
 
   it("fails closed on an unread catalog rather than vouching for the chain", () => {
     expect(
-      unvouchedAxesOf({ driverName: "claude", modelId: "shared-model", effort: "low" }, undefined),
+      findAxesOutsideCatalog(
+        { driverName: "claude", modelId: "shared-model", effort: "low" },
+        undefined,
+      ),
     ).toEqual(["driverName", "modelId", "effort"]);
   });
 
   it("negative control: an unread catalog still refuses nothing that was never settled", () => {
     // Without this, the case above would pass over a rule that reported every axis
     // whenever the catalog was missing, which would name fields nobody had filled.
-    expect(unvouchedAxesOf({}, undefined)).toEqual([]);
+    expect(findAxesOutsideCatalog({}, undefined)).toEqual([]);
   });
 
   it("is every provider axis but the two that have no parent", () => {

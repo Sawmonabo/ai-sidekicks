@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { AGENT_REGISTRY_REFUSAL_ORIGIN, AgentRegistryView } from "./library-view.js";
+import { AGENT_LIBRARY_REFUSAL_ORIGIN, AgentLibraryView } from "./library-view.js";
 import { RegistryStub, definition, settle } from "./agent-library.test-support.js";
 
 const REVIEWER = definition();
@@ -16,14 +16,14 @@ const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });
 
 /** A view over a registry holding both records, with every delete held open. */
 function viewOverHeldDeletes(): {
-  readonly view: AgentRegistryView;
+  readonly view: AgentLibraryView;
   readonly stub: RegistryStub;
 } {
   const stub = new RegistryStub({
     lists: [[REVIEWER, AUDITOR], [AUDITOR]],
     holdsDeletes: true,
   });
-  return { view: new AgentRegistryView(stub.bridge, stub.calls), stub };
+  return { view: new AgentLibraryView(stub.bridge, stub.calls), stub };
 }
 
 describe("the agent registry view — one delete at a time", () => {
@@ -39,7 +39,7 @@ describe("the agent registry view — one delete at a time", () => {
     expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId]);
     const refusal = view.snapshot().refusalByDefinitionId.get(AUDITOR.definitionId);
     expect(refusal?.code).toBe("delete-already-running");
-    expect(refusal?.origin).toBe(AGENT_REGISTRY_REFUSAL_ORIGIN);
+    expect(refusal?.origin).toBe(AGENT_LIBRARY_REFUSAL_ORIGIN);
     expect(refusal?.detail).toContain("Another sidekick is being deleted");
     // The running delete is untouched: it still owns the lock and its row still
     // renders as the one going.
@@ -93,7 +93,7 @@ describe("the agent registry view — one delete at a time", () => {
     const stub = new RegistryStub({
       lists: [[REVIEWER, AUDITOR], [AUDITOR], []],
     });
-    const view = new AgentRegistryView(stub.bridge, stub.calls);
+    const view = new AgentLibraryView(stub.bridge, stub.calls);
     view.start();
     await settle();
 
@@ -113,7 +113,7 @@ describe("the agent registry view — a delete the daemon rejects", () => {
     // and a caught rejection would show the person nothing went wrong.
     const stub = new RegistryStub({ lists: [[REVIEWER, AUDITOR]] });
     const attempts: string[] = [];
-    const view = new AgentRegistryView(stub.bridge, {
+    const view = new AgentLibraryView(stub.bridge, {
       listDefinitions: stub.calls.listDefinitions,
       deleteDefinition: async (request) => {
         attempts.push(request.definitionId);

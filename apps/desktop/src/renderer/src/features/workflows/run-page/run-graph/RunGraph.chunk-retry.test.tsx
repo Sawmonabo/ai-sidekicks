@@ -1,6 +1,6 @@
 // A chunk fetch that failed once, asked for again.
 //
-// SEPARATE FROM `PhaseGraph.chunk-refusal.test.tsx` BECAUSE THE SUBSTITUTED LOADER IS A
+// SEPARATE FROM `RunGraph.chunk-refusal.test.tsx` BECAUSE THE SUBSTITUTED LOADER IS A
 // DIFFERENT ONE. That file's premise is a loader that always refuses, which is what lets
 // it say what a refusal renders; every case here scripts a SEQUENCE of answers, because
 // the claim is about what the second ask gets. A `vi.mock` is file-scoped, so the two
@@ -14,8 +14,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PhaseGraph } from "./RunGraph.js";
-import type { PhaseGraphNode } from "./phase-topology.js";
+import { RunGraph } from "./RunGraph.js";
+import type { RunGraphNode } from "./phase-topology.js";
 
 /**
  * The answers this case has scripted for the chunk, in order, and how many were asked.
@@ -31,7 +31,7 @@ const chunkAnswers = vi.hoisted(() => ({
 }));
 
 vi.mock("./run-graph-loader.js", () => ({
-  phaseGraphLoader: {
+  runGraphLoader: {
     load: (): Promise<unknown> => {
       chunkAnswers.asks += 1;
       const answer = chunkAnswers.queue.shift();
@@ -50,7 +50,7 @@ const DRAWN_CANVAS_TEXT = "the graph chunk arrived";
 /** The rejection a transient fetch failure arrives as. */
 const TRANSIENT_FETCH_FAILURE = new Error("Failed to fetch dynamically imported module");
 
-const TWO_PHASES: readonly PhaseGraphNode[] = [
+const TWO_PHASES: readonly RunGraphNode[] = [
   {
     phaseId: "plan",
     displayName: "Plan",
@@ -74,7 +74,7 @@ function refusing(): () => Promise<never> {
 
 /** An ask that arrives, carrying a canvas a case can see on screen. */
 function arriving(): () => Promise<unknown> {
-  return () => Promise.resolve({ PhaseGraphCanvas: () => DRAWN_CANVAS_TEXT });
+  return () => Promise.resolve({ RunGraphCanvas: () => DRAWN_CANVAS_TEXT });
 }
 
 /** An ask that never settles, which is what "still in flight" is. */
@@ -84,7 +84,7 @@ function neverSettling(): () => Promise<never> {
 
 function renderGraph(answers: readonly (() => Promise<unknown>)[]): HTMLElement {
   chunkAnswers.queue = [...answers];
-  const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+  const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
   return container;
 }
 
@@ -137,7 +137,7 @@ describe("a chunk fetch that can be asked for again", () => {
     await retryControl(container);
 
     // A render the press did not cause: the same props, handed over again.
-    render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />, {
+    render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />, {
       container,
       baseElement: container,
     });

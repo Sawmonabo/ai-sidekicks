@@ -2,4 +2,4 @@
 // library, its runtime sibling and both sheets `RunGraphCanvas.tsx` imports are fetched the
 // first time a run's phases are drawn.
 
-export { PhaseGraphCanvas } from "./RunGraphCanvas.js";
+export { RunGraphCanvas } from "./RunGraphCanvas.js";

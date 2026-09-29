@@ -1,7 +1,7 @@
 import { useRef } from "react";
 
 import { PhaseSequenceLayoutCache, type PhaseSequenceLayout } from "../phase-sequence-layout.js";
-import type { PhaseGraphNode, PhaseTopology } from "../phase-topology.js";
+import type { RunGraphNode, PhaseTopology } from "../phase-topology.js";
 
 /**
  * Place the phases, holding the result still while the run does.
@@ -11,7 +11,7 @@ import type { PhaseGraphNode, PhaseTopology } from "../phase-topology.js";
  * the construction React may discard.
  */
 export function usePhaseSequenceLayout(
-  phases: readonly PhaseGraphNode[],
+  phases: readonly RunGraphNode[],
   topology: PhaseTopology | undefined,
 ): PhaseSequenceLayout {
   const cacheRef = useRef<PhaseSequenceLayoutCache | undefined>(undefined);

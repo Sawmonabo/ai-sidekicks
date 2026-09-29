@@ -22,7 +22,7 @@ import {
   probeRunPane,
   type ComposedWindow,
 } from "./WorkflowsScreen.test-support.js";
-import { WorkflowsDestination } from "./WorkflowsScreen.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
  * What the run list was handed, in render order.
@@ -44,7 +44,7 @@ const DIRECTORY: WorkflowRunDirectoryState = { status: "served", runs: [] };
 
 /** The element every case renders. */
 function screenElement(composed: ComposedWindow): React.JSX.Element {
-  return <WorkflowsDestination context={composed.context} directory={DIRECTORY} />;
+  return <WorkflowsScreen context={composed.context} directory={DIRECTORY} />;
 }
 
 /** What the run list was handed on the most recent render. */

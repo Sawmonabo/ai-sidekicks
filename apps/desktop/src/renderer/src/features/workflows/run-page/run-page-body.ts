@@ -21,7 +21,7 @@ import "../components/WorkflowStateStrip.css";
 
 import { createElement } from "react";
 
-import { WorkflowRunPane } from "./RunPage.js";
+import { RunPage } from "./RunPage.js";
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
 
 /**
@@ -34,5 +34,5 @@ import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seat
  */
 export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
   "workflow-run",
-  (context) => createElement(WorkflowRunPane, { context }),
+  (context) => createElement(RunPage, { context }),
 );

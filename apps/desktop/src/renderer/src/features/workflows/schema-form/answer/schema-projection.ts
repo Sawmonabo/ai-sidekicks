@@ -51,7 +51,7 @@ import type {
   SchemaScalarDraft,
 } from "./schema-draft.js";
 import { leafDraftAt, listEntriesOf, unreadableTextOf } from "./schema-draft.js";
-import { NOTHING_ANSWERED, type SchemaFormAnswer } from "./schema-answer-value.js";
+import { NOTHING_ANSWERED, type SchemaFormAnswerValue } from "./schema-answer-value.js";
 import type { SchemaValidationIssue, SchemaValidationReport } from "../json-schema-validator.js";
 
 /** What one control is handed to display: its value, and any text it could not read. */
@@ -82,11 +82,11 @@ export function unansweredEntryMessage(index: number): string {
  * reach the answer however the draft came to hold a node for it, and the order of the
  * members is the order the form drew them.
  */
-export function projectAnswer(plan: SchemaFormPlan, draft: SchemaFormDraft): SchemaFormAnswer {
+export function projectAnswer(plan: SchemaFormPlan, draft: SchemaFormDraft): SchemaFormAnswerValue {
   if (plan.shape !== "fields") {
     return NOTHING_ANSWERED;
   }
-  let answer: SchemaFormAnswer = NOTHING_ANSWERED;
+  let answer: SchemaFormAnswerValue = NOTHING_ANSWERED;
   for (const entry of plan.entries) {
     if (entry.form !== "group") {
       answer = withProjectedLeaf(answer, entry, leafDraftAt(draft, leafPathOf(entry)));
@@ -97,7 +97,7 @@ export function projectAnswer(plan: SchemaFormPlan, draft: SchemaFormDraft): Sch
     if (groupKey === undefined || held?.form !== "group" || held.state !== "active") {
       continue;
     }
-    let members: SchemaFormAnswer = NOTHING_ANSWERED;
+    let members: SchemaFormAnswerValue = NOTHING_ANSWERED;
     for (const leaf of entry.group.entries) {
       const key = leafKeyOf(leaf);
       members = withProjectedLeaf(members, leaf, key === undefined ? undefined : held.members[key]);
@@ -226,10 +226,10 @@ function projectedLeaf(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined)
 
 /** One leaf folded into the level it answers under, or that level untouched where absent. */
 function withProjectedLeaf(
-  level: SchemaFormAnswer,
+  level: SchemaFormAnswerValue,
   leaf: SchemaLeafEntry,
   node: SchemaLeafDraft | undefined,
-): SchemaFormAnswer {
+): SchemaFormAnswerValue {
   const key = leafKeyOf(leaf);
   const value = projectedLeaf(leaf, node);
   return key === undefined || value === undefined ? level : { ...level, [key]: value };

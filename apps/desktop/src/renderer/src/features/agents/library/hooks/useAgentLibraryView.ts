@@ -3,9 +3,9 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useWindowReadTriggers } from "@renderer/console/store/read/read-triggers.js";
 import {
-  AgentRegistryView,
+  AgentLibraryView,
   type AgentRegistryCalls,
-  type AgentRegistrySnapshot,
+  type AgentLibrarySnapshot,
 } from "../library-view.js";
 
 /**
@@ -17,14 +17,14 @@ import {
  * must not happen during render, so a memo React discards costs a discarded object
  * and no request.
  */
-export function useAgentRegistryView(
+export function useAgentLibraryView(
   bridge: ConsoleBridge,
   calls: AgentRegistryCalls,
 ): {
-  readonly view: AgentRegistryView;
-  readonly snapshot: AgentRegistrySnapshot;
+  readonly view: AgentLibraryView;
+  readonly snapshot: AgentLibrarySnapshot;
 } {
-  const view = useMemo(() => new AgentRegistryView(bridge, calls), [bridge, calls]);
+  const view = useMemo(() => new AgentLibraryView(bridge, calls), [bridge, calls]);
   useEffect(() => {
     view.start();
     return () => {

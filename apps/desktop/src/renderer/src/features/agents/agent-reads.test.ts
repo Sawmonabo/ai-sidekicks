@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { createChildRunLinkage, createDriverCatalog } from "./agent-reads.js";
+import { createChildRunLinks, createDriverCatalogRead } from "./agent-reads.js";
 import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import {
@@ -30,8 +30,8 @@ const PARENT_RUN_ID = "run-7";
 function startedLinkage(
   sessionStore: SessionStore,
   clock: ManualClock,
-): ReturnType<typeof createChildRunLinkage> {
-  const read = createChildRunLinkage(
+): ReturnType<typeof createChildRunLinks> {
+  const read = createChildRunLinks(
     sessionStore,
     PARENT_RUN_ID,
     clock,
@@ -117,7 +117,7 @@ describe("the agent console's models — what re-reads one run's child links", (
     // an instrument that counted something other than a re-read.
     const sessionStore = initialisedStore("session-no-signal");
     const clock = new ManualClock();
-    const catalog = createDriverCatalog(unscriptedBridge("agent-catalog-signal"), clock);
+    const catalog = createDriverCatalogRead(unscriptedBridge("agent-catalog-signal"), clock);
     catalog.start();
     await settleReads(clock);
     const afterFirstRead = catalog.readCount;

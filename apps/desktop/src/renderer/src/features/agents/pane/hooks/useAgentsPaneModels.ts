@@ -4,10 +4,10 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { isCurrentSessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { type AgentConsoleCalls } from "../../agent-reads.js";
-import { AgentConsoleModels } from "../agents-pane-models.js";
+import { AgentsPaneModels } from "../agents-pane-models.js";
 
 /**
- * Hold one {@link AgentConsoleModels} for as long as this mount shows one session.
+ * Hold one {@link AgentsPaneModels} for as long as this mount shows one session.
  *
  * A hook rather than a render body: the models open subscriptions and a scheduler,
  * and a body that built them would build a new set on every pass React discarded,
@@ -32,19 +32,19 @@ import { AgentConsoleModels } from "../agents-pane-models.js";
  *
  * `calls` is held stable by the caller: a new object rebuilds the models.
  */
-export function useAgentConsoleModels(
+export function useAgentsPaneModels(
   bridge: ConsoleBridge | undefined,
   sessionStore: SessionStore | undefined,
   calls: AgentConsoleCalls,
-): AgentConsoleModels | undefined {
-  const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
+): AgentsPaneModels | undefined {
+  const [models, setModels] = useState<AgentsPaneModels | undefined>(undefined);
 
   useEffect(() => {
     if (bridge === undefined || sessionStore === undefined) {
       setModels(undefined);
       return undefined;
     }
-    const built = new AgentConsoleModels(bridge, sessionStore, calls);
+    const built = new AgentsPaneModels(bridge, sessionStore, calls);
     setModels(built);
     return () => {
       built.dispose();

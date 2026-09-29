@@ -14,7 +14,7 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
-import type { AttachAccountRegistryReading } from "./account-axis.js";
+import type { AccountRegistryReading } from "./account-axis.js";
 
 /** The instant every stored observation in these suites was taken at. */
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
@@ -54,7 +54,7 @@ export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccou
 export function served(
   accounts: readonly ProviderAccount[],
   readiness: readonly ProviderReadiness[] = [],
-): AttachAccountRegistryReading {
+): AccountRegistryReading {
   return { phase: "read", readRefusal: undefined, accounts, readiness };
 }
 

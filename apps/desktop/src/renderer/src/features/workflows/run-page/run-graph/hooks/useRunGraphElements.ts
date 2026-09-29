@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import type { DrawnPhaseSequence } from "../phase-sequence-layout.js";
-import { toPhaseGraphElements, type PhaseGraphElements } from "../run-graph-elements.js";
+import { toRunGraphElements, type RunGraphElements } from "../run-graph-elements.js";
 
 /**
  * The renderer's arrays, rebuilt only when the layout moves.
@@ -12,6 +12,6 @@ import { toPhaseGraphElements, type PhaseGraphElements } from "../run-graph-elem
  * changes and never otherwise. That matters because the renderer re-enters its own
  * store whenever the node or edge array identity moves.
  */
-export function usePhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElements {
-  return useMemo(() => toPhaseGraphElements(layout), [layout]);
+export function useRunGraphElements(layout: DrawnPhaseSequence): RunGraphElements {
+  return useMemo(() => toRunGraphElements(layout), [layout]);
 }

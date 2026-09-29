@@ -17,12 +17,12 @@ import {
   schemaFormAnswerMount,
   schemaFormChunk,
   schemaFormPreviewMount,
-  type SchemaFormKit,
+  type SchemaFormModule,
 } from "./schema-form-mounts.js";
 
 describe("the schema form chunk's loader", () => {
   it("resolves the real kit, not a stand-in for it", async () => {
-    const kit: SchemaFormKit = await new SchemaFormChunk().load();
+    const kit: SchemaFormModule = await new SchemaFormChunk().load();
     // Identity, not shape: a wrapper that merely looked like these would let a surface
     // draw a form this directory does not own. The imports above name the DECLARING
     // modules while the loader goes through the chunk root, so this also holds that root

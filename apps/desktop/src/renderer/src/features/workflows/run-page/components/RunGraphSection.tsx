@@ -11,8 +11,8 @@
 import type { WorkflowPhaseState } from "@renderer/services/wire-shapes/workflow-projection.js";
 import { projectParkedPhases } from "../../runs/run-list-projection.js";
 import { parkAwaitsPerson, type WorkflowParkedPhase } from "../../runs/run-list-rows.js";
-import { PhaseGraph } from "../run-graph/RunGraph.js";
-import type { PhaseGraphNode, PhaseParkAttention } from "../run-graph/phase-topology.js";
+import { RunGraph } from "../run-graph/RunGraph.js";
+import type { RunGraphNode, PhaseParkAttention } from "../run-graph/phase-topology.js";
 
 /**
  * The run's phases as a picture, in the order the run read carried them.
@@ -39,7 +39,7 @@ export function RunPhaseGraph(props: {
   const parkedByPhaseId = new Map(
     projectParkedPhases(props.phases).map((entry) => [entry.phaseId, entry]),
   );
-  const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => {
+  const nodes: readonly RunGraphNode[] = props.phases.map((phase) => {
     const parked = parkedByPhaseId.get(phase.phaseId);
     return {
       phaseId: phase.phaseId,
@@ -52,7 +52,7 @@ export function RunPhaseGraph(props: {
       parkAttention: parkAttentionOf(parked),
     };
   });
-  return <PhaseGraph phases={nodes} label="Phase sequence" />;
+  return <RunGraph phases={nodes} label="Phase sequence" />;
 }
 
 /**

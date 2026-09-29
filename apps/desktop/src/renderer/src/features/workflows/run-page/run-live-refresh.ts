@@ -62,7 +62,7 @@ import { type ReadTriggerTarget } from "@renderer/console/store/read/read-trigge
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What one live-round reading is opened against. */
-export interface WorkflowRunLiveRoundsOptions {
+export interface WorkflowRunLiveRefreshOptions {
   /** The window's clock, which the coalescing window is measured on. */
   readonly clock: ConsoleClock;
   /**
@@ -92,7 +92,7 @@ export interface WorkflowRunLiveRoundsOptions {
  * that with nothing else to keep in step. It is also why the value is safe to fold
  * into a subject key — every advance is a new key, and no advance is ever un-done.
  */
-export class WorkflowRunLiveRounds implements ReadTriggerTarget {
+export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this pane a fresh read.
    *
@@ -125,7 +125,7 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
   #started = false;
   #disposed = false;
 
-  public constructor(options: WorkflowRunLiveRoundsOptions) {
+  public constructor(options: WorkflowRunLiveRefreshOptions) {
     this.#sessionStore = options.sessionStore;
     this.#workflowRunId = options.workflowRunId;
     this.#scheduler = new RefreshScheduler({

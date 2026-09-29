@@ -12,9 +12,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   composeWindow,
   loadRunPaneBody,
-  mountWorkflowsSlot,
+  mountWorkflowsScreen,
   pressOpenRun,
-  remountWorkflowsSlot,
+  remountWorkflowsScreen,
   withReplacedBridge,
 } from "./WorkflowsScreen.test-support.js";
 import { settle } from "./workflows-probe.test-support.js";
@@ -29,14 +29,14 @@ beforeAll(loadRunPaneBody);
 describe("a bridge replaced under an answered screen", () => {
   it("closes a pane opened from the previous bridge rather than addressing this one with it", async () => {
     const composed = composeWindow();
-    const rendered = mountWorkflowsSlot(composed);
+    const rendered = mountWorkflowsScreen(composed);
     await settle();
     pressOpenRun(rendered.container);
     await settle();
     // The premise: a pane really was open, addressed by a run the previous bridge listed.
     expect(isShowingOpenedPane(rendered.container)).toBe(true);
 
-    remountWorkflowsSlot(rendered, withReplacedBridge(composed));
+    remountWorkflowsScreen(rendered, withReplacedBridge(composed));
     await settle();
 
     expect(isShowingOpenedPane(rendered.container)).toBe(false);
@@ -46,12 +46,12 @@ describe("a bridge replaced under an answered screen", () => {
     // Without this, the case above would pass over a screen that discarded the open pane
     // on every render, which would make no pane openable at all.
     const composed = composeWindow();
-    const rendered = mountWorkflowsSlot(composed);
+    const rendered = mountWorkflowsScreen(composed);
     await settle();
     pressOpenRun(rendered.container);
     await settle();
 
-    remountWorkflowsSlot(rendered, composed);
+    remountWorkflowsScreen(rendered, composed);
     await settle();
 
     expect(isShowingOpenedPane(rendered.container)).toBe(true);

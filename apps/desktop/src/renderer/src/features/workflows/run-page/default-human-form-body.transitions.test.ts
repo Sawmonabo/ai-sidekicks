@@ -15,8 +15,8 @@ import {
   SECOND_WAIT_PHASE_RUN_ID,
   fixtureWaitPhase,
   pressSubmit,
-  renderSlot,
-  renderSwitchableSlot,
+  renderMountPoint,
+  renderSwitchableMountPoint,
   resolveSchemaFormChunks,
   watchingSubmits,
 } from "./default-human-form-body.test-support.js";
@@ -41,7 +41,7 @@ describe("a run that parks two waits at once", () => {
     // One schema object across both waits: the compiled validator is memoised on it, so a
     // second object would clear the form for a reason that is not the phase.
     expect(second.inputSchema).toBe(first.inputSchema);
-    const slot = await renderSwitchableSlot({ phase: first });
+    const slot = await renderSwitchableMountPoint({ phase: first });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
@@ -62,7 +62,7 @@ describe("a run that parks two waits at once", () => {
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
     };
-    const slot = await renderSwitchableSlot({ phase: first, submitForm: probe.submitForm });
+    const slot = await renderSwitchableMountPoint({ phase: first, submitForm: probe.submitForm });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
@@ -87,7 +87,10 @@ describe("a run that parks two waits at once", () => {
 describe("a fractional answer to a number member", () => {
   it("reaches the daemon rather than being stopped by the control's own step", async () => {
     const probe = watchingSubmits();
-    await renderSlot({ ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA }, probe.submitForm);
+    await renderMountPoint(
+      { ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA },
+      probe.submitForm,
+    );
     fireEvent.change(screen.getByLabelText("Ratio"), { target: { value: "1.5" } });
     await act(async () => {
       pressSubmit();
@@ -101,7 +104,10 @@ describe("a fractional answer to a number member", () => {
     // Without this, the case above would pass over a control with validation switched
     // off. The browser's own notice is not drawn by this DOM shim, but the press is stopped.
     const probe = watchingSubmits();
-    await renderSlot({ ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA }, probe.submitForm);
+    await renderMountPoint(
+      { ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA },
+      probe.submitForm,
+    );
     fireEvent.change(screen.getByLabelText("Attempts"), { target: { value: "1.5" } });
     await act(async () => {
       pressSubmit();
@@ -119,7 +125,7 @@ describe("a run read that refreshes under a live attempt", () => {
     // daemon's optimistic comparison would accept it over whatever moved the run.
     const probe = watchingSubmits();
     const composedAgainst = fixtureWaitPhase();
-    const slot = await renderSwitchableSlot({
+    const slot = await renderSwitchableMountPoint({
       phase: composedAgainst,
       submitForm: probe.submitForm,
     });
@@ -145,7 +151,7 @@ describe("a run read that refreshes under a live attempt", () => {
     // revision it ever saw.
     const probe = watchingSubmits();
     const first = fixtureWaitPhase();
-    const slot = await renderSwitchableSlot({ phase: first, submitForm: probe.submitForm });
+    const slot = await renderSwitchableMountPoint({ phase: first, submitForm: probe.submitForm });
 
     await slot.switchTo({
       ...first,

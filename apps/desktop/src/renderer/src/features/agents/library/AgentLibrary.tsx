@@ -38,7 +38,7 @@ import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { type AgentRegistryCalls } from "./library-view.js";
-import { useAgentRegistryView } from "./hooks/useAgentLibraryView.js";
+import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
 import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
 import { SavedDefinitions } from "./components/SavedDefinitions.js";
 
@@ -69,7 +69,7 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
 ];
 
 /** What the page needs: the bridge for its clock and triggers, and the registry calls. */
-export interface AgentDefinitionsPageProps {
+export interface AgentLibraryProps {
   readonly bridge: ConsoleBridge;
   /** Held stable by the caller: a new object restarts the read. */
   readonly calls: AgentRegistryCalls;
@@ -111,8 +111,8 @@ export function AgentDefinitionsFrame(props: {
 }
 
 /** The saved-definitions page: the registry read, its rows, and the delete on each. */
-export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JSX.Element {
-  const { view, snapshot } = useAgentRegistryView(props.bridge, props.calls);
+export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
+  const { view, snapshot } = useAgentLibraryView(props.bridge, props.calls);
   useDefinitionSettlementAnnouncement(snapshot.reading);
 
   return (
