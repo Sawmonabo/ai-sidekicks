@@ -19,9 +19,9 @@ import type { ComposerChannelTarget } from "../../composer-target.js";
 import { createClientCommandExecutor } from "../../command-list/client-command-executor.js";
 import {
   LINE_READING_COMMAND_IDS,
-  noDirectiveLineHandlers,
+  noComposerCommandLineHandlers,
 } from "../../command-list/composer-command-line-handlers.js";
-import { composerCommandSurface } from "../../command-list/composer-commands.js";
+import { readComposerCommands } from "../../command-list/composer-commands.js";
 import { WORKFLOW_COMMAND_ROOT } from "../../command-list/workflow-command/workflow-command-grammar.js";
 import type { CommandExecutor } from "../../types.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -164,8 +164,8 @@ describe("useSendController — a command that reads its line and has no handler
     });
     const driven = driveController(
       createClientCommandExecutor({
-        readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
-        readDirectiveHandlers: noDirectiveLineHandlers,
+        readSurface: () => readComposerCommands(DEFAULT_ROUTE),
+        readDirectiveHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
     );

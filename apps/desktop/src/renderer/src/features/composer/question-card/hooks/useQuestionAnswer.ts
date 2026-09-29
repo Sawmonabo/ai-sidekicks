@@ -33,7 +33,7 @@ import {
 const ASK_ANSWER_METHOD = "driver.respondToRequest";
 
 /** Where one ask's answer has got to, and the call that dispatches one. */
-export interface DriverAskAnswer {
+export interface QuestionAnswerHandle {
   readonly delivery: DriverAskDelivery;
   /** Deliver an answer, or do nothing where this row has none to deliver. */
   readonly answer: (response: string) => void;
@@ -58,7 +58,7 @@ export interface DriverAskAnswer {
  * both of those exist to leave open — nothing reached the driver, so pressing again
  * dispatches again.
  */
-export function useDriverAskAnswer(runId: RunId | undefined, askId: string): DriverAskAnswer {
+export function useQuestionAnswer(runId: RunId | undefined, askId: string): QuestionAnswerHandle {
   const bridge = useConsoleBridge();
   const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
   const answer = useCallback(

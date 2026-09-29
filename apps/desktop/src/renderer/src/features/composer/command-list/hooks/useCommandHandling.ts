@@ -16,9 +16,9 @@ import { recognizeClientCommand } from "../client-command-recognizer.js";
 import { addressedProviderBinding } from "../command-list-entries.js";
 import {
   LINE_READING_COMMAND_IDS,
-  type DirectiveLineHandlers,
+  type ComposerCommandLineHandlers,
 } from "../composer-command-line-handlers.js";
-import { composerCommandSurface } from "../composer-commands.js";
+import { readComposerCommands } from "../composer-commands.js";
 import type { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 
 /**
@@ -35,14 +35,14 @@ import type { ProviderCommandEnumeration } from "../provider-command-enumeration
  * from. One holder rather than a second read, so the list a person read the name off
  * and the path that refuses it are one reading.
  */
-export interface ComposerCommandZone {
+export interface CommandHandling {
   readonly recognizeClientCommand: ClientCommandPredicate;
   readonly commandExecutor: CommandExecutor;
   readonly recognizeProviderCommand: ProviderCommandPredicate;
 }
 
 /** Build the send bar's recogniser, executor, and discovery reading. */
-export function useComposerCommandZone(options: {
+export function useCommandHandling(options: {
   readonly route: ConsoleRoute;
   readonly commandEnumeration: ProviderCommandEnumeration;
   /**
@@ -56,10 +56,10 @@ export function useComposerCommandZone(options: {
    * composer is addressed at, so they change between renders while the executor built
    * from them does not.
    */
-  readonly directiveHandlers: DirectiveLineHandlers;
-}): ComposerCommandZone {
+  readonly directiveHandlers: ComposerCommandLineHandlers;
+}): CommandHandling {
   const { route, commandEnumeration, target, directiveHandlers } = options;
-  const readSurface = useCallback(() => composerCommandSurface(route), [route]);
+  const readSurface = useCallback(() => readComposerCommands(route), [route]);
   const recognizeName = useCallback<ClientCommandPredicate>(
     (commandName) =>
       recognizeClientCommand(commandName, {

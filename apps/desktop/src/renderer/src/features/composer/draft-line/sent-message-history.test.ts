@@ -3,11 +3,11 @@
 import { describe, expect, it } from "vitest";
 
 import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
-import { AddressedDirectiveHistories, DirectiveHistory } from "./sent-message-history.js";
+import { SentMessageHistories, SentMessageHistory } from "./sent-message-history.js";
 
 describe("recall walks sent messages and gives the draft back", () => {
   it("stashes the unsent draft on the first step and restores it on the way down", () => {
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     history.recordSent("first");
     history.recordSent("second");
 
@@ -21,7 +21,7 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 
   it("declines when there is nothing further to reach, so the arrow stays the caret's", () => {
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     expect(history.recallOlder("draft")).toBeUndefined();
     expect(history.recallNewer()).toBeUndefined();
 
@@ -33,7 +33,7 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 
   it("bounds the list, so a long session does not grow one without end", () => {
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     for (let index = 0; index <= COMPOSER_HISTORY_RECALL_CAP; index += 1) {
       history.recordSent(`message ${String(index)}`);
     }
@@ -41,7 +41,7 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 
   it("ends the walk when a message is sent, so a later step cannot re-send it", () => {
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     history.recordSent("older");
     history.recallOlder("draft");
     history.recordSent("newer");
@@ -51,7 +51,7 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 
   it("ignores a blank send, which is not a message anyone can recall", () => {
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     history.recordSent("   ");
     expect(history.recallableCount).toBe(0);
   });
@@ -60,7 +60,7 @@ describe("recall walks sent messages and gives the draft back", () => {
     // The list used to store a trimmed copy, which put the router's own defect one
     // ArrowUp away: the send went out with the indentation and the recall gave it
     // back without.
-    const history = new DirectiveHistory();
+    const history = new SentMessageHistory();
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
     history.recordSent(indented);
 
@@ -70,7 +70,7 @@ describe("recall walks sent messages and gives the draft back", () => {
 
 describe("histories are per address, so a walk never crosses a rebinding", () => {
   it("keeps each address's sent messages to itself", () => {
-    const histories = new AddressedDirectiveHistories();
+    const histories = new SentMessageHistories();
     histories.forAddress("first").recordSent("written for the first");
 
     // The defect this closes: one history for the mounted bar handed the second
@@ -80,7 +80,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
   });
 
   it("puts the cursor at rest for an address that has just become current", () => {
-    const histories = new AddressedDirectiveHistories();
+    const histories = new SentMessageHistories();
     histories.forAddress("first").recordSent("written for the first");
     expect(histories.forAddress("first").recallOlder("half-written")).toBe("written for the first");
 
@@ -95,7 +95,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
   });
 
   it("evicts the least recently addressed past the retained-address cap", () => {
-    const histories = new AddressedDirectiveHistories();
+    const histories = new SentMessageHistories();
     for (let index = 0; index <= COMPOSER_RETAINED_ADDRESS_CAP; index += 1) {
       histories.forAddress(`address ${String(index)}`).recordSent(`message ${String(index)}`);
     }
@@ -112,7 +112,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
   it("re-addressing an address it already holds does not disturb its walk", () => {
     // Asked on every render, so it has to be idempotent: a re-ask that reset the
     // cursor would make ArrowUp unable to reach past the newest message.
-    const histories = new AddressedDirectiveHistories();
+    const histories = new SentMessageHistories();
     histories.forAddress("first").recordSent("older");
     histories.forAddress("first").recordSent("newer");
     expect(histories.forAddress("first").recallOlder("")).toBe("newer");

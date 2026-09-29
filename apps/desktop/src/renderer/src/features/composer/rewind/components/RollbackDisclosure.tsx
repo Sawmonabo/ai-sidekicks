@@ -17,15 +17,12 @@
 
 import { Chip } from "@renderer/console/primitives/index.js";
 import { fileRestoreDisclosureMount } from "../file-restore-mount.js";
-import {
-  resendSettlementSentence,
-  type RollbackDispositionReading,
-} from "../restore-result-reading.js";
+import { resendSettlementSentence, type RestoreResultReading } from "../restore-result-reading.js";
 import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
 /** What a settled rollback is disclosed from: its reading and the wire result. */
 export interface RollbackDisclosureProps {
-  readonly reading: RollbackDispositionReading;
+  readonly reading: RestoreResultReading;
   /** The wire result itself, for the working-tree half this component delegates. */
   readonly result: RollbackAppliedResult | RollbackDegradedResult;
 }

@@ -28,7 +28,7 @@
 // source and a second refusal vocabulary for one wire method — so this holds the
 // composer's comparands, and the two surfaces guard their own calls.
 
-export class RunVersionLedger {
+export class AnsweredRunVersions {
   readonly #answeredByRunId = new Map<string, number>();
 
   /**

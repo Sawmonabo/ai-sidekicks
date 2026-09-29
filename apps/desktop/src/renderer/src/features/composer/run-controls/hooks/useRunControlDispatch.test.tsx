@@ -28,7 +28,7 @@ import {
   type RunControlCalls,
   type RunControlOutcome,
 } from "../services/run-control-dispatch.js";
-import { useRunControlSurface, type RunControlAdmission } from "./useRunControlDispatch.js";
+import { useRunControlDispatch, type RunControlAdmission } from "./useRunControlDispatch.js";
 import { inFlightKeyFor } from "../run-control-keys.js";
 import {
   OTHER_RUN_ID,
@@ -73,7 +73,7 @@ describe("one control per run is in flight at a time", () => {
       },
     };
     const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlSurface(bridge, calls, mintIdempotencyKey));
+    const { result } = renderHook(() => useRunControlDispatch(bridge, calls, mintIdempotencyKey));
 
     await act(async () => {
       const interrupt = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
@@ -92,7 +92,7 @@ describe("one control per run is in flight at a time", () => {
     // one that is going.
     const perform = vi.fn(async () => ACKNOWLEDGED);
     const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlSurface(bridge, UNUSED_CALLS));
+    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -106,7 +106,7 @@ describe("one control per run is in flight at a time", () => {
   it("marks the pressed control busy and clears it on settlement", async () => {
     const settleWith = pendingOutcome();
     const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlSurface(bridge, UNUSED_CALLS));
+    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     act(() => {
       result.current.dispatch(RUN_ID, "interrupt", settleWith.perform);
@@ -125,7 +125,7 @@ describe("one control per run is in flight at a time", () => {
     const rejection = { code: "run.not_found", message: "no such run" };
     const perform = vi.fn((): Promise<RunControlOutcome> => Promise.reject(rejection));
     const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlSurface(bridge, UNUSED_CALLS));
+    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
       const admission = result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -151,7 +151,7 @@ describe("one control per run is in flight at a time", () => {
       throw new Error("no such run");
     });
     const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlSurface(bridge, UNUSED_CALLS));
+    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await act(async () => {
@@ -174,7 +174,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
     const pendingOnFirstBridge = pendingOutcome();
     const performOnSecondBridge = vi.fn(async () => ACKNOWLEDGED);
     const { result, rerender } = renderHook(
-      ({ bridge }) => useRunControlSurface(bridge, UNUSED_CALLS),
+      ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
       {
         initialProps: { bridge: answeringNothing() },
       },
@@ -199,7 +199,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
     // never made.
     const pendingOnFirstBridge = pendingOutcome();
     const { result, rerender } = renderHook(
-      ({ bridge }) => useRunControlSurface(bridge, UNUSED_CALLS),
+      ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
       {
         initialProps: { bridge: answeringNothing() },
       },
@@ -219,7 +219,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
   it("appends nothing when a call made on the previous bridge settles late", async () => {
     const pendingOnFirstBridge = pendingOutcome();
     const { result, rerender } = renderHook(
-      ({ bridge }) => useRunControlSurface(bridge, UNUSED_CALLS),
+      ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
       {
         initialProps: { bridge: answeringNothing() },
       },
@@ -240,7 +240,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
     // Without this, a surface that had simply stopped recording anything would pass
     // every case above.
     const pending = pendingOutcome();
-    const { result } = renderHook(({ bridge }) => useRunControlSurface(bridge, UNUSED_CALLS), {
+    const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
       initialProps: { bridge: answeringNothing() },
     });
 
@@ -259,7 +259,7 @@ describe("the surface belongs to the bridge it dispatched through", () => {
     // The rule the rotation must not be read as relaxing: a second press on the
     // transport that is still current is the same act, and is refused.
     const pending = pendingOutcome();
-    const { result } = renderHook(({ bridge }) => useRunControlSurface(bridge, UNUSED_CALLS), {
+    const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
       initialProps: { bridge: answeringNothing() },
     });
 

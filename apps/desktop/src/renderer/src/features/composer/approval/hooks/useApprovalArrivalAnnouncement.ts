@@ -26,9 +26,9 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  *
  * @consumedBy the approval card's arrival focus
  */
-export function useArrivalAnnouncement(
+export function useApprovalArrivalAnnouncement(
   pending: readonly ApprovalRecord[],
-  paneRootRef: React.RefObject<HTMLElement | null>,
+  cardRootRef: React.RefObject<HTMLElement | null>,
 ): string {
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
@@ -58,9 +58,9 @@ export function useArrivalAnnouncement(
     }
     // Scoped to this pane, because a deck may hold a second one and its cards are
     // no more this arrival's than an older card of this pane's is.
-    const action = findApprovalCardAction(paneRootRef.current ?? document, first.approvalRequestId);
+    const action = findApprovalCardAction(cardRootRef.current ?? document, first.approvalRequestId);
     action?.focus();
-  }, [pending, paneRootRef]);
+  }, [pending, cardRootRef]);
 
   return announcement;
 }

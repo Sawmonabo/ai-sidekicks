@@ -70,7 +70,7 @@ function labelsIn(container: HTMLElement): readonly HTMLLabelElement[] {
   return [...container.querySelectorAll("label")];
 }
 
-describe("AskFreeTextArm — one field per ask, whatever the provider called it", () => {
+describe("TypedAnswerField — one field per ask, whatever the provider called it", () => {
   it("negative control: two runs sharing an ask id do not share a field id", () => {
     const container = renderBothAsks();
 

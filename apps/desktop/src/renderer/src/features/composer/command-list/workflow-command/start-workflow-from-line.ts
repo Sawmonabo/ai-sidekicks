@@ -25,7 +25,7 @@
 // A call that rejects rejects the whole line; the caller that supplies the calls owns
 // what a person is told.
 
-import type { CommandOutcome, DirectiveLine } from "../../types.js";
+import type { CommandOutcome, ComposerCommandLine } from "../../types.js";
 import { clientCommandRefusal } from "../client-command-recognizer.js";
 import {
   readWorkflowDefinitions,
@@ -35,7 +35,7 @@ import { matchWorkflowDefinition } from "./definition-match.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_COMMAND_VERBS,
-  WORKFLOW_START_DIRECTIVE_PREFILL,
+  WORKFLOW_START_COMMAND_PREFILL,
   readWorkflowCommandLine,
 } from "./workflow-command-grammar.js";
 
@@ -66,13 +66,13 @@ export interface WorkflowStartInput {
  * because nothing was asked on those paths.
  */
 export async function startWorkflowFromLine(
-  line: DirectiveLine,
+  line: ComposerCommandLine,
   input: WorkflowStartInput,
 ): Promise<CommandOutcome> {
   const reading = readWorkflowCommandLine(line.text);
   if (reading === undefined || reading.status === "verb-missing") {
     return refusedArgument(
-      `${WORKFLOW_COMMAND_ROOT} needs a verb. Type ${WORKFLOW_START_DIRECTIVE_PREFILL.trimEnd()} followed by the workflow's name.`,
+      `${WORKFLOW_COMMAND_ROOT} needs a verb. Type ${WORKFLOW_START_COMMAND_PREFILL.trimEnd()} followed by the workflow's name.`,
     );
   }
   if (reading.status === "verb-unknown") {
@@ -83,7 +83,7 @@ export async function startWorkflowFromLine(
   const { definitionName } = reading;
   if (definitionName === undefined) {
     return refusedArgument(
-      `${WORKFLOW_START_DIRECTIVE_PREFILL.trimEnd()} starts a workflow by name, and this line named none. Type the definition's name after the command.`,
+      `${WORKFLOW_START_COMMAND_PREFILL.trimEnd()} starts a workflow by name, and this line named none. Type the definition's name after the command.`,
     );
   }
   const { sessionId } = input;
@@ -92,7 +92,7 @@ export async function startWorkflowFromLine(
       status: "refused",
       refusal: clientCommandRefusal(
         "command-unavailable-here",
-        `${WORKFLOW_START_DIRECTIVE_PREFILL.trimEnd()} starts a workflow in a session, and this composer is not addressed within one.`,
+        `${WORKFLOW_START_COMMAND_PREFILL.trimEnd()} starts a workflow in a session, and this composer is not addressed within one.`,
       ),
     };
   }

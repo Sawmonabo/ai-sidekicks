@@ -32,7 +32,7 @@ import {
 import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { recordingBridge } from "../provider-command-enumeration.test-support.js";
 
-describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {
+describe("CommandList — one binding's entries reach the list", () => {
   it("lists the addressed run's group and none of the other binding's entries", async () => {
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([...(await scenarioBindingGroups()), UNADDRESSED_CODEX_GROUP]),
@@ -81,7 +81,7 @@ describe("ProviderCommandAutocomplete — one binding's entries reach the list",
   });
 });
 
-describe("ProviderCommandAutocomplete — the list activates its active row", () => {
+describe("CommandList — the list activates its active row", () => {
   /** Registers the console act these cases activate, and counts what it ran. */
   function registerCountedConsoleCommand(): { runCount: () => number } {
     let ranCount = 0;
@@ -177,7 +177,7 @@ describe("ProviderCommandAutocomplete — the list activates its active row", ()
   });
 });
 
-describe("ProviderCommandAutocomplete — a declared disabled entry renders disabled", () => {
+describe("CommandList — a declared disabled entry renders disabled", () => {
   /** The scenario entry whose `enabled: true` these cases flip. */
   const FLIPPED_ENTRY_NAME = "review";
   /** A fragment of the state the row says in its own words. */

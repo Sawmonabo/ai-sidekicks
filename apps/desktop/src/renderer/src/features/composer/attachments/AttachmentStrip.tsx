@@ -17,26 +17,26 @@ import { attachmentCarrierFill } from "./attachment-bounds.js";
 import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
-import { sendAttachmentReference } from "./send-attachment-reference.js";
+import { composeSendAttachmentReference } from "./send-attachment-reference.js";
 
 import "./AttachmentStrip.css";
 
 /** What the strip reads: the session's attachment carrier, and whether a file is being dragged. */
-export interface ComposerAttachmentBarProps {
-  readonly carrier: AttachmentCarrierBinding;
+export interface AttachmentStripProps {
+  readonly stagedAttachments: AttachmentCarrierBinding;
   /** True while a file drag is over the composer, so the strip can say it will land. */
   readonly isDraggingFiles: boolean;
 }
 
 /** The composer's attachment strip, or `null` while nothing is attached or dragged over it. */
-export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.JSX.Element | null {
-  const { carrier } = props;
-  const { entries, publishedAtMilliseconds } = carrier.snapshot;
+export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element | null {
+  const { stagedAttachments } = props;
+  const { entries, publishedAtMilliseconds } = stagedAttachments.snapshot;
   if (entries.length === 0 && !props.isDraggingFiles) {
     return null;
   }
   const fill = attachmentCarrierFill(entries.length);
-  const reference = sendAttachmentReference(entries);
+  const reference = composeSendAttachmentReference(entries);
   return (
     // A `section` and not a `div`: `aria-label` on a generic element names nothing. A
     // landmark takes the name, and the strip is one, a standing region beside the
@@ -57,8 +57,8 @@ export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.
           <AttachmentChip
             key={entry.declared.localId}
             chip={composerAttachmentChip(entry, publishedAtMilliseconds)}
-            onRetry={carrier.retry}
-            onAbandon={carrier.abandon}
+            onRetry={stagedAttachments.retry}
+            onAbandon={stagedAttachments.abandon}
           />
         ))}
       </ul>

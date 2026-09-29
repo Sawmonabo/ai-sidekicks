@@ -53,12 +53,12 @@ import {
  * OWN: it frees a key on the supersede and answers `heldKeyCount` for what it still
  * holds, which a counter kept here would not bound or report.
  */
-export interface AttachmentLedgerStamp {
+export interface AttachmentIngestStamp {
   readonly state: AttachmentIngestState;
   readonly claim: CurrentGenerationClaim;
 }
 
-export class AttachmentIngestLedger {
+export class AttachmentIngestEntries {
   readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
   /** The rounds entries are on, one key per local id. Never a module-level singleton. */
   readonly #rounds = new GenerationLatch();
@@ -88,7 +88,7 @@ export class AttachmentIngestLedger {
   }
 
   /** What this entry stands at now, for a continuation to check against later. */
-  public stamp(localId: string): AttachmentLedgerStamp | undefined {
+  public stamp(localId: string): AttachmentIngestStamp | undefined {
     const entry = this.current(localId);
     if (entry === undefined) {
       return undefined;
@@ -106,7 +106,7 @@ export class AttachmentIngestLedger {
    */
   public currentIfUnchanged(
     localId: string,
-    stamp: AttachmentLedgerStamp,
+    stamp: AttachmentIngestStamp,
   ): AttachmentIngestEntry | undefined {
     const entry = this.current(localId);
     if (entry === undefined || entry.state !== stamp.state) {
@@ -228,7 +228,7 @@ export class AttachmentIngestLedger {
  * the next chunk against an offset the two sides have stopped sharing.
  */
 export function writeIngestRefusal(
-  ledger: AttachmentIngestLedger,
+  ledger: AttachmentIngestEntries,
   localId: string,
   entry: AttachmentIngestEntry,
   refusal: { readonly code: string; readonly detail: string },

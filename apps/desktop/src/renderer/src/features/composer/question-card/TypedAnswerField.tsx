@@ -28,7 +28,7 @@ import { useEffect, useId, useState } from "react";
 
 import { type DriverAskDelivery } from "@renderer/console/ledger/cards/bodies/input-ask.js";
 
-export interface AskFreeTextArmProps {
+export interface TypedAnswerFieldProps {
   /** Where the answer this card last dispatched has got to. */
   readonly delivery: DriverAskDelivery;
   /**
@@ -44,7 +44,7 @@ export interface AskFreeTextArmProps {
   readonly onAnswer: (response: string) => void;
 }
 
-export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
+export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Element {
   const [draft, setDraft] = useState("");
   // MINTED PER MOUNT AND NEVER COMPOSED FROM THE ASK. `askId` is the PROVIDER's,
   // minted per provider session, so two runs blocked at once legitimately raise the

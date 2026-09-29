@@ -67,17 +67,17 @@ import { useCallback, useMemo } from "react";
 import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
-import { composerCommandSurface } from "../composer-commands.js";
-import { useDirectiveLineDiscovery } from "../hooks/useCommandListTrigger.js";
+import { readComposerCommands } from "../composer-commands.js";
+import { useCommandListTrigger } from "../hooks/useCommandListTrigger.js";
 import { addressedProviderBinding } from "../command-list-entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandEnumeration } from "../provider-command-enumeration.js";
-import { CommandDiscoveryPopover } from "./CommandListPopover.js";
+import { CommandListPopover } from "./CommandListPopover.js";
 import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 
 import "./CommandList.css";
 
-export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
+export type CommandListProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /**
@@ -88,9 +88,7 @@ export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   readonly commandEnumeration: ProviderCommandEnumeration;
 };
 
-export function ProviderCommandAutocomplete(
-  props: ProviderCommandAutocompleteProps,
-): React.JSX.Element | null {
+export function CommandList(props: CommandListProps): React.JSX.Element | null {
   const { region, bridge, route, commandEnumeration, draftStore } = props;
   // The address is resolved here rather than handed down, exactly as the chip rail
   // and the send bar resolve it: one hook with three readers is one implementation,
@@ -101,7 +99,7 @@ export function ProviderCommandAutocomplete(
   // The same store and the same key the send bar reads its line from, so what this
   // surface sees and what the line displays are one reading rather than two that
   // agree only while somebody is typing.
-  const discovery = useDirectiveLineDiscovery(region, { draftStore, draftKey });
+  const discovery = useCommandListTrigger(region, { draftStore, draftKey });
   const isOpen = discovery.prefix !== undefined;
   const enumeration = useProviderCommandEnumeration({
     enumeration: commandEnumeration,
@@ -112,10 +110,10 @@ export function ProviderCommandAutocomplete(
   // Contributes the palette entry that types the directive onto the line.
   useWorkflowStartPrefill({ draftStore, draftKey });
 
-  const readSurface = useCallback(() => composerCommandSurface(route), [route]);
+  const readSurface = useCallback(() => readComposerCommands(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   return isOpen ? (
-    <CommandDiscoveryPopover
+    <CommandListPopover
       prefix={discovery.prefix ?? ""}
       readSurface={readSurface}
       enumeration={enumeration}

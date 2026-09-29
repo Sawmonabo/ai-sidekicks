@@ -19,7 +19,7 @@ import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../c
  * `store/draft-store.ts` states why user-authored text does not
  * reach durable storage, and a recall list is the same class of content.
  */
-export class DirectiveHistory {
+export class SentMessageHistory {
   /** Newest first, so index 0 is the message most recently sent. */
   readonly #sentNewestFirst: string[] = [];
   /** `-1` while not walking; otherwise the index into the list above. */
@@ -122,9 +122,9 @@ export class DirectiveHistory {
  * gesture within one line; a switch away and back cannot land mid-walk, so becoming
  * current resets the walk without touching what the address has sent.
  */
-export class AddressedDirectiveHistories {
+export class SentMessageHistories {
   /** Insertion order is the recency order the eviction reads. */
-  readonly #byAddress = new Map<string, DirectiveHistory>();
+  readonly #byAddress = new Map<string, SentMessageHistory>();
   #currentAddress: string | undefined = undefined;
 
   /** How many addresses are retained. Bounded by the cap; read by tests. */
@@ -138,9 +138,9 @@ export class AddressedDirectiveHistories {
    * Idempotent for an address that is already current, so a caller free to ask on
    * every render neither re-orders the map nor disturbs a walk in progress.
    */
-  public forAddress(address: string): DirectiveHistory {
+  public forAddress(address: string): SentMessageHistory {
     const existing = this.#byAddress.get(address);
-    const history = existing ?? new DirectiveHistory();
+    const history = existing ?? new SentMessageHistory();
     if (existing !== undefined) {
       // Re-inserted so the map's own iteration order stays the recency order the
       // eviction below reads, rather than a separate list that could disagree.

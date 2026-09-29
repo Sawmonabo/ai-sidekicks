@@ -3,7 +3,7 @@
 //
 // THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The carrier's own record —
 // which attachments there are, in which order, and where each one stands — is
-// `attachment-ingest-ledger.ts`. The wire is `attachment-ingest-stream.ts`, whose
+// `attachment-ingest-entries.ts`. The wire is `attachment-ingest-stream.ts`, whose
 // middle leg is `attachment-ingest-chunks.ts`. Giving a stopped stream's spool back is
 // `attachment-ingest-abort.ts`, whose rules are the opposite of the stream's in every
 // respect that matters; the port every leg calls through is declared in
@@ -24,7 +24,7 @@ import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { AttachmentIngestLedger } from "./attachment-ingest-entries.js";
+import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import { AttachmentIngestStreamDriver } from "./services/attachment-ingest-stream.js";
 import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-shapes.js";
 
@@ -37,7 +37,7 @@ export interface AttachmentIngestClientOptions {
 
 /** Every attachment a user has handed this carrier, in the order they chose. */
 export class AttachmentIngestClient {
-  readonly #ledger = new AttachmentIngestLedger();
+  readonly #ledger = new AttachmentIngestEntries();
   readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #streams: AttachmentIngestStreamDriver;
 

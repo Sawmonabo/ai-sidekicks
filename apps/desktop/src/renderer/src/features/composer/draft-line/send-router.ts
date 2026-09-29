@@ -54,7 +54,7 @@ import {
 } from "@renderer/services/daemon/wire-requests.js";
 import { readRunId, readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
 import type { ComposerChannelTarget, ComposerTarget } from "../composer-target.js";
-import { readDirectiveName } from "../slash-command-syntax.js";
+import { readSlashCommandName } from "../slash-command-syntax.js";
 import type {
   ClientCommandPredicate,
   ComposerRefusedResolution,
@@ -67,7 +67,7 @@ import {
   unparseableIdentifier,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
-import { RunVersionLedger } from "./answered-run-versions.js";
+import { AnsweredRunVersions } from "./answered-run-versions.js";
 import {
   dispatchIntervention,
   dispatchQueuedTurn,
@@ -98,7 +98,7 @@ export interface ComposerSendRouterOptions {
    * which is exactly the interval it exists to bridge. A router built without one
    * gets its own, so a caller that has no second steer to make needs no wiring.
    */
-  readonly runVersions?: RunVersionLedger;
+  readonly runVersions?: AnsweredRunVersions;
 }
 
 export class ComposerSendRouter {
@@ -106,14 +106,14 @@ export class ComposerSendRouter {
   readonly #recognizeClientCommand: ClientCommandPredicate;
   readonly #recognizeProviderCommand: ProviderCommandPredicate;
   readonly #mintIdempotencyKey: () => string;
-  readonly #runVersions: RunVersionLedger;
+  readonly #runVersions: AnsweredRunVersions;
 
   public constructor(options: ComposerSendRouterOptions) {
     this.#calls = options.calls;
     this.#recognizeClientCommand = options.recognizeClientCommand ?? (() => false);
     this.#recognizeProviderCommand = options.recognizeProviderCommand ?? (() => undefined);
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
-    this.#runVersions = options.runVersions ?? new RunVersionLedger();
+    this.#runVersions = options.runVersions ?? new AnsweredRunVersions();
   }
 
   /**
@@ -173,7 +173,7 @@ export class ComposerSendRouter {
    * acts on are one decision rather than two that agree until somebody edits one.
    */
   #resolveSlashPrefix(body: string): ComposerSendResolution | undefined {
-    const commandName = readDirectiveName(body);
+    const commandName = readSlashCommandName(body);
     if (commandName === undefined) {
       return undefined;
     }

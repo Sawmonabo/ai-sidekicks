@@ -26,7 +26,7 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
  * The text is the trimmed line as typed, leading slash included — the router
  * strips nothing on this arm, so an executor reads exactly what the person wrote.
  */
-export interface DirectiveLine {
+export interface ComposerCommandLine {
   /** The command name, without its leading slash. Wire-verbatim as typed. */
   readonly commandName: string;
   /** The whole trimmed line, leading slash included. */
@@ -49,4 +49,4 @@ export type CommandOutcome =
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** Run one recognised client command. Returns a settlement; never throws to report one. */
-export type CommandExecutor = (line: DirectiveLine) => Promise<CommandOutcome>;
+export type CommandExecutor = (line: ComposerCommandLine) => Promise<CommandOutcome>;

@@ -12,7 +12,7 @@ import {
   type RunControlDispatcher,
   type RunControlOutcome,
 } from "./services/run-control-dispatch.js";
-import { type RunControlSurface } from "./hooks/useRunControlDispatch.js";
+import { type RunControlDispatchState } from "./hooks/useRunControlDispatch.js";
 
 /** A run identifier the wire's own reader accepts, shared by the suites in this folder. */
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -56,8 +56,8 @@ export function commandRun(runId: string, state: RunState = "running"): RunContr
 }
 
 /** A surface whose dispatcher records the verb and target it was asked for. */
-export function recordingRunControlSurface(): {
-  readonly surface: RunControlSurface;
+export function recordingRunControlDispatch(): {
+  readonly surface: RunControlDispatchState;
   readonly calls: RecordedRunControlCall[];
 } {
   const calls: RecordedRunControlCall[] = [];
@@ -75,7 +75,7 @@ export function recordingRunControlSurface(): {
     resume: record("resume"),
     interrupt: record("interrupt"),
   } as unknown as RunControlDispatcher;
-  const surface: RunControlSurface = {
+  const surface: RunControlDispatchState = {
     dispatcher,
     records: [],
     inFlightKeys: new Set<string>(),

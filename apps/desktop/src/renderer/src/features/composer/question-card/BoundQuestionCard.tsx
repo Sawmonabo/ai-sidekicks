@@ -24,14 +24,14 @@ import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/console/store/subject-scoped/deadline-wake.js";
 import {
-  InputAskCard,
   askSettledBy,
   useLedgerAskTerminal,
   type DriverAskReading,
 } from "@renderer/console/ledger/cards/bodies/index.js";
-import { useDriverAskAnswer } from "./hooks/useQuestionAnswer.js";
+import { useQuestionAnswer } from "./hooks/useQuestionAnswer.js";
+import { InputAskCard } from "./QuestionCard.js";
 
-export interface FixtureShellAskRowProps {
+export interface BoundQuestionCardProps {
   /**
    * The ask this row is blocked on, read off the row by the shell that dispatched here.
    *
@@ -47,8 +47,8 @@ export interface FixtureShellAskRowProps {
  *
  * @consumedBy the composer's question card
  */
-export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.Element {
-  const askAnswer = useDriverAskAnswer(props.ask.runId, props.ask.askId);
+export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Element {
+  const askAnswer = useQuestionAnswer(props.ask.runId, props.ask.askId);
   const clock = useConsoleClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
@@ -60,7 +60,8 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.
   const deadlines = useMemo(
-    () => (ask.state === "requested" ? askDeadlineMillisecondsOf(ask.expiresAt) : NO_DEADLINES),
+    () =>
+      ask.state === "requested" ? readQuestionDeadlineMilliseconds(ask.expiresAt) : NO_DEADLINES,
     [ask.expiresAt, ask.state],
   );
   const nowEpochMilliseconds = useDeadlineWake(clock, deadlines);
@@ -84,7 +85,7 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
  * read arms nothing rather than firing a timer forever, and the card renders it as
  * the named absence it is.
  */
-function askDeadlineMillisecondsOf(expiresAt: string | undefined): readonly number[] {
+function readQuestionDeadlineMilliseconds(expiresAt: string | undefined): readonly number[] {
   if (expiresAt === undefined) {
     return NO_DEADLINES;
   }

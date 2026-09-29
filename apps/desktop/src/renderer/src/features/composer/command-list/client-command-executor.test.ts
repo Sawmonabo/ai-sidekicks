@@ -17,10 +17,10 @@ import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
 import {
   LINE_READING_COMMAND_IDS,
-  type DirectiveLineHandlers,
-  noDirectiveLineHandlers,
+  type ComposerCommandLineHandlers,
+  noComposerCommandLineHandlers,
 } from "./composer-command-line-handlers.js";
-import { composerCommandSurface } from "./composer-commands.js";
+import { readComposerCommands } from "./composer-commands.js";
 
 const RAN_COMMAND_ID = "composer-executor-test.ran";
 const FAILING_COMMAND_ID = "composer-executor-test.failing";
@@ -43,9 +43,11 @@ function registerCommand(command: {
   registeredIds.push(command.id);
 }
 
-function executorOverConsoleRegistry(handlers: DirectiveLineHandlers = noDirectiveLineHandlers()) {
+function executorOverConsoleRegistry(
+  handlers: ComposerCommandLineHandlers = noComposerCommandLineHandlers(),
+) {
   return createClientCommandExecutor({
-    readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
+    readSurface: () => readComposerCommands(DEFAULT_ROUTE),
     readDirectiveHandlers: () => handlers,
     lineReadingCommandIds: LINE_READING_COMMAND_IDS,
   });
@@ -147,7 +149,7 @@ describe("createClientCommandExecutor", () => {
       when: "onWorkflows",
       run: () => undefined,
     });
-    const surface = composerCommandSurface(DEFAULT_ROUTE);
+    const surface = readComposerCommands(DEFAULT_ROUTE);
 
     expect(surface.registeredCommandIds).toContain(HIDDEN_COMMAND_ID);
     expect(surface.offeredCommands.map((command) => command.id)).not.toContain(HIDDEN_COMMAND_ID);

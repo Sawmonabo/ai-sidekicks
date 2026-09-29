@@ -5,33 +5,33 @@
 
 import { describe, expect, it } from "vitest";
 
-import { readDirectiveName } from "./slash-command-syntax.js";
+import { readSlashCommandName } from "./slash-command-syntax.js";
 
-describe("readDirectiveName", () => {
+describe("readSlashCommandName", () => {
   it("opens on a leading slash and reports the typed name", () => {
-    expect(readDirectiveName("/comp")).toBe("comp");
+    expect(readSlashCommandName("/comp")).toBe("comp");
   });
 
   it("opens with an empty name on the trigger alone", () => {
-    expect(readDirectiveName("/")).toBe("");
+    expect(readSlashCommandName("/")).toBe("");
   });
 
   it("reads only the first word, so arguments do not widen the name", () => {
-    expect(readDirectiveName("/compact now please")).toBe("compact");
+    expect(readSlashCommandName("/compact now please")).toBe("compact");
   });
 
   it("negative control: an indented line is prose, so it names nothing", () => {
     // The router hands over the user's text untouched, so pasted code whose first
     // non-blank character is a slash would otherwise be claimed as a command. A
     // command occupies its line from the first byte.
-    expect(readDirectiveName("  /compact")).toBeUndefined();
+    expect(readSlashCommandName("  /compact")).toBeUndefined();
   });
 
   it("reads a doubled slash as the name it is, so nothing recognises it", () => {
-    expect(readDirectiveName("//not a command")).toBe("/not");
+    expect(readSlashCommandName("//not a command")).toBe("/not");
   });
 
   it("negative control: ordinary prose names nothing", () => {
-    expect(readDirectiveName("compact the context")).toBeUndefined();
+    expect(readSlashCommandName("compact the context")).toBeUndefined();
   });
 });

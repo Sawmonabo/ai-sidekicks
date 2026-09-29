@@ -16,7 +16,7 @@ import {
   RUN_ID,
   SESSION_ID,
   contextWindowEvent,
-  mountRail,
+  mountToolbar,
   AGENT,
   AGENT_ID,
   RUNNING_RUN,
@@ -28,15 +28,15 @@ import type {
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
-describe("ComposerAccessoryRail — absence before assertion", () => {
+describe("ComposerToolbar — absence before assertion", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {
-    const container = mountRail([], ADDRESSED);
+    const container = mountToolbar([], ADDRESSED);
     expect(container.querySelector(".meridian-context-meter")).toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
   it("negative control: a session with a reading draws the meter instead", () => {
-    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
+    const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     const meter = container.querySelector('[role="progressbar"]');
     expect(meter?.getAttribute("aria-valuenow")).toBe("84");
   });
@@ -44,8 +44,8 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   it("is never colored and adds no hint at 80% or past the window", () => {
     // The ring is one figure and one meter, gray on gray: fullness changes the figure
     // and never the color or the copy beside it.
-    const nearFull = mountRail([contextWindowEvent(1)], ADDRESSED);
-    const pastTheWindow = mountRail(
+    const nearFull = mountToolbar([contextWindowEvent(1)], ADDRESSED);
+    const pastTheWindow = mountToolbar(
       [
         {
           ...contextWindowEvent(1),
@@ -80,7 +80,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     // The meter draws the same bar for all three grades and says which one it is.
     // A bar whose numbers were estimated and a bar whose numbers the provider
     // measured are different readings, and the difference is invisible in the bar.
-    const container = mountRail(
+    const container = mountToolbar(
       [
         {
           ...contextWindowEvent(1),
@@ -106,7 +106,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   it("negative control: a provider-reported reading carries no grade sentence", () => {
     // Without this the case above would hold over a meter that explained itself on
     // every reading, which would make the two grades that matter invisible.
-    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
+    const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
     expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
       "provider_reported",
@@ -114,7 +114,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   });
 });
 
-describe("ComposerAccessoryRail — the meter reads the conversation it is addressed to", () => {
+describe("ComposerToolbar — the meter reads the conversation it is addressed to", () => {
   const SECOND_AGENT_ID = "agent-reviewer";
   const SECOND_RUN_ID = "3c2b1a09-8f7e-4d6c-9b5a-4938271605fe";
 
@@ -166,7 +166,7 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
   it("draws the addressed run's fullness while another run meters later and higher", () => {
     // A fold over the newest row anywhere in the session would draw Priya's 90% on the
     // composer addressed to Ada.
-    const container = mountRail(BOTH_METERED, {
+    const container = mountToolbar(BOTH_METERED, {
       entities: BOTH_AGENTS,
       focusedPane: paneOn(AGENT_ID),
     });
@@ -179,7 +179,7 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
   it("negative control: the other run's composer draws the higher reading", () => {
     // Without this the case above would hold over a meter that had simply stopped
     // reading the timeline at all.
-    const container = mountRail(BOTH_METERED, {
+    const container = mountToolbar(BOTH_METERED, {
       entities: BOTH_AGENTS,
       focusedPane: paneOn(SECOND_AGENT_ID),
     });
@@ -193,7 +193,7 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
     // A composer addressed to the session meters no provider conversation, so there is
     // no fullness for it to report — and the session's newest row is some run's, not
     // this composer's.
-    const container = mountRail(BOTH_METERED, { entities: BOTH_AGENTS });
+    const container = mountToolbar(BOTH_METERED, { entities: BOTH_AGENTS });
 
     expect(container.querySelector(".meridian-context-meter")).toBeNull();
     expect(
@@ -202,7 +202,7 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
   });
 });
 
-describe("ComposerAccessoryRail — a compaction moves the meter off its stale figure", () => {
+describe("ComposerToolbar — a compaction moves the meter off its stale figure", () => {
   function compactionRow(
     sequence: number,
     payload: Readonly<Record<string, unknown>>,
@@ -219,7 +219,7 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
 
   it("draws the post-compaction figure the boundary carried", () => {
     // The meter draws the boundary's post-compaction count, not the pre-compaction 84%.
-    const container = mountRail(
+    const container = mountToolbar(
       [contextWindowEvent(1), compactionRow(2, { postCompactionTokens: 40_000 })],
       ADDRESSED,
     );
@@ -230,7 +230,7 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
   });
 
   it("returns to the absence where the boundary carried no count", () => {
-    const container = mountRail([contextWindowEvent(1), compactionRow(2, {})], ADDRESSED);
+    const container = mountToolbar([contextWindowEvent(1), compactionRow(2, {})], ADDRESSED);
 
     expect(container.querySelector(".meridian-context-meter")).toBeNull();
     expect(
@@ -239,7 +239,7 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
   });
 
   it("negative control: without the boundary the same timeline draws the stale figure", () => {
-    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
+    const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "84",
     );

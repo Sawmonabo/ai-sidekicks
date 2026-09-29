@@ -56,7 +56,7 @@ export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke
  * Visibility still decides whether it RUNS — `invoke` is fail-closed on it — so the
  * wider recognition set costs no eligibility and buys the honest sentence.
  */
-export interface ComposerCommandSurface {
+export interface ComposerCommands {
   /** Every command offered where this composer is, ordered by group then title. */
   readonly offeredCommands: readonly ConsoleCommand[];
   /** Every command this window has registered, in registration order, visible or not. */
@@ -73,7 +73,7 @@ export interface ComposerCommandSurface {
  * captured once at mount would be the empty registry forever. Every caller reads it
  * at the moment a person asks — which is when the answer has to be current anyway.
  */
-export function composerCommandSurface(route: ConsoleRoute): ComposerCommandSurface {
+export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
   return {
     offeredCommands: consoleCommands.commandsFor(whenContext),

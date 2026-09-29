@@ -24,7 +24,7 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 
-export interface RemediedRefusalProps {
+export interface RefusalWithRemedyProps {
   readonly refusal: ConsoleRefusal;
   /**
    * Rendered after the console's own next move, for a surface that can say
@@ -35,7 +35,7 @@ export interface RemediedRefusalProps {
 }
 
 /** The daemon's words, with the console's next move in the action slot. */
-export function RemediedRefusal(props: RemediedRefusalProps): React.JSX.Element {
+export function RemediedRefusal(props: RefusalWithRemedyProps): React.JSX.Element {
   const { refusal, detailAction } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const action =

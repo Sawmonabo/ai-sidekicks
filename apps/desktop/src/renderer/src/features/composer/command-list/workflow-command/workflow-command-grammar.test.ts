@@ -15,10 +15,10 @@ import { CHANNEL_TARGET, sendCallsAnswering } from "../../draft-line/send-router
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
 import { createClientCommandExecutor } from "../client-command-executor.js";
 import { recognizeClientCommand } from "../client-command-recognizer.js";
-import { composerCommandSurface } from "../composer-commands.js";
+import { readComposerCommands } from "../composer-commands.js";
 import {
   LINE_READING_COMMAND_IDS,
-  type DirectiveLineHandlers,
+  type ComposerCommandLineHandlers,
 } from "../composer-command-line-handlers.js";
 import {
   fixtureWorkflowStartOperations,
@@ -50,7 +50,7 @@ function routerOverRegistry(): ComposerSendRouter {
     calls: sendCallsAnswering(async () => undefined),
     recognizeClientCommand: (commandName) =>
       recognizeClientCommand(commandName, {
-        registeredCommandIds: composerCommandSurface(DEFAULT_ROUTE).registeredCommandIds,
+        registeredCommandIds: readComposerCommands(DEFAULT_ROUTE).registeredCommandIds,
       }).status === "recognized",
   });
 }
@@ -111,7 +111,7 @@ describe("the documented line, end to end through the recogniser and the router"
     if (resolution.outcome !== "client-command") {
       throw new Error("the documented line must be intercepted as a client command");
     }
-    const handlers: DirectiveLineHandlers = new Map([
+    const handlers: ComposerCommandLineHandlers = new Map([
       [
         WORKFLOW_COMMAND_ROOT,
         async (line) =>
@@ -125,7 +125,7 @@ describe("the documented line, end to end through the recogniser and the router"
       ],
     ]);
     const executor = createClientCommandExecutor({
-      readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
+      readSurface: () => readComposerCommands(DEFAULT_ROUTE),
       readDirectiveHandlers: () => handlers,
       lineReadingCommandIds: LINE_READING_COMMAND_IDS,
     });

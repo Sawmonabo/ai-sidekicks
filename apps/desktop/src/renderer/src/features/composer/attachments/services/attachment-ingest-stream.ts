@@ -41,7 +41,7 @@ import { type ConsoleClock } from "@renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
-import type { AttachmentIngestLedger } from "../attachment-ingest-entries.js";
+import type { AttachmentIngestEntries } from "../attachment-ingest-entries.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
 export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-stream.ts";
@@ -52,7 +52,7 @@ export interface AttachmentIngestStreamDriverOptions {
   readonly sessionId: SessionId;
   readonly clock: ConsoleClock;
   /** The carrier's own record. Written here, owned next door. */
-  readonly ledger: AttachmentIngestLedger;
+  readonly ledger: AttachmentIngestEntries;
   /** Where a spool this driver opened and could not reach the ledger with is given back. */
   readonly reclaimer: AttachmentSpoolReclaimer;
 }
@@ -72,7 +72,7 @@ export class AttachmentIngestStreamDriver {
   readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
   readonly #sessionId: SessionId;
   readonly #clock: ConsoleClock;
-  readonly #ledger: AttachmentIngestLedger;
+  readonly #ledger: AttachmentIngestEntries;
   readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #chunks: AttachmentChunkStream;
   readonly #runningLocalIds = new Set<string>();

@@ -25,14 +25,14 @@
 // person as no refusal at all. Both paths into an act now settle through one report.
 
 import { isErrorInstance, lossyStringify, readGuardedProperty } from "@shared/wire-errors.js";
-import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../types.js";
+import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../types.js";
 import {
   clientCommandRefusal,
   recognizeClientCommand,
   type ClientCommandRecognitionInput,
 } from "./client-command-recognizer.js";
-import { type ComposerCommandSurface } from "./composer-commands.js";
-import { type DirectiveLineHandlers } from "./composer-command-line-handlers.js";
+import { type ComposerCommands } from "./composer-commands.js";
+import { type ComposerCommandLineHandlers } from "./composer-command-line-handlers.js";
 
 /**
  * Build the executor for one composer.
@@ -44,8 +44,8 @@ import { type DirectiveLineHandlers } from "./composer-command-line-handlers.js"
  * mirror-image reason: they close over what the composer is addressed at, which moves.
  */
 export function createClientCommandExecutor(options: {
-  readonly readSurface: () => ComposerCommandSurface;
-  readonly readDirectiveHandlers: () => DirectiveLineHandlers;
+  readonly readSurface: () => ComposerCommands;
+  readonly readDirectiveHandlers: () => ComposerCommandLineHandlers;
   /**
    * The commands that read their arguments off the typed line. One of these with no
    * handler in the map settles as `not-run` rather than through the argument-free
@@ -53,7 +53,7 @@ export function createClientCommandExecutor(options: {
    */
   readonly lineReadingCommandIds: readonly string[];
 }): CommandExecutor {
-  return async (line: DirectiveLine): Promise<CommandOutcome> => {
+  return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
     const surface = options.readSurface();
     const recognitionInput: ClientCommandRecognitionInput = {
       registeredCommandIds: surface.registeredCommandIds,
@@ -93,7 +93,7 @@ export function createClientCommandExecutor(options: {
 
 /** One invocation, resolved into exactly one settlement. Never throws. */
 async function settleInvocation(
-  surface: ComposerCommandSurface,
+  surface: ComposerCommands,
   commandId: string,
 ): Promise<CommandOutcome> {
   const outcome = surface.invoke(commandId);
@@ -137,7 +137,7 @@ async function settleInvocation(
 /**
  * The report a client command's own failure takes, wherever it was reached from.
  *
- * ONE BUILDER FOR BOTH PATHS. The registry's `invoke` and the directive-line handler
+ * ONE BUILDER FOR BOTH PATHS. The registry's `invoke` and the command-line handler
  * map are two ways into one act, and a person meeting a failure on either is owed the
  * same sentence under the same code — two copies of this reading would be two accounts
  * of one thing the day either was tuned.

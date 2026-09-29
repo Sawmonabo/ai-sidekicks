@@ -1,6 +1,6 @@
 // The context meter's own reading: how much of the window this run has spent.
 //
-// Split from `ContextMeter.tsx`, which owns the seat — whether a meter is shown at
+// Split from `ContextRing.tsx`, which owns the seat — whether a meter is shown at
 // all, and for which run — while this owns what one reading looks like.
 //
 // THE SOURCE NOTE TRAVELS WITH THE READING. Where a figure came from is part of
@@ -33,7 +33,7 @@ const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefi
  * branched inside its own body would put the bar's geometry and the absence in one
  * scope, and the two share nothing but the word "meter".
  */
-export function ContextMeterReading(props: {
+export function ContextRingReading(props: {
   readonly reading: ContextWindowReading;
 }): React.JSX.Element {
   const { usagePercent, windowUsedTokens, windowMaxTokens, windowSource } = props.reading;

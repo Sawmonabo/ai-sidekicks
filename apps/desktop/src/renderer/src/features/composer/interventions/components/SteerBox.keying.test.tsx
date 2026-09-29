@@ -9,14 +9,14 @@
 import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { RunInterventionComposer } from "./SteerBox.js";
-import { useRunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
+import { SteerBox } from "./SteerBox.js";
+import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDispatch.js";
 import {
   APPLIED_STEER,
   bodyValue,
   inertBridge,
   interventionCalls,
-  renderComposer,
+  renderSteerBox,
   runAt,
   submit,
   type ScriptedAnswer,
@@ -67,11 +67,11 @@ describe("the form is keyed by what it is composing against", () => {
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
     const [runControlCalls] = useState(() => interventionCalls([], props.answer));
-    const surface = useRunControlSurface(bridge, runControlCalls);
+    const surface = useRunControlDispatch(bridge, runControlCalls);
     const { onCommit } = props;
     return (
       <>
-        <RunInterventionComposer
+        <SteerBox
           key={props.keyed ? props.runId : "fixed"}
           bridge={bridge}
           run={runAt("paused", 8, props.runId)}
@@ -215,9 +215,9 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
     const [runControlCalls] = useState(() => interventionCalls([], props.answer));
-    const surface = useRunControlSurface(bridge, runControlCalls);
+    const surface = useRunControlDispatch(bridge, runControlCalls);
     return (
-      <RunInterventionComposer
+      <SteerBox
         key={props.formKey}
         bridge={bridge}
         run={runAt("paused")}
@@ -306,7 +306,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   it("negative control: an admitted dispatch settles and closes the form", async () => {
     // Without this the two cases above would pass over a form that never read a
     // settlement at all, which would leave every intervention open forever.
-    const { container, calls, dismissCount } = renderComposer();
+    const { container, calls, dismissCount } = renderSteerBox();
     typeInto(container.querySelector(".meridian-run-composer__body"), "keep going");
     await submit(container);
     expect(calls).toHaveLength(1);

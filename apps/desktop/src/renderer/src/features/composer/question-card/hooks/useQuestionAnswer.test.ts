@@ -21,7 +21,7 @@ import type { RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "@test/helpers/recoverable-bridge.js";
 import { settle } from "@test/helpers/settle.js";
-import { useDriverAskAnswer } from "./useQuestionAnswer.js";
+import { useQuestionAnswer } from "./useQuestionAnswer.js";
 
 const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 const SAMPLE_ASK_ID = "ask-01";
@@ -30,12 +30,12 @@ const ASK_ANSWER = "driver.respondToRequest";
 /** The empty envelope `driver.respondToRequest` acknowledges with. */
 const DRIVER_ACK: Record<string, unknown> = {};
 
-describe("useDriverAskAnswer — an answer is a settled act", () => {
+describe("useQuestionAnswer — an answer is a settled act", () => {
   it("holds the refusal when the answer never reached the driver", async () => {
     // THE DEFECT, EXERCISED. The reply was discarded, so a run blocked on an ask the
     // daemon never received looked exactly like one waiting for somebody to type.
     const { held } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
       wrapper: inBridge(held),
     });
 
@@ -54,7 +54,7 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
   it("settles as accepted when the driver acknowledges it", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
       wrapper: inBridge(held),
     });
 
@@ -73,7 +73,7 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
 
   it("dispatches again when a refused answer is retried", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
       wrapper: inBridge(held),
     });
 
@@ -96,7 +96,7 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
     // ask's terminal is the `driver_ask.responded` row's to state rather than a press's.
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
       wrapper: inBridge(held),
     });
 
@@ -115,7 +115,7 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
   it("negative control: a row carrying no ask id sends nothing", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, ""), {
+    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, ""), {
       wrapper: inBridge(held),
     });
 

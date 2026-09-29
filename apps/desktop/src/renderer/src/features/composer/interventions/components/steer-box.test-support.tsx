@@ -8,11 +8,11 @@ import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { RunInterventionComposer } from "./SteerBox.js";
+import { SteerBox } from "./SteerBox.js";
 import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
 import { RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
-import { useRunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
+import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDispatch.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,
@@ -68,7 +68,7 @@ export function runAt(
 }
 
 /** The steer form mounted over a surface fed by the stub calls. */
-export function ComposerHarness(props: {
+export function SteerBoxHarness(props: {
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
@@ -77,19 +77,14 @@ export function ComposerHarness(props: {
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
   const [bridge] = useState(inertBridge);
   const [runControlCalls] = useState(() => interventionCalls(props.calls, props.answer));
-  const surface = useRunControlSurface(bridge, runControlCalls);
+  const surface = useRunControlDispatch(bridge, runControlCalls);
   return (
-    <RunInterventionComposer
-      bridge={bridge}
-      run={runAt("paused")}
-      surface={surface}
-      onDismiss={props.onDismiss}
-    />
+    <SteerBox bridge={bridge} run={runAt("paused")} surface={surface} onDismiss={props.onDismiss} />
   );
 }
 
 /** Render the harness with the case's answer, returning what it recorded and dismissed. */
-export function renderComposer(answer: ScriptedAnswer = APPLIED_STEER): {
+export function renderSteerBox(answer: ScriptedAnswer = APPLIED_STEER): {
   container: HTMLElement;
   calls: RecordedDaemonCall[];
   dismissCount: () => number;
@@ -97,7 +92,7 @@ export function renderComposer(answer: ScriptedAnswer = APPLIED_STEER): {
   const calls: RecordedDaemonCall[] = [];
   let dismissals = 0;
   const { container } = render(
-    <ComposerHarness
+    <SteerBoxHarness
       calls={calls}
       answer={answer}
       onDismiss={() => {

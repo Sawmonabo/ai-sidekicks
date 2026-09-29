@@ -20,8 +20,8 @@ import { RemediedRefusal } from "@renderer/console/primitives/index.js";
 import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
-import { useComposerCommandZone } from "../../command-list/hooks/useCommandHandling.js";
-import { noDirectiveLineHandlers } from "../../command-list/composer-command-line-handlers.js";
+import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
+import { noComposerCommandLineHandlers } from "../../command-list/composer-command-line-handlers.js";
 import type { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
@@ -46,11 +46,11 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   // No handler is supplied for a command that reads its arguments off the line, so the
   // executor leaves such a line as typed. The map is stable so the zone's latest-ref is
   // not rewritten on every render.
-  const directiveHandlers = useMemo(noDirectiveLineHandlers, []);
+  const directiveHandlers = useMemo(noComposerCommandLineHandlers, []);
   // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
-  const commandZone = useComposerCommandZone({
+  const commandZone = useCommandHandling({
     route: props.route,
     commandEnumeration: props.commandEnumeration,
     // The same address the send path acts on, so the name this zone recognises as

@@ -41,14 +41,14 @@ import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** What the carrier holds, and the instant it last said so. */
-export interface AttachmentCarrierSnapshot {
+export interface StagedAttachmentsSnapshot {
   readonly entries: readonly AttachmentIngestEntry[];
   /** The instant of the publish that produced these entries. Never the wall clock at render. */
   readonly publishedAtMilliseconds: number;
 }
 
 /** What a carrier is given to run uploads for one session. */
-export interface AttachmentCarrierOptions {
+export interface StagedAttachmentsOptions {
   /** The four calls of an upload; nothing here reaches for a bridge to make them. */
   readonly port: AttachmentIngestPort;
   readonly sessionId: SessionId;
@@ -65,18 +65,18 @@ export interface AttachmentCarrierOptions {
 }
 
 /** One ingest client, its subscription, and the stamped snapshot a surface renders. */
-export class AttachmentCarrier {
+export class StagedAttachments {
   readonly #client: AttachmentIngestClient;
   readonly #clock: ConsoleClock;
-  readonly #changes = new Emitter<AttachmentCarrierSnapshot>("attachment carrier publish");
+  readonly #changes = new Emitter<StagedAttachmentsSnapshot>("attachment carrier publish");
 
-  #snapshot: AttachmentCarrierSnapshot;
+  #snapshot: StagedAttachmentsSnapshot;
   #clientSubscription: Unsubscribe | undefined;
   #nextLocalNumber = 1;
   #stallWakeUpHandle: ScheduledHandle | undefined;
   #disposed = false;
 
-  public constructor(options: AttachmentCarrierOptions) {
+  public constructor(options: StagedAttachmentsOptions) {
     this.#clock = options.clock;
     this.#client = new AttachmentIngestClient({
       port: options.port,
@@ -87,7 +87,7 @@ export class AttachmentCarrier {
   }
 
   /** Stable between publishes, which is what `useSyncExternalStore` requires of it. */
-  public get snapshot(): AttachmentCarrierSnapshot {
+  public get snapshot(): StagedAttachmentsSnapshot {
     return this.#snapshot;
   }
 

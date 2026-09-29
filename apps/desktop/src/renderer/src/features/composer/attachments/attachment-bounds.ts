@@ -16,14 +16,14 @@ import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "./attachment-caps.js";
  * operator raises the bound. Nothing here answers "may I", and no surface reading this
  * withdraws the picker.
  */
-export interface AttachmentCarrierFill {
+export interface StagedAttachmentsFill {
   readonly attached: number;
   /** The shipped default count bound. Operator-tunable, so it is labelled as a default. */
   readonly allowance: number;
 }
 
 /** Where this carrier stands against the count bound. Total over any count. */
-export function attachmentCarrierFill(attachedCount: number): AttachmentCarrierFill {
+export function attachmentCarrierFill(attachedCount: number): StagedAttachmentsFill {
   return { attached: attachedCount, allowance: ATTACHMENTS_PER_CARRIER_CAP_DEFAULT };
 }
 

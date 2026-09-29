@@ -27,7 +27,7 @@ import { recordingBridge } from "../provider-command-enumeration.test-support.js
 import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
-describe("ProviderCommandAutocomplete", () => {
+describe("CommandList", () => {
   it("stays closed until a leading slash is typed", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),

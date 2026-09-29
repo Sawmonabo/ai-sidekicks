@@ -50,10 +50,10 @@ import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
 import {
-  composeCatalog,
+  composeCommandList,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
-  type ProviderCatalogEntry,
+  type ProviderCommandEntry,
 } from "./command-list-entries.js";
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
@@ -174,7 +174,7 @@ export class ProviderCommandEnumeration {
   public publishedEntryNamed(
     commandName: string,
     addressed: AddressedProviderBinding,
-  ): ProviderCatalogEntry | undefined {
+  ): ProviderCommandEntry | undefined {
     if (this.#state.phase !== "served") {
       return undefined;
     }
@@ -182,9 +182,9 @@ export class ProviderCommandEnumeration {
     if (group === undefined) {
       return undefined;
     }
-    const published = composeCatalog({ offeredCommands: [], providerGroups: [group] });
+    const published = composeCommandList({ offeredCommands: [], providerGroups: [group] });
     return published.find(
-      (entry): entry is ProviderCatalogEntry =>
+      (entry): entry is ProviderCommandEntry =>
         entry.source === "provider" && entry.name === commandName,
     );
   }

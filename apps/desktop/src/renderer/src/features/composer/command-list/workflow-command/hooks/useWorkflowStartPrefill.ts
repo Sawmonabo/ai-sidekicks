@@ -3,7 +3,7 @@
 // ONE COMMAND, TWO WAYS IN, AND NEITHER IS A COPY OF THE OTHER. The palette entry
 // cannot start a run — there is no line there and so no name — so what it does is put
 // the directive on the line and ask for the caret, which is the act a person who found
-// the command in a list actually wants. The directive-line handler is what runs when
+// the command in a list actually wants. The command-line handler is what runs when
 // the line is complete. Both are registered under the ROOT id, so the keyboard page,
 // the discovery popover, and the recogniser are all naming one command.
 //
@@ -26,7 +26,7 @@ import type { DraftStore } from "@renderer/store/draft-store.js";
 import { requestComposerFocus } from "@renderer/console/seats/index.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_DIRECTIVE_PREFILL,
+  WORKFLOW_START_COMMAND_PREFILL,
 } from "../workflow-command-grammar.js";
 
 /** The owner this command is contributed under. One per family, one live at a time. */
@@ -38,7 +38,7 @@ export type WorkflowStartPrefillDecision =
   | { readonly status: "confirm-replace"; readonly displacedText: string };
 
 /** The pending decision a mounted composer is holding, and the two ways out of it. */
-export interface WorkflowStartPrefillSurface {
+export interface WorkflowStartPrefillPrompt {
   /** The unsent text a prefill would replace, or nothing while none is pending. */
   readonly displacedText: string | undefined;
   /** Take the prefill and lose the text. Only reachable from the pending state. */
@@ -76,12 +76,12 @@ export function useWorkflowStartPrefill(options: {
   readonly draftStore: DraftStore;
   /** This composer's own line, which the palette entry types into. */
   readonly draftKey: string;
-}): WorkflowStartPrefillSurface {
+}): WorkflowStartPrefillPrompt {
   const { draftStore, draftKey } = options;
   const [displacedText, setDisplacedText] = useState<string | undefined>(undefined);
 
   const writePrefill = useCallback(() => {
-    draftStore.write(draftKey, WORKFLOW_START_DIRECTIVE_PREFILL);
+    draftStore.write(draftKey, WORKFLOW_START_COMMAND_PREFILL);
     requestComposerFocus();
   }, [draftStore, draftKey]);
 

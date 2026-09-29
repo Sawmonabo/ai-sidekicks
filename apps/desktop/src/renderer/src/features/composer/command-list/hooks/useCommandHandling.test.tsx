@@ -21,13 +21,13 @@ import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";
-import { useComposerCommandZone } from "./useCommandHandling.js";
+import { useCommandHandling } from "./useCommandHandling.js";
 import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
 import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_DIRECTIVE_PREFILL,
+  WORKFLOW_START_COMMAND_PREFILL,
 } from "../workflow-command/workflow-command-grammar.js";
 import {
   fixtureWorkflowStartOperations,
@@ -65,7 +65,7 @@ function ComposerCommandZoneHost(props: {
   readonly commandEnumeration: ProviderCommandEnumeration;
   readonly executor: { current: CommandExecutor | undefined };
 }): React.JSX.Element {
-  const zone = useComposerCommandZone({
+  const zone = useCommandHandling({
     route: DEFAULT_ROUTE,
     commandEnumeration: props.commandEnumeration,
     target: CHANNEL_TARGET,
@@ -81,7 +81,7 @@ function ComposerCommandZoneHost(props: {
 /** The line a person types to start a workflow by name. */
 const START_LINE = {
   commandName: WORKFLOW_COMMAND_ROOT,
-  text: `${WORKFLOW_START_DIRECTIVE_PREFILL}nightly-review`,
+  text: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review`,
 } as const;
 
 describe("the composer command zone reads the committed render's handlers", () => {

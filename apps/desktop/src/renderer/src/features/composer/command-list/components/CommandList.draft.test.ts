@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { UNMATCHED_PREFIX, mountComposer, typeIntoLine } from "../command-list.test-support.js";
 import { recordingBridge } from "../provider-command-enumeration.test-support.js";
 
-describe("ProviderCommandAutocomplete — the surface follows every write to the draft", () => {
+describe("CommandList — the surface follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */
   function isPopoverOpen(container: HTMLElement): boolean {
     return container.querySelector(".meridian-command-discovery") !== null;

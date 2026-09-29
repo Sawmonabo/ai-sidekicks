@@ -23,7 +23,7 @@ import { type DriverCapabilityReadout } from "@renderer/console/bridge/driver-ca
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import { offeredRunControls } from "../run-control-gating.js";
 import { type RunControl } from "../services/run-control-dispatch.js";
-import { type RunControlSurface } from "../hooks/useRunControlDispatch.js";
+import { type RunControlDispatchState } from "../hooks/useRunControlDispatch.js";
 
 /** The owner these rows are contributed under. One live at a time. */
 export const RUN_CONTROL_COMMAND_OWNER = "run-controls";
@@ -49,7 +49,7 @@ export interface RunControlCommandInput {
   readonly runs: readonly RunControlCommandRun[];
   readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** The one dispatcher and its in-flight latch. */
-  readonly surface: RunControlSurface;
+  readonly surface: RunControlDispatchState;
   /** Open the steer form against this run. */
   readonly onRequestSteer: (runId: string) => void;
 }

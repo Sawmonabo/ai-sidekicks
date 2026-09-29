@@ -46,10 +46,10 @@ import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
 } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
-import { ComposerAccessoryRail } from "./components/ComposerToolbar.js";
-import { ProviderCommandAutocomplete } from "./command-list/components/CommandList.js";
+import { ComposerToolbar } from "./components/ComposerToolbar.js";
+import { CommandList } from "./command-list/components/CommandList.js";
 import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
-import { ComposerSendBar } from "./draft-line/components/DraftLine.js";
+import { DraftLine } from "./draft-line/components/DraftLine.js";
 
 import "./Composer.css";
 
@@ -111,13 +111,9 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
-      <ComposerSendBar {...props} />
-      <ProviderCommandAutocomplete
-        {...props}
-        region={regionRef}
-        commandEnumeration={commandEnumeration}
-      />
-      <ComposerAccessoryRail {...props} />
+      <DraftLine {...props} />
+      <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
+      <ComposerToolbar {...props} />
     </section>
   );
 }

@@ -4,7 +4,7 @@
 // somewhere else, so every further press earns the same refusal and the next
 // projection read drops the record entirely. The card withdraws its two buttons on
 // that, and the palette has to withdraw the two rows for the same record in the same
-// breath — which is why `approvals/pane/approval-offer.ts` is ONE function that both
+// breath — which is why `approval/approval-offer.ts` is ONE function that both
 // call rather than two that happen to agree. This suite is the proof of the pair:
 // the card and the row builder are asserted against the same record and the same
 // refusal, so a change that withdraws one and not the other is red here.

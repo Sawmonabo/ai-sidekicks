@@ -7,11 +7,11 @@ import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/co
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.js";
-import { AttachmentCarrier, type AttachmentCarrierSnapshot } from "../staged-attachments.js";
+import { StagedAttachments, type StagedAttachmentsSnapshot } from "../staged-attachments.js";
 
 /** What a surface holding a carrier renders and acts through. */
 export interface AttachmentCarrierBinding {
-  readonly snapshot: AttachmentCarrierSnapshot;
+  readonly snapshot: StagedAttachmentsSnapshot;
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
   readonly abandon: (localId: string) => void;
@@ -49,7 +49,7 @@ export function useAttachmentCarrier(
   const { value: carrier } = useSubjectScopedResource(
     bridge,
     sessionId,
-    () => new AttachmentCarrier({ port, sessionId, clock }),
+    () => new StagedAttachments({ port, sessionId, clock }),
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {

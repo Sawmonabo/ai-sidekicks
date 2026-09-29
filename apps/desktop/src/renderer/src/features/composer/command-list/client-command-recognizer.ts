@@ -15,7 +15,7 @@
 //
 // WHY THERE IS NO PROVIDER-NAME ANSWER HERE. A person who typed a real provider command
 // and read "no command by that name" would reasonably conclude the enumeration was
-// wrong, so that question is asked elsewhere: `useComposerCommandZone` answers it off
+// wrong, so that question is asked elsewhere: `useCommandHandling` answers it off
 // the enumeration holder the discovery popover opens, one live read and never a cached
 // copy. This module stays about the console's own registry.
 //

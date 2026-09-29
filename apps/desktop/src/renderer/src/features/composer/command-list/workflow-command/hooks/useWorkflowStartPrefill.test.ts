@@ -18,10 +18,10 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persi
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { composerCommandSurface } from "../../composer-commands.js";
+import { readComposerCommands } from "../../composer-commands.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_DIRECTIVE_PREFILL,
+  WORKFLOW_START_COMMAND_PREFILL,
 } from "../workflow-command-grammar.js";
 import { decideWorkflowStartPrefill, useWorkflowStartPrefill } from "./useWorkflowStartPrefill.js";
 
@@ -40,7 +40,7 @@ function mountPrefillSurface(initialText?: string) {
 /** Press the palette row, exactly as the palette does: through the registry. */
 function pressPaletteRow(): void {
   act(() => {
-    composerCommandSurface(DEFAULT_ROUTE).invoke(WORKFLOW_COMMAND_ROOT);
+    readComposerCommands(DEFAULT_ROUTE).invoke(WORKFLOW_COMMAND_ROOT);
   });
 }
 
@@ -81,7 +81,7 @@ describe("the palette entry", () => {
 
     pressPaletteRow();
 
-    expect(lineText(draftStore)).toBe(WORKFLOW_START_DIRECTIVE_PREFILL);
+    expect(lineText(draftStore)).toBe(WORKFLOW_START_COMMAND_PREFILL);
     expect(rendered.result.current.displacedText).toBeUndefined();
   });
 
@@ -104,7 +104,7 @@ describe("the palette entry", () => {
       rendered.result.current.replaceLine();
     });
 
-    expect(lineText(draftStore)).toBe(WORKFLOW_START_DIRECTIVE_PREFILL);
+    expect(lineText(draftStore)).toBe(WORKFLOW_START_COMMAND_PREFILL);
     expect(rendered.result.current.displacedText).toBeUndefined();
   });
 

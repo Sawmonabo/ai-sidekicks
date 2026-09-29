@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { AttachmentIngestLedger } from "./attachment-ingest-entries.js";
+import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** One source over an empty payload: these cases are about the record, not the bytes. */
@@ -20,15 +20,15 @@ function sourceNamed(localId: string): ReturnType<typeof attachmentSourceFrom> {
 }
 
 /** A ledger holding the named attachments, in that order. */
-function ledgerHolding(...localIds: readonly string[]): AttachmentIngestLedger {
-  const ledger = new AttachmentIngestLedger();
+function ledgerHolding(...localIds: readonly string[]): AttachmentIngestEntries {
+  const ledger = new AttachmentIngestEntries();
   for (const localId of localIds) {
     ledger.declare(sourceNamed(localId));
   }
   return ledger;
 }
 
-function declaredOrderOf(ledger: AttachmentIngestLedger): readonly string[] {
+function declaredOrderOf(ledger: AttachmentIngestEntries): readonly string[] {
   return ledger.snapshot.map((entry) => entry.declared.localId);
 }
 
@@ -145,6 +145,6 @@ describe("ingest ledger — the stamp a continuation checks against", () => {
   });
 
   it("has no stamp for an attachment nobody declared", () => {
-    expect(new AttachmentIngestLedger().stamp("first")).toBeUndefined();
+    expect(new AttachmentIngestEntries().stamp("first")).toBeUndefined();
   });
 });

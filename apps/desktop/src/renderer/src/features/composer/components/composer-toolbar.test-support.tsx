@@ -18,13 +18,13 @@ import {
   type ConsoleSessionEvent,
 } from "@renderer/console/store/entities/entities.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
-import { ComposerAccessoryRail } from "./ComposerToolbar.js";
+import { ComposerToolbar } from "./ComposerToolbar.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
 /** The rail's session, as a registered `SessionId`: a UUID, not a readable name. */
 export const SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
 
-const RAIL_SCENARIO: ConsoleScenario = {
+const TOOLBAR_SCENARIO: ConsoleScenario = {
   id: "rail-unit",
   label: "Rail unit",
   purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",
@@ -59,7 +59,7 @@ const ON_THE_AGENT: ConsolePaneAddress = {
 };
 
 /** What a rail case seeds: the session's entities, the pane the composer is addressed to. */
-export interface RailAddressing {
+export interface ToolbarAddressing {
   readonly entities?: readonly ConsoleEntity[];
   readonly focusedPane?: ConsolePaneAddress | undefined;
   readonly sessionId?: string;
@@ -72,15 +72,15 @@ export interface RailAddressing {
  * all — which is its own case and not the state a case about the METER wants to be
  * in.
  */
-export const ADDRESSED: RailAddressing = {
+export const ADDRESSED: ToolbarAddressing = {
   entities: [AGENT, RUNNING_RUN],
   focusedPane: ON_THE_AGENT,
 };
 
 /** Mount the rail over a real session store with `events` applied; returns the container. */
-export function mountRail(
+export function mountToolbar(
   events: readonly ConsoleSessionEvent[],
-  addressing: RailAddressing = {},
+  addressing: ToolbarAddressing = {},
 ): HTMLElement {
   const sessionStore = new SessionStore({ sessionId: addressing.sessionId ?? SESSION_ID });
   sessionStore.initialise({
@@ -89,9 +89,9 @@ export function mountRail(
   });
   sessionStore.applyBatch(events);
   const { container } = render(
-    <ComposerAccessoryRail
+    <ComposerToolbar
       sessionStore={sessionStore}
-      bridge={createFixtureBridge({ scenario: RAIL_SCENARIO })}
+      bridge={createFixtureBridge({ scenario: TOOLBAR_SCENARIO })}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new FrameStore()}
       route={DEFAULT_ROUTE}

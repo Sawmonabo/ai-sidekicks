@@ -9,7 +9,7 @@
 // already withdrawn.
 //
 // SO IT IS ONE FUNCTION RATHER THAN TWO THAT AGREE, on the precedent
-// `runs/pane/controls/run-control-gating.ts` sets for the six run controls: the row
+// `run-controls/run-control-gating.ts` sets for the six run controls: the row
 // builder and the on-screen control call the same `offeredRunControls`, so there is
 // nothing to drift. A second expression of one offer rule is a drift that reports
 // nothing when it happens — both halves stay green, and the disagreement is visible

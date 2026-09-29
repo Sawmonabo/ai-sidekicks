@@ -20,7 +20,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
-import { AttachmentCarrier } from "./staged-attachments.js";
+import { StagedAttachments } from "./staged-attachments.js";
 import {
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
@@ -45,8 +45,8 @@ function pickedFile(byteLength: number): File {
 }
 
 /** One started carrier over one scripted port, on a clock the case advances by hand. */
-function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCarrier {
-  const carrier = new AttachmentCarrier({
+function carrierOver(port: ScriptedIngestPort, clock: ManualClock): StagedAttachments {
+  const carrier = new StagedAttachments({
     port: port.asPort(),
     sessionId: INGEST_SESSION_ID,
     clock,
@@ -62,7 +62,7 @@ function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCa
  * them: the whole claim is that the instant a card is handed moves, so a case that
  * asserted on the snapshot alone would be checking the stamp and not the disclosure.
  */
-function cardTextFor(carrier: AttachmentCarrier): string {
+function cardTextFor(carrier: StagedAttachments): string {
   const [entry] = carrier.snapshot.entries;
   expect(entry).toBeDefined();
   if (entry === undefined) {
@@ -332,7 +332,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // replacement, and the value-change cleanup disposed the corpse a second time.
     // `AttachmentIngestClient.dispose` guards on its own flag, so nothing broke and
     // nothing could fail — which is why the CALL is counted and not its effect.
-    const disposals = vi.spyOn(AttachmentCarrier.prototype, "dispose");
+    const disposals = vi.spyOn(StagedAttachments.prototype, "dispose");
     try {
       const port = new ScriptedIngestPort();
       const { unmount } = render(

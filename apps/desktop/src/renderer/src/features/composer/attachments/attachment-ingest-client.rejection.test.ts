@@ -17,7 +17,7 @@ import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { PAYLOAD_READ_REFUSAL_CODE } from "./services/attachment-ingest-chunks.js";
-import { AttachmentIngestLedger } from "./attachment-ingest-entries.js";
+import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import {
   INGEST_SESSION_ID,
   SMALL_SOURCE,
@@ -130,7 +130,7 @@ describe("ingest driver — a rejected port call reaches the caller", () => {
           throw rejection;
         },
       };
-      const ledger = new AttachmentIngestLedger();
+      const ledger = new AttachmentIngestEntries();
       ledger.declare(SMALL_SOURCE);
       const driver = new AttachmentIngestStreamDriver({
         port,

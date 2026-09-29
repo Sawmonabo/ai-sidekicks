@@ -6,21 +6,21 @@
 // exactly this interval and nowhere else.
 //
 // What the form is KEYED by, and when a dispatch is recorded at all, are the other
-// half of the same seam and live in `RunInterventionComposer.keying.test.tsx`: those
+// half of the same seam and live in `SteerBox.keying.test.tsx`: those
 // cases re-key a form under an open send, which is a premise none of these take.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
-import { RunInterventionComposer } from "./SteerBox.js";
-import { useRunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
+import { SteerBox } from "./SteerBox.js";
+import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDispatch.js";
 import {
   APPLIED_STEER,
   bodyValue,
   inertBridge,
   interventionCalls,
-  renderComposer,
+  renderSteerBox,
   runAt,
   submit,
   type ScriptedAnswer,
@@ -38,7 +38,7 @@ describe("the composer outlives its dispatch", () => {
   });
 
   it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
-    const { container, dismissCount } = renderComposer(REJECTED_STEER);
+    const { container, dismissCount } = renderSteerBox(REJECTED_STEER);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(0);
@@ -49,7 +49,7 @@ describe("the composer outlives its dispatch", () => {
   it("negative control: a settlement that landed closes the composer", async () => {
     // Without this the cases above would pass over a form that never closed at all,
     // which would leave a landed steer sitting behind its own composer.
-    const { container, dismissCount } = renderComposer();
+    const { container, dismissCount } = renderSteerBox();
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(1);
@@ -58,7 +58,7 @@ describe("the composer outlives its dispatch", () => {
   it("latches the confirm while the dispatch is in flight, so one body sends once", async () => {
     // A never-settling answer holds the form in its sending state; the second submit
     // arrives the way a keyboard one does, through the form rather than the button.
-    const { container, calls } = renderComposer(() => new Promise(() => undefined));
+    const { container, calls } = renderSteerBox(() => new Promise(() => undefined));
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     const form = container.querySelector(".meridian-run-composer");
@@ -82,9 +82,9 @@ describe("the comparand is the newer of the two readings", () => {
     readonly runVersion: number;
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
-    const surface = useRunControlSurface(bridge, props.calls);
+    const surface = useRunControlDispatch(bridge, props.calls);
     return (
-      <RunInterventionComposer
+      <SteerBox
         key={props.runVersion}
         bridge={bridge}
         run={runAt("paused", props.runVersion)}

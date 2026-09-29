@@ -20,11 +20,11 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ComposerSeatProps, ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import { SESSION_ID, STEER_APPLIED } from "../send-router.test-support.js";
-import { ComposerSendBar } from "./DraftLine.js";
+import { DraftLine } from "./DraftLine.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 
-export interface MountedBar {
+export interface MountedDraftLine {
   readonly result: RenderResult;
   readonly line: HTMLTextAreaElement;
   /** The window store the bar escalates into, for a case that reads its banners. */
@@ -51,13 +51,13 @@ export function pressSend(container: HTMLElement): void {
   fireEvent.click(sendButton(container));
 }
 
-export function mountBar(options: {
+export function mountDraftLine(options: {
   readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: ConsolePaneAddress | undefined;
   readonly commandEnumeration?: ProviderCommandEnumeration;
-}): MountedBar {
+}): MountedDraftLine {
   const frameStore = new FrameStore();
   const result = render(
     <LineAndSend
@@ -86,10 +86,10 @@ export function mountBar(options: {
 export function mountLine(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
-}): MountedBar {
+}): MountedDraftLine {
   const frameStore = new FrameStore();
   const result = render(
-    <ComposerSendBar
+    <DraftLine
       sessionStore={options.sessionStore}
       bridge={inertBridge()}
       draftStore={options.draftStore}
@@ -118,7 +118,7 @@ function LineAndSend(props: {
 }): React.JSX.Element {
   return (
     <>
-      <ComposerSendBar {...props.seat} />
+      <DraftLine {...props.seat} />
       <SendButton
         {...props.seat}
         calls={props.calls}
@@ -149,7 +149,7 @@ export const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=human_t
  * Declared rather than inferred because the shape crosses a module boundary: a
  * reader of a case should be able to see what the harness offers without opening it.
  */
-export interface AddressableBar {
+export interface AddressableDraftLine {
   /** The mounted tree, for the cases that query it directly. */
   readonly result: RenderResult;
   /** Re-render the same bar focused at another agent, without remounting. */
@@ -198,7 +198,7 @@ export function paneFor(agentId: string): ConsolePaneAddress {
 }
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */
-export function mountAddressable(calls: ComposerSendCalls): AddressableBar {
+export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
   });

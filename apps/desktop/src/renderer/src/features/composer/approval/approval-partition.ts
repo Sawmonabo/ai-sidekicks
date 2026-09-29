@@ -5,7 +5,7 @@
 // reason they are here: a fold over an answered read is a value question with a table
 // of cases, and it is testable as one only while it is not wrapped in a render.
 //
-// THE PHASE IS CARRIED, NEVER FLATTENED. `partitionRecords` answers empty arrays for
+// THE PHASE IS CARRIED, NEVER FLATTENED. `partitionApprovalRecords` answers empty arrays for
 // every phase that is not `answered`, and that is correct only because its callers
 // render the PHASE beside the arrays rather than the arrays alone. "The read is in
 // flight" and "the read answered and found none" are different next moves, and a
@@ -58,7 +58,7 @@ const NO_RECORDS: PartitionedApprovals = { pending: [], history: [] };
  * Both lists are empty for every other phase, and that emptiness is NOT an answer —
  * every caller renders the phase this was folded from beside them.
  */
-export function partitionRecords(phase: ReadPhase<ApprovalRecord>): PartitionedApprovals {
+export function partitionApprovalRecords(phase: ReadPhase<ApprovalRecord>): PartitionedApprovals {
   if (phase.status !== "answered") {
     return NO_RECORDS;
   }

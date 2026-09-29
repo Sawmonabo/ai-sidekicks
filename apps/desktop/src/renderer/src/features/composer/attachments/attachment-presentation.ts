@@ -14,7 +14,7 @@
 // THE INSTANT IS ALWAYS A PARAMETER. Nothing here reads a clock. An age that a card
 // computed from the wall clock would move while nothing was happening, and a stall
 // disclosure that appeared with no publish behind it would be a figure with no record.
-// `attachment-carrier.ts` stamps the snapshot and hands the instant down.
+// `staged-attachments.ts` stamps the snapshot and hands the instant down.
 //
 // WHAT THIS MODULE REFUSES TO MODEL:
 //   • No unresolved cause recomputed from live relay state. The marker is read from the
@@ -30,14 +30,13 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 // --- Where the bounds live -----------------------------------------------
 //
-// NOT HERE. The attachment byte cap, the carrier cap, the chunk cap, the stream
-// lifetime, and the stall disclosure are behavioural limits three modules spend — this
-// one, the ingest client, and the artifact pane — and four of the five mirror a
-// normative default the wire registers. A
-// view-family module holding them would make this file a configuration authority its
-// neighbours had to import to learn a number the daemon owns, so they sit in
-// `core/constants/attachment-caps.ts` with their rationales and their wire sources, and the two this
-// file's own arithmetic spends are imported above like any other consumer's.
+// NOT HERE. The attachment byte cap, the per-message cap, the stream lifetime and the
+// stall disclosure are behavioural limits several modules spend, and most of them
+// mirror a normative default the wire registers. A presentation module holding them
+// would make this file a configuration authority its neighbours had to import to learn
+// a number the daemon owns, so they sit in `attachment-caps.ts` with their rationales
+// and their wire sources, and the two this file's own arithmetic spends are imported
+// above like any other consumer's.
 
 /** What a cause means, and what a user can do about it. */
 export interface UnresolvedAttachmentPresentation {

@@ -106,7 +106,7 @@ export type RunControlAdmission =
   | { readonly admitted: false; readonly reason: RunControlAdmissionRefusal };
 
 /** What is held for the run controls: the dispatcher and its own record. */
-export interface RunControlSurface {
+export interface RunControlDispatchState {
   readonly dispatcher: RunControlDispatcher;
   /** Newest last, matching the ledger's reading direction. Bounded. */
   readonly records: readonly RunControlRecord[];
@@ -141,11 +141,11 @@ const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
  * latest-ref, so a caller that rebuilds them each render keeps one dispatcher and its
  * comparand cache.
  */
-export function useRunControlSurface(
+export function useRunControlDispatch(
   bridge: ConsoleBridge,
   calls: RunControlCalls,
   mintIdempotencyKey?: () => string,
-): RunControlSurface {
+): RunControlDispatchState {
   const { value: records, publish: publishRecords } = useSubjectScopedState<
     readonly RunControlRecord[]
   >(bridge, RUN_CONTROL_SURFACE_SUBJECT, () => EMPTY_RECORDS);
