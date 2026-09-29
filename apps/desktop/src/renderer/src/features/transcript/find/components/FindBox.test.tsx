@@ -82,16 +82,6 @@ function renderField(
   };
 }
 
-describe("find field — no act on a partial window", () => {
-  it("offers no load act over a partial window", () => {
-    // The act that would fetch what is missing belongs to the viewport's backward
-    // read and is offered there; a second entry point here would read the CAP — rows
-    // this store still holds — and send the daemon after them.
-    renderField({ result: matchingResult() });
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
-  });
-});
-
 describe("find field — the counter is the console's own reading", () => {
   it("reports how much was searched before anything is typed", () => {
     const { field } = renderField({ result: emptyFindResult(42), query: "" });

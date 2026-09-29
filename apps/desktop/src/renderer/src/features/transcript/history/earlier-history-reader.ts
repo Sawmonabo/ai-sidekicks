@@ -4,9 +4,10 @@
 // user was last acknowledged at, so a resumed read establishes a window whose
 // head is somewhere in the middle of the log. Everything below that head exists, was
 // never delivered, and is unreachable by scrolling: the store appends at the tail and
-// the viewport prunes toward it, so no amount of reading moves the head. One
-// registered call moves it — `timeline.read` carrying `beforeCursor` — and this is the
-// object that decides when to send it and what to do with the answer.
+// the viewport prunes toward it, so no amount of reading moves the head. One read
+// moves it — a backward timeline page asked for with `beforeCursor`, which the
+// composition hands this walk — and this is the object that decides when to ask and
+// what to do with the answer.
 //
 // WHAT IT IS NOT. It is not a second window model, and it holds no rows: the page it
 // reads goes straight into the session store's own log through
@@ -40,15 +41,19 @@
 // threw the old log away, and a page admitted across that boundary opens exactly the
 // same hole.
 
-import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts";
+import {
+  type EventCursor,
+  type SessionId,
+  type TimelineReadRequest,
+  type TimelineReadResponse,
+} from "@ai-sidekicks/contracts";
 
 import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
+import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What a surface renders about the rows before this window. */
@@ -70,6 +75,17 @@ export interface EarlierHistoryState {
   /** Rows this walk has admitted at the head, across every page it has read. */
   readonly admittedRowCount: number;
 }
+
+/**
+ * The read that fetches one backward page, parsed, or the refusal standing in its place.
+ *
+ * Handed in by the composition that has one. It answers `served` or `refused` for every
+ * outcome a transport can have and never rejects, so the walk holds no `catch`.
+ */
+export type EarlierPageRead = (
+  request: TimelineReadRequest,
+  options: { readonly signal: AbortSignal },
+) => Promise<DaemonReply<TimelineReadResponse>>;
 
 /**
  * One session's backward walk.
@@ -144,11 +160,12 @@ export class EarlierHistoryReader {
    * Read one page of rows before this window's head and grow the log with it.
    *
    * Resolves when the page has landed or been refused; the caller re-reads
-   * {@link state} either way. Never rejects — `callDaemon` answers `served` or
-   * `refused` for every outcome a transport can have, so there is no arm here for an
-   * exception and no `catch` holding a code nothing can render.
+   * {@link state} either way. Never rejects, because {@link EarlierPageRead} never does.
    */
-  public async loadEarlier(bridge: ConsoleBridge, sessionStore: SessionStore): Promise<void> {
+  public async loadEarlier(
+    readEarlierPage: EarlierPageRead,
+    sessionStore: SessionStore,
+  ): Promise<void> {
     const baseWindowGeneration = this.#rebaseIfWindowMoved(sessionStore);
     const beforeCursor = this.#nextBeforeCursor;
     if (this.#isReading || this.#exhausted || beforeCursor === undefined) {
@@ -158,9 +175,7 @@ export class EarlierHistoryReader {
     this.#refusal = undefined;
     const round = this.#readLine.openRound();
     try {
-      const reply = await callDaemon(
-        bridge,
-        "timeline.read",
+      const reply = await readEarlierPage(
         {
           // BOTH BRANDS ARE FORWARDED, NEVER MINTED. `SessionId` and `EventCursor` are
           // compile-time markers over opaque wire strings, and both of these values

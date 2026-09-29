@@ -57,8 +57,6 @@ import {
   SessionCreateResponseSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
-  TimelineReadRequestSchema,
-  TimelineReadResponseSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { ZodType } from "@ai-sidekicks/contracts";
@@ -154,7 +152,6 @@ export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = Object.freeze({
     ChildRunExpandRequestSchema,
     ChildRunExpandResponseSchema,
   ),
-  "timeline.read": bindDaemonMethod(TimelineReadRequestSchema, TimelineReadResponseSchema),
 });
 
 /**

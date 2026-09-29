@@ -20,10 +20,14 @@
 // who was only passing through, on a walk with no end while the log has one.
 
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
-import { type EarlierHistoryPaging } from "../hooks/useEarlierHistory.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type EarlierPageRead } from "../earlier-history-reader.js";
+import { useEarlierHistory } from "../hooks/useEarlierHistory.js";
 
 export interface LoadEarlierAffordanceProps {
-  readonly paging: EarlierHistoryPaging;
+  readonly sessionStore: SessionStore;
+  /** The read a page is fetched with. A composition with none mounts no control. */
+  readonly readEarlierPage: EarlierPageRead;
 }
 
 /**
@@ -36,7 +40,10 @@ export interface LoadEarlierAffordanceProps {
  * attempt settles.
  */
 export function LoadEarlier(props: LoadEarlierAffordanceProps): React.JSX.Element | null {
-  const { canLoadEarlier, isReading, refusal, loadEarlier } = props.paging;
+  const { canLoadEarlier, isReading, refusal, loadEarlier } = useEarlierHistory(
+    props.sessionStore,
+    props.readEarlierPage,
+  );
   if (!canLoadEarlier && !isReading && refusal === undefined) {
     return null;
   }

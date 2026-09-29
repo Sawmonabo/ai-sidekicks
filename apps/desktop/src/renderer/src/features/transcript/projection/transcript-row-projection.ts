@@ -7,11 +7,10 @@
 //
 // WHY A PROJECTION IS NEEDED AT ALL, WHICH IS A FACT ABOUT THE WIRE
 //
-// `TimelineRow` is a READ PROJECTION the daemon builds. The console reaches it on
-// exactly one wire — the earlier-page `timeline.read` through the call door
-// (`bridge/daemon/timeline-page.ts`) — and that reader decodes every row into a
-// `ConsoleSessionEvent` before the store sees it, which is also what the live
-// subscription delivers: session id, sequence, wire type, instant, actor, payload —
+// `TimelineRow` is a READ PROJECTION the daemon builds. The console reaches it only
+// through the backward page read (`services/daemon/timeline-page.ts`), and that reader
+// decodes every row into a `ConsoleSessionEvent` before the store sees it, which is
+// also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
 // the raw log and not the projection. So the surface has two honest options: render
 // nothing until a projection reaches it, or state what the log itself supports and
 // NAME every member the log cannot supply. The shell exists to take the second, and

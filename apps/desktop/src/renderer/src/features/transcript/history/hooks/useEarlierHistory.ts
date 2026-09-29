@@ -31,7 +31,11 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { EarlierHistoryReader, type EarlierHistoryState } from "../earlier-history-reader.js";
+import {
+  EarlierHistoryReader,
+  type EarlierHistoryState,
+  type EarlierPageRead,
+} from "../earlier-history-reader.js";
 
 /** What the head control renders, and the one act it performs. */
 export interface EarlierHistoryPaging extends EarlierHistoryState {
@@ -71,7 +75,10 @@ const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<EarlierHistoryReader
  * is the store's window head and its rows land in the store's own log — a hook that
  * took a store per call could be handed two.
  */
-export function useEarlierHistory(sessionStore: SessionStore): EarlierHistoryPaging {
+export function useEarlierHistory(
+  sessionStore: SessionStore,
+  readEarlierPage: EarlierPageRead,
+): EarlierHistoryPaging {
   const bridge = useConsoleBridge();
   const held = useSubjectScopedResource(
     bridge,
@@ -106,8 +113,8 @@ export function useEarlierHistory(sessionStore: SessionStore): EarlierHistoryPag
     // control renders is reachable: the reader raises its own flag synchronously and
     // nothing else would tell React it had.
     settle();
-    void reader.loadEarlier(bridge, sessionStore).then(settle, settle);
-  }, [bridge, reader, sessionStore]);
+    void reader.loadEarlier(readEarlierPage, sessionStore).then(settle, settle);
+  }, [readEarlierPage, reader, sessionStore]);
   return useMemo(() => ({ ...state, loadEarlier }), [state, loadEarlier]);
 }
 

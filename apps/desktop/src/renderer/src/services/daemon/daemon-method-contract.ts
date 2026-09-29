@@ -29,8 +29,6 @@ import type {
   SessionCreateResponse,
   SessionReadRequest,
   SessionReadResponse,
-  TimelineReadRequest,
-  TimelineReadResponse,
 } from "@ai-sidekicks/contracts";
 
 /**
@@ -112,29 +110,10 @@ export interface RegisteredDaemonMethodContract {
     readonly response: PresenceReadResponse;
   };
 
-  // timeline — the child-run expansion, and the backward read window.
-  //
-  // The live stream is the store's own subscription rather than a call, so it is not
-  // here. The READ is, and only in one direction: a session's stream replays from the
-  // position this user was last acknowledged at, so the store's log grows at
-  // the tail on its own and has no way at all to reach what came before that
-  // position. `beforeCursor` is what asks for it.
+  // timeline — the child-run expansion. The live stream is the store's own
+  // subscription rather than a call, so it is not here.
   readonly "timeline.childRunExpand": {
     readonly request: ChildRunExpandRequest;
     readonly response: ChildRunExpandResponse;
-  };
-  /**
-   * One bounded window of rows BEFORE a position the console already holds.
-   *
-   * The forward direction of this same method is deliberately not a caller here: the
-   * subscription already delivers it, and a second forward reader would be a second
-   * source of truth for a log the reconciler orders. What the ledger's head control
-   * sends carries `beforeCursor`, and the reply's own `hasMore` — never a page's
-   * fullness and never a cursor's absence — is what says whether rows remain behind
-   * it.
-   */
-  readonly "timeline.read": {
-    readonly request: TimelineReadRequest;
-    readonly response: TimelineReadResponse;
   };
 }

@@ -44,8 +44,6 @@ import { type TranscriptErrorEntry } from "../transcript-errors.js";
 import { TranscriptErrors } from "./TranscriptErrors.js";
 import { VirtualRow, type TranscriptRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
-import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
 /** What a surface hands the ledger viewport. */
@@ -80,15 +78,10 @@ export interface TranscriptViewportProps {
   /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
   /**
-   * The walk back into the rows before this window's head, where the caller has one.
-   *
-   * OPTIONAL, because a viewport can be mounted over rows that are not a session's
-   * log at all — a fixture harness, a measurement probe — and a head control offering
-   * to fetch history for a window that has none would be a promise nothing can keep.
-   * Absent, nothing renders at the head, which is also what a present value says while
-   * the window opens at the beginning of its log.
+   * The head control that walks back into the rows before this window's head, where
+   * the caller has a read to give it. Absent, nothing renders at the head.
    */
-  readonly earlierPaging?: EarlierHistoryPaging | undefined;
+  readonly earlierHistoryControl?: React.ReactNode;
   readonly errorEntries?: readonly TranscriptErrorEntry[];
 }
 
@@ -108,7 +101,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
        * control in the flow changes the content height and the reading position each
        * of them exists to protect is measured against that height.
        */}
-      {props.earlierPaging === undefined ? null : <LoadEarlier paging={props.earlierPaging} />}
+      {props.earlierHistoryControl}
       <div
         className="meridian-ledger-viewport__surface"
         ref={binding.attachSurface}

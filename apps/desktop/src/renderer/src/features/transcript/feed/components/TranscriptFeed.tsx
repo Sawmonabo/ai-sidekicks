@@ -57,6 +57,8 @@ import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
+import { LoadEarlier } from "../../history/components/LoadEarlier.js";
+import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
 import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
@@ -81,6 +83,8 @@ export interface TranscriptFeedProps {
   readonly renderTimelineRow: TimelineRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
+  /** The backward page read. A composition with none mounts no `Load earlier`. */
+  readonly readEarlierPage?: EarlierPageRead | undefined;
 }
 
 /** The session's log: the find field, the rows, and what the window does not hold. */
@@ -155,7 +159,14 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               feedLabel={props.feedLabel}
               firstReadSettled={windows.firstReadSettled}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
-              earlierPaging={windows.earlierPaging}
+              earlierHistoryControl={
+                props.readEarlierPage === undefined ? undefined : (
+                  <LoadEarlier
+                    sessionStore={props.sessionStore}
+                    readEarlierPage={props.readEarlierPage}
+                  />
+                )
+              }
             />
           </LedgerRowRevealProvider>
         </RetainedRowStateProvider>

@@ -24,22 +24,11 @@
 // in a different register — a lane is a row of THIS window, so a second engine would
 // publish a second answer for one row's text — and it is disposed with the mount
 // that holds this chain.
-//
-// AND ONE WALK, WHICH IS THE OTHER END OF THE LOG. The store's window begins wherever
-// this user's stream was last acknowledged, and everything below that head was
-// never delivered — so the ledger reaches it by asking rather than by scrolling.
-// `useEarlierHistory` is that walk, held here because this is where the session
-// store is, and handed on to the viewport, where the head control is placed beside
-// the tail's.
 
 import { useEffect } from "react";
 
 import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import {
-  useEarlierHistory,
-  type EarlierHistoryPaging,
-} from "../../history/hooks/useEarlierHistory.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
 import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
@@ -86,7 +75,6 @@ export interface TranscriptFeedWindows {
   readonly ledgerWindow: TranscriptWindowModel;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
-  readonly earlierPaging: EarlierHistoryPaging;
   /** What the viewport reconciled onto the screen, with both absences separable. */
   readonly visible: VisibleTranscriptWindow;
 }
@@ -126,10 +114,6 @@ export function useTranscriptFeedWindows(
     hasActiveTurn: ledgerWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
   });
-  // The walk back past the window's head. Read against the STORE rather than against
-  // any of the windows above, because what it can reach is a property of the log this
-  // window was given and not of whichever run groups this pane happens to have folded.
-  const earlierPaging = useEarlierHistory(inputs.sessionStore);
 
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
   // here because this is where the session id and the one binding meet, and gated on
@@ -172,7 +156,6 @@ export function useTranscriptFeedWindows(
     ledgerWindow,
     reveal,
     viewport,
-    earlierPaging,
     visible,
   };
 }

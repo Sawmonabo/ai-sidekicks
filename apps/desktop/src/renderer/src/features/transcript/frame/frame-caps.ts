@@ -16,7 +16,7 @@ export const LEDGER_WINDOW_ROW_CAP = 400;
 /**
  * Rows one backward read of a session's log asks the daemon for.
  *
- * The read is registered with its own ceiling — `TIMELINE_READ_LIMIT_MAX`, 256 rows —
+ * The contract caps the read at its own ceiling — `TIMELINE_READ_LIMIT_MAX`, 256 rows —
  * and this is deliberately well under it, because the two numbers bound different
  * things. That one is the largest window a producer may answer with; this is the
  * largest window a PERSON asked for by pressing a control once, and it lands in a
