@@ -28,10 +28,10 @@
 
 import {
   consoleCommands,
-  type CommandRegistry,
-  type ConsoleCommand,
   type ConsoleWhenClauseContext,
-} from "@renderer/console/palette/index.js";
+} from "@renderer/registries/commands/window-command-registry.js";
+import { type CommandRegistry } from "@renderer/registries/commands/command-registry.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 
 /**

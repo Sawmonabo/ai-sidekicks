@@ -12,7 +12,7 @@
 // evaluation — see `console/bridge/scenario/selection.ts`.
 
 import { ScenarioSelection } from "@renderer/console/bridge/scenario/selection.js";
-import { ConsoleRoot } from "@renderer/console/frame/index.js";
+import { ConsoleRoot } from "./providers.js";
 
 /**
  * The scenario this window plays, or `undefined` when fixtures are compiled out.

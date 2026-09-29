@@ -7,11 +7,9 @@
 // on the frame's banner rather than doing nothing. Every command closes over an act the
 // caller supplies and reaches no store, bridge or DOM, so invoking `run` is the test.
 
-import {
-  raiseConsoleActRefusal,
-  type ConsoleCommand,
-  type ConsoleCommandSurface,
-} from "@renderer/console/palette/index.js";
+import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import {
   mountedTranscript,
   type TranscriptActName,

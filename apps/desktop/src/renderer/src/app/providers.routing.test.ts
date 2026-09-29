@@ -8,8 +8,8 @@
 //
 // Every case drives the real `ConsoleRoot` against the fixture bridge the
 // `console-unit` project compiles in. What the composition root wires beyond the
-// rail is `ConsoleRoot.test.tsx`; the token sheet is
-// `ConsoleRoot.tokens.test.tsx`.
+// rail is `providers.test.ts`; the token sheet is
+// `AppBootstrap.tokens.test.ts`.
 
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

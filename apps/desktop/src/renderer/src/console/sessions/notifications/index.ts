@@ -1,9 +1,4 @@
-// The notifications subtree's door.
-//
-// One surface — the notification center the sessions destination mounts — over one
-// vocabulary, the attention plane. The stylesheet is imported here and nowhere
-// else, so a surface can never render the center without it and the bundler sees
-// one edge into the sheet.
+// The notifications subtree's door, over one vocabulary, the attention plane.
 //
 // A SUB-MODULE of the sessions family rather than a family of its own. Both of the
 // plane's consumers are that family's — the all-sessions list reads it for a row's
@@ -16,13 +11,6 @@
 // NO EMISSION PATH IS HERE. `attention.notificationEmit` is a control-plane mutation
 // the daemon calls and never a client method, and the operating-system banner is
 // raised by the main process.
-
-import "@renderer/layout/NotificationsList/notifications.css";
-
-export {
-  /** @consumedBy the notifications list the rail's bell opens */
-  NotificationCenter,
-} from "@renderer/layout/NotificationsList/NotificationsList.js";
 
 export {
   /** @consumedBy the notifications settings page */

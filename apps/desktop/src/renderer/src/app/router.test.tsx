@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { RouteSurface } from "./router.js";
+import { AppRouter } from "./router.js";
 import {
   consoleSurfaceRegistry,
   type ConsoleSurfaceContext,
 } from "@renderer/console/seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
-import { registerConsoleSurface } from "@renderer/registries/screens/screen-registry.js";
+import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
 
 /** The rail's middle destination, whose slot this suite claims for one case. */
 const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
@@ -22,7 +22,7 @@ const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
  *
  * The frame store is the real class, because it is the subject; the rest of the
  * context is cast away because constructing it opens a database to hand a branch that
- * never touches it — the same reason `frame/pane-harness/PaneHarnessSurface.test.tsx`
+ * never touches it — the same reason `app/pane-harness/PaneHarnessScreen.test.tsx`
  * casts.
  */
 function contextFor(route: ConsoleRoute): ConsoleSurfaceContext {
@@ -33,7 +33,7 @@ function contextFor(route: ConsoleRoute): ConsoleSurfaceContext {
   } as unknown as ConsoleSurfaceContext;
 }
 
-describe("RouteSurface — a registered slot", () => {
+describe("AppRouter — a registered slot", () => {
   afterEach(() => {
     cleanup();
   });
@@ -41,14 +41,14 @@ describe("RouteSurface — a registered slot", () => {
   it("mounts the family that claims the slot", () => {
     const owner = "route-surface-test";
     try {
-      registerConsoleSurface({
+      registerScreen({
         slot: "workflows",
         owner,
         render: () => <p>the workflow builder rendered</p>,
       });
       const context = contextFor(WORKFLOWS_ROUTE);
 
-      const { container } = render(<RouteSurface context={context} />);
+      const { container } = render(<AppRouter context={context} />);
 
       expect(container.textContent).toContain("the workflow builder rendered");
       expect(container.querySelector(".meridian-surface-absence")).toBeNull();

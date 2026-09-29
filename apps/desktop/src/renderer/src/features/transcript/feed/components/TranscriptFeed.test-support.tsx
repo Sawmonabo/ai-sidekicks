@@ -23,7 +23,8 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { consoleCommandSurface, consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import {
   TRANSCRIPT_COMMAND_OWNER,
   registerTranscriptCommands,

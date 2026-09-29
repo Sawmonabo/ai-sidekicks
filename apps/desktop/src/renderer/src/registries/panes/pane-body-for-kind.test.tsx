@@ -1,7 +1,7 @@
 // The adapter that narrows one pane-kind body out of the registry's whole context union.
 //
 // Its own file rather than a fifth suite beside the chrome's, because it is a different
-// subject: `ConsolePaneChrome.test.tsx` is about the FRAME a pane wears — its tables, its
+// subject: `components/PaneFrame/PaneFrame.test.tsx` is about the FRAME a pane wears — its tables, its
 // name, its controls, its key claim — and this is about what happens when a body written
 // for one kind is handed an address of another. They share a module and nothing else, and
 // the two together were past the package's file ceiling.

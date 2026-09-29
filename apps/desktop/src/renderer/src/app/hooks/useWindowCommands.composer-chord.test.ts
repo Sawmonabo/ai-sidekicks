@@ -8,7 +8,7 @@
 // indistinguishable from a chord that was handled.
 //
 // DRIVEN THROUGH THE REAL COMPOSITION ROOT AND A REAL DISPATCHED PRESS, on
-// `frame-commands.contributions.test.tsx`'s rule beside this file: what is claimed is
+// `useWindowCommands.contributions.test.ts`'s rule beside this file: what is claimed is
 // that the table this window installs answers the chord, and reading the binding list
 // out of a hook would assert this file's own import against itself.
 //
@@ -20,8 +20,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PLATFORM_MODIFIER_TOKEN } from "@renderer/lib/chord-format.js";
-import { CONSOLE_CHORD_PLATFORM } from "@renderer/console/palette/index.js";
+import { HOST_CHORD_PLATFORM, PLATFORM_MODIFIER_TOKEN } from "@renderer/lib/chord-format.js";
 import { subscribeToComposerFocus } from "@renderer/console/seats/index.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 
@@ -40,7 +39,7 @@ function listenForComposerFocus(takeFocus: () => void): void {
  * something else there.
  */
 function pressKey(code: string, options: { readonly withPrimaryModifier: boolean }): void {
-  const usesMeta = PLATFORM_MODIFIER_TOKEN[CONSOLE_CHORD_PLATFORM] === "Meta";
+  const usesMeta = PLATFORM_MODIFIER_TOKEN[HOST_CHORD_PLATFORM] === "Meta";
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       code,

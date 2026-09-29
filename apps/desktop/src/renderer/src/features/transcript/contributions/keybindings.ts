@@ -1,6 +1,6 @@
 // The chords the transcript claims in the keybinding table.
 
-import { type KeyBinding } from "@renderer/console/palette/index.js";
+import { type KeyBinding } from "@renderer/registries/commands/command-types.js";
 
 /**
  * The `when` clause every transcript command and chord carries.

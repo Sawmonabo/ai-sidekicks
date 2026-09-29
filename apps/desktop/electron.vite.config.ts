@@ -169,8 +169,7 @@ function isFixtureCorpusModule(moduleId: string): boolean {
  * so the release gate can prove that they did.
  */
 const FIXTURE_ONLY_PATHS: readonly string[] = [
-  "/src/renderer/src/console/core/fixture-globals.ts",
-  "/src/renderer/src/console/frame/pane-harness/",
+  "/src/renderer/src/app/fixture-global-names.ts",
   "/src/renderer/src/app/pane-harness/",
 ];
 

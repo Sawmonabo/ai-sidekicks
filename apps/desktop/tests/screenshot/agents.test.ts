@@ -17,7 +17,7 @@ import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountAgentsPane } from "./agent-mounts.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { type ConsoleScheme } from "@renderer/styles/tokens.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 

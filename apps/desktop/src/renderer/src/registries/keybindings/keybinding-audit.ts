@@ -28,6 +28,7 @@
 
 import { CommandRegistry } from "../commands/command-registry.js";
 import { type KeyBinding } from "../commands/command-types.js";
+import { type KeybindingConflict } from "./keybinding-conflicts.js";
 import { KeyBindingTable } from "./keybinding-table.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 
@@ -75,9 +76,6 @@ export interface DroppedBinding {
   readonly chord: string;
   readonly reason: string;
 }
-
-/** Two commands that can be live on one chord, as the service reports the pair. */
-export type KeybindingConflict = ReturnType<typeof KeyBindingTable.conflictsIn>[number];
 
 /** Everything the service can say about a binding set without installing it. */
 export interface KeybindingAudit {

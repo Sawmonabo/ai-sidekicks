@@ -10,7 +10,7 @@ import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountTerminalPane } from "../helpers/feature-mounts/terminal.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 beforeEach(() => {

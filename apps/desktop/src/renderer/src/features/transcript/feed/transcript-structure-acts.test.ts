@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { emptyFindResult } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {

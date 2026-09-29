@@ -100,7 +100,7 @@ interface EntityProjectorClaim {
  * The process-wide registry the composition seeds and every window's stores read.
  *
  * Minted EMPTY. The frame's run-lifecycle projectors reach it through
- * `registerConsoleFamilies`, which is handed this instance by `frame/composition/ConsoleRoot.tsx`
+ * `registerConsoleFamilies`, which is handed this instance by `app/providers.tsx`
  * — the same way the surface board and the pane board are named at that one site
  * rather than reached for inside the composition.
  */

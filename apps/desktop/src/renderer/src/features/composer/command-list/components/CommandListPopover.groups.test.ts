@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import {
   activeRow,
   agentPane,

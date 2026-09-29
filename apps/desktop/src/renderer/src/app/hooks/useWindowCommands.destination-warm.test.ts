@@ -14,11 +14,11 @@
 // that the keyboard path warms, and calling `run` by hand would assert that over a path
 // no key press takes.
 //
-// THE CHORD IS REBOUND TO A MODIFIER-FREE KEY for `frame-commands.contributions.test.tsx`'s
+// THE CHORD IS REBOUND TO A MODIFIER-FREE KEY for `useWindowCommands.contributions.test.ts`'s
 // measured reason: `$mod` resolves against the real host at listen time, so a synthetic
 // press built here would have to guess which modifier this runner watches for, and
 // guessing wrong is a case that passes for the wrong reason. Which chord SHIPS is
-// `palette/commands/command-surface.test.ts`'s claim and not this file's.
+// `layout/NavigationRail/navigation-commands.test.ts`'s claim and not this file's.
 //
 // AND THE IDLE WARM CANNOT MASK IT. The window's own walk would eventually load every
 // registered body, which would make a "did it load" assertion vacuous — so the reading
@@ -27,7 +27,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { KeyBindingTable, consoleCommands } from "@renderer/console/palette/index.js";
+import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 

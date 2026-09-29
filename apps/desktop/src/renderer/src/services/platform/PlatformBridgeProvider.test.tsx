@@ -29,7 +29,7 @@ import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
 import { type ConsoleBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { findScenario } from "../../../../../fixtures/index.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
   FLAGSHIP_SCENARIO,

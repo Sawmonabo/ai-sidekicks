@@ -5,7 +5,7 @@
 // build six surfaces at once, and a frame that imported all six would serialize them
 // behind one file and make every merge a conflict in that file.
 //
-// A family calls `registerConsoleSurface` at module scope with the slot it owns and
+// A family calls `registerScreen` at module scope with the slot it owns and
 // a renderer. The frame resolves the current route to a slot, looks the renderer up,
 // and mounts it inside an error boundary. A slot with no renderer is the
 // "reserved, not stubbed" rule in action: the frame says the surface has not been
@@ -27,7 +27,7 @@ import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
-import { PendingSurfaceBody } from "./PendingScreenBody.js";
+import { PendingScreenBody } from "./PendingScreenBody.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { type ConsoleSurfaceContext } from "./screen-context.js";
 
@@ -125,7 +125,7 @@ export class ConsoleSurfaceRegistry {
     // the generic machinery, because what a route reserves while it loads is a
     // route-shaped question.
     const loadedBody = new LoadedLazyBody(registration.body, (context: ConsoleSurfaceContext) =>
-      createElement(PendingSurfaceBody, { context }),
+      createElement(PendingScreenBody, { context }),
     );
     // Registered BEFORE the loader table is written, so a `register` the keyed registry
     // refuses — a different owner claiming a taken slot — cannot leave a loader behind
@@ -181,7 +181,7 @@ interface ConsoleSurfaceRegistrationBase {
 export const consoleSurfaceRegistry: ConsoleSurfaceRegistry = new ConsoleSurfaceRegistry();
 
 /** The call a 1C surface family makes to claim its slot, in either registration form. */
-export function registerConsoleSurface(registration: ConsoleSurfaceRegistration): void {
+export function registerScreen(registration: ConsoleSurfaceRegistration): void {
   consoleSurfaceRegistry.register(registration);
 }
 

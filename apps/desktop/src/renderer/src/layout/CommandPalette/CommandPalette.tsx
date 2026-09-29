@@ -27,24 +27,26 @@
 //     "one matcher shared with settings search" is a claim about the whole app.
 //
 // WHAT IS NOT HERE. The rows are `PaletteResultList.tsx` and the five kinds of
-// nothing are `PaletteAbsence.tsx`. Every decision this surface makes — the scope
+// nothing are `PaletteEmptyState.tsx`. Every decision this surface makes — the scope
 // captured at the open transition, the dormancy that makes a closed palette walk
 // nothing, the clear that runs after the commit, the one chord it listens for — is
-// `use-palette-overlay.ts` beside this file, because the state-and-views rule in
+// `hooks/useCommandPalette.ts` beside this file, because the state-and-views rule in
 // `apps/desktop/AGENTS.md` puts effects and derivations in a hook and never in a
 // render body. This module is the composition and the markup.
 
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 
+import "./command-palette.css";
+
 import {
   InlineRefusal,
   formatChordForPlatform,
   OverlayDialogPopup,
 } from "@renderer/console/primitives/index.js";
-import { PaletteAbsence } from "./PaletteEmptyState.js";
-import { PaletteResultList } from "@renderer/console/palette/overlay/PaletteResultList.js";
-import { usePaletteOverlay, type PaletteOverlayProps } from "./hooks/useCommandPalette.js";
+import { PaletteEmptyState } from "./PaletteEmptyState.js";
+import { PaletteResultList } from "./PaletteResultList.js";
+import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";
 
 /**
  * The palette.
@@ -55,7 +57,7 @@ import { usePaletteOverlay, type PaletteOverlayProps } from "./hooks/useCommandP
  * command — it has to work before any family has registered anything, and it has
  * to work while a person is typing in the composer.
  */
-export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
+export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
   const {
     registry,
     open,
@@ -78,7 +80,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
     runResult,
     warmHighlighted,
     resultCountLabel,
-  } = usePaletteOverlay(props);
+  } = useCommandPalette(props);
 
   return (
     <Combobox.Root
@@ -102,21 +104,21 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
         <OverlayDialogPopup
           airspaceKind="command-palette"
           container={overlayContainer}
-          backdropClassName="console-palette__backdrop"
-          className="console-palette__popup"
+          backdropClassName="command-palette__backdrop"
+          className="command-palette__popup"
           label="Command palette"
           initialFocus={inputRef}
         >
           {capturedScopeLabel === undefined ? null : (
-            <div className="console-palette__scope">
-              <span className="console-palette__scope-label">Acting on</span>
-              <span className="console-palette__scope-value">{capturedScopeLabel}</span>
+            <div className="command-palette__scope">
+              <span className="command-palette__scope-label">Acting on</span>
+              <span className="command-palette__scope-value">{capturedScopeLabel}</span>
             </div>
           )}
 
           <Combobox.Input
             ref={inputRef}
-            className="console-palette__input"
+            className="command-palette__input"
             placeholder="Search commands"
             aria-label="Search commands"
           />
@@ -139,8 +141,8 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
               why `Combobox.Status` below falls silent when the list is empty.
               Two live regions describing one absence would announce it twice.
             */}
-          <Combobox.Empty className="console-palette__empty">
-            <PaletteAbsence
+          <Combobox.Empty className="command-palette__empty">
+            <PaletteEmptyState
               readiness={readiness}
               registry={registry}
               query={query}
@@ -154,13 +156,13 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
 
           {invocationRefusal === undefined ? null : (
             // Below the rows: the answer to the press a person just made.
-            <div className="console-palette__refusal">
+            <div className="command-palette__refusal">
               <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
             </div>
           )}
 
-          <div className="console-palette__footer">
-            <span className="console-palette__footer-hints">
+          <div className="command-palette__footer">
+            <span className="command-palette__footer-hints">
               <span>{formatChordForPlatform("Enter", platform)} to run</span>
               <span>{formatChordForPlatform("Escape", platform)} to close</span>
             </span>

@@ -21,7 +21,7 @@ import {
   type ApprovalResolveRequest,
 } from "@renderer/services/approvals/approval-records.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
 import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";

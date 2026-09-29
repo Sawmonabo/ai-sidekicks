@@ -12,10 +12,10 @@ import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../command-registry.js";
 import {
-  ConsoleFamilyContributions,
-  consoleCommands,
-} from "@renderer/console/palette/commands/console-commands.js";
-import { subscribeToConsoleKeyBindings } from "@renderer/console/palette/commands/command-surface.js";
+  CommandContributionRegistry,
+  subscribeToCommandContributions,
+} from "../command-contributions.js";
+import { consoleCommands } from "../window-command-registry.js";
 import { useConsoleCommandSeat } from "./useRegisterCommands.js";
 import type { ConsoleCommand } from "../command-types.js";
 
@@ -55,7 +55,7 @@ describe("a surface's command seat", () => {
 
   it("tells the palette its list changed, so an open palette re-reads", () => {
     let signals = 0;
-    const stopWatching = subscribeToConsoleKeyBindings(() => {
+    const stopWatching = subscribeToCommandContributions(() => {
       signals += 1;
     });
     const commands = [command("suite.signalled")];
@@ -63,7 +63,7 @@ describe("a surface's command seat", () => {
       useConsoleCommandSeat(OWNER, commands);
     });
 
-    // The contribution itself is the signal: `registerConsoleCommands` would have
+    // The contribution itself is the signal: `registerCommands` would have
     // put the row in the registry and told nobody, which is a command the open
     // palette has already memoised past.
     expect(signals).toBeGreaterThan(0);
@@ -170,8 +170,8 @@ describe("the live-contributor register belongs to the composition, not to the m
     // have outlived the surface that owned them with nothing on screen to say so.
     const firstRegistry = new CommandRegistry();
     const secondRegistry = new CommandRegistry();
-    const first = new ConsoleFamilyContributions(firstRegistry);
-    const second = new ConsoleFamilyContributions(secondRegistry);
+    const first = new CommandContributionRegistry(firstRegistry);
+    const second = new CommandContributionRegistry(secondRegistry);
 
     const releaseFirst = first.contribute({
       owner: OWNER,
@@ -191,7 +191,7 @@ describe("the live-contributor register belongs to the composition, not to the m
 
   it("a superseded contributor's release is a no-op within one composition", () => {
     const registry = new CommandRegistry();
-    const contributions = new ConsoleFamilyContributions(registry);
+    const contributions = new CommandContributionRegistry(registry);
 
     const releaseOlder = contributions.contribute({
       owner: OWNER,
@@ -214,7 +214,7 @@ describe("the live-contributor register belongs to the composition, not to the m
     // naming a command nobody registered is a keypress that silently does nothing,
     // and the register that restores one has to restore the other in the same act.
     const registry = new CommandRegistry();
-    const contributions = new ConsoleFamilyContributions(registry);
+    const contributions = new CommandContributionRegistry(registry);
 
     contributions.contribute({
       owner: OWNER,
@@ -241,7 +241,7 @@ describe("the live-contributor register belongs to the composition, not to the m
     // an ordinary function a caller holds, and a second call that popped the register
     // again would take the rows of a contributor that never asked to go.
     const registry = new CommandRegistry();
-    const contributions = new ConsoleFamilyContributions(registry);
+    const contributions = new CommandContributionRegistry(registry);
 
     contributions.contribute({
       owner: OWNER,

@@ -8,7 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import {
   EMPTY_STATE_SENTENCE,
   TEST_COMMAND_ID,

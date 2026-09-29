@@ -38,7 +38,7 @@
 
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
 import { Emitter, type Unsubscribe } from "./emitter.js";
-import { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
+import { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 
 /**
  * Every runtime tripwire. Closed — adding one is a deliberate edit to this tuple.

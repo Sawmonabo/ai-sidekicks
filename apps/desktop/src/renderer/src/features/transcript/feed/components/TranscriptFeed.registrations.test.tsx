@@ -11,7 +11,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
   TRANSCRIPT_FIXTURE_PANE_ID,

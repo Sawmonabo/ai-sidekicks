@@ -23,7 +23,7 @@
 // anywhere. The terminal is the only kind whose row is measured today; the next one
 // costs a different hash and no code.
 //
-// WHY THE BODIES ARE MOUNTED AS COMPONENTS RATHER THAN CALLED. `RouteSurface`
+// WHY THE BODIES ARE MOUNTED AS COMPONENTS RATHER THAN CALLED. `AppRouter`
 // invokes `descriptor.render(context)` inline, which is correct for a surface:
 // exactly one mounts, and its hooks are this component's hooks in a fixed order.
 // A harness holds a VARIABLE number of bodies, and every registered pane body holds
@@ -34,7 +34,7 @@
 // one standing: the measurement's per-instance slope depends on it.
 //
 // WHAT KEEPS ONE ROUTE'S PANES OFF ANOTHER ROUTE'S SUBJECT. Two `#/pane-harness/…`
-// addresses resolve to this one slot, so `RouteSurface` keys the surface it mounts
+// addresses resolve to this one slot, so `AppRouter` keys the surface it mounts
 // on the address itself and this component is rebuilt — count and all — whenever the
 // pane kind or the session changes. The pane keys below carry the session for the
 // same reason, one level down: they are the identity React reconciles an instance
@@ -51,45 +51,19 @@
 
 import { useState } from "react";
 
-import { Nothing } from "../../primitives/index.js";
-import { PaneHarnessFrame } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
-import { paneHarnessInstances } from "@renderer/app/pane-harness/pane-harness-instances.js";
-import { parseConsolePaneAddress, type ConsolePaneRegistry } from "../../seats/index.js";
-import { type ConsoleSurfaceContext, type ConsoleSurfaceRegistry } from "../../seats/index.js";
+import { Nothing } from "@renderer/console/primitives/index.js";
+import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
+import { paneHarnessInstances } from "./pane-harness-instances.js";
+import {
+  parseConsolePaneAddress,
+  type ConsolePaneRegistry,
+} from "@renderer/console/seats/index.js";
+import { type ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 
-export interface PaneHarnessSurfaceProps {
+/** The harness screen's inputs: the route's context and the pane board it resolves from. */
+export interface PaneHarnessScreenProps {
   readonly context: ConsoleSurfaceContext;
   readonly paneRegistry: ConsolePaneRegistry;
-}
-
-/**
- * Claim the harness slot, in a fixture build and in no other.
- *
- * The guard is HERE rather than at the composition site: `families.ts` states that
- * no condition lands in it and that a family owns its own decision, and whether
- * this surface exists at all is this module's decision. Under
- * `__SIDEKICKS_CONSOLE_FIXTURES__ === false` Rollup collapses the body, the
- * component below is referenced from nothing, and the whole harness leaves the
- * bundle — the same treatment the fixture bridge and its scenarios get.
- *
- * BOTH registries are parameters, on `registerConsoleFamilies`' rule: the surface
- * is registered into the board the composition owns, and it resolves pane bodies
- * out of the pane board that same composition owns. Reaching for either module
- * singleton would make a window composing its own boards mount bodies from the
- * production one.
- */
-export function registerPaneHarnessSurface(
-  surfaceRegistry: ConsoleSurfaceRegistry,
-  paneRegistry: ConsolePaneRegistry,
-): void {
-  if (!__SIDEKICKS_CONSOLE_FIXTURES__) {
-    return;
-  }
-  surfaceRegistry.register({
-    slot: "pane-harness",
-    owner: "pane-harness",
-    render: (context) => <PaneHarnessSurface context={context} paneRegistry={paneRegistry} />,
-  });
 }
 
 /**
@@ -98,7 +72,7 @@ export function registerPaneHarnessSurface(
  * Exported for its own co-located test, which drives it without a route by handing
  * it a context — the same shape every other surface in this family takes.
  */
-export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.Element {
+export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Element {
   const { context, paneRegistry } = props;
   const [openInstanceCount, setOpenInstanceCount] = useState(0);
   const { route } = context;
@@ -140,8 +114,8 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
 
   const descriptor = paneRegistry.descriptorFor(address.kind);
   if (descriptor === undefined) {
-    // Reserved, not stubbed — `RouteSurface`'s rule one level down. The kind is a
-    // pane kind; no family has registered a body for it.
+    // The kind is a pane kind no family has registered a body for, so the harness
+    // says so instead of drawing a placeholder, as `AppRouter` does for a screen.
     return (
       <PaneHarnessFrame instanceCount={0} paneKindLabel={address.kind}>
         <Nothing

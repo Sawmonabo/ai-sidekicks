@@ -44,7 +44,7 @@
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { registerComposerFamily } from "@renderer/features/composer/contributions/composer-view.js";
 import { registerComposerInlineCards } from "@renderer/features/composer/contributions/inline-cards.js";
-import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
+import { registerPaneHarnessSurface } from "@renderer/app/pane-harness/register-pane-harness-screen.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,

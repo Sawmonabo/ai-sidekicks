@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // The viewport's stylesheet, imported for its side effect: this tier is about what it
 // computes to.
 import "@renderer/features/transcript/viewport/components/transcript-viewport.css";

@@ -10,7 +10,10 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
 
-import { consoleCommands, consoleKeybindingOverrides } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 
@@ -76,6 +79,10 @@ export async function recordChordOnto(
     await crossMacrotaskBoundary();
   });
 }
+
+// The rail's shipped chords, contributed the way the window's composition contributes them,
+// so the page reads the same shipped table a window has.
+registerNavigationKeybindings(consoleCommandSurface);
 
 beforeEach(() => {
   consoleCommands.registerAll([

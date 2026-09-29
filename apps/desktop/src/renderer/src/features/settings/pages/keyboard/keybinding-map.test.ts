@@ -4,7 +4,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleCommand, type KeyBinding } from "@renderer/console/palette/index.js";
+import {
+  type ConsoleCommand,
+  type KeyBinding,
+} from "@renderer/registries/commands/command-types.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,

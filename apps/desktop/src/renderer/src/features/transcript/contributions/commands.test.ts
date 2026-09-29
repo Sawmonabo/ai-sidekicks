@@ -6,15 +6,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import {
-  CommandRegistry,
-  KeyBindingTable,
-  consoleCommandSurface,
-  consoleCommands,
-  consoleKeybindingOverrides,
-  publishConsoleActRefusalSink,
-  type ConsoleCommand,
-} from "@renderer/console/palette/index.js";
+import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
+import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import {
   TRANSCRIPT_COMMAND_GROUP,

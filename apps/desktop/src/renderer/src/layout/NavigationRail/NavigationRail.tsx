@@ -19,6 +19,8 @@ import type { GlyphName } from "@renderer/console/primitives/index.js";
 import { Glyph } from "@renderer/console/primitives/index.js";
 import type { RailDestination } from "@renderer/routing/route-readers.js";
 
+import "./navigation-rail.css";
+
 /** What one destination shows. Availability is decided elsewhere. */
 export interface RailEntryTemplate {
   readonly label: string;
@@ -29,13 +31,13 @@ export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
 }
 
-export interface IconRailProps {
+export interface NavigationRailProps {
   readonly entries: readonly RailEntry[];
   readonly current: RailDestination | undefined;
   readonly onSelect: (destination: RailDestination) => void;
 }
 
-export function IconRail(props: IconRailProps): React.JSX.Element {
+export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
   return (
     <nav className="meridian-rail" aria-label="Console sections">
       <ul className="meridian-rail__list">

@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import {
-  IconRail,
+  NavigationRail,
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
   type RailEntryTemplate,
@@ -77,11 +77,11 @@ describe("the rail's entry table — one entry per declared destination", () => 
   });
 });
 
-describe("IconRail — absent, never disabled", () => {
+describe("NavigationRail — absent, never disabled", () => {
   it("renders the entries it is handed, in the order it is handed them", () => {
     const entries = RAIL_DESTINATIONS.map(entryFor);
     const { container } = render(
-      <IconRail entries={entries} current="sessions" onSelect={() => undefined} />,
+      <NavigationRail entries={entries} current="sessions" onSelect={() => undefined} />,
     );
     const labels = [...container.querySelectorAll("button")].map((button) =>
       button.getAttribute("aria-label"),
@@ -97,7 +97,7 @@ describe("IconRail — absent, never disabled", () => {
       entryFor,
     );
     const { container } = render(
-      <IconRail entries={entries} current="sessions" onSelect={() => undefined} />,
+      <NavigationRail entries={entries} current="sessions" onSelect={() => undefined} />,
     );
     const labels = [...container.querySelectorAll("button")].map((button) =>
       button.getAttribute("aria-label"),

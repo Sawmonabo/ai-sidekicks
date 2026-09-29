@@ -19,7 +19,7 @@
 //     A base that can move supplies `subscribeToDefaults` beside the reader, and this
 //     store re-composes on that signal like any other change it publishes.
 //   • **The override applies to this window before the write settles, and a refused
-//     write is disclosed rather than discarded.** `scheme-preference.ts` states the
+//     write is disclosed rather than discarded.** `app/hooks/useSchemePreference.ts` states the
 //     reasoning for the one other window-wide preference: the choice is taken, so the
 //     honest sentence is not "that did not work" but "that worked for this window and
 //     will not come back".
@@ -38,22 +38,23 @@
 // nothing while a chord is being recorded, and the recorder reads the focused
 // control's own press.
 
-import { useCallback, useSyncExternalStore } from "react";
-
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleKeyBindings, subscribeToConsoleKeyBindings } from "../commands/command-surface.js";
-import { type KeyBinding } from "@renderer/registries/commands/command-types.js";
+import {
+  contributedKeybindings,
+  subscribeToCommandContributions,
+} from "../commands/command-contributions.js";
+import { type KeyBinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../primitives/index.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import {
   KEYBINDING_OVERRIDES_KEY,
   type KeybindingBindResult,
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
-  type KeybindingSurface,
-} from "@renderer/registries/keybindings/keybinding-override-types.js";
+  type KeybindingSnapshot,
+} from "./keybinding-override-types.js";
 import {
   composeEffectiveBindings,
   readOverrideMap,
@@ -61,7 +62,7 @@ import {
   type KeybindingOverride,
   type KeybindingOverrideMap,
   type KeybindingOverrideRefusal,
-} from "@renderer/registries/keybindings/keybinding-overrides.js";
+} from "./keybinding-overrides.js";
 
 /**
  * The latch key the hydration round is taken under.
@@ -88,7 +89,7 @@ export class KeybindingOverrideStore {
   #overrides: KeybindingOverrideMap = {};
   #uiStateStore: UiStateStore | undefined;
   #recording = false;
-  #snapshot: KeybindingSurface | undefined;
+  #snapshot: KeybindingSnapshot | undefined;
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
   /**
    * The rounds this store's overrides have moved through.
@@ -96,10 +97,10 @@ export class KeybindingOverrideStore {
    * TWO ROLES, ONE GENERATION, which is the shape `store/read/generation-latch.ts`
    * describes — a monotonic serial, so a superseded settlement is IGNORED rather than
    * claimed to have been stopped — and which
-   * `settings/shared/shell-preferences/shell-preferences-store.ts` takes the same way:
+   * `features/settings/machine-settings/machine-settings-store.ts` takes the same way:
    * a rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
-   * `frame/bindings/scheme-preference.ts` states for the colour scheme — and a second hydration
+   * `app/hooks/useSchemePreference.ts` states for the colour scheme — and a second hydration
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */
@@ -121,7 +122,7 @@ export class KeybindingOverrideStore {
   }
 
   /** What to install and what to draw. One object, stable between changes. */
-  public get surface(): KeybindingSurface {
+  public get surface(): KeybindingSnapshot {
     const shippedBindings = this.#snapshot === undefined ? this.#readDefaults() : [];
     this.#snapshot ??= {
       bindings: composeEffectiveBindings(shippedBindings, this.#overrides),
@@ -319,30 +320,12 @@ export class KeybindingOverrideStore {
 /**
  * This window's overrides.
  *
- * Module scope IS window scope here, for the reason `palette/commands/command-surface.ts` gives about
- * the registry it holds the same way: an auxiliary window is its own renderer
+ * Module scope IS window scope here: every window is its own renderer
  * process, so no channel joins two windows' module graphs — and the settings page
  * reaches the seam the frame installs from without a store threaded through a page
  * contract that deliberately carries none.
  */
 export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
-  defaults: consoleKeyBindings,
-  subscribeToDefaults: subscribeToConsoleKeyBindings,
+  defaults: contributedKeybindings,
+  subscribeToDefaults: subscribeToCommandContributions,
 });
-
-/**
- * Read the seam from a component, re-rendering when an override is written.
- *
- * `useSyncExternalStore` rather than an effect writing into state: an override
- * written between a render and its subscription is missed by the effect shape, and a
- * keyboard silently disagreeing with the page describing it is the failure this seam
- * exists to prevent.
- */
-export function useKeybindingSurface(store: KeybindingOverrideStore): KeybindingSurface {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => store.subscribe(onStoreChange),
-    [store],
-  );
-  const read = useCallback(() => store.surface, [store]);
-  return useSyncExternalStore(subscribe, read, read);
-}

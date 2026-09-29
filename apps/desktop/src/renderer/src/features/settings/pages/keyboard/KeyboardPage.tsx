@@ -27,12 +27,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import {
-  auditKeybindings,
-  consoleCommands,
-  consoleKeybindingOverrides,
-  useKeybindingSurface,
-} from "@renderer/console/palette/index.js";
+import { auditKeybindings } from "@renderer/registries/keybindings/keybinding-audit.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { useKeybindingSurface } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   ChordHint,

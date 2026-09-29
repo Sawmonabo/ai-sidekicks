@@ -33,7 +33,7 @@ import {
 import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**

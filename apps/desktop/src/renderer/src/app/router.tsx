@@ -40,12 +40,12 @@ import {
   type ConsoleSurfaceContext,
 } from "@renderer/console/seats/index.js";
 
-export interface RouteSurfaceProps {
+export interface AppRouterProps {
   readonly context: ConsoleSurfaceContext;
 }
 
 /** Resolve a route to a surface. */
-export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
+export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const { context } = props;
   const { route } = context;
 
@@ -62,7 +62,7 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
   }
 
   // A route that names a session shows nothing of that session until its store is
-  // open, and the open rides an effect rather than this render (`frame/session/session-lifecycle.ts`
+  // open, and the open rides an effect rather than this render (`app/hooks/useSessionStoreRegistry.ts`
   // says why). So there is one frame where the store is absent, and the honest
   // rendering of that frame is a read in flight.
   if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {

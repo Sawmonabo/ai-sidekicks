@@ -13,7 +13,7 @@ import {
   runTierAxe,
 } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 beforeEach(() => {

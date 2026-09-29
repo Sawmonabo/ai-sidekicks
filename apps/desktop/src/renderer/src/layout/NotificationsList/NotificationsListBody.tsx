@@ -3,9 +3,9 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { NOTHING_NEEDS_YOU, uncheckedSessionsSentence } from "./attention-sentences.js";
 import { ReadCompleteness } from "./ReadCompleteness.js";
-import { SessionGroup } from "./SessionNotificationGroup.js";
+import { SessionNotificationGroup } from "./SessionNotificationGroup.js";
 
-export function ProjectionBody(props: {
+export function NotificationsListBody(props: {
   readonly reading: AttentionReading;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
@@ -59,7 +59,7 @@ export function ProjectionBody(props: {
       <ul className="meridian-attention__groups">
         {plane.groups.map((group) => (
           <li key={group.sessionId}>
-            <SessionGroup
+            <SessionNotificationGroup
               group={group}
               foldInformational={plane.hasActionable}
               onOpen={props.onOpen}

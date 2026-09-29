@@ -35,7 +35,8 @@ import {
 import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clock.js";
 import { requireCapturedElement } from "./captured-element.js";
 
-import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
+import { ConsoleRoot } from "@renderer/app/providers.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 import {

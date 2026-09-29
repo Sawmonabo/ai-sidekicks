@@ -26,9 +26,12 @@
 // lives rather than drawing a switch that would write nowhere.
 import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
-import { ProjectionBody } from "./NotificationsListBody.js";
+import { NotificationsListBody } from "./NotificationsListBody.js";
 
-export interface NotificationCenterProps {
+import "./notifications.css";
+
+/** What the notifications list draws: the attention reading and how to open an item. */
+export interface NotificationsListProps {
   /**
    * The projection read's result. The destination performs the read and hands it
    * here, so the center and the all-sessions list read one plane and cannot
@@ -39,7 +42,8 @@ export interface NotificationCenterProps {
   readonly onOpen?: (item: AttentionItem) => void;
 }
 
-export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
+/** The notifications list: what needs a person, grouped by session. */
+export function NotificationsList(props: NotificationsListProps): React.JSX.Element {
   return (
     <section className="meridian-attention" aria-label="Attention">
       <header className="meridian-attention__head">
@@ -48,7 +52,7 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
           Muting is a single global setting, and it never hides work that is blocking.
         </p>
       </header>
-      <ProjectionBody reading={props.reading} onOpen={props.onOpen} />
+      <NotificationsListBody reading={props.reading} onOpen={props.onOpen} />
     </section>
   );
 }

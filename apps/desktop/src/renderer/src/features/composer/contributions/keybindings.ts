@@ -1,6 +1,6 @@
 // The composer's keybinding: the chord that asks for the composer from anywhere in the window.
 
-import type { ConsoleCommandSurface } from "@renderer/console/palette/commands/console-commands.js";
+import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import type { KeyBinding } from "@renderer/registries/commands/command-types.js";
 import { COMPOSER_FOCUS_COMMAND_ID } from "./commands.js";
 

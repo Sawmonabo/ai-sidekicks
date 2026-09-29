@@ -15,11 +15,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../helpers/app-harness.js";
 
-import {
-  ConsoleRoot,
-  applyConsoleScheme,
-  installMeridianTokens,
-} from "@renderer/console/frame/index.js";
+import { ConsoleRoot } from "@renderer/app/providers.js";
+import { applyConsoleScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { ATTRIBUTION_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";

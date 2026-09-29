@@ -27,12 +27,12 @@
 // is layout-independent, so a binding stays on the same physical key on AZERTY and
 // Dvorak.
 
+import { reservedChordReason } from "@renderer/registries/keybindings/keybinding-audit.js";
 import {
-  reservedChordReason,
   type ConsoleCommand,
   type KeyBinding,
-  type KeybindingOverrideMap,
-} from "@renderer/console/palette/index.js";
+} from "@renderer/registries/commands/command-types.js";
+import { type KeybindingOverrideMap } from "@renderer/registries/keybindings/keybinding-overrides.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 

@@ -40,14 +40,14 @@ import { chordMatchesEvent } from "./keybinding-chord.js";
 import {
   detectConflicts,
   prepareBindings,
-  type KeyBindingConflict,
-  type KeyBindingDiagnostic,
+  type KeybindingConflict,
+  type KeybindingDiagnostic,
   type PreparedBinding,
 } from "./keybinding-conflicts.js";
 import { evaluateWhenClause, type WhenClauseContext } from "../commands/when-clause/when-clause.js";
 
 /** What happened when a chord fired. Reported, never swallowed. */
-export type KeyBindingDispatch =
+export type KeybindingDispatch =
   | { readonly outcome: "ran"; readonly chord: string; readonly commandId: string }
   | {
       readonly outcome: "refused";
@@ -64,28 +64,28 @@ export type KeyBindingDispatch =
     };
 
 /** Why the table refused a binding set. Rendered verbatim; never swallowed. */
-export const KEY_BINDING_REFUSAL_CODES = ["chord-conflict"] as const;
+export const KEYBINDING_REFUSAL_CODES = ["chord-conflict"] as const;
 
 /** One key-binding refusal code. Derived, so the vocabulary is declared once. */
-export type KeyBindingRefusalCode = (typeof KEY_BINDING_REFUSAL_CODES)[number];
+export type KeybindingRefusalCode = (typeof KEYBINDING_REFUSAL_CODES)[number];
 
 /** The subsystem name every refusal this module raises carries. */
-export const KEY_BINDING_REFUSAL_ORIGIN = "keybindings";
+export const KEYBINDING_REFUSAL_ORIGIN = "keybindings";
 
 /**
  * Anything a listener can be attached to. Narrowed to the two methods actually
  * used, so `Window`, `Document`, and any `HTMLElement` all satisfy it without a
  * union whose call signatures would have to be reconciled.
  */
-export type KeyBindingTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+export type KeybindingTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
 
 /** How the table reaches the world. */
-export interface KeyBindingTableOptions {
+export interface KeybindingTableOptions {
   readonly registry: CommandRegistry;
   /** Read the live context at dispatch time — never a snapshot taken at install. */
   readonly readContext: () => WhenClauseContext;
   /** Every dispatch decision, for diagnostics and for the Keyboard settings page. */
-  readonly onDispatch?: (dispatch: KeyBindingDispatch) => void;
+  readonly onDispatch?: (dispatch: KeybindingDispatch) => void;
 }
 
 /**
@@ -102,24 +102,24 @@ export interface KeyBindingTableOptions {
  * `conflicts` is kept beside the refusal because the settings page renders one row
  * per conflicting pair, which `detail`'s single sentence cannot carry.
  */
-export class KeyBindingConflictError extends ConsoleRefusalError {
-  public readonly conflicts: readonly KeyBindingConflict[];
+export class KeybindingConflictError extends ConsoleRefusalError {
+  public readonly conflicts: readonly KeybindingConflict[];
 
-  public constructor(conflicts: readonly KeyBindingConflict[]) {
+  public constructor(conflicts: readonly KeybindingConflict[]) {
     super(
       refuse(
-        KEY_BINDING_REFUSAL_ORIGIN,
+        KEYBINDING_REFUSAL_ORIGIN,
         // `satisfies` rather than a bare literal: this is the module's only
         // refusal site, so without it the closed vocabulary above binds nothing
         // and dropping a member from it would break no code at all. Checked
         // against the union, not widened to it.
-        "chord-conflict" satisfies KeyBindingRefusalCode,
+        "chord-conflict" satisfies KeybindingRefusalCode,
         `${String(conflicts.length)} keybinding conflict(s): ${conflicts
           .map((conflict) => `${conflict.chord} (${conflict.commandIds.join(" vs ")})`)
           .join(", ")}`,
       ),
     );
-    this.name = "KeyBindingConflictError";
+    this.name = "KeybindingConflictError";
     this.conflicts = conflicts;
   }
 }
@@ -135,12 +135,12 @@ export class KeyBindingConflictError extends ConsoleRefusalError {
 export class KeyBindingTable {
   readonly #registry: CommandRegistry;
   readonly #readContext: () => WhenClauseContext;
-  readonly #onDispatch: ((dispatch: KeyBindingDispatch) => void) | undefined;
+  readonly #onDispatch: ((dispatch: KeybindingDispatch) => void) | undefined;
   #preparedBindings: readonly PreparedBinding[] = [];
-  #diagnostics: readonly KeyBindingDiagnostic[] = [];
+  #diagnostics: readonly KeybindingDiagnostic[] = [];
   #detachListener: (() => void) | undefined;
 
-  public constructor(options: KeyBindingTableOptions) {
+  public constructor(options: KeybindingTableOptions) {
     this.#registry = options.registry;
     this.#readContext = options.readContext;
     this.#onDispatch = options.onDispatch;
@@ -149,7 +149,7 @@ export class KeyBindingTable {
   /**
    * Replace the binding set.
    *
-   * THROWS `KeyBindingConflictError` when two bindings can be live on one chord —
+   * THROWS `KeybindingConflictError` when two bindings can be live on one chord —
    * "an error surfaced at install time", because the alternative is one of them
    * silently never firing and a person concluding their keyboard is broken.
    *
@@ -163,7 +163,7 @@ export class KeyBindingTable {
 
     const conflicts = detectConflicts(prepared);
     if (conflicts.length > 0) {
-      throw new KeyBindingConflictError(conflicts);
+      throw new KeybindingConflictError(conflicts);
     }
 
     // Most specific scope first, then registration order. After the conflict
@@ -182,12 +182,12 @@ export class KeyBindingTable {
    * needs the answer before it commits — asking by catching the throw from
    * `setBindings` would mean the table had already been half-replaced.
    */
-  public static conflictsIn(bindings: readonly KeyBinding[]): readonly KeyBindingConflict[] {
+  public static conflictsIn(bindings: readonly KeyBinding[]): readonly KeybindingConflict[] {
     return detectConflicts(prepareBindings(bindings).prepared);
   }
 
   /** Bindings dropped by the last `setBindings`, with the reason for each. */
-  public diagnostics(): readonly KeyBindingDiagnostic[] {
+  public diagnostics(): readonly KeybindingDiagnostic[] {
     return this.#diagnostics;
   }
 
@@ -232,7 +232,7 @@ export class KeyBindingTable {
    * installation, and it makes each disposer idempotent for free —
    * `removeEventListener` is a no-op for a listener already removed.
    */
-  public install(target: KeyBindingTarget): () => void {
+  public install(target: KeybindingTarget): () => void {
     if (this.#detachListener !== undefined) {
       throw new Error(
         "this KeyBindingTable is already installed; dispose the previous installation before installing again",

@@ -9,7 +9,7 @@ import { type KeyBinding } from "../commands/command-types.js";
 import { KeyBindingTable } from "./keybinding-table.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { KeybindingOverrideStore } from "@renderer/console/palette/keybindings/keybinding-override-store.js";
+import { KeybindingOverrideStore } from "./keybinding-override-store.js";
 import { KEYBINDING_OVERRIDES_KEY } from "./keybinding-override-types.js";
 
 /**

@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { settle } from "@test/helpers/settle.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { PaletteOverlay } from "./CommandPalette.js";
+import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 const CONTEXT: WhenClauseContext = {
@@ -42,7 +42,7 @@ function paletteText(): string {
 
 /** The scope row's value, which is the only text the capture claim is about. */
 function scopeRowText(): string {
-  return document.querySelector(".console-palette__scope-value")?.textContent ?? "";
+  return document.querySelector(".command-palette__scope-value")?.textContent ?? "";
 }
 
 const COMMANDS: readonly ConsoleCommand[] = [
@@ -81,7 +81,7 @@ describe("the palette — dormant while closed", () => {
   it("never asks the registry anything while it is closed", async () => {
     const registry = registryWithCommands();
     const { rerender } = render(
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={CONTEXT}
         open={false}
@@ -93,7 +93,7 @@ describe("the palette — dormant while closed", () => {
     // Re-rendered with a moved context and a bumped revision, which is exactly what
     // the frame does as a person navigates: both used to force a fresh search.
     rerender(
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={{ ...CONTEXT, onSettings: true }}
         open={false}
@@ -112,7 +112,7 @@ describe("the palette — dormant while closed", () => {
     // above.
     const registry = registryWithCommands();
     render(
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={CONTEXT}
         open
@@ -129,7 +129,7 @@ describe("the palette — the captured scope", () => {
   it("keeps the label it opened with while the frame re-resolves it", async () => {
     const registry = registryWithCommands();
     const { rerender } = render(
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={CONTEXT}
         open
@@ -142,7 +142,7 @@ describe("the palette — the captured scope", () => {
     expect(paletteText()).toContain("Session: refactor the projector");
 
     rerender(
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={CONTEXT}
         open
@@ -167,12 +167,12 @@ describe("the palette — the captured scope", () => {
       platform: "darwin" as const,
     };
     const { rerender } = render(
-      <PaletteOverlay {...props} open scopeLabel="Session: refactor the projector" />,
+      <CommandPalette {...props} open scopeLabel="Session: refactor the projector" />,
     );
     await settle();
-    rerender(<PaletteOverlay {...props} open={false} scopeLabel="A different session" />);
+    rerender(<CommandPalette {...props} open={false} scopeLabel="A different session" />);
     await settle();
-    rerender(<PaletteOverlay {...props} open scopeLabel="A different session" />);
+    rerender(<CommandPalette {...props} open scopeLabel="A different session" />);
     await settle();
     expect(scopeRowText()).toBe("A different session");
   });

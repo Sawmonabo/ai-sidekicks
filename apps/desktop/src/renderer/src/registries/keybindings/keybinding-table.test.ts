@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../commands/command-registry.js";
 import { type KeyBinding } from "../commands/command-types.js";
-import { KeyBindingTable, type KeyBindingTarget } from "./keybinding-table.js";
+import { KeyBindingTable, type KeybindingTarget } from "./keybinding-table.js";
 
 /** A chord with no modifiers, so the press below needs none either. */
 const CHORD = "KeyJ";
@@ -26,7 +26,7 @@ const BINDINGS: readonly KeyBinding[] = [{ chord: CHORD, commandId: COMMAND_ID }
 /** What one installed table needs, plus the counter its command increments. */
 interface TableUnderTest {
   readonly table: KeyBindingTable;
-  readonly target: KeyBindingTarget & EventTarget;
+  readonly target: KeybindingTarget & EventTarget;
   /** How many times the bound command has run. */
   runCount: () => number;
 }

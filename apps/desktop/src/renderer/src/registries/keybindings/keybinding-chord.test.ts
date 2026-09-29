@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../commands/command-registry.js";
-import { KeyBindingConflictError, KeyBindingTable } from "./keybinding-table.js";
+import { KeybindingConflictError, KeyBindingTable } from "./keybinding-table.js";
 
 describe("chord decoding — the comparator and the printer decode alike", () => {
   it("refuses two spellings of one keystroke as a conflict", () => {
@@ -34,7 +34,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
         { chord: "$mod+k", commandId: "test.first" },
         { chord: "$mod+KeyK", commandId: "test.second" },
       ]);
-    }).toThrow(KeyBindingConflictError);
+    }).toThrow(KeybindingConflictError);
   });
 
   it("does not call two different keys a conflict", () => {

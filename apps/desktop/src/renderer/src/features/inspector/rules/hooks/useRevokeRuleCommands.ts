@@ -11,7 +11,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat, type ConsoleCommand } from "@renderer/console/palette/index.js";
+import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import {
   REVOKE_RULE_COMMAND_OWNER,

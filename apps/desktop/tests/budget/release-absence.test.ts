@@ -47,7 +47,7 @@ import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
 import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mjs";
-import { FIXTURE_GLOBAL_NAMES } from "@renderer/console/core/fixture-globals.js";
+import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
 import {
   PERF_METER_KINDS,
   type PerfMeterKind,
@@ -232,7 +232,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
       "fixtures/scenarios/planted.ts",
       "src/renderer/src/services/daemon/planted.fixture.ts",
       "src/renderer/src/features/settings/pages/providers/fixtures/planted.ts",
-      "src/renderer/src/console/core/fixture-globals.ts",
+      "src/renderer/src/app/fixture-global-names.ts",
       "src/renderer/src/app/pane-harness/Planted.tsx",
       "src/renderer/src/features/transcript/planted.test.ts",
       "src/renderer/src/features/transcript/planted.test-support.ts",

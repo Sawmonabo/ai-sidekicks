@@ -31,7 +31,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { useSessionStoreRegistry } from "@renderer/console/frame/session/session-lifecycle.js";
+import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
 
 const readNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
@@ -93,7 +93,7 @@ interface SwapHarness {
  * keys its disposal effect on that identity too: a board rebuilt per render would
  * re-mint the plumbing for a reason this file is not about, and every case here
  * would pass without the bridge ever deciding anything. It is empty on purpose —
- * which fold a store opens with is `session-lifecycle.registry-wiring.test.tsx`'s
+ * which fold a store opens with is `useSessionStoreRegistry.registry-wiring.test.tsx`'s
  * subject, and this one is about which bridge the plumbing was built from.
  */
 function mountAgainst(bridge: ConsoleBridge): SwapHarness {

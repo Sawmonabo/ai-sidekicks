@@ -272,7 +272,7 @@
         "vitest/**",
         "tsconfig.paths.json",
         "electron.vite.config.ts",
-        "src/renderer/src/console/core/fixture-globals.ts",
+        "src/renderer/src/app/fixture-global-names.ts",
         "out/main/**",
         "out/preload/**",
         "out/renderer/**"

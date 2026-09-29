@@ -7,7 +7,7 @@
 // widest thing that exists once per window: an announcer per surface would be N
 // regions competing to be the one a reader hears, which is the defect the primitive
 // exists to make unrepresentable. The frame is also its first consumer — see
-// `banner-announcements.ts`.
+// `hooks/useRefusalBannerAnnouncements.ts`.
 //
 // AND IT RUNS ON THE WINDOW'S CLOCK, not on the wall clock. The announcer arms one
 // timeout — the hold before a standing message is cleared and the next one is spoken —
@@ -16,7 +16,7 @@
 // subsystem in a fixture window still reading wall time: a refusal raised by a scenario
 // beat cleared on how fast the runner happened to be, so what a reader hears and what a
 // screenshot captures both depended on the host. `useConsoleClock` is the same answer
-// `frame/bindings/ui-state-lifecycle.ts` and `frame/session/session-lifecycle.ts` ask
+// `app/hooks/useUiStateStore.ts` and `app/hooks/useSessionStoreRegistry.ts` ask
 // for, and the frame is where it is asked because `primitives/` sits below `bridge/` in
 // the family DAG and cannot ask for itself.
 //
@@ -27,6 +27,8 @@
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
+
+import "./app-frame.css";
 
 /**
  * What a caller hands the frame.

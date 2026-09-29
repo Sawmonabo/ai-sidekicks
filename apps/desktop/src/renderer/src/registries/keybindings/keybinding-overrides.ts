@@ -1,9 +1,10 @@
 // What a rebinding IS: the override a person authored, the table it composes to, and
 // whether one is admissible at all.
 //
-// `commands/command-surface.ts` declares `FRAME_KEY_BINDINGS`, and that table stays
-// exactly what it has always been — the chords the console ships. This module holds
-// the other half. Two decisions carry it, and the store beside it adds no third:
+// The contributed defaults (`contributedKeybindings` in
+// `registries/commands/command-contributions.ts`) stay the chords the app ships.
+// This module holds the other half. Two decisions carry it, and the store beside
+// it adds no third:
 //
 //   • **The effective table is composed, never edited.** The declared table and the
 //     override map are two inputs to one pure function, so "what does this window

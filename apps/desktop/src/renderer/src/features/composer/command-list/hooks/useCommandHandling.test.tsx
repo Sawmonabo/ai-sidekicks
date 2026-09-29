@@ -17,7 +17,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/console/palette/index.js";
+import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";

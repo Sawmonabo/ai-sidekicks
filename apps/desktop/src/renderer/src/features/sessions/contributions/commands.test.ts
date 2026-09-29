@@ -2,11 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ConsoleCommand,
-  ConsoleCommandSurface,
-  KeyBinding,
-} from "@renderer/console/palette/index.js";
+import type { ConsoleCommand, KeyBinding } from "@renderer/registries/commands/command-types.js";
+import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import { MountedPaneLayouts } from "../pane-layout/mounted-pane-layouts.js";
 import { createSpyingPaneLayoutActs } from "../pane-layout/pane-layout-acts.test-support.js";
 import {

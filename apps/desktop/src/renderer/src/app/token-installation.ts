@@ -16,17 +16,16 @@
 // and a hot-module reload both re-enter this path and two copies of the sheet would
 // double the cascade for no benefit.
 //
-// WHY THIS IS IN `frame/` AND NOT IN `tokens/`. It is the one part of the token
-// story that touches a `Document`, and `tokens/` is a VOCABULARY family that node
-// context reads — the generated-asset check imports it to byte-diff the emitted
-// sheet against the palette it came from. A DOM-typed module inside that family
-// puts `Document` and `Window` into a program that has neither, so the family
-// stops being readable by the tooling that validates it. Mounting is the frame's
-// job anyway: `ConsoleRoot` is the only production caller, and an auxiliary window
-// re-enters through its own frame root.
+// WHY THIS IS IN `app/` AND NOT IN `styles/`. It is the one part of the token
+// story that touches a `Document`, and `styles/` is a vocabulary that node context
+// reads — the generated-asset check imports it to byte-diff the emitted sheet
+// against the palette it came from. A DOM-typed module there puts `Document` into a
+// program that has none, so the folder stops being readable by the tooling that
+// validates it. Mounting is the window's job anyway: `AppBootstrap` is the only
+// production caller, and an auxiliary window re-enters through its own root.
 
 import { SCHEME_ATTRIBUTE, generateMeridianCss } from "@renderer/styles/generate-css.js";
-import { type ConsoleScheme, type SchemePreference } from "@renderer/styles/tokens.js";
+import { type SchemePreference } from "@renderer/styles/tokens.js";
 import { generateTypefaceCss } from "@renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */
@@ -71,9 +70,4 @@ export function applyConsoleScheme(targetDocument: Document, scheme: SchemePrefe
     return;
   }
   root.setAttribute(SCHEME_ATTRIBUTE, scheme);
-}
-
-/** What the OS currently prefers, for a surface that wants to say which is active. */
-export function readSystemScheme(targetWindow: Window): ConsoleScheme {
-  return targetWindow.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }

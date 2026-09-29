@@ -1,7 +1,7 @@
 // The handle a driver in another process holds on the running scenario: the Electron
 // tiers advance the frozen clock through it and read how far the script has got.
 
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 
 /** What a driver may do with the running scenario. Closed, and read-mostly. */

@@ -19,10 +19,8 @@ import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
-import {
-  useActiveSessionStore,
-  useSessionStoreRegistry,
-} from "@renderer/console/frame/session/session-lifecycle.js";
+import { useActiveSessionStore } from "./useActiveSessionStore.js";
+import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 
 export interface Observation {

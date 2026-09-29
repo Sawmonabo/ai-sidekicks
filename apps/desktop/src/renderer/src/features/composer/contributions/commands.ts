@@ -10,7 +10,7 @@
 // is true and no composer is drawn, it would be exactly wrong. An ask nobody is
 // listening for is dropped.
 
-import type { ConsoleCommandSurface } from "@renderer/console/palette/commands/console-commands.js";
+import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import { requestComposerFocus } from "../composer-focus-requests.js";
 

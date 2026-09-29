@@ -7,8 +7,8 @@
 // and asking by catching the throw from `setBindings` would mean the table had
 // already been half-replaced.
 //
-// The `KeyBinding` type this module validates is declared in `keybindings.ts`,
-// the module that installs one. The import below is type-only and erased, so the
+// The `KeyBinding` type this module validates is declared in `commands/command-types.ts`
+// and installed by `keybinding-table.ts`. The import below is type-only and erased, so the
 // runtime edge runs one way: the table reaches down here, and nothing here
 // reaches back.
 
@@ -24,7 +24,7 @@ import { parseWhenClause } from "../commands/when-clause/when-clause-parser.js";
 import { whenClausesCanOverlap } from "../commands/when-clause/when-clause-overlap.js";
 
 /** Two bindings that can be live on one chord at one moment. */
-export interface KeyBindingConflict {
+export interface KeybindingConflict {
   readonly chord: string;
   readonly commandIds: readonly [string, string];
   /**
@@ -38,7 +38,7 @@ export interface KeyBindingConflict {
 }
 
 /** A binding that was dropped rather than installed, with the reason. */
-export interface KeyBindingDiagnostic {
+export interface KeybindingDiagnostic {
   readonly binding: KeyBinding;
   readonly reason: "chord-unparseable" | "when-unparseable";
   readonly detail: string;
@@ -58,7 +58,7 @@ export interface PreparedBinding {
 /** Everything one validation pass over a candidate set establishes. */
 export interface PreparedBindingSet {
   readonly prepared: readonly PreparedBinding[];
-  readonly diagnostics: readonly KeyBindingDiagnostic[];
+  readonly diagnostics: readonly KeybindingDiagnostic[];
 }
 
 /**
@@ -71,7 +71,7 @@ export interface PreparedBindingSet {
  */
 export function prepareBindings(bindings: readonly KeyBinding[]): PreparedBindingSet {
   const prepared: PreparedBinding[] = [];
-  const diagnostics: KeyBindingDiagnostic[] = [];
+  const diagnostics: KeybindingDiagnostic[] = [];
 
   bindings.forEach((binding, index) => {
     const chord = parseChord(binding.chord);
@@ -113,7 +113,7 @@ export function prepareBindings(bindings: readonly KeyBinding[]): PreparedBindin
  */
 export function detectConflicts(
   prepared: readonly PreparedBinding[],
-): readonly KeyBindingConflict[] {
+): readonly KeybindingConflict[] {
   const byNormalizedChord = new Map<string, PreparedBinding[]>();
   for (const candidate of prepared) {
     const key = normalizePressForComparison(candidate.press);
@@ -125,7 +125,7 @@ export function detectConflicts(
     }
   }
 
-  const conflicts: KeyBindingConflict[] = [];
+  const conflicts: KeybindingConflict[] = [];
   for (const bucket of byNormalizedChord.values()) {
     for (let leftIndex = 0; leftIndex < bucket.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < bucket.length; rightIndex += 1) {

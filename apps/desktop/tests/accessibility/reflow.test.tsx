@@ -37,7 +37,8 @@ import {
   restoreTesterViewport,
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
+import { ConsoleRoot } from "@renderer/app/providers.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
 import { formatRoute } from "@renderer/routing/routes.js";

@@ -13,7 +13,7 @@
 // what the handle answers — it is handed a frozen object and puts it on the page — so
 // there is no second opinion here about what "bound" or "applied" counts.
 
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 
 /**

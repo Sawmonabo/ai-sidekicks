@@ -1,26 +1,22 @@
 // The palette's rows — how ranked results become categories, and each row.
 //
-// Split from `PaletteOverlay.tsx` because the overlay composes (combobox +
+// Split from `CommandPalette.tsx` because the overlay composes (combobox +
 // dialog + the open chord) and this renders (a group, a title with its matched
 // runs, the provenance mark, the chord). Both halves stay inside one
 // `Combobox.Root`: `Combobox.List` reads the items from that root's context, so
 // this component renders the list element itself rather than taking the groups as
-// a prop — the grouping function that feeds the root is exported beside it.
+// a prop — the grouping function that feeds the root is `group-results.ts` beside it.
 
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
-import { ChordHint, type ChordPlatform } from "../../primitives/index.js";
+import { ChordHint, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
 import type { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import type { PaletteRowPressOutcome } from "@renderer/layout/CommandPalette/palette-latch.js";
+import type { PaletteRowPressOutcome } from "./palette-latch.js";
+import type { CommandResultGroup } from "./group-results.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-/** Results for one category, in the order the best result in it appeared. */
-export interface CommandResultGroup {
-  readonly value: string;
-  readonly items: readonly CommandSearchResult[];
-}
-
+/** What the palette's listbox renders its rows against. */
 export interface PaletteResultListProps {
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
@@ -43,32 +39,15 @@ export interface PaletteResultListProps {
   readonly onRunResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
 }
 
-export function groupResults(
-  results: readonly CommandSearchResult[],
-): readonly CommandResultGroup[] {
-  const itemsByGroup = new Map<string, CommandSearchResult[]>();
-  for (const result of results) {
-    const bucket = itemsByGroup.get(result.command.group);
-    if (bucket === undefined) {
-      itemsByGroup.set(result.command.group, [result]);
-    } else {
-      bucket.push(result);
-    }
-  }
-  // Insertion order is first-appearance order, so the best-ranked category leads
-  // and the categories do not reshuffle as a person types.
-  return [...itemsByGroup.entries()].map(([value, items]) => ({ value, items }));
-}
-
 /** The listbox: one group per category, one row per ranked result. */
 export function PaletteResultList(props: PaletteResultListProps): React.JSX.Element {
   const { context, platform, bindings, onRunResult } = props;
 
   return (
-    <Combobox.List className="console-palette__list">
+    <Combobox.List className="command-palette__list">
       {(group: CommandResultGroup) => (
         <Combobox.Group key={group.value} items={group.items}>
-          <Combobox.GroupLabel className="console-palette__group-label">
+          <Combobox.GroupLabel className="command-palette__group-label">
             {group.value}
           </Combobox.GroupLabel>
           <Combobox.Collection>
@@ -88,7 +67,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                 <Combobox.Item
                   key={result.command.id}
                   value={result.command.id}
-                  className="console-palette__item"
+                  className="command-palette__item"
                   // `aria-disabled` and not `disabled`: the row stays listed, stays
                   // reachable by arrow key, and stays readable, because its reason is
                   // the thing a person came here to find out. The press below still
@@ -109,19 +88,19 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                     }
                   }}
                 >
-                  <span className="console-palette__item-title">
+                  <span className="command-palette__item-title">
                     {renderTitle(result.command.title, result.titleMatch?.matchedIndices)}
                   </span>
                   {result.command.unavailable === undefined ? null : (
-                    <span className="console-palette__item-unavailable">
+                    <span className="command-palette__item-unavailable">
                       {result.command.unavailable}
                     </span>
                   )}
                   {result.recentRank === undefined ? null : (
-                    <span className="console-palette__recent-mark">Recent</span>
+                    <span className="command-palette__recent-mark">Recent</span>
                   )}
                   {chord === undefined ? null : (
-                    <span className="console-palette__chord">
+                    <span className="command-palette__chord">
                       <ChordHint chord={chord} platform={platform} />
                     </span>
                   )}
@@ -156,7 +135,7 @@ function renderTitle(title: string, matchedIndices: readonly number[] | undefine
       const text = title.slice(runStart, characterIndex);
       segments.push(
         runIsMatch ? (
-          <span className="console-palette__match" key={`${String(runStart)}-match`}>
+          <span className="command-palette__match" key={`${String(runStart)}-match`}>
             {text}
           </span>
         ) : (

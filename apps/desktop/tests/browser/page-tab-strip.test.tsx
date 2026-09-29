@@ -25,7 +25,7 @@ import { renderSettled } from "../helpers/app-harness.js";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TabStrip } from "@renderer/features/preview/components/PageTabStrip.js";
 import { threeBrowserPages } from "@renderer/features/preview/page-list-reading.test-support.js";
 import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "@renderer/features/preview/tab-reorder.js";

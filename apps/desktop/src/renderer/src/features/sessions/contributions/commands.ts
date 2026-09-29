@@ -34,11 +34,9 @@
 // what this file adds: the same five acts, discoverable by name, reachable from
 // anywhere in the session, and refusing out loud when there is no deck to act on.
 
-import {
-  raiseConsoleActRefusal,
-  type ConsoleCommand,
-  type ConsoleCommandSurface,
-} from "@renderer/console/palette/index.js";
+import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
 import {
   mountedPaneLayouts,

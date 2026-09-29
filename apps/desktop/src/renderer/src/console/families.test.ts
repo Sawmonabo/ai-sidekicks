@@ -21,22 +21,11 @@ import {
   ConsoleEntityProjectorRegistry,
   consoleEntityProjectorRegistry,
 } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-// The registry's own refusal, from the module that declares it: the core door
-// deliberately publishes no line for it, because a family consumes it by calling
-// `register` rather than by naming the class.
-import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
-import {
-  FRAME_BINDING_SLOTS,
-  mountFrameBindings,
-  type FrameBindingContext,
-  type FrameBindingSlot,
-} from "./seats/frame-bindings.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
-  FrameBindingRegistry,
   InlineCardSeatRegistry,
   inlineCardSeatRegistry,
 } from "./seats/index.js";
@@ -202,75 +191,3 @@ describe("console families — the pane board a composition writes into", () => 
     }
   });
 });
-
-describe("console families — the frame-lifetime binding board", () => {
-  // The board that is not a place to hand over a body. Its seats are mounted once per
-  // window by the frame rather than by a route, so what is asserted here is that the
-  // fold the frame performs over it puts a family's element around the frame's subtree.
-
-  it("wraps the frame's subtree in what a family registered — the planted control", () => {
-    // The instrument, driven over a board this case fills itself. A planted binding is
-    // the only way to assert the WRAPPING without mounting React: what the fold returns
-    // for a registered slot has to be the family's own node holding the children, and a
-    // fold that silently dropped either would look identical from the composition side.
-    const registry = new FrameBindingRegistry();
-    const wrapped: unknown[] = [];
-    registry.register({
-      slot: PLANTED_BINDING_SLOT,
-      owner: "families.test",
-      mount: (bindingProps) => {
-        wrapped.push(bindingProps.children);
-        return PLANTED_BINDING_NODE;
-      },
-    });
-
-    expect(mountFrameBindings(registry, PLANTED_BINDING_CONTEXT, "the frame")).toBe(
-      PLANTED_BINDING_NODE,
-    );
-    expect(wrapped).toStrictEqual(["the frame"]);
-  });
-
-  it("negative control: an unfilled board hands the frame back untouched", () => {
-    // The other half, and the reason the case above is not vacuous. A seat nothing
-    // claimed contributes no element at all — reserved-not-stubbed, the same answer
-    // every other board gives — so a fold that wrapped regardless would put a mount and
-    // a reconciliation node in the tree standing for a family that has not landed.
-    expect(
-      mountFrameBindings(new FrameBindingRegistry(), PLANTED_BINDING_CONTEXT, "the frame"),
-    ).toBe("the frame");
-  });
-
-  it("negative control: a second owner claiming one binding is a conflict", () => {
-    // A binding is mounted once per window, so a second owner on one slot would mean
-    // two reads of one thing and which one ran would depend on module import order.
-    const registry = new FrameBindingRegistry();
-    const claim = (owner: string): void => {
-      registry.register({ slot: PLANTED_BINDING_SLOT, owner, mount: () => PLANTED_BINDING_NODE });
-    };
-
-    claim("first");
-
-    expect(() => {
-      claim("first");
-    }).not.toThrow();
-    expect(() => {
-      claim("second");
-    }).toThrow(DuplicateRegistrationError);
-  });
-});
-
-/** The slot the planted cases claim: a real member, on a board the case owns. */
-const PLANTED_BINDING_SLOT: FrameBindingSlot = FRAME_BINDING_SLOTS[0];
-
-/** What a planted binding returns, so the fold's result is identifiable by identity. */
-const PLANTED_BINDING_NODE = "the planted binding";
-
-/**
- * What a planted binding is handed.
- *
- * Cast rather than constructed, on `sessions/session-surface.context.test-support.ts`' rule:
- * the three real members are a bridge, a frame store, and a session-store registry, and
- * building all three to prove that a fold passes an object through would make the setup
- * the subject.
- */
-const PLANTED_BINDING_CONTEXT = {} as unknown as FrameBindingContext;

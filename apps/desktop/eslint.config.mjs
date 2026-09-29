@@ -459,10 +459,8 @@ const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
  * the barrels that still import sheets from other folders. The list only shrinks.
  */
 const STYLESHEET_HELD_FILES = [
-  "src/renderer/src/console/palette/index.ts",
   "src/renderer/src/console/primitives/index.ts",
   "src/renderer/src/console/seats/index.ts",
-  "src/renderer/src/console/sessions/notifications/index.ts",
 ];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */

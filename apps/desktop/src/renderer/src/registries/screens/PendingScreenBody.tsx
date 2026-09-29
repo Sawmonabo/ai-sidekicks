@@ -12,7 +12,7 @@
 // would say the route's data had not arrived, which is a different sentence and a false
 // one — no read has been attempted.
 //
-// The marker `seats/pane/pending-pane-body.ts` owns rides a `hidden` element for that module's
+// The marker `registries/panes/PendingPaneBody.tsx` owns rides a `hidden` element for that module's
 // reason: `display: none` contributes no box, so what the reserved region costs the
 // layout is nothing.
 
@@ -20,7 +20,7 @@ import { SurfaceAbsence } from "@renderer/console/primitives/index.js";
 import type { ConsoleSurfaceContext } from "./screen-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
-export interface PendingSurfaceBodyProps {
+export interface PendingScreenBodyProps {
   /** The route and bindings this surface was mounted at. */
   readonly context: ConsoleSurfaceContext;
 }
@@ -34,7 +34,7 @@ export interface PendingSurfaceBodyProps {
  * page still loading — and two attributes would be two sweeps that agree until one is
  * forgotten.
  */
-export function PendingSurfaceBody(props: PendingSurfaceBodyProps): React.JSX.Element {
+export function PendingScreenBody(props: PendingScreenBodyProps): React.JSX.Element {
   return (
     <SurfaceAbsence>
       <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: props.context.route.kind }} />

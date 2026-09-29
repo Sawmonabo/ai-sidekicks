@@ -18,7 +18,7 @@ import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/i
  * its own words; the alternative is a divider this list cannot have, because its
  * one grouping axis is already spent on the session.
  */
-export function AttentionRow(props: {
+export function NotificationEntry(props: {
   readonly item: AttentionItem;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
@@ -73,7 +73,7 @@ export function AttentionRow(props: {
  * other trigger carries whichever of those its severity says and no color of its
  * own.
  */
-export const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
+const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
   pending_approval: "Waiting on an approval",
   pending_input: "Waiting on your input",
   run_completed: "A run finished",

@@ -1,6 +1,6 @@
 // What the rail shows, and where each of its destinations goes.
 //
-// Both halves are the FRAME's decisions rather than the rail's. `IconRail` renders
+// Both halves are the FRAME's decisions rather than the rail's. `NavigationRail` renders
 // the entries it is handed and knows nothing about sessions; the routing family
 // knows nothing about a rail. This module is the one place the two meet.
 //
@@ -83,7 +83,7 @@ export function warmDestination(
   // damaged install whose honest surface is the mount, where the console's error
   // boundary can say so. A rail press has a painted surface under it already, so waiting
   // here would be a stall where the reserved frame is the honest thing to show.
-  void warmRouteSurface(surfaceRegistry, routeForDestination(destination));
+  void warmRouteScreen(surfaceRegistry, routeForDestination(destination));
 }
 
 /**
@@ -98,7 +98,7 @@ export function warmDestination(
  * with nothing done, so no caller has to ask first whether the thing it is about to open
  * is loader-backed.
  */
-async function warmRouteSurface(
+async function warmRouteScreen(
   surfaceRegistry: ConsoleSurfaceRegistry,
   route: ConsoleRoute,
 ): Promise<void> {
