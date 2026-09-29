@@ -147,6 +147,11 @@ The fixture system conforms to production boundaries and never defines them.
 
 The CSS is plain CSS on global design tokens. A component's `.css` sits beside it, and the tokens live in `styles/`. No `*.module.css` file is created.
 
+- **One CSS class has one owning stylesheet.** Two sheets that declare the same class at equal specificity are resolved by load order, so which rules win depends on which surface loaded first.
+- **A shared component owns every rule for its own classes.** A feature that needs a variation uses the component's supported modifier, `data-*` attribute or custom property; it never restyles the shared class from another sheet.
+- **A feature-private class carries the feature's name as its prefix** when it is new or is already being renamed with the concept it names. An otherwise-correct existing class is not renamed only to add a prefix.
+- **A custom property that a component reads and a caller may set has a fallback**, for example `var(--figure-wire-color, inherit)`. Without one, the declaration drops silently when no caller sets it.
+
 ## Tests
 
 - **A test sits beside its subject** as `*.test.ts` or `*.test.tsx`. Nothing is `.spec.ts`: Playwright runs inside Vitest as the Electron driver. The desktop has no `__tests__/` folders; the packages keep theirs.
@@ -165,6 +170,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 ## Enforcement
 
 - `.dependency-cruiser.mjs` (`structure:layering`) enforces the import direction, feature isolation and the fixture import boundary.
+- `.dependency-cruiser.mjs` also keeps the main process and the preload from importing renderer code; a value both sides need lives in `src/shared/`.
 - ESLint's restricted imports (`lint`, configured in `eslint.config.mjs`) keep the renderer from reaching `main/` or `preload/`, relatively or through `@main` and `@preload`, and from importing Electron, Node builtins or the daemon and control-plane packages.
 - knip (`structure:dead-code`, configured in the root `knip.json`) reports unused files and exports.
 

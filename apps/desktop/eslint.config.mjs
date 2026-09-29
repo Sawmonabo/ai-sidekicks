@@ -61,7 +61,7 @@ import {
   TIME_READING_SELECTORS,
 } from "./eslint.restricted-syntax.mjs";
 import perfectionist from "eslint-plugin-perfectionist";
-import root from "../../eslint.config.mjs";
+import root, { ENUM_DECLARATION } from "../../eslint.config.mjs";
 
 /**
  * The bare specifiers renderer source may not import. Hoisted so the wire-parsing
@@ -394,6 +394,7 @@ const DIRECTORY_SOURCE_GLOB = {
  * selector rather than turning the rule off.
  */
 const RENDERER_SYNTAX_BANS = [
+  ENUM_DECLARATION,
   EXPORT_DEFAULT_DECLARATION,
   DIRECTORY_SOURCE_GLOB,
   MODULE_LEVEL_LET,
@@ -413,6 +414,7 @@ const RENDERER_SYNTAX_BANS = [
 
 /** What every test file carries. */
 const TEST_SYNTAX_BANS = [
+  ENUM_DECLARATION,
   EXPORT_DEFAULT_DECLARATION,
   SCREENSHOT_MATCHER_REACH,
   TEXT_SNAPSHOT_MATCHER_REACH,
@@ -662,6 +664,7 @@ export default [
     rules: {
       "no-restricted-syntax": [
         "error",
+        ENUM_DECLARATION,
         EXPORT_DEFAULT_DECLARATION,
         DIRECTORY_SOURCE_GLOB,
         TEXT_SNAPSHOT_MATCHER_REACH,
@@ -676,6 +679,7 @@ export default [
     rules: {
       "no-restricted-syntax": [
         "error",
+        ENUM_DECLARATION,
         EXPORT_DEFAULT_DECLARATION,
         DIRECTORY_SOURCE_GLOB,
         TEXT_SNAPSHOT_MATCHER_REACH,
@@ -792,6 +796,7 @@ export default [
     rules: {
       "no-restricted-syntax": [
         "error",
+        ENUM_DECLARATION,
         EXPORT_DEFAULT_DECLARATION,
         TEXT_SNAPSHOT_MATCHER_REACH,
         ...CHILD_PROCESS_DYNAMIC_REACH,
@@ -801,17 +806,21 @@ export default [
   {
     files: ["build/**/*.{ts,mts}"],
     rules: {
-      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, TEXT_SNAPSHOT_MATCHER_REACH],
+      "no-restricted-syntax": [
+        "error",
+        ENUM_DECLARATION,
+        EXPORT_DEFAULT_DECLARATION,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+      ],
     },
   },
   {
     // The Vitest configuration modules, which the `lint` script reads
     // and which are where the process-wide snapshot mode is set in the first place.
-    // They carry no other syntax ban — `export default` is how a Vitest config is
-    // written and no block above claims this directory — so the union is the one
-    // selector rather than a restatement of somebody else's.
+    // `export default` is allowed here, since that is how a Vitest config is written, so
+    // the union is the snapshot ban and the root's enum ban.
     files: ["vitest/**/*.{ts,mts}"],
-    rules: { "no-restricted-syntax": ["error", TEXT_SNAPSHOT_MATCHER_REACH] },
+    rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION, TEXT_SNAPSHOT_MATCHER_REACH] },
   },
   {
     // A declaration file carries no runtime code — no call, no assignment, no import of

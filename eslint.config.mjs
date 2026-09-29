@@ -20,6 +20,16 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
     "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
 };
 
+/**
+ * The enum ban, exported so a package config that sets `no-restricted-syntax` for its own
+ * files restates it: flat config replaces a rule's options at the last matching object.
+ */
+export const ENUM_DECLARATION = {
+  selector: "TSEnumDeclaration",
+  message:
+    "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -61,6 +71,13 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },
+  },
+  // Every authored TypeScript file carries the enum ban. A declaration file is ambient
+  // and holds no runtime code.
+  {
+    files: ["**/*.{ts,tsx,mts,cts}"],
+    ignores: ["**/*.d.ts"],
+    rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION] },
   },
   // Node-globals scope for build tooling (`tools/`) and root-level config files.
   // Packages under `packages/*` and `apps/*` get their globals from
@@ -151,6 +168,7 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
+        ENUM_DECLARATION,
         {
           selector: 'ImportDeclaration[source.value="./event.js"]',
           message:
@@ -191,6 +209,7 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
+        ENUM_DECLARATION,
         {
           selector:
             "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.name='forTestsOnly']",
