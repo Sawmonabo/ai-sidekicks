@@ -3,7 +3,7 @@
 // The five arms the updater publishes, the ordering between the opening read and a
 // transition pushed while it is still in flight, and the one polite announcement the
 // settled read makes. What a control does with any of it is
-// `UpdatesBlock.controls.test.tsx`, over the doubles in `updates-block.test-support.tsx`.
+// `UpdatesBlock.controls.test.ts`, over the doubles in `updates-block.test-support.tsx`.
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

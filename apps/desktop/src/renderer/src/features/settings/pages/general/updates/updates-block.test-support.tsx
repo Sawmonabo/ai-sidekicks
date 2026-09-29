@@ -12,7 +12,11 @@ import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { politeText } from "@test/helpers/live-region.js";
-import { UpdatesBlock } from "./UpdatesBlock.js";
+import {
+  NOTHING_CHOSEN,
+  effectivePreference,
+} from "../../../machine-settings/machine-settings-snapshot.js";
+import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 
 /**
@@ -101,6 +105,20 @@ export function updaterHoldingItsRead(): {
   };
 }
 
+/**
+ * Machine settings as a window reads them before anything was chosen: every value is
+ * its real default, and a press reaches `choose`.
+ */
+export function preferencesAtDefaults(
+  choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
+): UpdatesBlockProps["preferences"] {
+  return {
+    isEnabled: (key) => effectivePreference(NOTHING_CHOSEN, key),
+    isPending: () => false,
+    choose,
+  };
+}
+
 /** Press the block's restart control, which asks for no confirmation. */
 export async function pressRestart(block: HTMLElement): Promise<void> {
   const restart = [...block.querySelectorAll("button")].find(
@@ -123,7 +141,10 @@ export async function pressRestart(block: HTMLElement): Promise<void> {
  * `role="alert"` — a case asserting this block raises no alert would otherwise be
  * reading the announcer's.
  */
-export async function renderSettled(updater: UpdaterCalls): Promise<{
+export async function renderSettled(
+  updater: UpdaterCalls,
+  preferences: UpdatesBlockProps["preferences"] = preferencesAtDefaults(),
+): Promise<{
   readonly block: HTMLElement;
   readonly clock: ManualClock;
   readonly politeText: () => string;
@@ -134,7 +155,7 @@ export async function renderSettled(updater: UpdaterCalls): Promise<{
   await act(async () => {
     rendered = render(
       <LiveAnnouncerProvider announcer={announcer}>
-        <UpdatesBlock updater={updater} />
+        <UpdatesBlock updater={updater} preferences={preferences} />
       </LiveAnnouncerProvider>,
     );
     await crossMacrotaskBoundary();

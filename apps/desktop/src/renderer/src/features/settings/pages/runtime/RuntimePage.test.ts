@@ -132,11 +132,27 @@ describe("DaemonPage — the reported status", () => {
 });
 
 describe("DaemonPage — the two controls", () => {
-  it("does not call anything until the consequence has been read", () => {
+  it("says over the pair that both stop the work in flight", () => {
+    const { container } = renderRuntimePage({});
+    expect(container.textContent).toContain("Both stop whatever is in flight on this machine.");
+  });
+
+  it("asks before stopping, naming what stops, and calls nothing yet", () => {
     const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).toContain("Work in flight on this machine stops");
+    expect(container.textContent).toContain(
+      "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
+    );
+  });
+
+  it("asks before restarting, naming what stops, and calls nothing yet", () => {
+    const { container, ledger } = renderRuntimePage({});
+    fireEvent.click(getButton(container, "Restart"));
+    expect(ledger.calls).toStrictEqual([]);
+    expect(container.textContent).toContain(
+      "Restart the background service? Work in flight stops.",
+    );
   });
 
   it("calls only after the confirm", async () => {
@@ -238,7 +254,7 @@ describe("DaemonPage — the two controls", () => {
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Cancel"));
     expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).not.toContain("Work in flight on this machine stops");
+    expect(container.textContent).not.toContain("Restart the background service?");
   });
 
   it("says a control was sent rather than that it succeeded", async () => {

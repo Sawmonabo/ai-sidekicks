@@ -12,11 +12,16 @@
 // `downloading` has one, and only `downloading` renders a bar.
 //
 // A call that throws or rejects is not caught here; it propagates to the caller.
+//
+// Under the read-out sits the switch for checking on its own, on by default. Its value is
+// the machine setting `updates.automatic`.
 
 import type { UpdateState } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
 
 import { useSettlementAnnouncement } from "@renderer/console/primitives/index.js";
+import { PreferenceToggleRow } from "../../../components/PreferenceToggleRow.js";
+import type { MachineSettingsBinding } from "../../../machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
@@ -41,9 +46,19 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
   error: "Update state read. The updater reported a failure.",
 };
 
-/** The update block: the updater's state, and the controls that ask it to move. */
-export function UpdatesBlock(props: { readonly updater: UpdaterCalls }): ReactNode {
-  const { updater } = props;
+/** What the update block is handed. */
+export interface UpdatesBlockProps {
+  readonly updater: UpdaterCalls;
+  /** The machine settings the automatic-check switch reads and writes. */
+  readonly preferences: Pick<MachineSettingsBinding, "isEnabled" | "isPending" | "choose">;
+}
+
+/**
+ * The update block: the updater's state, the controls that ask it to move, and the
+ * switch for checking on its own.
+ */
+export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
+  const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
   // Said once, when the updater read lands.
   useSettlementAnnouncement(updateSettlementSentence(reading));
@@ -78,6 +93,15 @@ export function UpdatesBlock(props: { readonly updater: UpdaterCalls }): ReactNo
           </button>
         ) : null}
       </div>
+
+      <PreferenceToggleRow
+        label="Check for updates automatically"
+        checked={preferences.isEnabled("updates.automatic")}
+        isPending={preferences.isPending("updates.automatic")}
+        onCheckedChange={(checked) => {
+          preferences.choose("updates.automatic", checked);
+        }}
+      />
     </section>
   );
 }
