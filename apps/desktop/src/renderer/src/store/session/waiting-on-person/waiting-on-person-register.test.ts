@@ -2,10 +2,8 @@
 //
 // Every case here is one of: the VOCABULARY it keys on is the wire's, the ROWS it takes
 // may arrive in any order, and what it holds survives the window being pruned or
-// replaced. The last is the defect this module was written for — a fold over the
-// store's `timeline` reported "Nothing needs you" over a run that was still blocked,
-// because the row that opened the approval had fallen out of a capped window or had
-// never been delivered to a resumed one.
+// replaced, so an approval whose opening row fell out of a capped window, or never
+// reached a resumed one, still counts as waiting.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

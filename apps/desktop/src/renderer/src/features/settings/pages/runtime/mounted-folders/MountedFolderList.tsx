@@ -35,12 +35,9 @@ export function MountedFolderList(props: {
   // The scenario's frozen clock under the fixture, the real one otherwise, so a story
   // advances this read's coalescing window exactly when it advances everything else's.
   //
-  // From the window's own clock hook rather than resolved inside the memo below. The
-  // live arm of `resolveBridgeClock` MINTS, so its result is identity-unstable by
-  // construction, and a memo is a hint React is free to discard — resolving there
-  // could rebuild this `dispose()`-bearing read around a new clock on a pass nothing
-  // moved on. The hook pins the resolution in state, which is where a resource
-  // identity belongs.
+  // From the window's own clock hook, which keeps one clock identity for the life of the
+  // mount, so this `dispose()`-bearing read is never rebuilt around a new clock when the
+  // bridge is replaced in place.
   const clock = useClock();
   // The openings made for this list. Its only job is to be a dependency the read's
   // construction can be moved by: a subscription that could not be opened at all is
