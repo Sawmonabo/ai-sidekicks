@@ -1,10 +1,10 @@
 // What the artifact pane renders from, and the pure reductions over it.
 //
-// `artifact-reader.ts` owns the calls, the scheduler and the generation stamp; this file
+// `artifact-list-reader.ts` owns the calls, the scheduler and the generation stamp; this file
 // owns the immutable value those produce and every total function over it, so a
 // reduction can be driven directly in a test with no bridge, clock or reader.
 
-import type { ArtifactManifestRow, ArtifactsPanelState } from "./artifact-model.js";
+import type { ArtifactManifestRow, ArtifactsSectionState } from "./artifact-model.js";
 import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
 
 /**
@@ -16,8 +16,8 @@ import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-
 export const UNREAD_AT_MILLISECONDS = 0;
 
 /** Everything the pane renders from, in one immutable value. */
-export interface ArtifactPaneReading {
-  readonly artifacts: ArtifactsPanelState;
+export interface ArtifactListReading {
+  readonly artifacts: ArtifactsSectionState;
   /**
    * The instant this reading was published at, from the window's own clock.
    *
@@ -51,7 +51,7 @@ export type ArtifactRowActOutcome =
 const NO_ACTS_IN_FLIGHT: ReadonlySet<string> = new Set();
 
 /** Before the first read answers. `loading` is a different claim from an empty list. */
-export const NOTHING_READ_YET: ArtifactPaneReading = {
+export const NOTHING_READ_YET: ArtifactListReading = {
   artifacts: { kind: "loading" },
   readAtMilliseconds: UNREAD_AT_MILLISECONDS,
   payload: undefined,
@@ -66,9 +66,9 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
  * read established.
  */
 export function withReplacedRow(
-  artifacts: ArtifactsPanelState,
+  artifacts: ArtifactsSectionState,
   row: ArtifactManifestRow,
-): ArtifactsPanelState {
+): ArtifactsSectionState {
   if (artifacts.kind !== "listed") {
     return artifacts;
   }
@@ -113,9 +113,9 @@ export function withoutArtifactActInFlight(
  * and a row whose re-read is still on the wire is still holding its control.
  */
 export function settledReadReading(
-  previous: ArtifactPaneReading,
-  artifacts: ArtifactPaneReading["artifacts"],
-): Omit<ArtifactPaneReading, "readAtMilliseconds"> {
+  previous: ArtifactListReading,
+  artifacts: ArtifactListReading["artifacts"],
+): Omit<ArtifactListReading, "readAtMilliseconds"> {
   return {
     artifacts,
     payload: previous.payload,

@@ -1,15 +1,12 @@
 /*
  * The mount half of the repos section: the section, and the mount and workspace cards.
  *
- * Imported from `repos/index.ts` and nowhere else, like every sheet this family ships.
- * No literal values: every length is on the space scale, every size on the type scale,
- * every color a custom property.
+ * Imported by `MountList.tsx`. No literal values: every length is on the space scale,
+ * every size on the type scale, every color a custom property.
  *
- * Its siblings in this directory are `mode-picker.css` and `root-cards.css`, which dress
- * the components that live here, and `mount-acts.css`, the shape the attach, bind and
- * execution-root acts share. The cascade is `repos.css`, this sheet, `mode-picker.css`,
- * `root-cards.css`, `mount-acts.css`, `attach.css`, `roots.css`, `bind.css`, set by the
- * import order in `repos/index.ts` and nowhere else.
+ * Its siblings in this directory are `execution-mode-picker.css` and
+ * `execution-root-cards.css`, which dress the components that live here; the shape the
+ * attach, bind and execution-root acts share is `../mount-controls.css`.
  */
 
 /* --------------------------------------------------------- sidebar section */

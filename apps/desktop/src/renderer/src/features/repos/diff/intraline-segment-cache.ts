@@ -10,7 +10,7 @@
 // (2026-09-02), on the main thread, before anything was drawn.
 //
 // SO IT IS COMPUTED WHEN A ROW IS MATERIALISED, WHICH IS THE ONE MOMENT IT IS NEEDED.
-// `hunk-virtualization.ts` answers which rows exist; the virtualizer asks for the ones
+// `diff-row-index.ts` answers which rows exist; the virtualizer asks for the ones
 // a scroll position needs; the row renderer asks this module for that row's
 // segmentation. A diff nobody scrolls to the bottom of never computes the bottom's
 // highlights, and a diff nobody opens computes none.
@@ -135,7 +135,7 @@ export class IntralineSegmentCache {
    * The segmentation of one line a row addresses.
    *
    * Total: a line at an address this model does not hold reads as the empty line, which
-   * is unreachable while the index and the model agree — `DiffRows.tsx` draws a blank
+   * is unreachable while the index and the model agree — `DiffRowView.tsx` draws a blank
    * row for exactly that disagreement and never reaches this.
    */
   public readingFor(row: DiffLineRow, lineIndex: number): IntralineReading {

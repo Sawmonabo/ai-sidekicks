@@ -12,7 +12,7 @@
 //   • **Revoke is two-step, and only the confirming click mutates.** Cancelling
 //     returns to idle with zero mutations, which is a property of this component
 //     rather than a promise about it: the mutation call sits on one handler. The
-//     palette reaches the same act by ENTERING that confirmation — `revoke-commands.ts`
+//     palette reaches the same act by ENTERING that confirmation — `useRevokeRuleCommands.ts`
 //     contributes a row per revocable rule, arming the control rather than replacing
 //     it, so there is no second path to a mutation this surface made deliberately
 //     hard. Which rules offer it is that module's `offersRevoke`, read here too, so
@@ -43,15 +43,13 @@ import {
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
 } from "@renderer/lib/approval-vocabulary.js";
-import { RevokeControl } from "./RevokeRuleControl.js";
-import {
-  offersRevoke,
-  useRevokeCommands,
-} from "@renderer/console/approvals/pane/grants/revoke-commands.js";
+import { RevokeRuleControl } from "./RevokeRuleControl.js";
+import { offersRevoke } from "../contributions/revoke-rule-commands.js";
+import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
 
 import "./RememberedRules.css";
 
-export interface RememberedGrantsProps {
+export interface RememberedRulesProps {
   readonly rules: readonly RememberedRule[];
   readonly unreadableCount: number;
   readonly revokingRuleIds: ReadonlySet<string>;
@@ -59,13 +57,13 @@ export interface RememberedGrantsProps {
 }
 
 /** The standing permissions this session has granted, each with its revoke control. */
-export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Element {
+export function RememberedRules(props: RememberedRulesProps): React.JSX.Element {
   const [confirmingRuleId, setConfirmingRuleId] = useState<string | undefined>(undefined);
   // Ahead of the two absence arms below, because a hook may not run behind a branch.
   // With no readable rule there is nothing revocable and the contribution is empty,
   // which is the same answer the arms give on screen.
   const rulesInForce = props.rules.filter((rule) => rule.revokedAt === undefined);
-  useRevokeCommands({
+  useRevokeRuleCommands({
     rules: rulesInForce,
     revokingRuleIds: props.revokingRuleIds,
     onAskToRevoke: setConfirmingRuleId,
@@ -130,7 +128,7 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
                 Node <WireFigure value={rule.nodeId} />
               </span>
             </div>
-            <RevokeControl
+            <RevokeRuleControl
               isConfirming={confirmingRuleId === rule.ruleId}
               // The palette's own reading, read from the same function: every drawn
               // rule is live, so "not offered" is exactly "a revocation is already

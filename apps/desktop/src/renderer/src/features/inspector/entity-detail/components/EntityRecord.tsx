@@ -25,6 +25,8 @@
 // kinds of nothing into one is wrong. That the second is a RANK on the record
 // rather than a replacement for it is this console's own rule.
 
+import "./EntityRecord.css";
+
 import {
   Chip,
   DerivedFigure,

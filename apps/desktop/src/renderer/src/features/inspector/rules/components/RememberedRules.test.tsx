@@ -8,7 +8,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { RememberedGrants } from "./RememberedRules.js";
+import { RememberedRules } from "./RememberedRules.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 
 function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
@@ -30,7 +30,7 @@ function renderGrants(
   unreadableCount = 0,
 ): void {
   render(
-    <RememberedGrants
+    <RememberedRules
       rules={rules}
       unreadableCount={unreadableCount}
       revokingRuleIds={new Set()}

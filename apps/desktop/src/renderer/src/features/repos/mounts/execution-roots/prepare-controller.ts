@@ -27,15 +27,12 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "@renderer/lib/clock.js";
-import { ActSurfaceController } from "../../acts/act-controller-base.js";
+import { ActControllerBase } from "../../acts/act-controller-base.js";
 import { type ActReading } from "../../acts/act-reading.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import {
-  reuseVerdictFor,
-  type ReuseVerdict,
-} from "@renderer/console/repos/mounts/roots/root-act-model.js";
+import { reuseVerdictFor, type ReuseVerdict } from "./prepare-form.js";
 
 /** The two calls this controller makes. */
 export type PrepareOperations = Pick<RepoOperations, "checkWorktreeReuse" | "prepareExecutionRoot">;
@@ -68,7 +65,7 @@ export interface PrepareControllerOptions {
 }
 
 /** Checks reuse and sends prepares for one workspace. */
-export class ExecutionRootPrepareController extends ActSurfaceController<
+export class ExecutionRootPrepareController extends ActControllerBase<
   ReuseVerdict,
   PrepareSettlement
 > {

@@ -55,7 +55,8 @@ import {
 } from "@renderer/store/session-events/approval-flow-projection.js";
 import { registerLedger } from "@renderer/features/transcript/contributions/screens.js";
 import { registerConsolePanes } from "./panes/index.js";
-import { registerRepos } from "./repos/index.js";
+import { registerRepos } from "@renderer/features/repos/contributions/inline-cards.js";
+import { registerInspectorInlineCards } from "@renderer/features/inspector/contributions/inline-cards.js";
 import { Workspace } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {
@@ -142,6 +143,7 @@ export function registerConsoleFamilies(
   registerComposerInlineCards(inlineCardSeats); // composer
   registerSessionSurfacesFamily(surfaces); // session surfaces
   registerRepos(inlineCardSeats); // repos
+  registerInspectorInlineCards(inlineCardSeats); // inspector
   registerWorkflowSurfaces(surfaces); // workflows
   // browser-terminal
   // gallery

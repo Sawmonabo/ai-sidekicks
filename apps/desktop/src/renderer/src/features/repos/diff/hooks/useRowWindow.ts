@@ -18,7 +18,7 @@
 // list semantics only by staying one.
 //
 // THE ROW HEIGHT IS THE CALLER'S, because it is a fact about that caller's sheet:
-// each list paints its rows at a height `diff-bounds.ts` names, and the estimate is
+// each list paints its rows at a height `diff-measures.ts` names, and the estimate is
 // that same number, so an unmeasured window is exact rather than approximate.
 
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";

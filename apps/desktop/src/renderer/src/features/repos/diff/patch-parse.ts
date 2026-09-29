@@ -5,7 +5,7 @@
 // (jsdiff, BSD-3-Clause) for parse and intraline compute, against an OWN-BUILT
 // virtualized row renderer for
 // the pane and the inline card. So `parsePatch` and `diffWordsWithSpace` are called
-// here and nowhere else in the console, and `DiffRows` / `hunk-virtualization.ts`
+// here and nowhere else in the console, and `DiffRowView` / `diff-row-index.ts`
 // stay first-party — the row renderer is the half the row says to own, because no
 // candidate was both headless and virtualized.
 //
@@ -15,7 +15,7 @@
 // for five thousand word diffs before the virtualizer placed a row, and one long line
 // paid more than the whole rest of the patch (a single 18,889-character pair inside a
 // 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
-// carries ONE whole-line segment, which is its text; `intraline-segments.ts` derives
+// carries ONE whole-line segment, which is its text; `intraline-segment-cache.ts` derives
 // the split when a row is materialised, memoised and size-bounded. `intralineSegments`
 // below is still this module's, because it is the adopted library's seam and parse
 // and intraline compute sit on one side of it.
@@ -24,7 +24,7 @@
 // obligation this file discharges: the module that turns a unified patch into the
 // model "lands with the first caller that has patch bytes to give it, in the PR that
 // adds that dependency". The dependency is added here. No daemon method returns patch
-// bytes, so the callers are `diff-fixture.test-support.ts`, which builds the surfaces'
+// bytes, so the callers are `tests/helpers/diff-fixture.ts`, which builds the surfaces'
 // and the endurance tier's subjects THROUGH this module rather than beside it, and this
 // module's own tests. That ordering is the point: when a wire lands it calls a parser
 // the tiers have already been exercising, rather than a second one written to match

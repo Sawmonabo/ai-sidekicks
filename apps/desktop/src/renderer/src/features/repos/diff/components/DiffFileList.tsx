@@ -26,7 +26,7 @@ export interface DiffFileListProps {
 
 export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   const filterId = useId();
-  // SCOPED TO THE MODEL, on `diff-view-state.ts`'s rule and for its reason: this is a
+  // SCOPED TO THE MODEL, on `useDiffModelViewState.ts`'s rule and for its reason: this is a
   // predicate over the change set's own file PATHS, so it means nothing about another
   // one. A bare register survived a re-point — the list is not keyed, so it is not
   // remounted — and the new change set opened saying no file matches a filter that was
@@ -110,7 +110,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
       <div className="meridian-diff-files__scroller" ref={scrollerRef}>
         {/* The list holds the whole height so the scrollbar reports every entry, and
             each rendered row is placed at its own offset. The row height has ONE
-            home, `diff-bounds.ts`, and the sheet reads it from here. */}
+            home, `diff-measures.ts`, and the sheet reads it from here. */}
         <ul
           className="meridian-diff-files__list"
           style={

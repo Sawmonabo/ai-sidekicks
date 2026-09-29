@@ -27,7 +27,7 @@
 //
 // The mode switch is next door. Four reads on a scheduler and one mutation with a register
 // of its own are two jobs: `execution-mode-selection.ts` holds the mutation,
-// `repo-mounts-model.ts` the reading both of them publish, and `repo-mounts-binding.ts` the
+// `repo-mounts-model.ts` the reading both of them publish, and `hooks/useRepoMounts.ts` the
 // hook that mounts this class. This class hosts the switch, handing it the three things
 // `ExecutionModeSelectionHost` names: the standing reading, the publish, and the refresh an
 // accepted switch asks for.
@@ -49,9 +49,9 @@ import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
 } from "./execution-mode-selection.js";
-import { NOTHING_READ_YET, type RepoMountsReading } from "./repo-mounts-model.js";
+import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
 /** What one section reader collaborates with. */
 export interface RepoMountsReaderOptions {
@@ -103,7 +103,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
   readonly #selections: ExecutionModeSelections;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
-  #reading: RepoMountsReading = NOTHING_READ_YET;
+  #reading: RepoMountsReading = REPO_MOUNTS_NOT_READ;
   #started = false;
   #disposed = false;
 

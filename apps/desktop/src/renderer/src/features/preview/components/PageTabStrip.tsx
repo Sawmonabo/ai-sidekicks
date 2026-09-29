@@ -13,15 +13,14 @@
 // about what it is looking at rather than a shape it can navigate into and find
 // nothing behind.
 
+import "./PageTabStrip.css";
+
 import { useState } from "react";
 
+import type { PreviewPage } from "@ai-sidekicks/contracts";
+
 import { Glyph } from "@renderer/console/primitives/index.js";
-import {
-  activePageOf,
-  pagesOf,
-  type BrowserPage,
-  type PageListReading,
-} from "../page-list-reading.js";
+import { activePageOf, pagesOf, type PageListReading } from "../page-list-reading.js";
 import {
   isTabDrag,
   pageMoveIndex,
@@ -30,7 +29,7 @@ import {
 } from "../tab-reorder.js";
 
 /** The page reading a strip draws and the acts its controls dispatch. */
-export interface TabStripProps {
+export interface PageTabStripProps {
   readonly reading: PageListReading;
   readonly onSelect: (pageId: string) => void;
   readonly onClose: (pageId: string) => void;
@@ -39,7 +38,7 @@ export interface TabStripProps {
 }
 
 /** One tab per open page, with drag reordering; draws nothing below two pages. */
-export function TabStrip(props: TabStripProps): React.JSX.Element | null {
+export function TabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
   // The slot a drag is currently over, held only while a drag is in the air. It is
   // renderer-local by nature — nothing outside this window knows a pointer is down —
@@ -177,7 +176,7 @@ function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
 }
 
 /** What a tab shows when the agent set no label: the page's own title, then its host. */
-function tabLabel(page: BrowserPage): string {
+function tabLabel(page: PreviewPage): string {
   if (page.label !== null && page.label.length > 0) {
     return page.label;
   }

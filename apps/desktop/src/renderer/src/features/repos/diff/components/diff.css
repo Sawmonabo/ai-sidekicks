@@ -2,16 +2,15 @@
  * The diff surfaces' own sheet — the pane chrome, the changed-file list, the rows,
  * and the inline timeline card.
  *
- * Imported by `repos/diff-pane/index.ts` and by nothing else: a second importer would
- * land these rules twice and their cascade order would depend on which import the
- * bundler reached first.
+ * Imported by the two surfaces that reach these components: `DiffPane.tsx`, the pane's
+ * top view, and `InlineDiffCard.tsx`, which the transcript renders without the pane.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every color is read back out of a custom property.
  *
- * LONG AND DELIBERATELY NOT SPLIT, because there is no seam to split it on: a sheet's
- * concept is the directory it dresses, and `repos/diff-pane/` is one directory. The
- * section banners below let a reader find the changed-file list or the rows by heading.
+ * LONG AND DELIBERATELY NOT SPLIT, because the diff components share it as one surface.
+ * The section banners below let a reader find the changed-file list or the rows by
+ * heading.
  */
 
 /*
@@ -170,7 +169,7 @@
  * semantics an intervening `<div>` would break and a placement does not.
  *
  * The height is fixed rather than intrinsic because the window ESTIMATES with it: one
- * value under one owner (`diff-bounds.ts`) means the offsets and the painted rows
+ * value under one owner (`diff-measures.ts`) means the offsets and the painted rows
  * cannot drift, and nothing has to be measured.
  */
 .meridian-diff-files__row {

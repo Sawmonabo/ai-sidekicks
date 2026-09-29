@@ -12,19 +12,18 @@
 //
 // That is also why the discard rule is not this module's. The same close reaches
 // `onOpenChange`, so a discard keyed on it takes back the `sending` the press had just
-// published; `confirmation/confirmation-lifecycle.ts` holds the two moments a discard
+// published; `hooks/useConfirmationLifecycle.ts` holds the two moments a discard
 // belongs to, and this file wires them.
+
+import "./execution-roots.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import {
-  useRootDisposal,
-  type DisposalOperations,
-  type DisposalReading,
-} from "@renderer/console/repos/mounts/roots/disposal-controller.js";
-import { disposalSubjectFor } from "@renderer/console/repos/mounts/roots/root-act-model.js";
+import { type DisposalOperations, type DisposalReading } from "./disposal-controller.js";
+import { useRootDisposal } from "./hooks/useRootDisposal.js";
+import { disposalSubjectFor } from "./disposal-subject.js";
 
 /** What the control says. The verb is the daemon's, not a softened one. */
 const DISPOSAL_VERB = "Retire this root";

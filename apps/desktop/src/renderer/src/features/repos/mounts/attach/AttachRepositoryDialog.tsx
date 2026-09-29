@@ -15,15 +15,15 @@
 // an execution mode nobody asked for, which is why the settlement below names the mount
 // rather than offering a mode.
 
+import "./attach.css";
+
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import {
-  useAttachController,
-  type AttachActReading,
-} from "@renderer/console/repos/mounts/attach/attach-controller.js";
+import { type AttachRequestReading } from "./attach-controller.js";
+import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
@@ -148,7 +148,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
  * The attached arm names the mount and the root it resolved to, because a person needs to
  * be able to find the mount the section is about to grow.
  */
-function renderSettlement(reading: AttachActReading): React.JSX.Element | null {
+function renderSettlement(reading: AttachRequestReading): React.JSX.Element | null {
   switch (reading.status) {
     case "idle":
       return null;

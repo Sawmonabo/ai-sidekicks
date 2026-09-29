@@ -121,7 +121,7 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisReading>> = {
  * The withheld arm carries its own sentence so no call site invents one, and so the
  * card never disables a control without saying why.
  */
-export type BindControlPosture =
+export type BindControlAvailability =
   | { readonly offered: true }
   | { readonly offered: false; readonly withheldBecause: string };
 
@@ -135,12 +135,12 @@ export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
   return LIFECYCLE_READINGS[state];
 }
 
-const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };
+const BIND_CONTROLS_OFFERED: BindControlAvailability = { offered: true };
 
 /**
  * Whether ONE workspace's binding controls are live, and what is holding them.
  *
- * THE SAME QUESTION AS `bindControlPosture`, ONE LEVEL DOWN, and it exists because two
+ * THE SAME QUESTION AS `readBindControlAvailability`, ONE LEVEL DOWN, and it exists because two
  * controls on a workspace row ask it: the execution-mode picker and the root
  * preparation beneath it. They are two halves of one act — the picker names the mode a
  * run binds in, and the preparation puts that mode's root on disk — so a posture read
@@ -149,21 +149,21 @@ const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };
  * a writable workspace could submit a prepare read off the `executionMode` the switch
  * was in the middle of replacing.
  *
- * TWO THINGS CLOSE THESE CONTROLS AND THE MOUNT'S IS FIRST, on `bindControlPosture`'s
+ * TWO THINGS CLOSE THESE CONTROLS AND THE MOUNT'S IS FIRST, on `readBindControlAvailability`'s
  * own precedence: a mount that will refuse every bind is a fact about the row, and a
  * switch on the wire is a fact about this moment — so a detached row never reads as
  * something to wait out.
  *
- * A fail-closed projection and not eligibility, in every clause `bindControlPosture`
+ * A fail-closed projection and not eligibility, in every clause `readBindControlAvailability`
  * states it in: the daemon decides what it accepts. What is decided here is only whether
  * the console offers a control it has been told cannot succeed, and the held arm carries
  * the sentence so no call site invents one.
  */
-export type WorkspaceControlPosture =
+export type WorkspaceControlAvailability =
   | { readonly live: true }
   | { readonly live: false; readonly heldBecause: string };
 
-export function bindControlPosture(mount: RepoMountReadResponse): BindControlPosture {
+export function readBindControlAvailability(mount: RepoMountReadResponse): BindControlAvailability {
   if (mount.state !== "attached") {
     return {
       offered: false,
@@ -179,12 +179,12 @@ export function bindControlPosture(mount: RepoMountReadResponse): BindControlPos
   return BIND_CONTROLS_OFFERED;
 }
 
-const WORKSPACE_CONTROLS_LIVE: WorkspaceControlPosture = { live: true };
+const WORKSPACE_CONTROLS_LIVE: WorkspaceControlAvailability = { live: true };
 
-export function workspaceControlPosture(
-  bindControls: BindControlPosture,
+export function readWorkspaceControlAvailability(
+  bindControls: BindControlAvailability,
   pendingMode: ExecutionMode | undefined,
-): WorkspaceControlPosture {
+): WorkspaceControlAvailability {
   if (!bindControls.offered) {
     return { live: false, heldBecause: bindControls.withheldBecause };
   }
@@ -200,9 +200,9 @@ export function workspaceControlPosture(
  * while nothing closes them.
  *
  * A FUNCTION AND NOT A LINE AT EACH CONTROL, because the two controls this serves are
- * the pair `workspaceControlPosture` exists to keep in step: the picker names the mode
+ * the pair `readWorkspaceControlAvailability` exists to keep in step: the picker names the mode
  * a run binds in and the preparation puts that mode's root on disk.
  */
-export function controlHoldSentence(posture: WorkspaceControlPosture): string | undefined {
+export function controlHoldSentence(posture: WorkspaceControlAvailability): string | undefined {
   return posture.live ? undefined : posture.heldBecause;
 }

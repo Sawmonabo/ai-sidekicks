@@ -1,7 +1,7 @@
 // Which columns a worktree row has, what each is called, and what a card draws where
 // the wire sent nothing.
 //
-// A MODULE BESIDE THE MODEL, not a second model. `worktree-model.ts` answers what a
+// A MODULE BESIDE THE MODEL, not a second model. `execution-root-model.ts` answers what a
 // root IS — its sub-state on disk — and this answers how a row is TABULATED: the column
 // key sets, the labels, the summary and detail selections, and the sentence that renders
 // in an absent cell.

@@ -7,8 +7,8 @@ import {
   type DisposalOperations,
   type DisposalReading,
   type RootDisposalHost,
-} from "@renderer/console/repos/mounts/roots/disposal-controller.js";
-import { disposalSubjectFor } from "@renderer/console/repos/mounts/roots/root-act-model.js";
+} from "./disposal-controller.js";
+import { disposalSubjectFor } from "./disposal-subject.js";
 
 /** The roots the scripted daemon answers for. */
 const WORKTREE_ID = "worktree-reviewer";

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ARTIFACT_PANE_REFUSAL_CODES,
+  ARTIFACT_LIST_REFUSAL_CODES,
   manifestReadInFlightRefusal,
   payloadFetchInFlightRefusal,
   readFailureRefusal,
@@ -77,14 +77,14 @@ describe("artifact pane refusals — the closed vocabulary", () => {
       manifestReadInFlightRefusal("artifact-1").code,
     ];
 
-    expect([...ARTIFACT_PANE_REFUSAL_CODES].toSorted()).toStrictEqual(minted.toSorted());
-    expect(new Set(ARTIFACT_PANE_REFUSAL_CODES).size).toBe(ARTIFACT_PANE_REFUSAL_CODES.length);
+    expect([...ARTIFACT_LIST_REFUSAL_CODES].toSorted()).toStrictEqual(minted.toSorted());
+    expect(new Set(ARTIFACT_LIST_REFUSAL_CODES).size).toBe(ARTIFACT_LIST_REFUSAL_CODES.length);
   });
 
   it("negative control: a code another author owns is not a member of this pane's set", () => {
     // The daemon's own vocabulary reaches this pane on every refused read and is
     // rendered unchanged. A set that admitted one of its codes would be claiming
     // authorship of a refusal this module never mints.
-    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("artifact.not_found");
+    expect([...ARTIFACT_LIST_REFUSAL_CODES]).not.toContain("artifact.not_found");
   });
 });

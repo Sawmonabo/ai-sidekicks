@@ -39,7 +39,7 @@ import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { BrowserPaneRefusalCode } from "../pane-refusals.js";
+import type { PreviewPaneRefusalCode } from "../pane-refusals.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
@@ -97,7 +97,7 @@ const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> =
 };
 
 /** The pane's acts, and the one refusal they report between them. */
-export interface BrowserPaneActs {
+export interface PreviewPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
   readonly refusal: ConsoleRefusal | undefined;
   /**
@@ -113,7 +113,7 @@ export interface BrowserPaneActs {
    * free string: every code that reaches here was decided by this renderer, so a
    * caller inventing one more is a decision and reads as one.
    */
-  refuseLocally(code: BrowserPaneRefusalCode, detail: string): void;
+  refuseLocally(code: PreviewPaneRefusalCode, detail: string): void;
   /** Clear what is on screen. Starts nothing, and supersedes nothing. */
   dismiss(): void;
 }
@@ -130,7 +130,7 @@ export interface BrowserPaneActs {
  * writing a refusal the holder then has to hide; the same disposal covers unmount,
  * where there is no later render to compare.
  */
-export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): BrowserPaneActs {
+export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): PreviewPaneActs {
   // The subject is changing, or the pane is going: whatever is in flight was
   // dispatched for a pane this hook no longer serves, so the disposal supersedes it.
   const { value: sequence } = useSubjectScopedResource(
@@ -165,7 +165,7 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
   );
 
   const refuseLocally = useCallback(
-    (code: BrowserPaneRefusalCode, detail: string): void => {
+    (code: PreviewPaneRefusalCode, detail: string): void => {
       sequence.begin();
       publish(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
     },

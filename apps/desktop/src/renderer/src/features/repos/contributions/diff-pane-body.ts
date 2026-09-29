@@ -6,15 +6,13 @@
 // changed file — which is exactly the condition `apps/desktop/AGENTS.md` states the rule
 // on: a pane body not on the flagship first paint registers through a loader.
 //
-// IT SITS BESIDE THE COMPONENT AND NOT IN `family-bodies.ts`. That module is the
-// family's composition — it reads the doors and registers the
-// inline cards — and a body composed there would be reached by a static import from the
-// family door, which is the edge this whole change exists to remove. Here, the only
-// thing that names this module is the `import()` in `repos/index.ts`.
+// ONLY THE `import()` IN `panes.ts` NAMES THIS MODULE. A static import from any of the
+// feature's contributions would put the viewer back on the entry graph, which is the
+// edge the loader exists to remove.
 //
 // THE INLINE DIFF CARD IS DELIBERATELY NOT BEHIND THIS BOUNDARY. It is a ledger row's
 // card rather than a pane, it renders inside the timeline a session opens on, and it
-// keeps its static registration in `family-bodies.ts` — the two share the family's
+// keeps its static registration in `inline-cards.ts` — the two share the feature's
 // vocabulary and not their loading terms.
 
 import { createElement } from "react";
@@ -26,10 +24,10 @@ import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seat
  * The diff pane, at an address the deck resolved to this kind.
  *
  * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
- * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s, for
- * the reason `family-bodies.ts` states about them: six families writing that comparison
- * themselves is six answers to one question, and a mismatch is a rendered refusal rather
- * than a throw because one bad layout row must lose that row and not the deck.
+ * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s:
+ * every pane body writing that comparison itself would be one answer per pane to one
+ * question, and a mismatch is a rendered refusal rather than a throw because one bad
+ * layout row must lose that row and not the deck.
  */
 export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
   "diff",

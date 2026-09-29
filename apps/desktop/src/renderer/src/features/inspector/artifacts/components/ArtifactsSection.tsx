@@ -3,13 +3,15 @@
 //
 // It renders and does not read: the state arrives as a prop. It never renders a payload;
 // its one act is a manifest re-read, named for what comes back ("Read manifest"). The
-// payload has one home in this family, `repos/artifact-pane/`.
+// payload is drawn by the repos feature's `ArtifactPayloadSection`.
 //
 // A count is a reading, so only a read may put one on screen. The head figure and the
 // filter counts are derived from the rows a list answered with and render on the `listed`
 // arm alone; while a read is in flight the head is the heading with no figure beside it,
 // and the body's absence card is the whole reading. This module is the session-scoped
 // surface; one manifest's face, act and disclosure are `ArtifactRow.tsx`.
+
+import "./artifacts.css";
 
 import { useMemo, useState } from "react";
 
@@ -30,11 +32,11 @@ import {
   type ArtifactManifestRow,
   type ArtifactType,
   type ArtifactTypeFilter,
-  type ArtifactsPanelState,
+  type ArtifactsSectionState,
 } from "../artifact-model.js";
 
-export interface ArtifactsPanelProps {
-  readonly state: ArtifactsPanelState;
+export interface ArtifactsSectionProps {
+  readonly state: ArtifactsSectionState;
   /** The instant the surface read at. Ages move when it re-reads and never on a timer. */
   readonly nowMilliseconds: number;
   /**
@@ -58,7 +60,7 @@ export interface ArtifactsPanelProps {
 const NO_ROWS: readonly ArtifactManifestRow[] = [];
 
 /** The session's artifacts: a head count, a type filter, and one row per manifest. */
-export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
+export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState<ArtifactTypeFilter>(ARTIFACT_TYPE_FILTER_ALL);
 
   // Absent on every arm but `listed`, and that is what the head and the filter group are
@@ -119,7 +121,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
  * the type it is set to and the count it is hiding.
  */
 function renderPanelBody(
-  props: ArtifactsPanelProps,
+  props: ArtifactsSectionProps,
   visibleRows: readonly ArtifactManifestRow[],
   typeFilter: ArtifactTypeFilter,
 ): React.JSX.Element {

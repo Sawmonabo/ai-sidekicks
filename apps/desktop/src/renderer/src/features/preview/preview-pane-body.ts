@@ -1,7 +1,7 @@
-// The browser pane's body, as the deck's registry loads it.
+// The preview pane's body, as the deck's registry loads it.
 //
 // A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
-// family door registers it as `body: () => import("./browser-pane-body.js")`, and
+// contribution registers it as `body: () => import("../preview-pane-body.js")`, and
 // the bundler splits everything this module reaches, the pane and its geometry, into a
 // chunk fetched when the pane is about to open or on the idle warm after the first
 // frame, whichever comes first. The rule is
@@ -12,27 +12,17 @@
 // and change at different times: the component is what renders, this module is the
 // registry's entry point into it. Splitting them is what lets the registration terms
 // below be asserted without rendering anything.
-//
-// A MODULE AND NOT A SUB-MODULE DOOR. It was a pane-directory barrel until the
-// pane body came home to the family that owns it, and an `index.ts` here would be a
-// second door inside one family: `console/browser/index.ts` would then reach a name
-// it never declared through a barrel, which `console-no-barrel-chain` forbids and the
-// package's module-shape rule rules out for a directory reached from outside itself.
-// The family door imports this module by name instead.
 
-// THE PANE'S SHEETS ENTER HERE, at the place the pane enters the graph at all: the door
-// registers one kind as a loader, so nothing on the initial graph renders the pane and
-// the rules that dress it travel with it. `settings/settings.css` dresses the settings
-// page alone, so it enters at that page's chunk root.
-import "./components/PreviewPaneContent.css";
-import "./components/PageTabStrip.css";
+// The address-line button's sheet enters here, at the place the pane enters the graph:
+// the sheet sits at the feature root, beside this chunk root, and the pane's own
+// components import theirs.
 import "./controls.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
-import { BrowserPane } from "./PreviewPane.js";
+import { PreviewPane } from "./PreviewPane.js";
 
 /**
- * The browser pane, as the deck holds it.
+ * The preview pane, as the deck holds it.
  *
  * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
  * module publishes: the registry composes one specifier shape, and a body module is
@@ -63,5 +53,5 @@ import { BrowserPane } from "./PreviewPane.js";
  */
 export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
   "browser",
-  BrowserPane,
+  PreviewPane,
 );

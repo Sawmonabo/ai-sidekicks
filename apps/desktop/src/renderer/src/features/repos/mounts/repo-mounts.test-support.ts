@@ -2,7 +2,7 @@
 // opens, the disposal that must leave none of them running, the clock-driven wait they
 // settle through, and the wire records the cards are drawn from.
 //
-// Letting queued continuations run is `core/macrotask-boundary.test-support.ts`'s role, and
+// Letting queued continuations run is `tests/helpers/macrotask-boundary.ts`'s role, and
 // the cases take it by that name.
 //
 // The registry is a function pair rather than a hook. Registering `afterEach` here would
@@ -103,7 +103,9 @@ export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 
 /** One mount as the wire reads it, healthy and attached unless a case says otherwise. */
-export function mount(overrides: WireOverrides<RepoMountReadResponse> = {}): RepoMountReadResponse {
+export function buildMount(
+  overrides: WireOverrides<RepoMountReadResponse> = {},
+): RepoMountReadResponse {
   return {
     id: "mount-sidekicks",
     nodeId: "node-workstation",
@@ -166,14 +168,14 @@ export const HEALTHY_WORKSPACE_ID = "workspace-sidekicks";
 
 /** The three mounts a session holds: healthy, unreachable, and no longer the repository. */
 export const MOUNTS: readonly RepoMountReadResponse[] = [
-  mount({ id: HEALTHY_MOUNT_ID }),
-  mount({
+  buildMount({ id: HEALTHY_MOUNT_ID }),
+  buildMount({
     id: UNREACHABLE_MOUNT_ID,
     canonicalRoot: "/Users/dev/code/notes",
     localPath: "/Users/dev/code/notes",
     health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
   }),
-  mount({
+  buildMount({
     id: DRIFTED_MOUNT_ID,
     canonicalRoot: "/Users/dev/code/moved",
     localPath: "/Users/dev/code/moved",

@@ -8,7 +8,7 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "./repo-lifecycle-events.js";
 
 describe("repo lifecycle events — the frames this family watches", () => {
   it("watches every registered workspace and worktree lifecycle kind", () => {

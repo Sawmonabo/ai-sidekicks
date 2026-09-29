@@ -46,14 +46,14 @@ export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
  * reason: without the check the closed vocabulary binds nothing, and dropping a member
  * from it would break no code at all.
  */
-export const ARTIFACT_PANE_REFUSAL_CODES = [
+export const ARTIFACT_LIST_REFUSAL_CODES = [
   "read-threw",
   "payload-fetch-in-flight",
   "manifest-read-in-flight",
 ] as const;
 
 /** One code this pane mints. Derived, so the vocabulary is declared exactly once. */
-export type ArtifactPaneRefusalCode = (typeof ARTIFACT_PANE_REFUSAL_CODES)[number];
+export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[number];
 
 /**
  * The refusal a read that threw becomes.
@@ -85,7 +85,7 @@ export type ArtifactPaneRefusalCode = (typeof ARTIFACT_PANE_REFUSAL_CODES)[numbe
  */
 export function readFailureRefusal(error: unknown): WireRefusal {
   return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
-    code: "read-threw" satisfies ArtifactPaneRefusalCode,
+    code: "read-threw" satisfies ArtifactListRefusalCode,
     detail: "The artifact read failed before it could answer.",
   });
 }
@@ -102,7 +102,7 @@ export function readFailureRefusal(error: unknown): WireRefusal {
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
-    "payload-fetch-in-flight" satisfies ArtifactPaneRefusalCode,
+    "payload-fetch-in-flight" satisfies ArtifactListRefusalCode,
     `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
   );
 }
@@ -120,7 +120,7 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleR
 export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal {
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
-    "manifest-read-in-flight" satisfies ArtifactPaneRefusalCode,
+    "manifest-read-in-flight" satisfies ArtifactListRefusalCode,
     `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
   );
 }

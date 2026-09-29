@@ -82,7 +82,7 @@ export type ArtifactTypeFilter = typeof ARTIFACT_TYPE_FILTER_ALL | ArtifactType;
  * read has not answered and the other says it found none, and the operator's next move
  * differs.
  */
-export type ArtifactsPanelState =
+export type ArtifactsSectionState =
   | { readonly kind: "loading" }
   | { readonly kind: "listed"; readonly rows: readonly ArtifactManifestRow[] };
 

@@ -14,7 +14,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { useBrowserPaneActs, type BrowserPaneActs } from "./usePreviewPaneActs.js";
+import { usePreviewPaneActs, type PreviewPaneActs } from "./usePreviewPaneActs.js";
 
 /** The fallback a rejection with no code of its own is rendered as. */
 const FALLBACK = {
@@ -75,11 +75,11 @@ function subject(paneId: string, bridge?: ConsoleBridge): ActSubject {
  * hook would never reach the interval this module's stamp exists for.
  */
 function renderActs(initial: ActSubject): {
-  readonly acts: () => BrowserPaneActs;
+  readonly acts: () => PreviewPaneActs;
   readonly rebindTo: (next: ActSubject) => void;
 } {
   const { result, rerender } = renderHook(
-    (props: ActSubject) => useBrowserPaneActs(props.bridge, props.paneId),
+    (props: ActSubject) => usePreviewPaneActs(props.bridge, props.paneId),
     { initialProps: initial },
   );
   return {
@@ -100,7 +100,7 @@ describe("the browser pane's act sequence", () => {
     const reload = deferredAct();
     const stop = deferredAct();
     const { result } = renderHook(() =>
-      useBrowserPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
     );
 
     act(() => {
@@ -121,7 +121,7 @@ describe("the browser pane's act sequence", () => {
     const first = deferredAct();
     const second = deferredAct();
     const { result } = renderHook(() =>
-      useBrowserPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
     );
 
     act(() => {
@@ -141,19 +141,19 @@ describe("the browser pane's act sequence", () => {
     // boundary, and they are the newest thing the person did when they settle.
     const pending = deferredAct();
     const { result } = renderHook(() =>
-      useBrowserPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
     );
 
     act(() => {
       result.current.run(pending.run, FALLBACK);
     });
     act(() => {
-      result.current.refuseLocally("filesystem-destination", "Web destinations only.");
+      result.current.refuseLocally("file-address", "Web destinations only.");
     });
     pending.serve();
     await settleReactWork();
 
-    expect(result.current.refusal?.code).toBe("filesystem-destination");
+    expect(result.current.refusal?.code).toBe("file-address");
   });
 
   it("keeps reporting the act that was already in flight when a banner was dismissed", async () => {
@@ -161,7 +161,7 @@ describe("the browser pane's act sequence", () => {
     // act still running is the newest thing the pane is doing and its failure is news.
     const pending = deferredAct();
     const { result } = renderHook(() =>
-      useBrowserPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
     );
 
     act(() => {
@@ -181,7 +181,7 @@ describe("the browser pane's act sequence", () => {
     // dropping cases above and would leave every failed act silent.
     const only = deferredAct();
     const { result } = renderHook(() =>
-      useBrowserPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
     );
 
     act(() => {
@@ -234,9 +234,9 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
 
     act(() => {
-      acts().refuseLocally("filesystem-destination", "Web destinations only.");
+      acts().refuseLocally("file-address", "Web destinations only.");
     });
-    expect(acts().refusal?.code).toBe("filesystem-destination");
+    expect(acts().refusal?.code).toBe("file-address");
 
     rebindTo(SECOND_SUBJECT);
 
@@ -264,7 +264,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     // refusal a person is reading would vanish while they read it.
     //
     // The refusal driven here is the close-tab chord's, which is the arm that reaches
-    // this hook without crossing the boundary: `BrowserPane` refuses `no-selected-page`
+    // this hook without crossing the boundary: `PreviewPane` refuses `no-selected-page`
     // when the chord arrives with nothing to close. The code comes from
     // `pane-refusals.ts`, the set's one home, so a case cannot outlive a member.
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);

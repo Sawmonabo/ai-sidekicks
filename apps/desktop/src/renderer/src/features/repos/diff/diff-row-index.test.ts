@@ -5,7 +5,7 @@
 // the rendering — which is the property that lets the endurance tier measure a
 // five-thousand-line change set at all. The WINDOW is no longer this module's:
 // `@tanstack/react-virtual` computes it, and the claims about it are asserted
-// against the DOM in `DiffRenderer.test.tsx`, where a measured row can exist.
+// against the DOM in `DiffRenderer.test.ts`, where a measured row can exist.
 
 import { describe, expect, it } from "vitest";
 

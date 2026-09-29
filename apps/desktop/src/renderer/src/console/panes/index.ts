@@ -89,7 +89,7 @@ import { registerAgentConsolePane } from "../agents/index.js";
 import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
 import { registerInspectorPane } from "@renderer/features/inspector/contributions/panes.js";
 import { registerLedgerPanes } from "@renderer/features/transcript/contributions/panes.js";
-import { registerReposPanes } from "../repos/index.js";
+import { registerReposPanes } from "@renderer/features/repos/contributions/panes.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "../terminal/index.js";
 import { registerWorkflowPanes } from "../workflows/index.js";

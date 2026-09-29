@@ -1,4 +1,4 @@
-// The browser family's registration terms: the deck holds the pane on the terms the
+// The preview pane's registration terms: the deck holds the pane on the terms the
 // descriptor states.
 
 import { describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
 import { registerBrowserPanes } from "./panes.js";
 
-describe("browser family — claiming the deck's browser pane", () => {
+describe("preview — claiming the deck's browser pane", () => {
   it("claims the browser kind on terms the deck can hold it by", () => {
     const registry = new ConsolePaneRegistry();
     registerBrowserPanes(registry);

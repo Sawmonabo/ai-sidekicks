@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach } from "vitest";
 
-import { paneContext } from "@renderer/console/repos/pane-contexts.test-support.js";
+import { paneContext } from "../../pane-context.test-support.js";
 import type { DiffPaneProps } from "./DiffPane.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,

@@ -34,7 +34,7 @@
 // `@tanstack/react-virtual` is adopted with constraints, and `row-window.ts` is the one
 // place it is configured — this family windows two
 // lists, the rows and the changed-file list beside them, and the bounds they share
-// are stated there once. `hunk-virtualization.ts` still answers
+// are stated there once. `diff-row-index.ts` still answers
 // WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract
 // starts from anything but a flat count — and the virtualizer answers which of
 // them a scroll position needs. A window written here with a fixed row height baked in
@@ -114,12 +114,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   if (index.rowCount === 0) {
     return (
       <div className="meridian-diff meridian-diff--empty">
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="These states are identical."
-          detail="The daemon compared the two named states and found no changed lines between them."
-        />
+        <Nothing kind="empty" placement="surface" title="nothing to review" />
       </div>
     );
   }
@@ -158,7 +153,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       role="table"
       aria-label={props.label}
       aria-rowcount={index.rowCount}
-      // The row height has ONE home, `diff-bounds.ts`, and the sheet reads it from
+      // The row height has ONE home, `diff-measures.ts`, and the sheet reads it from
       // here. A `20px` written in CSS beside a `20` written in TypeScript is the
       // same value under two owners, and the day one moves the window arithmetic
       // and the painted rows disagree with nothing to catch it.

@@ -9,12 +9,12 @@ import { describe, expect, it } from "vitest";
 import {
   MOUNT_REFUSAL_CODES,
   modeRestrictionReason,
-  mountRefusalRecovery,
+  mountRefusalRemedy,
 } from "./mount-refusal-copy.js";
 
-describe("mountRefusalRecovery — every registered code has a move", () => {
+describe("mountRefusalRemedy — every registered code has a move", () => {
   it.each(MOUNT_REFUSAL_CODES)("answers %s with a non-empty next move", (code) => {
-    const recovery = mountRefusalRecovery(code);
+    const recovery = mountRefusalRemedy(code);
     expect(recovery).toBeDefined();
     expect(recovery?.nextMove.trim().length).toBeGreaterThan(0);
   });
@@ -22,20 +22,20 @@ describe("mountRefusalRecovery — every registered code has a move", () => {
   it("negative control: a code this family does not own gets nothing invented for it", () => {
     // The console must not answer a refusal it has no copy for with a generic
     // sentence: the daemon's own detail is then the only true thing on screen.
-    expect(mountRefusalRecovery("session.not_found")).toBeUndefined();
+    expect(mountRefusalRemedy("session.not_found")).toBeUndefined();
   });
 
   it("negative control: an inherited property name is not a registered code", () => {
     // Read through `Object.hasOwn` rather than a bare index, so `toString` and
     // `constructor` are misses rather than functions rendered as recovery copy.
-    expect(mountRefusalRecovery("toString")).toBeUndefined();
-    expect(mountRefusalRecovery("constructor")).toBeUndefined();
+    expect(mountRefusalRemedy("toString")).toBeUndefined();
+    expect(mountRefusalRemedy("constructor")).toBeUndefined();
   });
 });
 
-describe("mountRefusalRecovery — already attached routes to the mount that exists", () => {
+describe("mountRefusalRemedy — already attached routes to the mount that exists", () => {
   it("says the repository is already on the session and where to find it", () => {
-    const recovery = mountRefusalRecovery("repo.already_attached");
+    const recovery = mountRefusalRemedy("repo.already_attached");
     expect(recovery?.nextMove).toContain("already attached");
     // NOT a link and NOT a mount id: the refusal carries neither, and comparing paths
     // in the renderer is exactly what the trust envelope reserves to the daemon. The
@@ -45,9 +45,9 @@ describe("mountRefusalRecovery — already attached routes to the mount that exi
   });
 });
 
-describe("mountRefusalRecovery — the reuse conflict's three-way distinction", () => {
+describe("mountRefusalRemedy — the reuse conflict's three-way distinction", () => {
   it("separates the three states a candidate can be in", () => {
-    const recovery = mountRefusalRecovery("worktree.reuse_conflict");
+    const recovery = mountRefusalRemedy("worktree.reuse_conflict");
     expect(recovery?.distinctions).toHaveLength(3);
     expect(recovery?.distinctions.every((line) => line.trim().length > 0)).toBe(true);
   });
@@ -55,36 +55,36 @@ describe("mountRefusalRecovery — the reuse conflict's three-way distinction", 
   it("negative control: an ordinary code carries no distinctions at all", () => {
     // The list is rendered as a list, so a code that filled it with one restatement of
     // its own move would put a bullet under every refusal in the family.
-    expect(mountRefusalRecovery("worktree.not_found")?.distinctions).toHaveLength(0);
+    expect(mountRefusalRemedy("worktree.not_found")?.distinctions).toHaveLength(0);
   });
 });
 
-describe("mountRefusalRecovery — a folder with no repository in it", () => {
+describe("mountRefusalRemedy — a folder with no repository in it", () => {
   it("says the attach failed because the folder is not a git repository", () => {
-    const recovery = mountRefusalRecovery("repo.root_resolution_failed", {
+    const recovery = mountRefusalRemedy("repo.root_resolution_failed", {
       resolutionReason: "not_a_git_repository",
     });
     expect(recovery?.nextMove).toBe("Could not attach: not a git repository");
   });
 
   it("negative control: another resolution reason takes the table's arm", () => {
-    const recovery = mountRefusalRecovery("repo.root_resolution_failed", {
+    const recovery = mountRefusalRemedy("repo.root_resolution_failed", {
       resolutionReason: "path_not_found",
     });
     expect(recovery?.nextMove).toContain("Nothing was attached");
   });
 });
 
-describe("mountRefusalRecovery — the unsupported mode answers from the mount", () => {
+describe("mountRefusalRemedy — the unsupported mode answers from the mount", () => {
   it("quotes the mount's own restriction reason when the caller has one", () => {
-    const recovery = mountRefusalRecovery("workspace.mode_unsupported", {
+    const recovery = mountRefusalRemedy("workspace.mode_unsupported", {
       restrictionReason: "no git repository at the mount root",
     });
     expect(recovery?.nextMove).toBe("no git repository at the mount root");
   });
 
   it("falls back to the table when the capabilities read named no reason", () => {
-    const recovery = mountRefusalRecovery("workspace.mode_unsupported");
+    const recovery = mountRefusalRemedy("workspace.mode_unsupported");
     expect(recovery?.nextMove).not.toBe("no git repository at the mount root");
     expect(recovery?.nextMove.trim().length).toBeGreaterThan(0);
   });

@@ -14,7 +14,7 @@ import {
   addressField,
   DEFAULT_TEST_PANE_ID,
   fixtureBrowserBridge,
-  mountBrowserPaneForSubject,
+  mountPreviewPaneForSubject,
   recordingActs,
 } from "../PreviewPane.test-support.js";
 
@@ -27,7 +27,7 @@ async function mountRecording(): Promise<{
   readonly dispatched: readonly string[];
 }> {
   const dispatched: string[] = [];
-  const { rebindTo } = await mountBrowserPaneForSubject(
+  const { rebindTo } = await mountPreviewPaneForSubject(
     fixtureBrowserBridge(),
     DEFAULT_TEST_PANE_ID,
     undefined,

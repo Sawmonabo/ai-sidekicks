@@ -2,19 +2,13 @@
  * One execution-root card: a worktree row.
  *
  * It is a SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership
- * follows the components: these rules dress `mounts/WorktreeCard.tsx`, which lives in this
- * directory. `roots/` holds the two ACT surfaces — preparing a root, and retiring one —
- * and `roots/roots.css` says exactly that; a card is what an act produced, not the act.
+ * follows the components: these rules dress `WorktreeCard.tsx`, which lives in this
+ * directory, and `WorktreeCard.tsx` imports it. `execution-roots/` holds the two ACT
+ * surfaces — preparing a root, and retiring one; a card is what an act produced, not the
+ * act.
  *
- * THE SHAPES THESE CARDS SHARE WITH THE ARTIFACT ROWS STAY IN `repos/repos.css`, which
- * is imported ahead of this sheet: `__pair`, `__detail-summary`, and the focus ring are
- * declared there against both block names at once, because a shape two families wear
- * belongs to the family sheet. What is here is what only a root card wears.
- *
- * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
- * `mount-acts.css`. No selector here appears in any other sheet in this directory, so the
- * only sheet whose position relative to this one matters is `repos.css`, which loads
- * before it.
+ * No selector here appears in any other sheet, so the order this sheet loads in beside
+ * the others decides nothing.
  */
 
 /*
@@ -66,7 +60,7 @@
 
 /*
  * The sub-state line reads louder than the state's own sentence, because it is the
- * one that answers "is this disk free" — the question `worktree-model.ts` says the
+ * one that answers "is this disk free" — the question `execution-root-model.ts` says the
  * surface exists to answer and the one a plain `retired` chip gets wrong.
  */
 .meridian-root-card__disposition {
@@ -98,4 +92,28 @@
 .meridian-root-card :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/* The pair is a grid subgrid row: label in the first column, value in the second. */
+.meridian-root-card__pair {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  min-inline-size: 0;
+}
+
+.meridian-root-card__pair dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-root-card__pair dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-root-card__detail-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
 }

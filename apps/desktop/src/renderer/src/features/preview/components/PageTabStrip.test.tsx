@@ -10,8 +10,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import type { PageListReading } from "../page-list-reading.js";
-import { browserPage as page, threeBrowserPages } from "../page-list-reading.test-support.js";
-import { TabStrip, type TabStripProps } from "./PageTabStrip.js";
+import { previewPage as page, threeBrowserPages } from "../page-list-reading.test-support.js";
+import { TabStrip, type PageTabStripProps } from "./PageTabStrip.js";
 import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "../tab-reorder.js";
 
 const THREE_PAGES: PageListReading = threeBrowserPages();
@@ -19,22 +19,22 @@ const THREE_PAGES: PageListReading = threeBrowserPages();
 /**
  * The three handlers, typed by the props they satisfy.
  *
- * `TabStripProps` supplies each signature, so a mock declared against it is checked
+ * `PageTabStripProps` supplies each signature, so a mock declared against it is checked
  * against the real contract — an untyped `vi.fn()` would satisfy nothing and a handler
  * renamed on the props would leave every assertion here passing against a component
  * that no longer takes it.
  */
 interface StripHandlers {
-  readonly onSelect: Mock<TabStripProps["onSelect"]>;
-  readonly onClose: Mock<TabStripProps["onClose"]>;
-  readonly onReorder: Mock<TabStripProps["onReorder"]>;
+  readonly onSelect: Mock<PageTabStripProps["onSelect"]>;
+  readonly onClose: Mock<PageTabStripProps["onClose"]>;
+  readonly onReorder: Mock<PageTabStripProps["onReorder"]>;
 }
 
 function renderStrip(reading: PageListReading): StripHandlers {
   const handlers: StripHandlers = {
-    onSelect: vi.fn<TabStripProps["onSelect"]>(),
-    onClose: vi.fn<TabStripProps["onClose"]>(),
-    onReorder: vi.fn<TabStripProps["onReorder"]>(),
+    onSelect: vi.fn<PageTabStripProps["onSelect"]>(),
+    onClose: vi.fn<PageTabStripProps["onClose"]>(),
+    onReorder: vi.fn<PageTabStripProps["onReorder"]>(),
   };
   render(<TabStrip reading={reading} {...handlers} />);
   return handlers;

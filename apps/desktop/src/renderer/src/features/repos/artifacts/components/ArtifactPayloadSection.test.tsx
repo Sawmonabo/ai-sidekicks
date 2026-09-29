@@ -28,7 +28,7 @@ import {
   hostSubject,
   hostTree,
   renderHost,
-} from "./artifact-payload-section.test-support.js";
+} from "@test/helpers/render-artifact-payload-section.js";
 
 // "diff --git a/one b/one" in RFC 4648 base64.
 const DIFF_PAYLOAD_BASE64 = "ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==";

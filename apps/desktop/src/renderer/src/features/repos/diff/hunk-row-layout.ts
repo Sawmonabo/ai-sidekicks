@@ -1,6 +1,6 @@
 // How one hunk's body flattens into rows, as a value computed once and read many times.
 //
-// Split out of `hunk-virtualization.ts` because it is a different job: that module
+// Split out of `diff-row-index.ts` because it is a different job: that module
 // owns WHICH row an absolute index addresses across a whole change set, and this one
 // owns what a single hunk's body looks like under a view mode. The split is what
 // makes the layout cacheable at all — the index builds one of these per hunk while it

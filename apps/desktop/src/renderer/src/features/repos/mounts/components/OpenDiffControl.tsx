@@ -5,8 +5,8 @@
 // two different sub-directories, and the label, the glyph, and the accessible name are
 // the same claim in both places.
 //
-// IT IMPORTS NOTHING FROM `diff-pane/`, AND THAT IS THE POINT. The diff pane's body
-// arrives as its own chunk — `repos/index.ts` registers it through a loader so the
+// IT IMPORTS NOTHING FROM `diff/`, AND THAT IS THE POINT. The diff pane's body
+// arrives as its own chunk — `contributions/panes.ts` registers it through a loader so the
 // patch parser and the row renderer stay off the initial import graph — and a control
 // on the sidebar's own cards is squarely ON that graph. Reaching for a subject type or
 // a request builder from over there would pull the whole pane back onto first paint to

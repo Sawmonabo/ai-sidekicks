@@ -1,9 +1,9 @@
 // The artifact pane's manifest re-read: what a press on one row sends, and what the answer
 // leaves standing on the reading.
 //
-// `artifact-reader.ts` owns the scheduled reads. This class owns the re-read, whose
+// `artifact-list-reader.ts` owns the scheduled reads. This class owns the re-read, whose
 // concurrency rule is not the scheduler's, and delegates the payload fetch to
-// `artifact-payload-fetch.ts`. Both meet the reader at `ArtifactActionHost`.
+// `artifact-payload-fetch.ts`. Both meet the reader at `ArtifactRowActionHost`.
 //
 // A re-read is single-flight per row and superseded by a refresh: the refresh is already
 // re-reading the same row from the list, so the fresher answer lands either way. The
@@ -12,7 +12,7 @@
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
-import type { ArtifactActionHost } from "./artifact-row-action-host.js";
+import type { ArtifactRowActionHost } from "./artifact-row-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import {
   withArtifactActInFlight,
@@ -23,15 +23,15 @@ import {
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
 
-export interface ArtifactPaneActionsOptions {
+export interface ArtifactRowActionsOptions {
   readonly readArtifact: ReadArtifact;
-  readonly host: ArtifactActionHost;
+  readonly host: ArtifactRowActionHost;
 }
 
 /** The two acts a row offers, and what each answer writes onto the reading. */
-export class ArtifactPaneActions {
+export class ArtifactRowActions {
   readonly #readArtifact: ReadArtifact;
-  readonly #host: ArtifactActionHost;
+  readonly #host: ArtifactRowActionHost;
   readonly #payloadFetches: ArtifactPayloadFetches;
   /**
    * The manifest re-read awaiting its answer on each row.
@@ -41,7 +41,7 @@ export class ArtifactPaneActions {
    */
   readonly #manifestReads = new GenerationLatch();
 
-  public constructor(options: ArtifactPaneActionsOptions) {
+  public constructor(options: ArtifactRowActionsOptions) {
     this.#readArtifact = options.readArtifact;
     this.#host = options.host;
     this.#payloadFetches = new ArtifactPayloadFetches(options);

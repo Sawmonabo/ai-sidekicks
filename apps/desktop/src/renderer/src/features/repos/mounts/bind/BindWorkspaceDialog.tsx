@@ -12,6 +12,8 @@
 // mount renders the withheld sentence rather than this trigger. The daemon would refuse
 // such a bind anyway; the point is that the reason is already on screen.
 
+import "./bind.css";
+
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -22,10 +24,8 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
-import {
-  useBindController,
-  type BindReading,
-} from "@renderer/console/repos/mounts/bind/bind-controller.js";
+import { type BindReading } from "./bind-controller.js";
+import { useBindController } from "./hooks/useBindController.js";
 import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-form.js";
 
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */

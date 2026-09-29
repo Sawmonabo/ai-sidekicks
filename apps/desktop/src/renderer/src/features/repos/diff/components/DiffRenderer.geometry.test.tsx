@@ -1,6 +1,6 @@
 // A diff row under a window: where it wraps, what expands, and what a header carries.
 //
-// WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.tsx` — the row
+// WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.ts` — the row
 // kinds, the two-hue rule, and the view controls the renderer is handed. Every case
 // here is about a row's GEOMETRY or its provenance: the offsets under a wrapped line,
 // an expansion that mounts rows a window had elided, the extended headers a file header
@@ -134,7 +134,7 @@ describe("diff renderer — expansion and emptiness", () => {
     expect(expanded.querySelectorAll(".meridian-diff__row--gap").length).toBeGreaterThan(0);
   });
 
-  it("says two identical states are identical, which is a read that returned nothing", () => {
+  it("says nothing to review when a read holds no changed line", () => {
     // `empty` and not `not-checked`: a diff WAS read here, and it holds no changed
     // line. The pane spends `not-checked` for the other fact.
     const container = renderDiff({ model: { ...SMALL_DIFF, files: [] } });

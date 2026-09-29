@@ -1,7 +1,7 @@
 // The Web Animations and mutation readings this family arms, under test control.
 //
 // The size observer is deliberately NOT here: it moved to
-// `primitives/element-resize.test-support.ts` with the seam it drives, so the
+// `tests/helpers/element-resize.ts` with the seam it drives, so the
 // terminal family can reach it without importing across the DAG. What is left is
 // browser-family work — the animation readings `element-motion.ts` takes and the
 // mutation-record settling its ancestry watch needs.

@@ -5,9 +5,8 @@
  * the two hues are spent only on their one meaning each: amber where a person is
  * needed, red where something failed.
  *
- * This sheet enters at `browser-pane-body.ts`, the pane's chunk root, beside
- * `chrome/chrome.css` and `../controls.css`. It carries the pane box and its bands,
- * the chrome bar and its address field.
+ * Imported by `PreviewPaneContent.tsx`. It carries the pane box and its bands, the
+ * chrome bar and its address field.
  */
 
 /* --------------------------------------------------------------- pane shell */
@@ -16,7 +15,7 @@
  * The pane's body, in two bands: a chrome bar that cannot grow and a
  * viewport that takes whatever is left.
  *
- * It carries no frame of its own. `seats/pane-chrome.css` draws the section, its
+ * It carries no frame of its own. `components/PaneFrame/PaneFrame.css` draws the section, its
  * boundary, its surface, and the actor's hue on the two focus treatments, and this
  * box grows inside the body slot that sheet leaves — so a second always-on hue edge
  * here would be a second answer to "who" one element inside the first.

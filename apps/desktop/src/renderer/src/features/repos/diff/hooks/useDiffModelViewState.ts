@@ -7,7 +7,7 @@
 //
 //   • the SELECTED FILE PATH, which narrows the rows. A path the new diff does
 //     not contain narrows the index to no file at all — `rowCount` is zero and
-//     the renderer says "These states are identical" over a diff that has
+//     the renderer says "nothing to review" over a diff that has
 //     changes, which is the console asserting a fact nobody established.
 //   • the GAP EXPANSION, which is keyed by `(fileIndex, hunkIndex)`. Those
 //     indices exist in the new diff too, and address entirely different hunks, so
@@ -31,7 +31,7 @@
 // IS the subject, and the key within it is `undefined`: one model is one subject
 // entire, with nothing inside it to name.
 //
-// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `store/subject-scoped/subject-scoped-state.ts`
+// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `hooks/subject-scoped/useSubjectScopedState.ts`
 // holds what a subject-scoped value may do — seeded during the render that first
 // sees a new subject, so no committed frame carries the previous one's; and
 // written only by a publisher captured under the subject still on screen, so a

@@ -22,7 +22,7 @@ import {
   hostTree,
   renderHost,
   renderHostStrictly,
-} from "@renderer/features/repos/artifacts/components/artifact-payload-section.test-support.js";
+} from "@test/helpers/render-artifact-payload-section.js";
 
 beforeEach(() => {
   vi.useFakeTimers();

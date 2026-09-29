@@ -5,8 +5,8 @@
  * two hues are spent only on their one meaning each: amber where a person is needed,
  * red where something failed.
  *
- * This sheet enters at the pane's chunk root, `pane/browser-pane-body.ts`. It sits at
- * the family root because it is the family's own button shape, which the chrome bar
+ * This sheet enters at the pane's chunk root, `preview-pane-body.ts`. It sits at the
+ * feature root because it is the feature's own button shape, which the chrome bar
  * arranges through the doors declared below rather than by redeclaring the class.
  */
 

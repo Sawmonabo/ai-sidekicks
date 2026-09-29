@@ -10,6 +10,7 @@
 // `src`, no `href`, and no element that a media type could turn into a document.
 
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/store/artifacts/artifact-payload.js";
+import "./artifact.css";
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
 

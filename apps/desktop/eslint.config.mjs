@@ -460,11 +460,7 @@ const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
  */
 const STYLESHEET_HELD_FILES = [
   "src/renderer/src/console/palette/index.ts",
-  "src/renderer/src/console/primitives/absence/index.ts",
-  "src/renderer/src/console/primitives/figures/index.ts",
   "src/renderer/src/console/primitives/index.ts",
-  "src/renderer/src/console/repos/diff-pane/index.ts",
-  "src/renderer/src/console/repos/index.ts",
   "src/renderer/src/console/seats/index.ts",
   "src/renderer/src/console/sessions/notifications/index.ts",
   "src/renderer/src/console/workflows/destination/index.ts",

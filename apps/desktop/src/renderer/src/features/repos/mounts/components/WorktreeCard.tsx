@@ -14,7 +14,7 @@
 // and a list of them would re-render on every toggle.
 //
 // EVERY COLUMN IS THE WIRE'S OWN STRING. Ten columns, and the card computes none of
-// them: `worktree-model.ts` says why (no derived branch name, no derived checkout
+// them: `execution-root-model.ts` says why (no derived branch name, no derived checkout
 // root, no snapshot refs in a branch column). The one reading the card DOES derive
 // is the age, which is two instants the console holds put through
 // `formatRelativeTime` — and the exact stamp rides the same element's `title`, so
@@ -31,6 +31,8 @@
 //     scheduled.
 //   • No branch switch. The daemon never checks out, creates, or switches a branch
 //     inside a bound checkout; a mismatch is a typed refusal with no action on it.
+
+import "./execution-root-cards.css";
 
 import { useId } from "react";
 

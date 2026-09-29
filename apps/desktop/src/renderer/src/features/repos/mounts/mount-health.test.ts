@@ -8,8 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { bindControlPosture, mountHealthReading, mountLifecycleReading } from "./mount-health.js";
-import { mount } from "./repo-mounts.test-support.js";
+import {
+  readBindControlAvailability,
+  mountHealthReading,
+  mountLifecycleReading,
+} from "./mount-health.js";
+import { buildMount } from "./repo-mounts.test-support.js";
 
 describe("mount-health — the health axis", () => {
   it("gives each wire status its own tone, word, and sentence", () => {
@@ -68,8 +72,8 @@ describe("mount-health — the third verdict", () => {
   });
 
   it("withholds the bind controls on a drifted mount, for that reason", () => {
-    const posture = bindControlPosture(
-      mount({ health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" } }),
+    const posture = readBindControlAvailability(
+      buildMount({ health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" } }),
     );
     expect(posture.offered).toBe(false);
     expect(posture.offered === false && posture.withheldBecause).toContain("permanently");
@@ -95,19 +99,19 @@ describe("mount-health — the two axes never collapse", () => {
 
 describe("mount-health — the bind-control posture", () => {
   it("offers controls on an attached, healthy mount", () => {
-    expect(bindControlPosture(mount())).toStrictEqual({ offered: true });
+    expect(readBindControlAvailability(buildMount())).toStrictEqual({ offered: true });
   });
 
   it("withholds them on an unreachable mount, and says why", () => {
-    const posture = bindControlPosture(
-      mount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
+    const posture = readBindControlAvailability(
+      buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
     );
     expect(posture.offered).toBe(false);
     expect(posture.offered === false && posture.withheldBecause).toContain("could not be probed");
   });
 
   it("withholds them on a detached mount, which is history rather than a failure", () => {
-    const posture = bindControlPosture(mount({ state: "detached" }));
+    const posture = readBindControlAvailability(buildMount({ state: "detached" }));
     expect(posture.offered).toBe(false);
     expect(posture.offered === false && posture.withheldBecause).toContain("mints a new mount");
   });
@@ -116,8 +120,8 @@ describe("mount-health — the bind-control posture", () => {
     // Both axes are failing here. A posture that reported the health reason would tell
     // a reader to go and fix a path, when the row's actual state is that its life is
     // over — the exact conflation `mount-health.ts` forbids.
-    const posture = bindControlPosture(
-      mount({
+    const posture = readBindControlAvailability(
+      buildMount({
         state: "detached",
         health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" },
       }),

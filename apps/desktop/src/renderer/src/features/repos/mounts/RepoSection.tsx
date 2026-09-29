@@ -1,3 +1,7 @@
+// First, so the act sheets its children import load after it: `bind/bind.css`
+// overrides one of its rules at equal specificity.
+import "./mount-controls.css";
+
 import { useCallback } from "react";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type ConsolePaneOpener } from "@renderer/console/seats/index.js";

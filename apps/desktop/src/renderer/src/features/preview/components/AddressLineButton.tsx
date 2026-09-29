@@ -22,7 +22,7 @@ const CONTROL_GLYPH_SIZE = 13;
  * It wears the family's own `meridian-browser-action` rather than a chrome-only button
  * style, so the family keeps one button shape.
  */
-export function ChromeControl(props: {
+export function AddressLineButton(props: {
   readonly label: string;
   /** `| undefined` explicitly: the reload/stop slot passes one arm without a glyph. */
   readonly glyph?: GlyphName | undefined;

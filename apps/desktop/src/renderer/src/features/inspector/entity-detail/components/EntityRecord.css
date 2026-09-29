@@ -1,8 +1,4 @@
-/* The inspector pane's own sheet.
-
-   Imported from this subtree's door (`index.ts`) and from nowhere else, following
-   the runs pane: a surface can no more arrive without its CSS than a primitive
-   can, and the bundler sees one edge into the sheet rather than one per component.
+/* The entity record's sheet, imported by `EntityRecord.tsx`.
 
    Every value here is a Meridian token. There is no colour literal, no font stack,
    and no spacing number: rule 3 puts the palette in one place, and a pane that

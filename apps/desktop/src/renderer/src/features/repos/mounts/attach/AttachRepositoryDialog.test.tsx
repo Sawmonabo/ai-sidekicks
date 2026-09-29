@@ -1,6 +1,6 @@
 // The attach dialog on a session that runs on one machine: a path is the whole decision.
 //
-// What the model suite cannot say. `attach-model.test.ts` proves the verdict; this file
+// What the model suite cannot say. `attach-form.test.ts` proves the verdict; this file
 // proves the dialog hands it what was typed, so the control opens once a path is named. A
 // control shut over a complete form would be a wiring fault, not a fault in the model.
 

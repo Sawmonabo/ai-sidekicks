@@ -9,16 +9,16 @@
 // and what is left here is what a surface renders and who is told when it changes.
 //
 // The acts are next door. `readManifest` and `fetchPayload` delegate to
-// `ArtifactPaneActions`, which is handed only the operations `ArtifactActionHost` names.
+// `ArtifactRowActions`, which is handed only the operations `ArtifactRowActionHost` names.
 // The methods stay on this class because the reader is the one object a surface holds.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { ArtifactPaneActions } from "./artifact-row-actions.js";
-import { type ArtifactActionHost } from "./artifact-row-action-host.js";
+import { ArtifactRowActions } from "./artifact-row-actions.js";
+import { type ArtifactRowActionHost } from "./artifact-row-action-host.js";
 import {
   NOTHING_READ_YET,
-  type ArtifactPaneReading,
+  type ArtifactListReading,
   type ArtifactRowActOutcome,
 } from "./artifact-list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
@@ -37,10 +37,10 @@ export interface ArtifactPaneReaderOptions extends ArtifactReadScheduleOptions {
 /** One pane's reading of a session's artifacts, and the acts a surface can put to the port. */
 export class ArtifactPaneReader extends ArtifactReadSchedule {
   readonly #clock: ConsoleClock;
-  readonly #actions: ArtifactPaneActions;
-  readonly #changes = new Emitter<ArtifactPaneReading>("artifact pane reading");
+  readonly #actions: ArtifactRowActions;
+  readonly #changes = new Emitter<ArtifactListReading>("artifact pane reading");
 
-  #reading: ArtifactPaneReading = NOTHING_READ_YET;
+  #reading: ArtifactListReading = NOTHING_READ_YET;
 
   public constructor(options: ArtifactPaneReaderOptions) {
     super(options);
@@ -48,19 +48,19 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
     // Stamped at construction, so every reading a surface can reach carries an instant
     // somebody took.
     this.#reading = { ...NOTHING_READ_YET, readAtMilliseconds: this.#clock.now() };
-    this.#actions = new ArtifactPaneActions({
+    this.#actions = new ArtifactRowActions({
       readArtifact: options.readArtifact,
       host: this.#actionHost(),
     });
   }
 
   /** What the pane renders right now. Stable identity between publishes. */
-  public get snapshot(): ArtifactPaneReading {
+  public get snapshot(): ArtifactListReading {
     return this.#reading;
   }
 
   /** Call `sink` on every publish. */
-  public subscribe(sink: (reading: ArtifactPaneReading) => void): Unsubscribe {
+  public subscribe(sink: (reading: ArtifactListReading) => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }
 
@@ -94,13 +94,13 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
   }
 
   /** The schedule's half of the seam: what it is about to replace. */
-  protected override currentReading(): ArtifactPaneReading {
+  protected override currentReading(): ArtifactListReading {
     return this.#reading;
   }
 
   /** The schedule's other half: where a settled round is put. */
   protected override publishReading(
-    reading: Omit<ArtifactPaneReading, "readAtMilliseconds">,
+    reading: Omit<ArtifactListReading, "readAtMilliseconds">,
   ): void {
     this.#publish(reading);
   }
@@ -111,10 +111,10 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
    * An adapter rather than an `implements` clause, because every member reads or writes
    * state this class owns and implementing the port would make all three public.
    */
-  #actionHost(): ArtifactActionHost {
+  #actionHost(): ArtifactRowActionHost {
     return {
       currentReading: () => this.#reading,
-      publish: (reading: ArtifactPaneReading) => {
+      publish: (reading: ArtifactListReading) => {
         this.#publish(reading);
       },
       scheduledReadClaim: () => this.currentReadClaim(),
@@ -128,8 +128,8 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
    * of whichever producer remembered to take one. The parameter omits the stamp because a
    * producer cannot supply it; one that spreads a stamped reading forward is overwritten.
    */
-  #publish(reading: Omit<ArtifactPaneReading, "readAtMilliseconds">): void {
-    const stamped: ArtifactPaneReading = { ...reading, readAtMilliseconds: this.#clock.now() };
+  #publish(reading: Omit<ArtifactListReading, "readAtMilliseconds">): void {
+    const stamped: ArtifactListReading = { ...reading, readAtMilliseconds: this.#clock.now() };
     this.#reading = stamped;
     this.#changes.emit(stamped);
   }

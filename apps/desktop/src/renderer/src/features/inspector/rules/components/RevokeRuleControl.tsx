@@ -1,6 +1,6 @@
 // The two-step control that retires one standing permission.
 //
-// Split from `RememberedGrants.tsx`, which owns the audit list, while this owns the
+// Split from `RememberedRules.tsx`, which owns the audit list, while this owns the
 // only act that list offers.
 //
 // TWO STEPS, AND THE SECOND IS THE ONE THAT FIRES. Revocation is not reversible
@@ -17,7 +17,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
  * "cancelling returns to idle with zero mutations" a fact about the code rather
  * than a claim about it.
  */
-export function RevokeControl(props: {
+export function RevokeRuleControl(props: {
   readonly isConfirming: boolean;
   readonly isRevoking: boolean;
   readonly onAsk: () => void;

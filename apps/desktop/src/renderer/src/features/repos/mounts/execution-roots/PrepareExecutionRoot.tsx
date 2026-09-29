@@ -33,10 +33,12 @@
 // AND IT IS HELD BY THE SAME POSTURE THE MODE PICKER IS. A prepare IS a bind, so a
 // mount that refuses every bind refuses this one, and the mode a prepare is read off is
 // exactly what a pending switch is replacing — so the row derives one
-// `workspaceControlPosture` and hands it to both controls. Held rather than withheld,
+// `readWorkspaceControlAvailability` and hands it to both controls. Held rather than withheld,
 // on `mount-health.ts`'s own rule: the form stays where a person left it and the
 // sentence says what is holding it, because a control that vanished would report a
 // capability this workspace does not have rather than one that is momentarily closed.
+
+import "./execution-roots.css";
 
 import { useCallback } from "react";
 
@@ -45,18 +47,18 @@ import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { controlHoldSentence, type WorkspaceControlPosture } from "../mount-health.js";
+import { controlHoldSentence, type WorkspaceControlAvailability } from "../mount-health.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./prepare-controller.js";
 import {
   EMPTY_PREPARE_FORM,
-  prepareAcknowledgement,
-  prepareFormVerdict,
-  prepareReuseStanding,
+  isDirtyReuseAcknowledged,
+  resolvePrepareForm,
+  readReuseCheckState,
   reuseConsentRequired,
   REUSE_VERDICT_COPY,
   type PrepareFormState,
-} from "@renderer/console/repos/mounts/roots/root-act-model.js";
+} from "./prepare-form.js";
 
 /** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {
@@ -70,7 +72,7 @@ export interface PrepareExecutionRootProps {
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
   /** Whether this workspace's binding controls are live. Derived once by the card. */
-  readonly posture: WorkspaceControlPosture;
+  readonly posture: WorkspaceControlAvailability;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
@@ -99,9 +101,9 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     undefined,
     () => EMPTY_PREPARE_FORM,
   );
-  const standing = prepareReuseStanding(reading.prerequisite);
+  const standing = readReuseCheckState(reading.prerequisite);
   const { verdict } = standing;
-  const formVerdict = prepareFormVerdict(form, standing);
+  const formVerdict = resolvePrepareForm(form, standing);
   const { onPrepared } = props;
   const heldBecause = controlHoldSentence(props.posture);
 
@@ -122,7 +124,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     if (formVerdict.status !== "sendable") {
       return;
     }
-    prepare(form.branchName, prepareAcknowledgement(form, verdict));
+    prepare(form.branchName, isDirtyReuseAcknowledged(form, verdict));
   }, [form, formVerdict, prepare, verdict]);
 
   return (
@@ -157,9 +159,9 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
             // THE BOX IS TICKED FOR A TREE AND NOT FOR A FORM. Both halves read the
             // candidate the verdict is naming NOW, so a refresh that serves a different
             // dirty checkout of the same branch draws the box unticked — the consent it
-            // is asking for has not been given for that tree, and `prepareAcknowledgement`
+            // is asking for has not been given for that tree, and `isDirtyReuseAcknowledged`
             // is the same predicate the act sends on.
-            checked={prepareAcknowledgement(form, verdict)}
+            checked={isDirtyReuseAcknowledged(form, verdict)}
             onChange={(event) => {
               publishForm((current) => ({
                 ...current,

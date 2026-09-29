@@ -26,7 +26,7 @@ afterEach(disposeTrackedReaders);
 /**
  * One `workspace.stale` frame — the kind the section watched before it watched them all.
  *
- * The envelope itself is `store/session-event.test-support.ts`'s, which is where every
+ * The envelope itself is `tests/helpers/session-events.ts`'s, which is where every
  * suite that needs an admitted event gets one. Named here only because the KIND is the
  * reading: the cases that drive this frame are about this kind arriving — and the
  * negative control is about it not being enough on its own — so spelling the string at

@@ -53,7 +53,11 @@ import {
   formatClockTime,
 } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { bindControlPosture, mountHealthReading, mountLifecycleReading } from "../mount-health.js";
+import {
+  readBindControlAvailability,
+  mountHealthReading,
+  mountLifecycleReading,
+} from "../mount-health.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "../bind/BindWorkspaceDialog.js";
 import type { RepoOperations } from "../../repo-operations.js";
@@ -94,10 +98,10 @@ export interface MountCardProps {
 export function MountCard(props: MountCardProps): React.JSX.Element {
   const { mount } = props;
   // The lifecycle axis supplies this card's first chip; its SENTENCE reaches the
-  // screen through the withheld line, which `bindControlPosture` composes.
+  // screen through the withheld line, which `readBindControlAvailability` composes.
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount.health);
-  const posture = bindControlPosture(mount);
+  const posture = readBindControlAvailability(mount);
 
   return (
     <article
@@ -137,7 +141,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
 
       {/*
         ONE state sentence, never two. A withheld card's reason IS one of the axis
-        sentences — `bindControlPosture` picks which, lifecycle before health, so a
+        sentences — `readBindControlAvailability` picks which, lifecycle before health, so a
         detached row never reads as a path to go and fix — and rendering the axis
         sentence beside it would print the same words twice under different styling,
         which reads as two facts.

@@ -138,3 +138,27 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* The pair is a grid subgrid row: label in the first column, value in the second. */
+.meridian-artifact-row__pair {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  min-inline-size: 0;
+}
+
+.meridian-artifact-row__pair dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-artifact-row__pair dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-artifact-row__detail-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

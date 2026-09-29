@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactManifestRow, ArtifactsPanelState } from "./artifact-model.js";
+import type { ArtifactManifestRow, ArtifactsSectionState } from "./artifact-model.js";
 import { withReplacedRow } from "./artifact-list-reading.js";
 
 function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestRow {
@@ -24,7 +24,7 @@ function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestR
 
 describe("artifact pane reading — replacing a row from its own read", () => {
   it("replaces the row the read named and leaves its neighbours alone", () => {
-    const listed: ArtifactsPanelState = {
+    const listed: ArtifactsSectionState = {
       kind: "listed",
       rows: [row("first", "published"), row("second", "published")],
     };
@@ -38,7 +38,7 @@ describe("artifact pane reading — replacing a row from its own read", () => {
   it("negative control: a row the list does not carry is not added to it", () => {
     // Without this, a single-artifact read would be able to claim a place in the
     // list that no list read established.
-    const listed: ArtifactsPanelState = { kind: "listed", rows: [row("first", "published")] };
+    const listed: ArtifactsSectionState = { kind: "listed", rows: [row("first", "published")] };
     const next = withReplacedRow(listed, row("elsewhere", "published"));
     expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual(["first"]);
   });

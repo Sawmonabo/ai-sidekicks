@@ -3,7 +3,7 @@
 // The chrome derives nothing. Back and forward are enabled from the view's reported
 // history state and the tabs are drawn from the page list, both handed in as readings,
 // and every control dispatches through the acts it is handed, so the component holds no
-// subscription and no second copy of either. `BrowserPane.tsx` is what the deck mounts;
+// subscription and no second copy of either. `PreviewPane.tsx` is what the deck mounts;
 // this is the body that goes inside `seats/ConsolePaneChrome`, which draws the section,
 // its accessible name and the actor's hue.
 //
@@ -14,6 +14,8 @@
 // One act sequence keeps the refusal banner correct: an older act never overwrites a
 // newer one's answer, so the banner shows what the person last did.
 
+import "./PreviewPaneContent.css";
+
 import { useCallback, useId } from "react";
 
 import type { AttachedPaneViewHost } from "../geometry/view-host.js";
@@ -22,24 +24,22 @@ import {
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
+  isFileAddress,
 } from "../address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
-import {
-  isFilesystemDestination,
-  type NavigationReading,
-} from "@renderer/console/browser/pane/navigation-state.js";
+import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { TabStrip } from "./PageTabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
-import { useBrowserPaneActs } from "../hooks/usePreviewPaneActs.js";
-import { useGeometryPublisher } from "@renderer/console/browser/pane/geometry-binding.js";
+import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
+import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
-import { ChromeControl } from "./AddressLineButton.js";
+import { AddressLineButton } from "./AddressLineButton.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
-import type { BrowserPaneRejectionFallback } from "../pane-refusals.js";
+import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */
-const OPEN_EXTERNAL_FALLBACK: BrowserPaneRejectionFallback = {
+const OPEN_EXTERNAL_FALLBACK: PreviewPaneRejectionFallback = {
   code: "open-external-failed",
   detail: "The system browser could not be reached from this window.",
 };
@@ -57,7 +57,7 @@ export interface BrowserChromeActs {
 }
 
 /** What the pane's content draws from, beside the deck's context. */
-export interface BrowserPaneChromeProps extends PaneContextOf<"browser"> {
+export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
   /** Where the page is, and whether it can go back or forward. */
   readonly navigation: NavigationReading;
   /** The pages the session owns. */
@@ -69,12 +69,12 @@ export interface BrowserPaneChromeProps extends PaneContextOf<"browser"> {
 }
 
 /** The pane body: tab strip, address line, and the viewport a native view is placed over. */
-export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Element {
+export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.Element {
   const { bridge, paneId, focusHue, sessionStore, navigation, pages, acts, viewHost } = props;
   const sessionId = sessionStore?.sessionId;
   const geometry = useGeometryPublisher(bridge, paneId, viewHost);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
-  const paneActs = useBrowserPaneActs(bridge, paneId);
+  const paneActs = usePreviewPaneActs(bridge, paneId);
   const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
   const addressFieldId = useId();
   // Only a served reading reports a page. Any other arm leaves every history control
@@ -118,11 +118,11 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
     (event: React.FormEvent<HTMLFormElement>): void => {
       event.preventDefault();
       const submitted = addressFieldSubmission(addressField, reportedUrl);
-      if (isFilesystemDestination(submitted)) {
+      if (isFileAddress(submitted)) {
         // The draft is KEPT so the person can correct it. Returning to following
         // here would replace what they typed with the location they are still on,
         // which reads as the field having silently eaten the destination.
-        refuseLocally("filesystem-destination", "The address field takes web destinations only.");
+        refuseLocally("file-address", "The address field takes web destinations only.");
         return;
       }
       setAddressField(FOLLOWING_ADDRESS_FIELD);
@@ -163,18 +163,18 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
         />
 
         <form onSubmit={submitDestination} className="meridian-browser-chrome">
-          <ChromeControl
+          <AddressLineButton
             label="Back"
             disabled={(reported?.backDepth ?? 0) === 0}
             onActivate={acts.goBack}
           />
-          <ChromeControl
+          <AddressLineButton
             label="Forward"
             disabled={(reported?.forwardDepth ?? 0) === 0}
             onActivate={acts.goForward}
           />
           {/* One slot, two acts: the view's reported load state swaps reload for stop. */}
-          <ChromeControl
+          <AddressLineButton
             label={isLoading ? "Stop" : "Reload"}
             glyph={isLoading ? "stop" : undefined}
             disabled={reported === undefined}
@@ -196,7 +196,7 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
             className="meridian-browser-chrome__address"
           />
           {/* Always available: it is what the pane falls back to when nothing else acts. */}
-          <ChromeControl
+          <AddressLineButton
             label="Open externally"
             glyph="external"
             onActivate={openInSystemBrowser}

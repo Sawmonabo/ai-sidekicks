@@ -19,11 +19,8 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
-import {
-  BindWorkspaceController,
-  useBindController,
-  type BindBinding,
-} from "@renderer/console/repos/mounts/bind/bind-controller.js";
+import { BindWorkspaceController } from "./bind-controller.js";
+import { useBindController, type BindBinding } from "./hooks/useBindController.js";
 
 const SESSION_ID = "session-repos";
 const OPEN_MOUNT_ID = "mount-open";

@@ -28,7 +28,7 @@ import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
 import { PANE_VIEW_HOST_REFUSAL_ORIGIN } from "../geometry/view-host.js";
 import {
-  browserPaneContext,
+  previewPaneContext,
   chromeFor,
   DEFAULT_TEST_PANE_ID,
   recordingActs,
@@ -43,7 +43,7 @@ const SECOND_TEST_PANE_ID = "pane-browser-2";
 
 type AirspaceOverlayRegistration = ReturnType<AirspaceRegistry["register"]>;
 
-describe("browser pane geometry — who watches this window's overlays move", () => {
+describe("Preview pane geometry — who watches this window's overlays move", () => {
   // One overlay for the whole file, registered per case and removed after it: the
   // count this suite reads is armings, so an overlay left behind by a failed case
   // would be armed by the next case's pane and read as its own.
@@ -86,7 +86,7 @@ describe("browser pane geometry — who watches this window's overlays move", ()
     // that watches nothing ever, which is the same overlay-yield defect from the
     // other side: a native view painted over a dialog that slid across it.
     registerOverlay();
-    const built = browserPaneContext();
+    const built = previewPaneContext();
     await act(async () => {
       render(chromeFor(built.context, recordingActs(), new RecordingViewHost()));
     });
@@ -98,7 +98,7 @@ describe("browser pane geometry — who watches this window's overlays move", ()
     registerOverlay();
     const viewHost = new RecordingViewHost();
     viewHost.rejectNextWith(refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE));
-    const built = browserPaneContext();
+    const built = previewPaneContext();
     await act(async () => {
       render(chromeFor(built.context, recordingActs(), viewHost));
     });
@@ -116,8 +116,8 @@ describe("browser pane geometry — who watches this window's overlays move", ()
 
   it("costs one observation per pane, and none once both panes are gone", async () => {
     registerOverlay();
-    const first = browserPaneContext(undefined, DEFAULT_TEST_PANE_ID);
-    const second = browserPaneContext(first.bridge, SECOND_TEST_PANE_ID);
+    const first = previewPaneContext(undefined, DEFAULT_TEST_PANE_ID);
+    const second = previewPaneContext(first.bridge, SECOND_TEST_PANE_ID);
     let firstPane: ReturnType<typeof render> | undefined;
     let secondPane: ReturnType<typeof render> | undefined;
     await act(async () => {

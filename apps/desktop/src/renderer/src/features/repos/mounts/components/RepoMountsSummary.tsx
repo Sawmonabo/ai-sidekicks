@@ -1,6 +1,6 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";
-import { NOT_READ_TITLE } from "../repo-mounts-copy.js";
+import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 
 /**
  * The collapsed line.
@@ -17,7 +17,7 @@ export function RepoMountsSummary(props: {
     return <Nothing kind="computing" title="Reading repo mounts." />;
   }
   if (reading.status === "not-read") {
-    return <Nothing kind="not-checked" title={NOT_READ_TITLE} />;
+    return <Nothing kind="not-checked" title={REPO_MOUNTS_NOT_READ_TITLE} />;
   }
   const unreachableCount = reading.mounts.filter(
     (mount) => mount.health.status !== "healthy",

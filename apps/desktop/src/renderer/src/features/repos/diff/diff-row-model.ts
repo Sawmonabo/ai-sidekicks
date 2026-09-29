@@ -1,10 +1,10 @@
 // What a diff's rows ARE, and how much of a gap has been revealed.
 //
-// SPLIT FROM `hunk-virtualization.ts` ON THE SEAM BETWEEN A VOCABULARY AND AN
+// SPLIT FROM `diff-row-index.ts` ON THE SEAM BETWEEN A VOCABULARY AND AN
 // ARITHMETIC. That module answers which rows exist at which offsets under one
 // expansion — a binary search over prefix sums, rebuilt per model and per mode. This
 // one declares what a row is and what an expansion is, values every consumer of the
-// index holds and none of them computes: `DiffRows.tsx` renders one of these, the pane
+// index holds and none of them computes: `DiffRowView.tsx` renders one of these, the pane
 // holds an expansion in state and replaces it, and the index reads both. Two subjects,
 // and the file that held them was doing two jobs, which `apps/desktop/AGENTS.md`
 // rejects.

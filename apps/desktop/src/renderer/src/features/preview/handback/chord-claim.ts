@@ -28,7 +28,7 @@
 // comparison written next to the strip is how the two answers start to disagree.
 //
 // WHAT IS BUILT AHEAD OF ITS WIRE, AND WHY IT SAYS SO. The close-tab half already has a
-// caller: `BrowserPaneChrome.tsx` reads a descriptor off a real event and asks this
+// caller: `PreviewPaneContent.tsx` reads a descriptor off a real event and asks this
 // module whether it is the chord. The projection does not, and cannot until the browser
 // bridge namespace exists to carry a mirror between the main process and the renderer —
 // so `projectClaimableChords`, `chordCarriesApplicationModifier`, and the token set

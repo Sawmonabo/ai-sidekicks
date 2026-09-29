@@ -5,36 +5,36 @@ import { describe, expect, it } from "vitest";
 
 import { formatByteQuantity, formatCount } from "@renderer/console/primitives/index.js";
 import { ARTIFACT_PRODUCER_ID, artifactRow } from "@test/helpers/artifact-summaries.js";
-import { ArtifactsPanel } from "./ArtifactsSection.js";
+import { ArtifactsSection } from "./ArtifactsSection.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
-describe("ArtifactsPanel — the arms are different absences", () => {
+describe("ArtifactsSection — the arms are different absences", () => {
   it("says the read found none, when it did", () => {
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.textContent).toContain("Nothing made here yet.");
   });
 
   it("shows a read in flight without asserting a result", () => {
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Nothing made here yet.");
   });
 });
 
-describe("ArtifactsPanel — a count is a reading, and only a list produces one", () => {
+describe("ArtifactsSection — a count is a reading, and only a list produces one", () => {
   it("states no session total and offers no type filter while a read is in flight", () => {
     // A head that reports a total over rows nobody read contradicts the body beneath it,
     // and seven buttons all reading zero promise that pressing one narrows a list this
     // panel does not have.
     const { container, queryByRole } = render(
-      <ArtifactsPanel state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.textContent).not.toContain("in this session");
     expect(queryByRole("group", { name: "Filter by artifact type" })).toBeNull();
@@ -42,7 +42,7 @@ describe("ArtifactsPanel — a count is a reading, and only a list produces one"
 
   it("reports the total and every type's count once a list has answered", () => {
     const { container, getByRole } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow(), artifactRow({ id: "artifact-02" })] }}
         nowMilliseconds={NOW_MILLISECONDS}
       />,
@@ -55,18 +55,21 @@ describe("ArtifactsPanel — a count is a reading, and only a list produces one"
     // The arm that earns a zero. `listed` with no rows is a read that found none, which is
     // a different claim from `loading` and renders its own total.
     const { container, getByRole } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.textContent).toContain(`${formatCount(0)} in this session`);
     expect(getByRole("group", { name: "Filter by artifact type" })).toBeDefined();
   });
 });
 
-describe("ArtifactsPanel — the row's face", () => {
+describe("ArtifactsSection — the row's face", () => {
   it("carries type, state, size, and producer", () => {
     const row = artifactRow();
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows: [row] }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection
+        state={{ kind: "listed", rows: [row] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
     );
     expect(container.textContent).toContain("file");
     expect(container.textContent).toContain("published");
@@ -76,7 +79,7 @@ describe("ArtifactsPanel — the row's face", () => {
 
   it("keeps the exact byte count beside the scaled reading of it", () => {
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow({ size: 4096 })] }}
         nowMilliseconds={NOW_MILLISECONDS}
       />,
@@ -86,7 +89,7 @@ describe("ArtifactsPanel — the row's face", () => {
 
   it("keeps a superseded row visible as history", () => {
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow({ state: "superseded" })] }}
         nowMilliseconds={NOW_MILLISECONDS}
       />,
@@ -96,7 +99,7 @@ describe("ArtifactsPanel — the row's face", () => {
   });
 });
 
-describe("ArtifactsPanel — the type filter is one filter over one list", () => {
+describe("ArtifactsSection — the type filter is one filter over one list", () => {
   const rows = [
     artifactRow({ id: "a", artifactType: "file" }),
     artifactRow({ id: "b", artifactType: "diff" }),
@@ -104,7 +107,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
 
   it("offers every type, including the ones at zero", () => {
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
     // Seven: the six types plus the member that selects them all.
@@ -114,7 +117,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
 
   it("narrows the list when a type is pressed", () => {
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(2);
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
@@ -126,7 +129,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
     // The read served two artifacts. A panel that branched on the rows the filter kept
     // would report the session as empty here, hiding that the filter is what has no matches.
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
     fireEvent.click(within(filter).getByText("summary"));
@@ -145,7 +148,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
     // the filter-scoped sentence would leave a read that genuinely found none with
     // no way to say so, and would name a filter the user never touched.
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const body = container.querySelector(".meridian-artifacts__body");
     expect(body?.textContent).toContain("Nothing made here yet.");
@@ -154,7 +157,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
 
   it("negative control: a filter that matches keeps rendering the list", () => {
     const { container } = render(
-      <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
+      <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
     fireEvent.click(within(filter).getByText("file"));

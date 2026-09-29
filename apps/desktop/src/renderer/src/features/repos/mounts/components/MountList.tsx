@@ -1,3 +1,5 @@
+import "./mounts.css";
+
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
@@ -6,7 +8,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
-import { NOT_READ_TITLE } from "../repo-mounts-copy.js";
+import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 
 export interface MountListProps {
   readonly reading: RepoMountsReading;
@@ -67,7 +69,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
     <Nothing
       kind="not-checked"
       placement="surface"
-      title={NOT_READ_TITLE}
+      title={REPO_MOUNTS_NOT_READ_TITLE}
       detail="This section will name each mount's resolved root and whether it is still the repository it was attached as."
     />
   );
