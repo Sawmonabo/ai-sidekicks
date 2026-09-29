@@ -4,7 +4,7 @@
 // The second is structural rather than observable, so it is tested the way it is
 // enforced: `isPrefixOf` and `lookahead` are driven against a source built from many
 // small appends, and the results are compared with what a naive concatenation would
-// have produced. If either ever reached for a materialised source, the answers would
+// have produced. If either ever reached for a materialized source, the answers would
 // still agree — so the cases that matter are the ones about the CURSOR, which is
 // what the rope exists to keep honest.
 
@@ -117,7 +117,7 @@ describe("the rope smoother — a frame never cuts a character in half", () => {
 
   it("snaps across a part boundary, where the halves arrived in separate appends", () => {
     // The check walks the parts from the cursor, so a pair split across two appends
-    // is the same pair — reading it through a materialised source is what the rope
+    // is the same pair — reading it through a materialized source is what the rope
     // exists to avoid.
     const smoother = fedWith(["ab", GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
     expect(smoother.advance(3)).toBe(4);

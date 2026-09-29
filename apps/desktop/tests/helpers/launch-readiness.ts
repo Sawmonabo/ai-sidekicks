@@ -81,7 +81,7 @@ export async function awaitPaintingAppWindow(
   if (visibilityState !== "visible") {
     throw new Error(
       `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
-        "nothing measured in it would describe the console; the launched build must honour " +
+        "nothing measured in it would describe the console; the launched build must honor " +
         `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
     );
   }

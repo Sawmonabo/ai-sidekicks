@@ -169,7 +169,7 @@ describe("computeMerkleRoot — RFC 9162 section 2.1.1 tree shape", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Domain separation — RFC 9162 section 2.1.1's second-preimage defence
+// Domain separation — RFC 9162 section 2.1.1's second-preimage defense
 // ----------------------------------------------------------------------------
 
 describe("computeMerkleRoot — 0x00/0x01 domain separation", () => {

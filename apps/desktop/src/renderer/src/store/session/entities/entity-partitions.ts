@@ -2,7 +2,7 @@
 //
 // `entities.ts` owns the vocabulary — what an entity IS and what a projector may
 // ask for. This module owns what happens to the partition maps when one of those
-// asks is honoured, which is a different job with a different rule: every merge
+// asks is honored, which is a different job with a different rule: every merge
 // replaces the identity of exactly the partition it touched and leaves every other
 // partition's identity alone, because that identity is what a row selector's
 // `Object.is` bail depends on (`store/entities/entities.ts`, the entity-keyed rule).

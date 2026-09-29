@@ -7,7 +7,7 @@
 // the wrong bound for either and would be the wrong bound written twice.
 //
 // WHY IT MEASURES THE KEY AND NOT THE VALUE. The key is the source text, and the value
-// is what parsing or tokenising that text produced. The console cannot measure a node
+// is what parsing or tokenizing that text produced. The console cannot measure a node
 // tree's retained size without walking it, and walking it on every insert would cost
 // more than the cache saves; the source length is exact, free, and proportional to
 // what the value costs — shiki's retained tokens measure 21.5x their source precisely

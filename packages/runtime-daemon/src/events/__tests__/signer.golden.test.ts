@@ -2,7 +2,7 @@
 // signer.
 //
 // SCOPE NOTE — WHY THIS FILE EXISTS ALONGSIDE `canonicalizer.golden.test.ts`.
-// Several behaviours below encode a specific defect closed in review — see the
+// Several behaviors below encode a specific defect closed in review — see the
 // ZIP-215 vector.
 //
 // WHAT THE HEX FIXTURES ARE, AND ARE NOT. Two different kinds of constant live

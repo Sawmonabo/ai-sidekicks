@@ -230,7 +230,7 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     );
   }, [openDraft, publishReport]);
 
-  // The destination's directory re-read, straight through. Not memoised and not held:
+  // The destination's directory re-read, straight through. Not memoized and not held:
   // it is read from a press rather than from a dependency array, and the composition
   // this hook returns is rebuilt on every render regardless.
   const { onSessionDirectoryRecheck } = props;

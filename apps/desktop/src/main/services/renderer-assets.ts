@@ -6,7 +6,7 @@
 // and the absence predicate main's log shares with it, and performs no Electron
 // call of any kind.
 //
-// The failure matrix, enumerated in `renderer-assets.test.ts` and summarised
+// The failure matrix, enumerated in `renderer-assets.test.ts` and summarized
 // here:
 //
 //   raw `..` segment ............ forbidden   (the URL parser SILENTLY collapses
@@ -112,7 +112,7 @@ const NOT_FOUND: RendererAssetResolution = { outcome: "not-found" };
 
 /**
  * Extracts the raw (still percent-encoded) path component of `url`, without
- * letting the WHATWG URL parser normalise it first.
+ * letting the WHATWG URL parser normalize it first.
  *
  * This matters: `new URL('sidekicks-renderer://app/../etc/passwd').pathname` is
  * `/etc/passwd` — the parser silently repairs the traversal, so a guard reading
@@ -235,7 +235,7 @@ export async function resolveRendererAsset(
   // Symlink containment. Both sides are realpath'd because the root itself may
   // sit under a symlinked prefix (`/tmp` on macOS is `/private/tmp`), and
   // comparing a real candidate against a symlinked root would refuse every
-  // legitimate asset. Neither result is memoised: the second realpath costs one
+  // legitimate asset. Neither result is memoized: the second realpath costs one
   // warm-cache syscall against a file read that is orders of magnitude larger,
   // and a cache here would need an invalidation story it cannot honestly have.
   let realRoot: string;

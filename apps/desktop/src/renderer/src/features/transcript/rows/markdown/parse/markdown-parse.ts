@@ -13,10 +13,10 @@
 //
 // TWO ENTRY POINTS, AND THE DIFFERENCE IS THE WHOLE DESIGN.
 //
-//   • `parseSettledBlock` is memoised. A settled block's text never changes again, so
+//   • `parseSettledBlock` is memoized. A settled block's text never changes again, so
 //     its tree is computed once and kept until the byte cap evicts it. This is the half
 //     that makes a long message cheap.
-//   • `parseVolatileTail` is not memoised and is `remend`ed first. It changes every
+//   • `parseVolatileTail` is not memoized and is `remend`ed first. It changes every
 //     frame by construction, so a cache keyed on it would be a cache that never hits
 //     and grows without bound — the failure mode the byte cap exists to prevent, reached
 //     by caching the wrong half.
@@ -193,7 +193,7 @@ function settledBlockCacheKey(blockSource: string, definitionPreamble: string): 
  * carries the real `[^1]: …` definition produces a `footnoteDefinition` for the same
  * identifier as the synthetic one, and that one is the author's and must survive.
  *
- * The filter runs inside the memoised path, so the array a caller holds is stable across
+ * The filter runs inside the memoized path, so the array a caller holds is stable across
  * renders and `SettledBlock`'s pointer comparison still skips the whole subtree.
  */
 function parseAgainstDefinitions(blockSource: string, definitionPreamble: string): MarkdownRoot {

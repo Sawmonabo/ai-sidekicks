@@ -101,7 +101,7 @@ export interface PersistenceAdapter {
   /** Rejects with a `PersistenceAdapterError` on quota exhaustion. */
   write(record: StoredRecord): Promise<void>;
   delete(partition: string, key: string): Promise<void>;
-  summarisePartitions(): Promise<readonly PartitionSummary[]>;
+  summarizePartitions(): Promise<readonly PartitionSummary[]>;
   /**
    * Drop least-recently-touched SESSION partitions until at most
    * `keepSessionPartitions` remain, and return how many were dropped.

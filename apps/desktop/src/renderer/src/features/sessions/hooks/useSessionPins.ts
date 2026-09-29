@@ -58,7 +58,7 @@ export function useSessionPins(store: UiStateStore): SessionPinBinding {
   // raised or cleared — emits on its own, so the component re-renders and this
   // getter is re-read; folding the refusal into the subscribed value instead would
   // change the map's identity on a write that did not change the map, and every
-  // memoised row would re-render.
+  // memoized row would re-render.
   const setPinned = useCallback(setPinnedThrough(acquire), [acquire]);
   return { pinned, lastRefusal: binding?.lastRefusal, setPinned };
 }

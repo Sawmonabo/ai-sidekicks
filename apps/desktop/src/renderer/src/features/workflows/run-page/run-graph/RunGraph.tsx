@@ -133,7 +133,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
     );
   }
 
-  // Bound to a capitalised local because JSX reads a lowercase leading identifier as
+  // Bound to a capitalized local because JSX reads a lowercase leading identifier as
   // a tag name; the component itself is the one the loader resolved.
   const LoadedRunGraphCanvas = graphModule.module.RunGraphCanvas;
   return (

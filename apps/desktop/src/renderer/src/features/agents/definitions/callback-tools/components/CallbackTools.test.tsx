@@ -63,7 +63,7 @@ describe("an unread capability is not an empty registry", () => {
   });
 
   it("negative control: an unread capability lists nothing it might have assembled", () => {
-    // The failure this guards is a component that synthesised the registry from
+    // The failure this guards is a component that synthesized the registry from
     // tool rows it had seen, which would list only tools already called.
     render(<CallbackTools capability="unknown" registry={exposed([TOOL])} />);
     expect(screen.queryByText("approval_request")).toBeNull();

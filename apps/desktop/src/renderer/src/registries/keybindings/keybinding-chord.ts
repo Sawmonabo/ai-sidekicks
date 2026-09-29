@@ -32,7 +32,7 @@ export type ChordParseResult =
 /**
  * Parse a chord into the single press the table matches against.
  *
- * MULTI-PRESS SEQUENCES ARE REFUSED. tinykeys can express `"g d"`, and honouring
+ * MULTI-PRESS SEQUENCES ARE REFUSED. tinykeys can express `"g d"`, and honoring
  * it would require a pending-press map behind a timeout — a timer on the console's
  * input path, which the console rules out: no timer fires except the refresh
  * scheduler's deadline and the presence heartbeat. The grammar the console names is
@@ -70,7 +70,7 @@ export function chordMatchesEvent(press: KeybindingPress, event: KeyboardEvent):
 
 /**
  * A comparison key for a parsed press: required modifiers, optional modifiers,
- * and the key, each normalised so two spellings of one keystroke collide. A
+ * and the key, each normalized so two spellings of one keystroke collide. A
  * regular-expression key is compared by its source, which is exact for the
  * spellings tinykeys produces.
  */

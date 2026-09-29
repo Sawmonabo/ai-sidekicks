@@ -46,7 +46,7 @@
 //     because it is a separate question, and a non-zero exit is not automatically
 //     a failure either: a tree already gone is one of the things taskkill refuses.
 //     Which one it was is asked of the OS, never read out of taskkill's message,
-//     because that message is localised and this must not depend on the runner's
+//     because that message is localized and this must not depend on the runner's
 //     display language.
 
 import {

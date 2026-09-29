@@ -29,7 +29,7 @@ import {
  * The real clock, instrumented the same way — and the reason this file drives two.
  *
  * `ManualClock` computes a due instant from the delay it is handed, so a delay no
- * platform timer could hold is a number it stores and honours. The defect this
+ * platform timer could hold is a number it stores and honors. The defect this
  * subclass is here for lives one layer below that, in `setTimeout` itself, so the
  * clock under it has to be the one the console really runs on.
  */
@@ -217,7 +217,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
   it("walks the deadline in ceiling-sized steps and wakes only when it is reached", () => {
     // The second half of the fix: clamping alone would arm one step and stop, so the
     // wake-up would simply never happen. Driven on the manual clock because it
-    // honours the delay it is handed — which is what makes "the step ran and another
+    // honors the delay it is handed — which is what makes "the step ran and another
     // was armed" observable rather than a claim about `setTimeout`.
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadline = MOUNTED_AT + SIXTY_DAYS_MILLISECONDS;

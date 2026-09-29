@@ -78,7 +78,7 @@ export default defineConfig({
           // its own header's ~5 s expectation, and the smoke boot — measured at
           // 462-510 ms unloaded — never reached `did-finish-load`.
           //
-          // Serialising costs ~14 s of wall time in this project and removes
+          // Serializing costs ~14 s of wall time in this project and removes
           // the contention outright. It is deliberately NOT a longer timeout —
           // this change alters no budget. (`SPAWN_TIMEOUT_MS` was separately
           // re-derived 15 s -> 30 s from the CI numbers this fix's own runs

@@ -196,7 +196,7 @@ async fn main() -> std::io::Result<()> {
 ///   request that would await this response — no Promise is hanging
 ///   on it. The active sessions remain healthy; treating it as
 ///   operator-noise (stderr log) is correct, and tearing down every
-///   in-flight session over peer misbehaviour that has no
+///   in-flight session over peer misbehavior that has no
 ///   correctness impact on the dispatcher's request/response
 ///   contract would be a worse outcome.
 async fn run_dispatcher(

@@ -15,7 +15,7 @@
 // `append` is that writer and the token is its receipt: a consumer holding one
 // knows the source it was handed extends the source it had, without re-reading a
 // string that is still growing to prove it. `isPrefixOf` is the same guarantee from
-// the other side — it walks the fixed parts rather than materialising the source.
+// the other side — it walks the fixed parts rather than materializing the source.
 
 /**
  * A receipt that the source grew by an append rather than changing underneath.
@@ -128,7 +128,7 @@ export class RopeSmoother {
    *
    * Used by the gate, which needs a few characters PAST the cursor to decide
    * whether the cursor is standing on a construct. Bounded by the caller's lookahead
-   * rather than materialising the whole source.
+   * rather than materializing the whole source.
    */
   public lookahead(characterCount: number): string {
     let collected = "";
@@ -149,7 +149,7 @@ export class RopeSmoother {
   /**
    * Whether this smoother's source is a prefix of `candidate`.
    *
-   * Walks the fixed parts rather than materialising the source, which is the same
+   * Walks the fixed parts rather than materializing the source, which is the same
    * promise the append token makes: nothing prefix-inspects a growing string.
    */
   public isPrefixOf(candidate: string): boolean {
@@ -231,7 +231,7 @@ export class RopeSmoother {
    * The one code unit `offsetFromCursor` units past the reveal cursor.
    *
    * Walks the parts from the cursor rather than reading `revealedText()` or a
-   * materialised source: the boundary check runs on every lane on every frame, and
+   * materialized source: the boundary check runs on every lane on every frame, and
    * building a string to look at two characters is exactly the copying the rope
    * exists to avoid.
    */

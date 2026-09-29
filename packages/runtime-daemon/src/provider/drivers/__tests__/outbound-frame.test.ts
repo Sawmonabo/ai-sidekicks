@@ -1310,9 +1310,9 @@ describe("runtime binding quarantine", () => {
     expect(() => quarantine.assertSessionAttachable("session-1")).toThrow(/session session-1/);
   });
 
-  it("holds a bounded number of disposals, ageing out the oldest", () => {
+  it("holds a bounded number of disposals, aging out the oldest", () => {
     // Neither collection in this module has a completion guarantee, so both are
-    // capped rather than grown for the daemon process's lifetime. Ageing out a
+    // capped rather than grown for the daemon process's lifetime. Aging out a
     // disposal cannot revive the run it belonged to — that run is already
     // terminal — so what expires is only the fail-fast refusal an immediate
     // re-attach would have hit.

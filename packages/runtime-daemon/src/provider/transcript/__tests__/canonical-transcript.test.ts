@@ -378,7 +378,7 @@ describe("canonical transcript fold — scope and ordering", () => {
     ]);
   });
 
-  it("honours a boundary without moving the position the fold was taken at", () => {
+  it("honors a boundary without moving the position the fold was taken at", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);
 
@@ -1540,7 +1540,7 @@ describe("transform pipeline — a bounded export carries only what the bound ad
 
     expect(boundProjectionToPosition(whole, 3)).toEqual(foldedToThree);
 
-    // Behaviour, not only shape: the equality above would also hold if BOTH
+    // Behavior, not only shape: the equality above would also hold if BOTH
     // paths shipped the body. This is the assertion that says which side of the
     // equality they agree on.
     expect(
@@ -1780,7 +1780,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
   it("keeps the rest of an assistant turn in order around a removed private-enclosed answer", () => {
     const fixture = makeFixture();
     // The turn close rebuilds the segment array to drop the withheld answer, so
-    // the neighbours it does NOT drop have to come back untouched and in the
+    // the neighbors it does NOT drop have to come back untouched and in the
     // order the log gave them.
     fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.contentSource.reasoningBlocksBySequence.set(1, [
@@ -2069,7 +2069,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
 /**
  * The hazard these pin: the strip decides a keyed tool result's portability from
  * the reasoning segments standing beside it in the same turn. Two ways that
- * neighbour stops being there — the row it came from could not be read, and a
+ * neighbor stops being there — the row it came from could not be read, and a
  * positional bound cut it away — and in both the result is enclosed by a block
  * whose disclosure nothing can now establish. Retaining it exports content that
  * may be private reasoning's, into a target the provider never showed it to.

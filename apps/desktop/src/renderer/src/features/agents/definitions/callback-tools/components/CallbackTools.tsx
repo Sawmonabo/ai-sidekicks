@@ -24,7 +24,7 @@
 // component that read one flag and inferred both would report an unread driver as a
 // registry that holds nothing.
 //
-// TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesises the registry from
+// TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesizes the registry from
 // observed tool rows, which would report only tools that have already been called.
 // And it never presents a callback tool as ungoverned or as a provider tool: every
 // daemon-registered callback tool is Cedar-governed identically to a provider tool,

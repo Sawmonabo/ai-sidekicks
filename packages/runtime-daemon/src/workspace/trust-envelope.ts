@@ -96,7 +96,7 @@
 // widening of a security boundary keyed off the operator's locale.
 //
 // Folding per COMPONENT makes each component's mapping independent of its
-// neighbours, so an anchor folds identically whether it stands alone or sits
+// neighbors, so an anchor folds identically whether it stands alone or sits
 // inside a longer candidate. That is defensive rather than a live fix: both
 // separators are Unicode category Po, which terminates the context-sensitive
 // mappings (Greek final sigma being the usual example) at the same places a

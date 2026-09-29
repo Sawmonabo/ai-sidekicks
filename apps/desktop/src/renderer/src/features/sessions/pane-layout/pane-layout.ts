@@ -133,7 +133,7 @@ export function distributeEvenly(panes: readonly SessionPane[]): readonly Sessio
  *
  * The library speaks percentages of the group as floats (0..100); the persisted
  * grammar speaks integer permille, and stays integer permille, because a float that
- * round-trips through JSON reintroduces exactly the accumulation error `normalise`
+ * round-trips through JSON reintroduces exactly the accumulation error `normalize`
  * exists to remove. So the conversion is a factor of ten and lives here, beside the
  * total it is derived from, rather than being written out at each of the three call
  * sites that need it.
@@ -208,7 +208,7 @@ export function sizesAreEqual(
 /**
  * Make a clamped row sum to the whole pane layout again, without breaking the floor.
  *
- * `normalise` cannot do this job: it rescales every pane by one ratio, which pulls
+ * `normalize` cannot do this job: it rescales every pane by one ratio, which pulls
  * a pane that was just raised to the floor straight back under it. So the drift is
  * taken from the panes that have room for it, widest headroom first, and a shortfall
  * is given to the widest pane. Bounded by construction — one pass over a sorted
@@ -243,13 +243,13 @@ function settleToTotal(panes: readonly SessionPane[], floor: number): readonly S
  * width of nearly nothing still comes back as a pane rather than as a zero-width
  * column the panel group has no way to grab.
  */
-const MINIMUM_NORMALISED_PERMILLE = 1;
+const MINIMUM_NORMALIZED_PERMILLE = 1;
 
 /**
  * Seat arriving panes in front of an arrangement a person already made.
  *
  * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
- * whole point: equalising a pane layout that already holds panes destroys the drag the person
+ * whole point: equalizing a pane layout that already holds panes destroys the drag the person
  * finished while the record was being read, which is exactly the work
  * `PaneLayoutStore.adoptBeneath` exists to protect.
  *
@@ -262,7 +262,7 @@ const MINIMUM_NORMALISED_PERMILLE = 1;
  * across the space it still holds — while an adopted pane arrives at an ordinary width
  * rather than at whatever a subtraction happened to leave it.
  *
- * The sum is settled by {@link settleToTotal}, the same pass `normalise` and
+ * The sum is settled by {@link settleToTotal}, the same pass `normalize` and
  * `applyPaneSizePercentages` run, so one rule decides where a rounding remainder goes
  * and the row sums to a whole pane layout on every path.
  */
@@ -285,14 +285,14 @@ export function distributeAdoptedBeneath(
       ...live.map((pane) => ({
         ...pane,
         sizePermille: Math.max(
-          MINIMUM_NORMALISED_PERMILLE,
+          MINIMUM_NORMALIZED_PERMILLE,
           liveTotal <= 0
             ? Math.floor(liveBudget / live.length)
             : Math.round((pane.sizePermille / liveTotal) * liveBudget),
         ),
       })),
     ],
-    MINIMUM_NORMALISED_PERMILLE,
+    MINIMUM_NORMALIZED_PERMILLE,
   );
 }
 
@@ -321,11 +321,11 @@ export function normalize(panes: readonly SessionPane[]): readonly SessionPane[]
     panes.map((pane) => ({
       ...pane,
       sizePermille: Math.max(
-        MINIMUM_NORMALISED_PERMILLE,
+        MINIMUM_NORMALIZED_PERMILLE,
         Math.round((pane.sizePermille / total) * PANE_LAYOUT_TOTAL_PERMILLE),
       ),
     })),
-    MINIMUM_NORMALISED_PERMILLE,
+    MINIMUM_NORMALIZED_PERMILLE,
   );
 }
 
@@ -363,7 +363,7 @@ export function highestOrdinal(panes: readonly SessionPane[]): number {
  *
  * A pane too narrow to halve cannot be split — a zero-width column is one the panel
  * group has no way to grab — so this answers `undefined` and the caller applies its
- * own fallback rather than being handed a silently equalised row.
+ * own fallback rather than being handed a silently equalized row.
  */
 export function carveSplitFrom(
   panes: readonly SessionPane[],
@@ -375,7 +375,7 @@ export function carveSplitFrom(
     return undefined;
   }
   const arrivingShare = Math.floor(source.sizePermille / 2);
-  if (arrivingShare < MINIMUM_NORMALISED_PERMILLE) {
+  if (arrivingShare < MINIMUM_NORMALIZED_PERMILLE) {
     return undefined;
   }
   const split = [...panes];

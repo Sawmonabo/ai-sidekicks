@@ -84,7 +84,7 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   it("renders the placement's shape for every kind in the set", () => {
     // The grid, in full: no cell of it reads the kind to decide the shape, which is
     // the whole claim. `not-checked` at `surface` is the cell that used to be
-    // impossible — a badge centred in a pane — and it is not called out here,
+    // impossible — a badge centered in a pane — and it is not called out here,
     // because a rule that needs its hardest case called out is a rule with an
     // exception in it.
     for (const placement of NOTHING_PLACEMENTS) {

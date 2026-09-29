@@ -127,7 +127,7 @@ import type { DaemonSigningKeySource } from "./signing-key-source.js";
  * `sequence` is omitted rather than ignored. This service allocates it under
  * the lock (see the file header), so a caller-supplied value could only be
  * silently discarded — and a discarded `sequence` is the kind of input a
- * producer would reasonably believe was honoured. The receipt returns the
+ * producer would reasonably believe was honored. The receipt returns the
  * allocated value, which is the one place it is knowable.
  */
 export type UnsequencedEventEnvelope = Omit<EventEnvelope, "sequence">;

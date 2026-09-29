@@ -32,7 +32,7 @@
 // array answers both — with its own indices, which is a body composed of a length and
 // some numbers. A NULL-PROTOTYPE object IS one: a value that crossed a structured
 // clone or arrived from another realm has no prototype chain left and still carries
-// exactly the keys its producer put on it, which is the same judgement
+// exactly the keys its producer put on it, which is the same judgment
 // `core/refusal.ts` makes about a refusal that traveled.
 
 /**
@@ -40,7 +40,7 @@
  *
  * `Readonly<Record<string, unknown>>` rather than `object`, because what every caller
  * does next is index it: a narrowing to `object` would make `value["items"]` an error
- * and leave each caller to cast, which is the judgement being hoisted written out
+ * and leave each caller to cast, which is the judgment being hoisted written out
  * again. The members stay `unknown` — this predicate says the value has keys, never
  * what is behind one.
  */

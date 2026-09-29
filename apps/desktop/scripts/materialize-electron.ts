@@ -44,7 +44,7 @@
 // THE SKIP ESCAPE IS OURS, NOT THE VENDOR'S
 // -----------------------------------------
 // 41.6.1's `install.js` opened with `if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD) process.exit(0)`.
-// 44.1.0's does not — the escape went out with the postinstall. Honouring it
+// 44.1.0's does not — the escape went out with the postinstall. Honoring it
 // here restores the contract every CI recipe and Dockerfile in the ecosystem
 // already assumes, and it is the only reason a caller can opt out at all now.
 //

@@ -238,9 +238,9 @@ export class PaneLayoutStore {
    * A SUBSCRIPTION. `react-resizable-panels` is adopted under one constraint — the
    * layout is store-owned — so the group reports what a drag or an arrow key settled
    * on and this method decides what the pane layout keeps: clamped to the pane layout's own floor,
-   * renormalised to the total, and dropped entirely when nothing moved.
+   * renormalized to the total, and dropped entirely when nothing moved.
    *
-   * The no-op guard is load-bearing rather than an optimisation. The group reports
+   * The no-op guard is load-bearing rather than an optimization. The group reports
    * its layout after every commit, including the ones this method caused; without
    * the guard each report would raise the revision, the raised revision would
    * re-render the group, and the pane layout would settle only because the values stopped
@@ -337,7 +337,7 @@ export class PaneLayoutStore {
     // AND THE LIVE WIDTHS ARE CARRIED THROUGH, which is what makes the sentence above
     // about widths true rather than aspirational. `distributeEvenly` would have given
     // every pane an equal share, so the drag the person finished during the read was
-    // equalised away the moment the record contributed one address — the common shape
+    // equalized away the moment the record contributed one address — the common shape
     // of this path, not an edge of it. `distributeAdoptedBeneath` keeps the live row's
     // proportions and carves the arriving panes' share out of the pane layout instead.
     //

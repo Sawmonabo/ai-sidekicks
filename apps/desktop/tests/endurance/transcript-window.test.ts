@@ -80,7 +80,7 @@ const LINEARITY_PROBE_ROW_COUNT = 2_500;
  * (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core
  * laptop), and this leaves comfortably over the noise while sitting half way to the
  * quadratic figure it exists to catch. Fixed per-call overhead can only push the
- * ratio DOWN — the larger fold amortises it further — so it cannot manufacture a
+ * ratio DOWN — the larger fold amortizes it further — so it cannot manufacture a
  * failure here.
  */
 const SUPERLINEAR_COST_RATIO_CEILING = 8;

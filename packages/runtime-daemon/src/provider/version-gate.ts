@@ -340,7 +340,7 @@ export async function resolveProviderExecutable(
  * The `clientInfo.name` the daemon supplies at the Codex `initialize` handshake.
  *
  * A name carrying either would make the extraction ambiguous in the provider's
- * favour, which is the failure the rule exists to prevent.
+ * favor, which is the failure the rule exists to prevent.
  */
 export const DEFAULT_PROVIDER_VERSION_CLIENT_NAME: string = "ai-sidekicks-daemon";
 

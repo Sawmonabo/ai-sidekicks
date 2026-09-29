@@ -366,7 +366,7 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
     // hide a figure the daemon did send. So the two rules are applied separately
     // when they cannot be applied at once: the amount keeps its `Intl` formatting,
     // and the code the daemon sent renders verbatim beside it. There is no minor
-    // unit to honour on this arm — the code `Intl` rejected names no currency — so
+    // unit to honor on this arm — the code `Intl` rejected names no currency — so
     // the floor is the whole precision here.
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits: floorFractionDigits }).format(amount)}\u00A0${currency}`;
   }

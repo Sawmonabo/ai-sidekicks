@@ -29,7 +29,7 @@ export const FORCED_DISPLAY_READY_TIMEOUT_MS = 1_000;
 // bare timeout. Consulted ONLY by this file; the shipped app never reads it.
 export const FORCED_DISPLAY_ENV = "SIDEKICKS_SMOKE_FORCE_DISPLAY";
 
-// Resolves the X display this spawn should use, honouring the test-only
+// Resolves the X display this spawn should use, honoring the test-only
 // override that drives the negative control.
 export function resolvedDisplay(): string | undefined {
   return process.env[FORCED_DISPLAY_ENV] ?? process.env["DISPLAY"];

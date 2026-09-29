@@ -545,7 +545,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
 
   it("leaves an ORDINARY refresh failure on the `capability-refresh` leg", async () => {
     // The refinement is scoped, not a rename: a below-floor downgrade is still a
-    // refresh failure and must not be mislabelled as a probe fault.
+    // refresh failure and must not be mislabeled as a probe fault.
     const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
@@ -561,7 +561,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
 
   it("never refines the AUTH-PROBE leg, whatever it rejects with", async () => {
     // A probe error surfacing from the auth seam would be a wiring fault, and
-    // relabelling it would attribute an auth failure to the capability channel.
+    // relabeling it would attribute an auth failure to the capability channel.
     const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });

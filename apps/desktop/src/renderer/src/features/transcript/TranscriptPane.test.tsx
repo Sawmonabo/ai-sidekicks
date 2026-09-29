@@ -16,7 +16,7 @@
 //   • The row slot reads the real seat. A host that held its own idea of whether
 //     rows exist would be a second source of truth for a decision another plan
 //     owns, and would keep rendering the reserved state after `renderer/src/timeline/` landed.
-//   • The two absences are different absences. Both are quiet grey lines; only the
+//   • The two absences are different absences. Both are quiet gray lines; only the
 //     copy tells "the console cannot draw this" from "your session is empty".
 //
 // The fixtures live in `TranscriptPane.test-support.tsx`.

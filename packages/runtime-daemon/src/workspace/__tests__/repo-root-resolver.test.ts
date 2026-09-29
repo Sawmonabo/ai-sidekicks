@@ -169,7 +169,7 @@ const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
  * together, and a mirror that imported its expectation would have nothing to
  * pin. Five direct discovery redirectors, then `GIT_OBJECT_DIRECTORY` — which
  * bends what git ACCEPTS as a repository rather than where it looks, in both
- * directions, and whose behavioural pair below is the only strip on this list
+ * directions, and whose behavioral pair below is the only strip on this list
  * driven against real git in BOTH the hazard and the fix — plus the two
  * INDEPENDENT env-borne config-injection channels: `GIT_CONFIG_COUNT`, the
  * switch that makes `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and

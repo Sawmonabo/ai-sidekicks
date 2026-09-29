@@ -141,9 +141,9 @@ describe("the conflict report — one clause reads one way", () => {
     expect("sessionOpen&&paneFocused").not.toBe("sessionOpen && paneFocused");
   });
 
-  it("canonicalises a redundantly parenthesised negation the same way", () => {
+  it("canonicalizes a redundantly parenthesized negation the same way", () => {
     const { prepared, diagnostics } = prepareBindings([
-      binding("$mod+k", "parenthesised", "!(paneFocused)"),
+      binding("$mod+k", "parenthesized", "!(paneFocused)"),
       binding("$mod+k", "bare", "!paneFocused"),
     ]);
     expect(diagnostics).toStrictEqual([]);

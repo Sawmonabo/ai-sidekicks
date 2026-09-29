@@ -162,7 +162,7 @@ async function resolveSession(
       // created.
       //
       // NARROW ON PURPOSE, and the boundary is the door's own vocabulary rather than a
-      // judgement made here: `request-unsendable` means nothing left this process,
+      // judgment made here: `request-unsendable` means nothing left this process,
       // `read-abandoned` is never reachable on a mutation (the door is handed no
       // cancellation here), and `call-rejected` is the call itself failing — which this module
       // treats as a plain refusal, because widening the ambiguous arm to every

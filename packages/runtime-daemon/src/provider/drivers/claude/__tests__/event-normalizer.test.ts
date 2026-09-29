@@ -374,7 +374,7 @@ describe("pinned stream surface", () => {
     }
   });
 
-  it("honours the censused system/api_error -> system/api_retry mapping arm", () => {
+  it("honors the censused system/api_error -> system/api_retry mapping arm", () => {
     const [fromKind, toKind] = CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM;
     const from = expectNormalized(normalizeClaudeWireFrame(fromKind));
     const to = expectNormalized(normalizeClaudeWireFrame(toKind));
@@ -914,12 +914,12 @@ describe("ClaudeTerminalEmissionGate", () => {
     });
   });
 
-  it("stamps `intendedClose: true` once a daemon-initiated close is signalled", () => {
+  it("stamps `intendedClose: true` once a daemon-initiated close is signaled", () => {
     const gate = new ClaudeTerminalEmissionGate();
 
     gate.signalIntendedClose();
 
-    expect(gate.intendedCloseSignalled()).toBe(true);
+    expect(gate.intendedCloseSignaled()).toBe(true);
     expect(gate.admitTerminalFrame(terminalFrame())).toMatchObject({
       emit: true,
       intendedClose: true,

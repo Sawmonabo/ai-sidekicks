@@ -3,7 +3,7 @@
 // The token sheet is GENERATED at mount from `generateMeridianCss()` rather than
 // committed as a `.css` file, and that is a decision rather than a shortcut. A
 // committed sheet would be a second copy of `palette.ts` — the two would drift, and
-// the only defence would be a byte-diff test whose failure mode is "someone forgot
+// the only defense would be a byte-diff test whose failure mode is "someone forgot
 // to run the generator". Generating at mount deletes the second copy: there is one
 // source of truth for every color, and the sheet cannot disagree with it.
 //

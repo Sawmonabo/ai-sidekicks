@@ -54,7 +54,7 @@ export type OsNotificationDelivery =
  * Named constants rather than a literal per settlement, because this reading is
  * re-read and every re-read publishes: a fresh object per answer would re-identify
  * the value on every focus, re-render the center, and re-mint the context object the
- * window's attention binding memoises — for an answer that did not move. Three
+ * window's attention binding memoizes — for an answer that did not move. Three
  * arms, three objects, and an unchanged answer compares equal at the one comparison
  * `useSyncExternalStore` performs.
  */

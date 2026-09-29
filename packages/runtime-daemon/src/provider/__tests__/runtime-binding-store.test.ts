@@ -1,4 +1,4 @@
-// RuntimeBindingStore behaviour.
+// RuntimeBindingStore behavior.
 //
 // Exercises CRUD + the provider-output write-seam validation over a REAL Local
 // SQLite handle via `openDatabase(":memory:")` — so BOTH the Zod write-seam
@@ -1454,7 +1454,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     // guard exists for: the static type is erased at runtime, so a malformed
     // driver can ship `null` where the report belongs. `null` is passed
     // DIRECTLY (no cast through `unknown`): the guard's parameter IS `unknown`,
-    // deliberately, so that a malformed report is a runtime judgement rather
+    // deliberately, so that a malformed report is a runtime judgment rather
     // than a static assumption. Asserted here rather than in a validator-local
     // module because this package has no dedicated `provider-output-validation`
     // test file.

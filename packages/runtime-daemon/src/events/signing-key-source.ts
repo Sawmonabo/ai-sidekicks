@@ -164,7 +164,7 @@ export interface DaemonSigningKeySealer {
    * THE RESULT MAY BE A BUFFER THE IMPLEMENTATION REUSES. `read` copies these
    * bytes before branding them, so an implementation is free to unseal into a
    * scratch array it overwrites on its next call — this consumer retains no
-   * view over it. That is a promise this module keeps rather than a licence it
+   * view over it. That is a promise this module keeps rather than a license it
    * takes, and it is the one the copy actually covers; see the note on the
    * private-key narrowing site for the silent failure it prevents.
    */

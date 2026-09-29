@@ -42,7 +42,7 @@ export const UNFOCUSED_DOCUMENT: DocumentFocusReading = {
   visibilityState: "visible",
 };
 
-/** A window that is not on screen at all — minimised, or opened without being shown. */
+/** A window that is not on screen at all — minimized, or opened without being shown. */
 export const HIDDEN_DOCUMENT: DocumentFocusReading = {
   hasFocus: false,
   visibilityState: "hidden",

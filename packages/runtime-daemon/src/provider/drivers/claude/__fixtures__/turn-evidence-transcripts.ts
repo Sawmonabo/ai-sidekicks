@@ -8,7 +8,7 @@
 //                     command-shaped first word, that same body with one
 //                     prepended newline, and ordinary prose.
 //   Trust           : Verified at 2.1.251. Every number below is a reading, not
-//                     an illustration. The same behaviour recorded at `2.1.245`
+//                     an illustration. The same behavior recorded at `2.1.245`
 //                     reproduced unchanged at this pin, so it is a standing
 //                     property of this input surface rather than one build's
 //                     regression.

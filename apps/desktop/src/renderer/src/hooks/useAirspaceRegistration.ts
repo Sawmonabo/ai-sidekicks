@@ -59,7 +59,7 @@ export function useAirspaceRegistration(kind: AirspaceOverlayKind): AirspaceOver
   return useCallback(
     (element: Element | null) => {
       if (element === null) {
-        // Reached only if React ever detaches without honouring the cleanup this
+        // Reached only if React ever detaches without honoring the cleanup this
         // returns on every attach. Nothing was registered on that path, so nothing
         // is released here.
         return undefined;

@@ -67,7 +67,7 @@
 // export is a FROZEN object whose `keygen` property is non-writable and
 // non-configurable — so `vi.spyOn` cannot stand in a short-returning keygen,
 // and module-level mocking of a crypto library to reach one branch would buy
-// less than it costs. The only behaviour distinct to that role is the word
+// less than it costs. The only behavior distinct to that role is the word
 // "public key" in the message; the guard itself is the same call.
 //
 import { SessionIdSchema } from "@ai-sidekicks/contracts";

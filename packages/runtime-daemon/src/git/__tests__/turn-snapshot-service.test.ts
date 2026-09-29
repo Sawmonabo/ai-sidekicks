@@ -659,7 +659,7 @@ beforeEach(async () => {
 afterEach(() => {
   // Ambient environment stubs are per-case (the strip-list behavioral case is
   // the only one that sets any); unstubbed here as well as in that case's own
-  // `finally`, so a future case cannot leak one into its neighbours.
+  // `finally`, so a future case cannot leak one into its neighbors.
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   rmSync(fixture.fixtureRoot, { recursive: true, force: true });

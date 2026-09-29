@@ -120,7 +120,7 @@ export class RevealLane {
    * prefix keeps the characters the two sources actually share, and the divergent
    * remainder is revealed by the ordinary per-frame budget, so a rewrite streams.
    *
-   * Both strings are already materialised here, so the comparison reads no growing
+   * Both strings are already materialized here, so the comparison reads no growing
    * source. The retraction is real — the producer withdrew text a reader had
    * already seen — so the diagnostic states how many characters went, rather than
    * claiming the revealed text held where it was.
@@ -256,7 +256,7 @@ interface RevealCheckpoint {
 /**
  * How many leading characters two settled strings share.
  *
- * Both arguments are materialised strings the caller already holds — the text a
+ * Both arguments are materialized strings the caller already holds — the text a
  * lane published and the whole source an authoritative commit carried — so this
  * inspects nothing that is still growing, which is the one thing the rope's
  * proven-append token exists to prevent.

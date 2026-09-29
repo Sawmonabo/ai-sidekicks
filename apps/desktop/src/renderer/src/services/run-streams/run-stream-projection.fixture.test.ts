@@ -219,7 +219,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
     // The louder half of the same defect. The durable row is what the timeline's
     // boundary entry refines against the envelope, so the two cannot disagree — and
     // before the check the disagreement was resolved silently, in the envelope's
-    // favour, by overwriting the evidence.
+    // favor, by overwriting the evidence.
     const projection = projectRunStreamDelivery(
       RUN_STATE_EVENT_STREAM,
       rollbackBeatEvent({ sessionId: OTHER_SESSION_ID }),

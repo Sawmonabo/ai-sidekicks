@@ -185,7 +185,7 @@ export class UiStateStore {
       return this.#refuse(
         refusePersistence(
           "value-too-large",
-          `${valueClass} at ${site} serialises to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
+          `${valueClass} at ${site} serializes to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
         ),
         site,
       );
@@ -384,7 +384,7 @@ export class UiStateStore {
 
   /** Session partitions only — the global one is never counted and never trimmed. */
   async #countSessionPartitions(): Promise<number> {
-    const summaries = await (await this.#adapterReady).summarisePartitions();
+    const summaries = await (await this.#adapterReady).summarizePartitions();
     return summaries.filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION).length;
   }
 }

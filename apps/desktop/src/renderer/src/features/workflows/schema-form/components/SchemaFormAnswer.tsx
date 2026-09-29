@@ -95,7 +95,7 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
   // behind a branch. Neither of the two arms below that offer no act renders what this
   // composed.
   const form = useSchemaForm(props.inputSchema);
-  // Read on every render rather than memoised: it is three property reads over a value
+  // Read on every render rather than memoized: it is three property reads over a value
   // the caller already holds, and a cache would be a second thing to keep in step with
   // the schema.
   const rootRefusal = schemaRootRefusal(props.inputSchema);

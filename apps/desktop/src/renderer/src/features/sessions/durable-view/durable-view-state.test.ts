@@ -222,7 +222,7 @@ describe("a refusal this state has recovered from", () => {
 
   it("does not publish twice for a settlement that changed nothing", async () => {
     // Two successful writes in a row leave the refusal `undefined` throughout, and
-    // a second emission for that would re-render every memoised row for a fact that
+    // a second emission for that would re-render every memoized row for a fact that
     // did not move.
     const state = stateOver(openStore());
     await state.commit([...COMMITTED_IDS]);

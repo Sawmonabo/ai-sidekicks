@@ -3,7 +3,7 @@
 //
 // The claims here are the ones the bound exists for, and every one of them is about
 // WORK rather than about output: that parsing a patch runs no word diff at all, that
-// materialising a row runs exactly one and a second read of that row runs none, that
+// materializing a row runs exactly one and a second read of that row runs none, that
 // the register does not grow without limit, and that a pair past the bounds keeps its
 // whole line and SAYS the comparison was declined. The library call is wrapped by the
 // mock below so the count is read off the library itself rather than off a figure this
@@ -116,7 +116,7 @@ describe("intraline segmentation — when the word diff runs", () => {
     expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 
-  it("runs one when a row is materialised, and none on a second read of that row", () => {
+  it("runs one when a row is materialized, and none on a second read of that row", () => {
     const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
     const first = cache.readingFor(bodyRow(0), 0);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);

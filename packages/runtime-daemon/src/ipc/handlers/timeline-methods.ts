@@ -132,7 +132,7 @@ import {
 // GLOBAL `TIMELINE_READ_LIMIT_MAX` — which is the only ceiling a schema can
 // know, since the caller's own number is on the request. So a read for ten rows
 // answering with two hundred and fifty-six parses: the caller's window is a
-// request the producer may honour or ignore, and a client sizing a viewport,
+// request the producer may honor or ignore, and a client sizing a viewport,
 // a budget, or a render pass from what it asked for is handed several times
 // that with nothing on the reply saying so. The ceiling is therefore resolved
 // per request — the caller's `limit` where it supplied one, the same global
@@ -244,7 +244,7 @@ const refusePageOverRequestedCeiling = (
             ? "the limit this request asked for"
             : "the default page ceiling, which this request did not narrow"
         }): a caller sizing a viewport, a budget, or a render pass from the window it asked for ` +
-        "is handed a larger one, with nothing on the reply saying the request was not honoured",
+        "is handed a larger one, with nothing on the reply saying the request was not honored",
     },
   ];
 };

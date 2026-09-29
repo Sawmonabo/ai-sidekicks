@@ -67,7 +67,7 @@
  * `workspace.stale` append failing — also propagates, but under its OWN
  * discriminant (`stale_transition_durability_failure`). It is a durability
  * failure rather than a projection failure, and the distinction is operational,
- * not cosmetic: labelling a `SQLITE_BUSY` on the event append
+ * not cosmetic: labeling a `SQLITE_BUSY` on the event append
  * `workspace_row_unprojectable` sends an operator to inspect a row that is
  * perfectly healthy. It must not be swallowed either — the list would otherwise
  * report `stale` for a row the database still calls `ready`, and the
@@ -548,7 +548,7 @@ export function normalizeWorkspaceLastError(rawDetail: string): string | null {
  * `probedPath` from its own argument and nothing else. That is the
  * verbatim-probe-subject obligation: the path read out of `workspaces.fs_root`
  * reaches the projector VERBATIM,
- * with no re-resolution in between. Re-canonicalising it would make every row
+ * with no re-resolution in between. Re-canonicalizing it would make every row
  * fail the subject-binding guard on any path whose stored spelling differs from
  * its resolved one — and would defeat the guard's purpose, which is to catch
  * exactly that substitution.
@@ -1060,7 +1060,7 @@ export class WorkspaceService {
       default: {
         const unreachable: never = observedState;
         throw new WorkspaceServiceInvariantError(
-          `workspace "${workspaceId}" reported an unmodelled state "${String(unreachable)}"`,
+          `workspace "${workspaceId}" reported an unmodeled state "${String(unreachable)}"`,
           { kind: "workspace_row_unprojectable", workspaceId },
         );
       }
@@ -1598,7 +1598,7 @@ function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string): vo
 // Spelled out rather than imported from `node:path` for two reasons: that
 // module's `isAbsolute` is the wrong predicate (see above), and its behavior
 // is platform-dependent, so a POSIX-format root stored by one machine would
-// stop being recognised when the same database is read on another. The daemon's
+// stop being recognized when the same database is read on another. The daemon's
 // database is portable even when its filesystem is not.
 const ABSOLUTE_PATH_PATTERN = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/;
 

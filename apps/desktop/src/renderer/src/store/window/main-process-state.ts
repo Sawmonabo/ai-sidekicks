@@ -19,7 +19,7 @@
 //
 // THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries the
 // main process's status yet, so the ordinary state of a shipped window is "nobody has said".
-// That is not `connected` and it is not `offline`: a window that synthesised
+// That is not `connected` and it is not `offline`: a window that synthesized
 // `connected` from a call that happened to succeed would be doing exactly what the
 // console's trust stance forbids, and one that assumed `offline` would report a working
 // console as down. So the arm exists and it renders as the _not checked_ kind of nothing.

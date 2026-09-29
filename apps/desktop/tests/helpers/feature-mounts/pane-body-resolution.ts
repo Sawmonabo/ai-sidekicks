@@ -11,7 +11,7 @@
 // PRELOAD RATHER THAN A WIDER SETTLE. A loader-backed registration hands back a
 // component that renders the pending fallback until its module lands, and the module
 // lands on a dynamic import — which under Vitest needs more than the one macrotask a
-// render settle crosses. `preload` is the registration's OWN loader, memoised, so
+// render settle crosses. `preload` is the registration's OWN loader, memoized, so
 // awaiting it is exact rather than generous: a statically registered kind has nothing to
 // load and settles immediately, and a loader-backed one is resolved before the first
 // render rather than one frame into it.

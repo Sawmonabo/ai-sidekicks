@@ -50,7 +50,7 @@ export interface NodeGraphMount {
    * The one durable home for canvas geometry, under the `layout` value class.
    *
    * Handed over whole rather than as a narrowed geometry port: narrowing would fix
-   * a serialisation the body has not chosen yet, and the property that matters is
+   * a serialization the body has not chosen yet, and the property that matters is
    * that there is one store and the body did not open a second.
    */
   readonly uiStateStore: UiStateStore;

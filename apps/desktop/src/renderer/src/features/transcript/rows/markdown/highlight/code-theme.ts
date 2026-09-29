@@ -85,7 +85,7 @@ const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenKind, "plain">, readonl
  * The theme, built fresh per call.
  *
  * A function rather than a module-level object because a highlighter takes ownership of
- * the theme it is given and normalises it in place; two highlighters sharing one object
+ * the theme it is given and normalizes it in place; two highlighters sharing one object
  * would be two owners of one mutable value, which is the module-scope singleton
  * `apps/desktop/AGENTS.md` rejects and which here would also be a real aliasing bug.
  */

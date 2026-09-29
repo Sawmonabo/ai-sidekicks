@@ -339,7 +339,7 @@ export interface TimelineRollbackBoundary extends Omit<
   /**
    * Pinned alongside `type`. `run.rolled_back` is registered `run_lifecycle`
    * and nothing else, so leaving `category` open on the one arm whose event
-   * type is closed would let a boundary row arrive labelled with a category
+   * type is closed would let a boundary row arrive labeled with a category
    * its own event cannot have — and a renderer that groups or filters by
    * category would then file the rewind cutoff under the wrong family.
    */

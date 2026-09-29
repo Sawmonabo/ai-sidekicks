@@ -326,7 +326,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
 
   it("a provider answering with a FRESH session is refused and disposed", async () => {
     const harness = buildHarness();
-    // The documented Claude behaviour on a working-directory mismatch: the
+    // The documented Claude behavior on a working-directory mismatch: the
     // resume silently becomes a brand-new session announcing its own id.
     harness.transport.announcedProviderSessionId = "provider-session-fresh";
 
@@ -2218,7 +2218,7 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
     ).toStrictEqual(["mediated"]);
   });
 
-  it("clamps the depth ceiling while honouring a policy that asked for less", async () => {
+  it("clamps the depth ceiling while honoring a policy that asked for less", async () => {
     const clampedHarness = buildHarness();
     await clampedHarness.lifecycle.createSession({
       ...buildCreateSessionParams(),
@@ -2273,7 +2273,7 @@ describe("composeClaudeSandboxSettings", () => {
 // The routing / metering band, driven through the REAL inbound seam.
 // ---------------------------------------------------------------------------
 //
-// The double honours the whole `onInboundFrame` transport obligation: it
+// The double honors the whole `onInboundFrame` transport obligation: it
 // observes before projecting and projects only on `project`. So these assert
 // what a real transport would do with the driver's answer, not what a test
 // helper decided to record.
@@ -3344,7 +3344,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
 /**
  * A hand-fired stand-in for the declared compaction bound.
  *
- * Records rather than merely honours: a test that only fired timers could not
+ * Records rather than merely honors: a test that only fired timers could not
  * tell a wait that was never armed from one that was armed and canceled, and
  * the binding-loss leg's whole claim is that it settles WITHOUT the timer ever
  * running.
@@ -3742,7 +3742,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       expect(written[0]?.dispositionReason).toBe("Error: stdin closed");
 
       // And the withdrawal is TOTAL, not merely a cancellation request: this
-      // double's canceller does not stop its timer, so firing the bound here
+      // double's canceler does not stop its timer, so firing the bound here
       // exercises exactly the host whose clear races the fire. No SECOND record
       // appears, because no waiter remains to settle — the write-failure record
       // above stands alone.
@@ -3828,7 +3828,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     expect(scheduler.armedCount()).toBe(1);
     expect(scheduler.canceledCount()).toBe(1);
 
-    // TOTAL, exactly as on the reported arm: this double's canceller does not
+    // TOTAL, exactly as on the reported arm: this double's canceler does not
     // really stop its timer, so firing the bound exercises the host whose clear
     // raced the fire. No terminal diagnostic appears, because no waiter remains.
     scheduler.fireAll();

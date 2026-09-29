@@ -1,4 +1,4 @@
-// The provider-neutral terminal-emission gate: intended-close signalling plus
+// The provider-neutral terminal-emission gate: intended-close signaling plus
 // duplicate-terminal suppression.
 //
 // Both driver legs need exactly one guarantee at the moment a provider's
@@ -17,7 +17,7 @@
 //
 // Deliberately NOT parameterized by provider name. Nothing here emits a
 // diagnostic or a counter — a suppressed duplicate is ordinary provider
-// behaviour this boundary exists to absorb, and a non-`project` route was
+// behavior this boundary exists to absorb, and a non-`project` route was
 // already diagnosed by the thread-frame router — so a provider member would be
 // a constructor parameter with no reader.
 //
@@ -87,7 +87,7 @@ export class TerminalEmissionGate {
   readonly #settledEpochMemory: number;
   readonly #settledEpochKeysInOrder: string[] = [];
   readonly #settledEpochKeys = new Set<string>();
-  #intendedCloseSignalled = false;
+  #intendedCloseSignaled = false;
 
   constructor(options?: { readonly settledEpochMemory?: number }) {
     this.#settledEpochMemory =
@@ -100,12 +100,12 @@ export class TerminalEmissionGate {
    * the terminal the teardown provokes is already inside the intent.
    */
   signalIntendedClose(): void {
-    this.#intendedCloseSignalled = true;
+    this.#intendedCloseSignaled = true;
   }
 
-  /** Whether a daemon-initiated close has been signalled for this session. */
-  intendedCloseSignalled(): boolean {
-    return this.#intendedCloseSignalled;
+  /** Whether a daemon-initiated close has been signaled for this session. */
+  intendedCloseSignaled(): boolean {
+    return this.#intendedCloseSignaled;
   }
 
   /**
@@ -113,7 +113,7 @@ export class TerminalEmissionGate {
    * may — the `intendedClose` flag to stamp on its payload.
    *
    * Suppression is recorded in the return value rather than thrown: a duplicate
-   * terminal is an ordinary provider behaviour this boundary exists to absorb,
+   * terminal is an ordinary provider behavior this boundary exists to absorb,
    * not an error condition, and throwing here would surface it to a caller
    * whose only correct response is the suppression this method already
    * performed.
@@ -138,7 +138,7 @@ export class TerminalEmissionGate {
       emit: true,
       runId: frame.runId,
       runVersion: frame.runVersion,
-      intendedClose: this.#intendedCloseSignalled,
+      intendedClose: this.#intendedCloseSignaled,
     };
   }
 

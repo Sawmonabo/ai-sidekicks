@@ -18,7 +18,7 @@
 // what it has with no call to read a run or a definition through. The accessibility tier
 // audits every one of them — a family-wide claim that skipped a registered pane could not
 // fail on a regression unique to it. The screenshot tier pins its own subset, a separate
-// judgement made in that tier's own table. The run's phase graph is mounted on its own,
+// judgment made in that tier's own table. The run's phase graph is mounted on its own,
 // from a hand-built run, because no surface composes it until the run read is built and
 // its geometry and readiness are still worth holding.
 //
