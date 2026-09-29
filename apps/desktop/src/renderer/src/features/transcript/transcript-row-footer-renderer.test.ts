@@ -6,7 +6,7 @@ import {
   ROW_TYPES_WITH_FOOTER,
   registerTranscriptRowFooterRenderer,
   rowTakesFooter,
-  timelineRowFooterRenderer,
+  findTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,
 } from "./transcript-row-footer-renderer.js";
 import type { SessionId, TimelineRow } from "@ai-sidekicks/contracts";
@@ -39,9 +39,9 @@ afterEach(() => {
 
 describe("the timeline row footer seat", () => {
   it("is empty until an owner fills it", () => {
-    expect(timelineRowFooterRenderer()).toBeUndefined();
+    expect(findTranscriptRowFooterRenderer()).toBeUndefined();
     registerTranscriptRowFooterRenderer("an owner", () => null);
-    expect(timelineRowFooterRenderer()).toBeDefined();
+    expect(findTranscriptRowFooterRenderer()).toBeDefined();
   });
 
   it("refuses a second owner rather than swapping", () => {

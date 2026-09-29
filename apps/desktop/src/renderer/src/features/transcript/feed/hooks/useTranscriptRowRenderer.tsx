@@ -9,7 +9,7 @@ import { type RetainedRowState } from "../../viewport/retained-row-state-table.j
 import { type TranscriptRowRenderer } from "../../viewport/components/VirtualRow.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { timelineRowFooterRenderer } from "../../transcript-row-footer-renderer.js";
+import { findTranscriptRowFooterRenderer } from "../../transcript-row-footer-renderer.js";
 import { type TimelineRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeedRow } from "../components/TranscriptFeedRow.js";
 import { densityFor } from "../run-group-fold.js";
@@ -42,7 +42,7 @@ export function useTranscriptRowRenderer(
   // chain to carry it down. A plain read of a module-scope registration filled
   // before first paint, and identity-stable for the life of that registration —
   // which is what the memo below compares.
-  const renderTimelineRowFooter = timelineRowFooterRenderer();
+  const renderTimelineRowFooter = findTranscriptRowFooterRenderer();
   return useCallback(
     (row: ViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is

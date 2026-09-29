@@ -4,7 +4,4 @@
 
 import "@renderer/features/transcript/transcript.css";
 
-export {
-  registerLedger,
-  type TranscriptComposition,
-} from "@renderer/features/transcript/contributions/screens.js";
+export { registerLedger } from "@renderer/features/transcript/contributions/screens.js";

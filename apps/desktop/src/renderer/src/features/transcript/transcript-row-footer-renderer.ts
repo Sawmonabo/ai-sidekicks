@@ -84,7 +84,7 @@ export function unregisterTranscriptRowFooterRenderer(): void {
 }
 
 /** The footer body, or `undefined` while the seat is empty. */
-export function timelineRowFooterRenderer(): TimelineRowFooterRenderer | undefined {
+export function findTranscriptRowFooterRenderer(): TimelineRowFooterRenderer | undefined {
   return timelineRowFooterSeat.renderer();
 }
 

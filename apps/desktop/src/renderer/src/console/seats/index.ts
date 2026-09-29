@@ -246,7 +246,6 @@ export {
 // what the module-shape rule in `apps/desktop/AGENTS.md` rejects.
 export {
   rowTakesFooter,
-  timelineRowFooterRenderer,
   type TimelineRowFooterRenderer,
 } from "@renderer/features/transcript/transcript-row-footer-renderer.js";
 
