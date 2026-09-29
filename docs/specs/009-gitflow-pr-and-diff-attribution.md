@@ -31,7 +31,7 @@ This spec covers branch strategy, pull-request preparation, diff artifacts, and 
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 - [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 

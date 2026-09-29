@@ -38,7 +38,7 @@ Ship the Spec-021 Electron desktop shell and React + Vite renderer as a three-pr
 ## Non-Goals
 
 - **Pixel-level mockups and per-screen visual specifications.** [Spec-021 §Console Design (Meridian)](../specs/021-desktop-shell-and-renderer.md#console-design-meridian) fixes the design language, the surface set, the pane and window model, the budgets, and — through [Spec-021 §Console Libraries](../specs/021-desktop-shell-and-renderer.md#console-libraries) — the component-library and theme decisions; this plan registers the console subtree and its adoption path (§Target Areas Renderer, T-021r-6-1 EXTEND) and carries its invariants (I-021-11, I-021-12), while the per-surface composition is the console's own code and fixture scenarios. _Re-derived 2026-09-01: the prior bullet deferred all of this to a design track that has since run and landed in Spec-021._
-- **Daemon internals.** Owned by `component-architecture-local-daemon.md` and Spec-006 / Plan-006. This plan consumes Plan-006's daemon contract; it does not re-specify it.
+- **Daemon internals.** Owned by `daemon.md` and Spec-006 / Plan-006. This plan consumes Plan-006's daemon contract; it does not re-specify it.
 - **PTY supervision from the shell.** Per [Plan-022 §Target Areas](./022-rust-pty-sidecar.md#target-areas), `PtyHostSelector` + `RustSidecarPtyHost` + `NodePtyHost` are owned by the **daemon** (`packages/runtime-daemon/src/pty/`). The shell never consumes the PtyHost contract directly. A Plan-021 edit wiring PTY supervision into the main process is a review rejection.
 - **The CLI client.** CLI first-run onboarding lives in Plan-023; CLI session surfaces are owned by a separate plan. Plan-021 is desktop-only.
 - **Mobile or browser-hosted renderer surfaces.** Out of V1 per ADR-015; out of Spec-006 scope; out of this plan's scope.
@@ -1148,7 +1148,7 @@ Plan-021 splits into a partial delivery and a remainder under the substrate-vs-n
 - [Plan-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) — the daemon IPC contract, the R3 status projector (CP-021-2), and the R3-owned `bridge/daemon-status.ts` (CP-021-3)
 - [Plan-001: Session Core](./001-session-core.md) — the `main/sidecar-lifecycle.ts` will-quit drain this plan composes rather than replaces (CP-021-1)
 - [Container Architecture](../architecture/container-architecture.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Desktop Architecture](../architecture/desktop.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [Plan-022: Rust PTY Sidecar](./022-rust-pty-sidecar.md) — PtyHost ownership boundary (daemon, not shell)
 - [Plan-023: First-Run Onboarding](./023-first-run-onboarding.md) — consumes the `onboarding.*` preload-bridge surface authored here

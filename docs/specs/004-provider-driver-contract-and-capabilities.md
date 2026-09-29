@@ -7,7 +7,7 @@
 | **Slug** | `provider-driver-contract-and-capabilities` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Daemon Architecture](../architecture/daemon.md), [Data Architecture](../architecture/data-architecture.md) |
 | **Implementation Plan** | [Plan-004: Provider Driver Contract And Capabilities](../plans/004-provider-driver-contract-and-capabilities.md) |
 
 ## Purpose
@@ -32,7 +32,7 @@ This spec covers required driver operations, capability advertisement, normalize
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [ADR-005: Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
 - [ADR-029: The Canonical Transcript Is Authoritative For Provider Sessions](../decisions/029-canonical-transcript-is-authoritative.md)
@@ -475,7 +475,7 @@ Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 st
 
 ## References
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
 - [Spec-010: Approvals Permissions And Trust Boundaries](010-approvals-permissions-and-trust-boundaries.md) — execution-posture policy semantics; callback-tool authorization

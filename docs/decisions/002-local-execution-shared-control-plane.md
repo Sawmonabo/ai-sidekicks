@@ -131,8 +131,8 @@ Hosted execution fails the product's local-execution requirement and increases t
 ### Related Architecture Docs
 
 - [System Context](../architecture/system-context.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 
 ### Related Specs

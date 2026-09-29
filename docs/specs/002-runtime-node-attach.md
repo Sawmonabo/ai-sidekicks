@@ -7,7 +7,7 @@
 | **Slug** | `runtime-node-attach` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md), [Session Core](../specs/001-session-core.md), [Spec-005: Session Event Taxonomy](./005-session-event-taxonomy-and-audit-log.md) |
+| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Daemon Architecture](../architecture/daemon.md), [Control Plane Architecture](../architecture/control-plane.md), [Session Core](../specs/001-session-core.md), [Spec-005: Session Event Taxonomy](./005-session-event-taxonomy-and-audit-log.md) |
 | **Implementation Plan** | [Plan-002: Runtime Node Attach](../plans/002-runtime-node-attach.md) |
 
 ## Purpose
@@ -31,8 +31,8 @@ This spec covers runtime-node registration, capability declaration, health, and 
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [ADR-001: Session Is The Primary Domain Object](../decisions/001-session-is-the-primary-domain-object.md)
 - [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
@@ -140,8 +140,8 @@ This spec covers runtime-node registration, capability declaration, health, and 
 ## References
 
 - [Runtime Node Model](../domain/runtime-node-model.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - Heartbeat `degraded`/`offline` threshold grounding (§Default Behavior) — failure-detection prior art for the reversible-unhealthy staging and the tens-of-seconds detection window:
   - [Kubernetes — `kube-controller-manager` `--node-monitor-grace-period`](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/): a node is marked `NotReady` (a reversible taint, not eviction) after ~40–50s of missed status updates — the closest widely-deployed analogue to a reversible `offline`.
   - [SWIM: Scalable Weakly-consistent Infection-style Process Group Membership (Das, Gupta, Motivala, DSN 2002)](https://www.cs.cornell.edu/projects/Quicksilver/public_pdfs/SWIM.pdf): the suspect-before-dead mechanism that reduces false-positive failure detection, mirrored here by `degraded`-before-`offline`.

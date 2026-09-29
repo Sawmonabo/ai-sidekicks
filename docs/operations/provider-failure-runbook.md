@@ -123,7 +123,7 @@ sidekicks run inspect <run-id> --failure-detail
 
 ## Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ## Related Specs

@@ -107,7 +107,7 @@ sidekicks db vacuum
 ## Related Architecture Docs
 
 - [Data Architecture](../architecture/data-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ## Related Specs

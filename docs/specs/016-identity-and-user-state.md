@@ -7,7 +7,7 @@
 | **Slug** | `identity-and-user-state` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [User And Device Model](../domain/user-and-device-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
+| **Depends On** | [User And Device Model](../domain/user-and-device-model.md), [Control Plane Architecture](../architecture/control-plane.md) |
 | **Implementation Plan** | [Plan-016: Identity And User State](../plans/016-identity-and-user-state.md) |
 
 ## Purpose
@@ -31,7 +31,7 @@ This spec covers user identity mapping, user profile state, device presence fan-
 
 ## Architectural Dependencies
 
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 - [ADR-010: PASETO / WebAuthn / MLS Authentication Stack](../decisions/010-paseto-webauthn-mls-auth.md) (the daemon credential seam's token + DPoP protocol owner)

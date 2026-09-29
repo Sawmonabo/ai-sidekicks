@@ -73,7 +73,7 @@ sidekicks cp presence --session <id>
 
 ## Related Architecture Docs
 
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [Security Architecture](../architecture/security-architecture.md)
 

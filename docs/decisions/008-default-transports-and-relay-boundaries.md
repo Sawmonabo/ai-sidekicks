@@ -84,8 +84,8 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 ### Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Deployment Topology](../architecture/deployment-topology.md)
 
 ### Related Specs

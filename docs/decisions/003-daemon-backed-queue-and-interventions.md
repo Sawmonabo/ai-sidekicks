@@ -121,7 +121,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | --- | --- | --- | --- |
 | `specs/003-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/003-queue-steer-pause-resume.md](../specs/003-queue-steer-pause-resume.md) |
 | `domain/queue-and-intervention-model.md` | Canonical domain doc | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) |
-| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| `architecture/daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/daemon.md](../architecture/daemon.md) |
 
 ### Related Domain Docs
 
@@ -131,7 +131,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ### Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ### Related Specs

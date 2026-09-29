@@ -7,7 +7,7 @@
 | **Slug** | `desktop-shell-and-renderer` |
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Depends On** | [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [Container Architecture](../architecture/container-architecture.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Security Architecture](../architecture/security-architecture.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) |
+| **Depends On** | [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md), [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md), [Container Architecture](../architecture/container-architecture.md), [Desktop Architecture](../architecture/desktop.md), [Security Architecture](../architecture/security-architecture.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) |
 | **Implementation Plan** | [Plan-021: Desktop Shell And Renderer](../plans/021-desktop-shell-and-renderer.md) |
 
 ## Purpose
@@ -53,7 +53,7 @@ In scope:
 - A model-visibility control, and a provider-wide list of tools held off. The model control lists the resolved provider's whole catalogue, read per provider and refreshed when it goes stale so a model that has left it is never offered; an agent's own tool allowlist carries the provider's built-in tools beside the tool servers, and a standing per-provider disabled set would be a third precedence layer over posture and allowlist.
 - Theme authoring. Two themes ship as a closed set, `Meridian`, the default, and `Graphite`: a third is not written, imported or loaded from a file, and no control anywhere edits a colour.
 - Archived sessions as a settings page. They stay in the sessions list as their own group, the way archived projects sit at the foot of the Projects page. Each of these four absences is absent rather than disabled — nothing refuses them, because nothing offers them.
-- Daemon internals (owned by `component-architecture-local-daemon.md` and Spec-006)
+- Daemon internals (owned by `daemon.md` and Spec-006)
 - Control-plane authentication protocol details (owned by [Spec-028](./028-remote-control.md) and ADR-010)
 - Mobile or browser-hosted renderer surfaces (out of V1 per ADR-015; browser-only local clients explicitly out of scope per [Spec-006 §Resolved Questions and V1 Scope Decisions](./006-local-ipc-and-daemon-control.md#resolved-questions-and-v1-scope-decisions))
 - The CLI client (Spec-006 owns the IPC contract the renderer reuses; CLI-specific UX is out of scope here)
@@ -74,7 +74,7 @@ In scope:
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — desktop credential path (WebAuthn PRF); this spec is the shell-side implementation surface
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md) — wire format the preload bridge forwards
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted trust boundary; canonical monorepo topology
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md) — shell/renderer/client-SDK component boundaries
+- [Desktop Architecture](../architecture/desktop.md) — shell/renderer/client-SDK component boundaries
 - [Security Architecture](../architecture/security-architecture.md) — auth material handling and trust boundaries, §Local Daemon Authentication among them
 - [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) — the typed daemon contract the renderer reuses via the shared client SDK
 
@@ -92,7 +92,7 @@ The renderer must never fork, spawn, or exec a process. The renderer must never 
 
 ### Trust Stance
 
-The renderer is **untrusted** relative to the shell and daemon, consistent with `container-architecture.md` §Trust Boundaries and `component-architecture-desktop-app.md` §Trust Boundaries.
+The renderer is **untrusted** relative to the shell and daemon, consistent with `container-architecture.md` §Trust Boundaries and `desktop.md` §Trust Boundaries.
 
 The shell (main process) holds all of the following; the renderer never holds any of them:
 
@@ -297,7 +297,7 @@ The bridge must not expose:
 - Render session, orchestration, repo, diff, approval, settings, and workflow-viewer surfaces
 - **Own one region each.** Every region of the console has exactly one owning family — a view family inside one of the surface families this section enumerates — and a family sits at its own place in the console family layering §Console Test Tiers fixes: the rail, its destinations, the colour-scheme control and the route into Settings belong to the frame and routing families; the all-sessions list with its groups, its picker and its search to the sessions family and the sidebar's seat sections; the session header, its chips and its menu to the frame family; the transcript flow and every row kind in it to the ledger family; the composer, its command list, its send control, its working line and its context ring to the composer family the shell registers; the approvals card to the approval family; the worktree switcher, its setup card and the ship strip to the repo and workspace families; the inspector to the inspector family; the review surface and the read-only file view to the family that draws the `diff` pane kind; the agents pane, its child tree and its child view to the orchestration family that draws the `agent-console` pane; the shell surface to the terminal family; the previewed page, its acts and its marks to the browser family that draws the `browser` pane; tokens, themes and motion to the tokens and primitives families; and every read, subscription and fixture scenario to the bridge and store families. Two families never draw one region.
 - **Derive presentation and nothing else.** The daemon owns every fact: run state, tool runs, child state and spend, approval requests and their resolution, worktree occupancy with its dirty and ahead counts, diff and pull-request state, tree staleness, the per-project running / waiting / done tally, and the running-child count behind the agents badge. The renderer derives only presentation — which pane is open, pane widths, hover and focus state, the ship strip's one next action as a pure function of the daemon's uncommitted / ahead / pushed / pull-request facts, and the elapsed readings it holds in its own model rather than reading back out of the drawn page.
-- Merge live projections from daemon subscriptions with control-plane subscriptions into a coherent session experience (per `component-architecture-desktop-app.md` §Data Flow)
+- Merge live projections from daemon subscriptions with control-plane subscriptions into a coherent session experience (per `desktop.md` §Data Flow)
 - Route all privileged operations through the preload bridge
 - Never cache auth material (the bridge enforces this; renderer code treats every call as authenticated-by-main)
 - Handle disconnection states gracefully: daemon disconnect → reconnect or read-only mode per [Spec-006 §Fallback Behavior](./006-local-ipc-and-daemon-control.md#fallback-behavior); control-plane disconnect → the session keeps running against the local daemon with cross-device sync degraded
@@ -1539,6 +1539,6 @@ The sources behind `§Console Design (Meridian)`'s surface set, its pane and win
 ### Related Architecture Docs
 
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted trust boundary; canonical monorepo topology
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md) — shell / renderer / client-SDK component decomposition
+- [Desktop Architecture](../architecture/desktop.md) — shell / renderer / client-SDK component decomposition
 - [Security Architecture](../architecture/security-architecture.md) — auth material handling; §Local Daemon Authentication carries the renderer-untrusted stance this spec declares
 - [Deployment Topology](../architecture/deployment-topology.md) — desktop-shell placement in the per-user local container set

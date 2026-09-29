@@ -67,7 +67,7 @@ Per [ADR-019: Windows V1 Tier and PTY Sidecar Strategy](../decisions/019-windows
 | Linux (x64, arm64) | GA | `NodePtyHost` (in-process `node-pty`) |
 | Windows 10/11 (x64) | GA | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) primary; `NodePtyHost` fallback |
 
-Windows GA is contingent on the Rust PTY sidecar strategy in ADR-019, driven by the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647). Implementation detail lives in Plan-022. The `PtyHost` interface is declared in `packages/contracts/` so consumers never see the backend choice — see [Component Architecture Local Daemon §PTY Backend Strategy](./component-architecture-local-daemon.md#pty-backend-strategy).
+Windows GA is contingent on the Rust PTY sidecar strategy in ADR-019, driven by the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647). Implementation detail lives in Plan-022. The `PtyHost` interface is declared in `packages/contracts/` so consumers never see the backend choice — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
 
 ## Supporting V1 Specs (Cross-Cutting)
 

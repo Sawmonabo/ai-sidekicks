@@ -33,7 +33,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 ## Architectural Dependencies
 
 - [Observability Architecture](../architecture/observability-architecture.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Desktop Architecture](../architecture/desktop.md)
 
 ## Required Behavior
 

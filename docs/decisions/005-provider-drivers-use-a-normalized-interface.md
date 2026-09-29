@@ -122,7 +122,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `specs/004-provider-driver-contract-and-capabilities.md` | Canonical spec | Provider integrations use a normalized contract with explicit capability advertisement | [specs/004-provider-driver-contract-and-capabilities.md](../specs/004-provider-driver-contract-and-capabilities.md) |
-| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Driver management belongs inside the local daemon edge | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| `architecture/daemon.md` | Canonical architecture doc | Driver management belongs inside the local daemon edge | [architecture/daemon.md](../architecture/daemon.md) |
 | `specs/018-observability-and-failure-recovery.md` | Canonical spec | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/018-observability-and-failure-recovery.md](../specs/018-observability-and-failure-recovery.md) |
 
 ### Related Domain Docs
@@ -132,7 +132,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ### Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 

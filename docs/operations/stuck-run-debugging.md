@@ -72,7 +72,7 @@ sidekicks run retry <run-id>
 ## Related Architecture Docs
 
 - [Observability Architecture](../architecture/observability-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 
 ## Related Specs
 

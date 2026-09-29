@@ -33,7 +33,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Architectural Dependencies
 
 - [Security Architecture](../architecture/security-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [ADR-007: Device Trust and Permission Model](../decisions/007-device-trust-and-permission-model.md)
 
 ## Required Behavior

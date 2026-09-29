@@ -1,4 +1,4 @@
-# Component Architecture Control Plane
+# Control Plane Architecture
 
 ## Purpose
 

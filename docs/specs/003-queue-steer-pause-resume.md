@@ -7,7 +7,7 @@
 | **Slug** | `queue-steer-pause-resume` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Run State Machine](../domain/run-state-machine.md), [Queue And Intervention Model](../domain/queue-and-intervention-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Session Core](../specs/001-session-core.md) |
+| **Depends On** | [Run State Machine](../domain/run-state-machine.md), [Queue And Intervention Model](../domain/queue-and-intervention-model.md), [Daemon Architecture](../architecture/daemon.md), [Session Core](../specs/001-session-core.md) |
 | **Implementation Plan** | [Plan-003: Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md) |
 
 ## Purpose
@@ -31,7 +31,7 @@ This spec covers queue admission, interventions, blocked states, and operator-vi
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [ADR-003: Daemon Backed Queue And Interventions](../decisions/003-daemon-backed-queue-and-interventions.md)
 
@@ -203,4 +203,4 @@ Either way the turn ends where it reached and the transcript carries one flow ro
 
 - [Run State Machine](../domain/run-state-machine.md)
 - [Queue And Intervention Model](../domain/queue-and-intervention-model.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)

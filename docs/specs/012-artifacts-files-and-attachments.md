@@ -32,7 +32,7 @@ This spec covers artifact types, attachment ingestion and its validation pipelin
 ## Architectural Dependencies
 
 - [Data Architecture](../architecture/data-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
 
 ## Required Behavior

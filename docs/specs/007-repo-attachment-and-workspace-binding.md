@@ -7,7 +7,7 @@
 | **Slug** | `repo-attachment-and-workspace-binding` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Session Model](../domain/session-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md) |
+| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Session Model](../domain/session-model.md), [Daemon Architecture](../architecture/daemon.md) |
 | **Implementation Plan** | [Plan-007: Repo Attachment And Workspace Binding](../plans/007-repo-attachment-and-workspace-binding.md) |
 
 ## Purpose
@@ -31,7 +31,7 @@ This spec covers repo mount creation, canonical root resolution, workspace bindi
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 
@@ -194,7 +194,7 @@ A repository's identity is its git COMMON directory, not the top level of whatev
 ## References
 
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [git-worktree(1)](https://git-scm.com/docs/git-worktree) (accessed 2026-08-16) — one repository, many working trees; the `worktrees/<id>/` registration model and prune semantics behind §Repo Identity And Common-Directory Keying (V1 Definition) and the §Local Trust Envelope (V1 Definition) registration arm
 - [gitrepository-layout(5)](https://git-scm.com/docs/gitrepository-layout) (accessed 2026-08-16) — the `commondir` and `gitdir` layout files the bidirectional worktree-link verification reads
 - [git-rev-parse(1)](https://git-scm.com/docs/git-rev-parse) (accessed 2026-08-16) — `--git-common-dir`, `--show-toplevel`, `--absolute-git-dir`, and `--path-format=absolute` (the discovery queries; `--path-format` per the git 2.31 release notes)

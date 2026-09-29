@@ -7,7 +7,7 @@
 | **Slug** | `local-ipc-and-daemon-control` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Runtime Node Model](../domain/runtime-node-model.md) |
+| **Depends On** | [Daemon Architecture](../architecture/daemon.md), [Desktop Architecture](../architecture/desktop.md), [Runtime Node Model](../domain/runtime-node-model.md) |
 | **Implementation Plan** | [Plan-006: Local IPC And Daemon Control](../plans/006-local-ipc-and-daemon-control.md) |
 
 ## Purpose
@@ -33,8 +33,8 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Desktop Architecture](../architecture/desktop.md)
 - [ADR-008: Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 
 ## Required Behavior
@@ -143,6 +143,6 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## References
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Desktop Architecture](../architecture/desktop.md)
 - [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md)

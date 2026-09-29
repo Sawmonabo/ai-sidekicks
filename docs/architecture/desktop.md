@@ -1,4 +1,4 @@
-# Component Architecture Desktop App
+# Desktop Architecture
 
 ## Purpose
 
@@ -37,6 +37,7 @@ The desktop app is the primary interactive client, but it must remain a client. 
 - Renderer root: `apps/desktop/src/renderer/`
 - Shared client SDK root: `packages/client-sdk/`
 - Related CLI client root: `apps/cli/`
+- Folder layout, ownership, naming and import rules: [Desktop Structure](./desktop-structure.md)
 
 ## Data Flow
 

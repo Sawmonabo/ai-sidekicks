@@ -63,8 +63,8 @@ This spec covers:
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Desktop Architecture](../architecture/desktop.md)
 
 Three layers own the surface, and each owns one thing:
 

@@ -272,7 +272,7 @@ These metrics gate substrate-promotion close (per §Substrate Promotion Window a
 ### Related Docs
 
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — the Windows-tier row cites this ADR.
-- [Component Architecture: Local Daemon](../architecture/component-architecture-local-daemon.md) — `PtyHost` interface obligation; Rust sidecar as Windows primary.
+- [Daemon Architecture](../architecture/daemon.md) — `PtyHost` interface obligation; Rust sidecar as Windows primary.
 - [Deployment Topology §Container and Packaging](../architecture/deployment-topology.md#container-and-packaging) — binary distribution surface.
 - [Vision §Add Later If Needed](../vision.md#add-later-if-needed) — the Rust sidecar is a confirmed V1 component.
 - [`packages/contracts/src/pty-host.ts`](../../packages/contracts/src/pty-host.ts) — `PtyHost.onExit(sessionId, exitCode, signalCode?)` contract surface; §Decision item 9 codifies the crash-time emit values + ordering against this interface.

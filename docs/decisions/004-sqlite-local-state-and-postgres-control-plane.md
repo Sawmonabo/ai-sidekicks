@@ -134,8 +134,8 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 ### Related Architecture Docs
 
 - [Data Architecture](../architecture/data-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 
 ### Related Specs
 

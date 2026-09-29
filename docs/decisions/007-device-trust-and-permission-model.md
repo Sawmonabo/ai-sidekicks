@@ -133,8 +133,8 @@ The simpler flat model is unacceptable because it collapses account authenticati
 ### Related Architecture Docs
 
 - [Security Architecture](../architecture/security-architecture.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
 
 ### Related Specs
 

@@ -7,7 +7,7 @@
 | **Slug** | `notifications-and-attention-model` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md), [Observability Architecture](../architecture/observability-architecture.md) |
+| **Depends On** | [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Desktop Architecture](../architecture/desktop.md), [Observability Architecture](../architecture/observability-architecture.md) |
 | **Implementation Plan** | [Plan-017: Notifications And Attention Model](../plans/017-notifications-and-attention-model.md) |
 
 ## Purpose
@@ -32,7 +32,7 @@ This spec covers in-app attention state, desktop notifications, cross-device not
 
 ## Architectural Dependencies
 
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Desktop Architecture](../architecture/desktop.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ## Required Behavior
@@ -144,4 +144,4 @@ This spec covers in-app attention state, desktop notifications, cross-device not
 ## References
 
 - [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Desktop Architecture](../architecture/desktop.md)

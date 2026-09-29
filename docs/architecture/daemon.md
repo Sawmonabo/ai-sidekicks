@@ -1,4 +1,4 @@
-# Component Architecture Local Daemon
+# Daemon Architecture
 
 ## Purpose
 

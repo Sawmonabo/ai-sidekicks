@@ -7,7 +7,7 @@
 | **Slug** | `worktree-lifecycle-and-execution-modes` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md) |
+| **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Daemon Architecture](../architecture/daemon.md), [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md) |
 | **Implementation Plan** | [Plan-008: Worktree Lifecycle And Execution Modes](../plans/008-worktree-lifecycle-and-execution-modes.md) |
 
 ## Purpose
@@ -31,7 +31,7 @@ This spec covers `read-only`, `branch`, `worktree`, and `ephemeral clone` execut
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Deployment Topology](../architecture/deployment-topology.md)
 - [ADR-006: Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
 
@@ -174,4 +174,4 @@ At each turn boundary of a writable-mode run — turn completion is first-class 
 
 - [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
 - [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)

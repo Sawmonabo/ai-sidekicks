@@ -70,7 +70,7 @@ sidekicks worktree create --repo <mount-id> --branch <name>
 
 ## Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 
 ## Related Specs
 

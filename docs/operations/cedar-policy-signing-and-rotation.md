@@ -101,7 +101,7 @@ Treat as a Severity 1 incident.
 ## Related Architecture Docs
 
 - [Security Architecture](../architecture/security-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 
 ## Related Specs
 

@@ -80,7 +80,7 @@ sidekicks daemon start
 
 ## Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 

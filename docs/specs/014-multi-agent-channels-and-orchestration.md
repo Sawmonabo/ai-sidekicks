@@ -32,8 +32,8 @@ This spec covers channel creation, parent-child run linkage, cross-agent collabo
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Desktop Architecture](../architecture/desktop.md)
 - [ADR-011: Generic Intervention Dispatch](../decisions/011-generic-intervention-dispatch.md)
 - [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
 

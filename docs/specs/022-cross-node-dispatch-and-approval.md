@@ -7,7 +7,7 @@
 | **Slug** | `cross-node-dispatch-and-approval` |
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md), [Security Architecture](../architecture/security-architecture.md), [Runtime Node Attach](./002-runtime-node-attach.md), [Approvals, Permissions, and Trust Boundaries](./010-approvals-permissions-and-trust-boundaries.md) |
+| **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Daemon Architecture](../architecture/daemon.md), [Security Architecture](../architecture/security-architecture.md), [Runtime Node Attach](./002-runtime-node-attach.md), [Approvals, Permissions, and Trust Boundaries](./010-approvals-permissions-and-trust-boundaries.md) |
 | **Implementation Plan** | [Plan-024: Cross-Node Dispatch And Approval](../plans/024-cross-node-dispatch-and-approval.md) |
 
 ## Purpose
@@ -43,8 +43,8 @@ This spec covers:
 
 ## Architectural Dependencies
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 - [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
 - [ADR-007: Device Trust and Permission Model](../decisions/007-device-trust-and-permission-model.md)
