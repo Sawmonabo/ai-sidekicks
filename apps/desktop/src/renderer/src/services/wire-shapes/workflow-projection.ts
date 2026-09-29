@@ -18,7 +18,7 @@
 //
 // WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. An operation that
 // answers with a state can answer with a SUBSET of one of these unions — a successful
-// cancel is only ever `cancelled`, a start is only ever `pending` or `running`. Such a
+// cancel is only ever `canceled`, a start is only ever `pending` or `running`. Such a
 // subset is derived with `Extract`, so the full vocabulary keeps exactly one home here
 // and a narrowing cannot quietly become a second spelling of it.
 //
@@ -40,7 +40,7 @@ export const WORKFLOW_RUN_STATES = [
   "suspended",
   "completed",
   "failed",
-  "cancelled",
+  "canceled",
 ] as const;
 
 /** One run status. Derived, so the vocabulary has exactly one home. */

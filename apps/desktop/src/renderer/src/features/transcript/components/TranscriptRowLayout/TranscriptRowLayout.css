@@ -41,7 +41,7 @@
 }
 
 /* No user owns this row, so the edge reads as a boundary rather than an
-   identity. Dimmed, never coloured — a guess would be worse than an absence. */
+   identity. Dimmed, never colored — a guess would be worse than an absence. */
 .meridian-transcript-row-layout--unattributed .meridian-transcript-row-layout__edge {
   opacity: 0.6;
 }

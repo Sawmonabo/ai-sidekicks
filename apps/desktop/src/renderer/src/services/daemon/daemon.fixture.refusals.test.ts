@@ -7,7 +7,7 @@
 // fixture, leaving the refusal renderings undrivable.
 //
 // Two properties make the arm worth having rather than one. The refusal a caller
-// catches has to BE the daemon's envelope, recognised by `src/shared/`'s own wire
+// catches has to BE the daemon's envelope, recognized by `src/shared/`'s own wire
 // vocabulary, because a fixture-scoped wrapper would train every refusal rendering
 // against a code the person is never meant to read. And a refusal a real transport
 // takes time to deliver is a loading state before it is an error, so the scripted
@@ -86,7 +86,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
     );
 
     // The claim is not "some object was thrown" — it is that the console's own wire
-    // vocabulary recognises it, which is what every renderer catch arm runs. A second
+    // vocabulary recognizes it, which is what every renderer catch arm runs. A second
     // refusal shape would pass a `rejects` assertion and fail here. Read rather than
     // tested: the reader answers both members in one pass, so the assertion names
     // what the fixture refused with instead of guarding and then reading it again.

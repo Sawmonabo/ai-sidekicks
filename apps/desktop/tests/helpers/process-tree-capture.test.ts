@@ -108,8 +108,8 @@ describe("process termination — a claimant that predates the root was never th
     // rootless tree has on exactly the host whose readings do not work — which
     // is a larger failure than the one above, and the same trade this module
     // takes at every other stamp comparison. Three doubts in one table: no stamp
-    // at all, a stamp in an order this does not recognise, and a stamp in the
-    // OTHER recognised order.
+    // at all, a stamp in an order this does not recognize, and a stamp in the
+    // OTHER recognized order.
     const identity = identityOverTable(
       processTableOf([
         [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, undefined],
@@ -139,7 +139,7 @@ describe("process termination — a claimant that predates the root was never th
     // Eighteen digits is past what a double holds exactly, so a comparison that
     // read these as numbers would call two different ticks the same instant.
     expect(startStampPrecedes("638600000000000000", "638600000000000001")).toBe(true);
-    // And the pairs it must refuse: either side missing, an unrecognised
+    // And the pairs it must refuse: either side missing, an unrecognized
     // spelling, and — the one that would answer confidently and mean nothing —
     // a tick count against a calendar instant.
     expect(startStampPrecedes(undefined, ROOT_TICKS)).toBe(false);

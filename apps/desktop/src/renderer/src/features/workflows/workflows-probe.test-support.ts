@@ -50,7 +50,7 @@ export const PHASE_DRAFT = "019b7a10-0280-7e44-8100-9ba5e1150001";
 /** The build phase: running in the working run, parked on a usage window in the parked one. */
 export const PHASE_BUILD = "019b7a10-0280-7e44-8100-9ba5e1150002";
 
-/** The review phase: pending in the working run, skipped in the cancelled one. */
+/** The review phase: pending in the working run, skipped in the canceled one. */
 export const PHASE_REVIEW = "019b7a10-0280-7e44-8100-9ba5e1150003";
 
 /** The phase the parked run waits on a person for. */
@@ -68,7 +68,7 @@ export const VERSION_SHIP_PIPELINE_LATEST = "019b7a10-0280-7d22-8100-be510015000
 /** An older ship pipeline version, pinned by the run that trails the latest. */
 export const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be5100150001";
 
-/** The incident triage workflow's latest version, pinned by the cancelled run. */
+/** The incident triage workflow's latest version, pinned by the canceled run. */
 export const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
 
 /** A run parked on a provider's usage window and on a person's sign-off. */
@@ -131,7 +131,7 @@ export const PARKED_RUN: WorkflowRunSnapshot = {
   ],
 };
 
-/** The four runs an enumeration ranks: working, parked, cancelled and pinned to an old version. */
+/** The four runs an enumeration ranks: working, parked, canceled and pinned to an old version. */
 export const PROBE_RUNS: readonly WorkflowRunSnapshot[] = [
   {
     workflowRunId: "019b7a10-0280-7b33-8100-4011115a0001",
@@ -162,8 +162,8 @@ export const PROBE_RUNS: readonly WorkflowRunSnapshot[] = [
     workflowRunId: "019b7a10-0280-7b33-8100-4011115a0003",
     sessionId: PROBE_SESSION_ID,
     workflowVersionId: VERSION_INCIDENT_TRIAGE_LATEST,
-    state: "cancelled",
-    failureReason: "Cancelled: the incident was resolved out of band.",
+    state: "canceled",
+    failureReason: "Canceled: the incident was resolved out of band.",
     startedAt: "2026-01-01T08:47:00.000Z",
     endedAt: "2026-01-01T09:04:00.000Z",
     phaseStates: [

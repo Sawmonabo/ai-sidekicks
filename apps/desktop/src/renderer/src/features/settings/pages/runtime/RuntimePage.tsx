@@ -56,7 +56,7 @@ import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
  *
  * A SENTENCE AND NEVER A BARE DISABLE, on the rule the join form states: a control
  * grayed out with no cause reads as broken. Cancel is disabled beside the primary
- * rather than left live, because nothing behind the bridge is cancellable — a Cancel
+ * rather than left live, because nothing behind the bridge is cancelable — a Cancel
  * offered after the call went out would read as retracting it, and it retracts
  * nothing. Both actions leave together when the settlement clears the confirmation.
  */

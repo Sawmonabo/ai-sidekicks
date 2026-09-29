@@ -220,7 +220,7 @@ export class ProviderAccountFold {
       if (account === undefined) {
         // A reading whose account the registry does not carry is dropped rather than
         // rendered under its opaque id: the chip's first word is whose quota this is,
-        // and an id nobody chose answers that question with a value nobody recognises.
+        // and an id nobody chose answers that question with a value nobody recognizes.
         continue;
       }
       readings.push(readingFor(held.usageWindow, account));

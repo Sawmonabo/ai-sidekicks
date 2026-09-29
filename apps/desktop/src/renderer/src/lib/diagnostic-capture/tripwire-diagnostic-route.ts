@@ -1,6 +1,6 @@
 // The route from the tripwire registry into the diagnostic capture.
 //
-// Its own module and not a line in either neighbour, because it is the only thing in
+// Its own module and not a line in either neighbor, because it is the only thing in
 // `core/` that knows about both. `tripwires.ts` publishes a sink seam and must not
 // learn where reports go; `diagnostic-capture.ts` captures records from anywhere and
 // must not learn that tripwires exist. Joining them inside either would make the

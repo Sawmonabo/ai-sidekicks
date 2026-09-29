@@ -80,7 +80,7 @@ export class ViewportPublication {
     });
   }
 
-  /** Terminal. The armed frame is cancelled and every sink is dropped. */
+  /** Terminal. The armed frame is canceled and every sink is dropped. */
   public dispose(): void {
     if (this.#frame !== undefined) {
       this.#clock.cancel(this.#frame);

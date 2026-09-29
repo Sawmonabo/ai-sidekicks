@@ -12,7 +12,7 @@
 // figure in the console reads.
 //
 // THE FOLD IS RECOVERABLE, and that is the whole reason this component holds state.
-// `ANSI_SPAN_RENDER_CAP` withholds the tail of a colour-heavy build log; reopening the
+// `ANSI_SPAN_RENDER_CAP` withholds the tail of a color-heavy build log; reopening the
 // card re-parses the same capped sequence, so a notice with no control would leave the
 // tail of that log unreachable while the bound's own rationale claimed the reader was
 // offered the rest. The control lifts the cap for this block, and the revealed cap is

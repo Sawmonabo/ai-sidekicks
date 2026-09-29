@@ -167,7 +167,7 @@ export function clientOver(port: ScriptedIngestPort): AttachmentIngestClient {
 }
 
 /**
- * One source over bytes the case can recognise on the other side of the wire.
+ * One source over bytes the case can recognize on the other side of the wire.
  *
  * The declared media type is optional here for the same reason it is optional on the
  * request: a user's file carries one or it does not, and the cases that turn on

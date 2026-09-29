@@ -169,7 +169,7 @@ export class ProviderCommandEnumeration {
    * that into the key would re-read the enumeration on every turn; what it must move
    * is which group is READ OUT, which is exactly what selecting here does. Both readers
    * of this enumeration take the same selection, so the list a person saw and the
-   * name the send path recognises name one binding.
+   * name the send path recognizes name one binding.
    */
   public publishedEntryNamed(
     commandName: string,

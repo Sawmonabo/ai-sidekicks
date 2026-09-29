@@ -97,7 +97,7 @@ import {
  * `async (sessionId) => …` satisfies this type exactly and drops the position in
  * silence — which is what shipped, and what `tsc` had no opinion about. The parameter
  * is required because it is not optional information: every caller of this type has a
- * position or has decided it has none. What HOLDS the forwarding is the behavioural
+ * position or has decided it has none. What HOLDS the forwarding is the behavioral
  * gate in `frame/session/session-lifecycle.bridge-swap.test.tsx`, which composes the real
  * adapter over a recording bridge and asserts the cursor reaches the request — a test
  * of the seam rather than of its signature, because the signature cannot fail.
@@ -290,7 +290,7 @@ export class OpenSessionEntry {
     const decision = resolveTimelineResume(snapshot.timelineCursors);
     this.#rememberNextResumePosition(decision);
     // Settled BEFORE the base state is established, so the decision a reader sees
-    // beside an initialised store is the one that read produced rather than its
+    // beside an initialized store is the one that read produced rather than its
     // predecessor's — and settled unconditionally, so a completed read always says
     // where the next one starts and not only when it went wrong.
     this.#settleTimelineResume(decision);
@@ -349,7 +349,7 @@ export class OpenSessionEntry {
 function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
   return (
     outcome.gapDetected ||
-    outcome.droppedBeforeInitialisation > 0 ||
+    outcome.droppedBeforeInitialization > 0 ||
     outcome.refusedDivergedSequence > 0 ||
     outcome.projectionFailures > 0
   );

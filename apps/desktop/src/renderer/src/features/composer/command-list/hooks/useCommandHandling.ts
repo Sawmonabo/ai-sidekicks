@@ -1,4 +1,4 @@
-// The send bar's command handling: the recogniser, the executor, and the published-name
+// The send bar's command handling: the recognizer, the executor, and the published-name
 // lookup it is handed about a typed `/name`, built in one place.
 
 import { useCallback, useMemo } from "react";
@@ -25,8 +25,8 @@ import type { ProviderCommandEnumeration } from "../provider-command-enumeration
  * What the send bar is handed about a typed `/name`, built in one place.
  *
  * The first two travel TOGETHER because they are one decision split in half: the
- * router will not intercept a name nothing claims, so a recogniser with no executor
- * intercepts into a refusal and an executor with no recogniser is never called. Both
+ * router will not intercept a name nothing claims, so a recognizer with no executor
+ * intercepts into a refusal and an executor with no recognizer is never called. Both
  * read the SAME surface thunk, so the predicate that claimed a name and the executor
  * that runs it can never be looking at two different registries.
  *
@@ -41,14 +41,14 @@ export interface CommandHandling {
   readonly recognizeProviderCommand: ProviderCommandPredicate;
 }
 
-/** Build the send bar's recogniser, executor, and discovery reading. */
+/** Build the send bar's recognizer, executor, and discovery reading. */
 export function useCommandHandling(options: {
   readonly route: AppRoute;
   readonly commandEnumeration: ProviderCommandEnumeration;
   /**
    * Where this composer is addressed, so the published-name lookup reads the
    * addressed run's own binding. An agent can hold several live bindings at once, and
-   * a name published by one of the others is not a name this send path may recognise.
+   * a name published by one of the others is not a name this send path may recognize.
    */
   readonly target: ComposerTarget;
   /**

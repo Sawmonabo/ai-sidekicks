@@ -2,7 +2,7 @@
  *
  * A sibling sheet rather than an addition to `composer.css`: the zone is one lane's
  * work behind one barrel, and a family-wide sheet edited by every zone is a file
- * three branches conflict in. Meridian tokens only — no raw colour reaches this file.
+ * three branches conflict in. Meridian tokens only — no raw color reaches this file.
  */
 
 .meridian-command-discovery {
@@ -111,7 +111,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* One labelled group inside the discovery listbox.
+/* One labeled group inside the discovery listbox.
  *
  * `display: contents` is deliberately NOT used: the group is a real row of the list's
  * flex column, and its own column is what keeps the heading above its rows without a

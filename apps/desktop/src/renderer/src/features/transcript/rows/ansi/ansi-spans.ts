@@ -6,7 +6,7 @@
 // would hand the console a markup string to inject, which is the one thing the ledger
 // never does with content a tool produced.
 //
-// THE COLOURS ARE NAMES, NOT VALUES. The parse runs with `use_classes: true`, so anser
+// THE COLORS ARE NAMES, NOT VALUES. The parse runs with `use_classes: true`, so anser
 // reports `ansi-red` rather than `rgb(187, 0, 0)` — a NAME the console resolves through
 // its own palette, exactly as the code highlighter resolves token families. A tool that
 // prints red gets the console's red, which is legible on both schemes and is the same
@@ -21,14 +21,14 @@
 //     budget to a subprocess.
 //   • **Conceal.** A console that hid bytes a tool printed would be misreporting what
 //     ran. The text renders; nothing about it is hidden.
-//   • **256-colour and true-colour.** `ansi-palette-N` and `ansi-truecolor` carry values
+//   • **256-color and true-color.** `ansi-palette-N` and `ansi-truecolor` carry values
 //     from the tool's own palette, and the console has no honest mapping onto its
 //     twelve-step wheel. Such a span renders in the inherited foreground — the same
 //     answer an unrecognized enum member gets everywhere else in this console, and never
-//     a nearest-neighbour guess.
+//     a nearest-neighbor guess.
 //
 // Reverse video IS reproduced, by swapping the two channels at render. It is a relation
-// between the two colours a span paints, so honouring it needs no palette the console
+// between the two colors a span paints, so honouring it needs no palette the console
 // lacks — only the console's OWN default pair for whichever channel the stream left
 // unset, which is what `ANSI_DEFAULT_COLORS` names and `tokens/palette.ts` resolves.
 
@@ -48,7 +48,7 @@ import { withoutResidualEscapes } from "./escape-sequences.js";
 type AnserJsonEntry = ReturnType<typeof Anser.ansiToJson>[number];
 
 /**
- * The sixteen colour names anser reports under `use_classes`, without their
+ * The sixteen color names anser reports under `use_classes`, without their
  * `ansi-` prefix. Closed, and closed against the library's own table.
  */
 export const ANSI_COLOR_NAMES = [
@@ -70,15 +70,15 @@ export const ANSI_COLOR_NAMES = [
   "bright-white",
 ] as const;
 
-/** One ANSI colour name. Derived from the enumeration, never restated. */
+/** One ANSI color name. Derived from the enumeration, never restated. */
 export type AnsiColorName = (typeof ANSI_COLOR_NAMES)[number];
 
 /**
  * The console's own two defaults, as channel values a span can paint.
  *
  * They exist for exactly one caller: reverse video. A stream that reverses without having
- * set both colours is reversing against the terminal's defaults, so honouring it needs a
- * name for "the colour this body paints when the stream says nothing" on each channel.
+ * set both colors is reversing against the terminal's defaults, so honouring it needs a
+ * name for "the color this body paints when the stream says nothing" on each channel.
  * These are those names, and `tokens/palette.ts` binds them, as aliases, to the same
  * two tokens the body itself reads — so the swap resolves to what the reader is
  * actually looking at rather than to a second opinion about it.
@@ -91,7 +91,7 @@ export const ANSI_DEFAULT_COLORS = ["default-foreground", "default-background"] 
 /** One console default, as a channel value. Derived from the enumeration. */
 export type AnsiDefaultColor = (typeof ANSI_DEFAULT_COLORS)[number];
 
-/** Everything one channel can paint: a stream's colour, or the console's own default. */
+/** Everything one channel can paint: a stream's color, or the console's own default. */
 export type AnsiRenderedColor = AnsiColorName | AnsiDefaultColor;
 
 /**
@@ -117,7 +117,7 @@ export interface AnsiSpan {
    * Whether the stream asked for reverse video over this run.
    *
    * Carried rather than folded into the two channels above, because the fold is lossy
-   * exactly where it matters: a reversed run that set neither colour has nothing to
+   * exactly where it matters: a reversed run that set neither color has nothing to
    * swap, and only the console — which knows what its own body paints — can say what
    * the two ends of that swap are. `ansiSpanClassNames` is where it knows.
    */
@@ -202,7 +202,7 @@ export function isReproducedAnsiDecoration(decoration: string): decoration is An
   return REPRODUCED_DECORATIONS.has(decoration);
 }
 
-/** The class name a foreground or background colour renders under. */
+/** The class name a foreground or background color renders under. */
 export function ansiColorClassName(channel: "fg" | "bg", color: AnsiRenderedColor): string {
   return `meridian-ansi__${channel}--${color}`;
 }
@@ -216,7 +216,7 @@ export function ansiDecorationClassName(decoration: AnsiDecoration): string {
  * Every class one span carries, in a stable order.
  *
  * THE REVERSE-VIDEO SWAP HAPPENS HERE, and not in the parse, because a swap needs both
- * ends and a stream that reversed without setting both colours supplied only one of them
+ * ends and a stream that reversed without setting both colors supplied only one of them
  * — or neither, which `ESC[7m` on its own is and which is the common case. The missing
  * end is the console's own default for the OTHER channel, a fact that lives with the
  * class names and the tokens rather than with the parser.
@@ -239,7 +239,7 @@ export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
 }
 
 /**
- * The two colour names anser substitutes for a channel the stream left unset, just
+ * The two color names anser substitutes for a channel the stream left unset, just
  * before it performs its own reverse swap: white for the foreground, black for the
  * background, its reading of a conventional terminal's defaults.
  *
@@ -293,9 +293,9 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 }
 
 /**
- * A colour name, or `undefined` for one the console does not reproduce.
+ * A color name, or `undefined` for one the console does not reproduce.
  *
- * The typed member is `string`, and anser sets it to `null` when no colour applies —
+ * The typed member is `string`, and anser sets it to `null` when no color applies —
  * so the guard is a real narrowing rather than a formality.
  */
 function resolveColor(anserClass: string | null | undefined): AnsiColorName | undefined {

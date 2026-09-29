@@ -210,7 +210,7 @@ export class AnimationFrameCoordinator {
   /**
    * Drop a submitted task. Idempotent, and safe for a key that never ran.
    *
-   * Cancelling the LAST pending task releases the armed frame too. That is the
+   * Canceling the LAST pending task releases the armed frame too. That is the
    * idle-CPU budget's precondition moving with the scheduler: the claim used to be
    * each subsystem's — "a settled engine has no timer armed" — and once every one of
    * them submits here instead, a coordinator holding a frame for an empty queue is

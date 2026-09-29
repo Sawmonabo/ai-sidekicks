@@ -35,7 +35,7 @@ export interface InspectedEntityProps {
 
 export function InspectedEntity(props: InspectedEntityProps): React.JSX.Element {
   const partition = useSessionPartition(props.sessionStore, props.entityRef.kind);
-  const isInitialised = useSessionInitialized(props.sessionStore);
+  const isInitialized = useSessionInitialized(props.sessionStore);
   const degradedCause = useSessionDegradedCause(props.sessionStore);
   const EntityDetail = ENTITY_DETAIL_BY_KIND[props.entityRef.kind];
   return (
@@ -43,7 +43,7 @@ export function InspectedEntity(props: InspectedEntityProps): React.JSX.Element 
       entity={partition[props.entityRef.id]}
       entityId={props.entityRef.id}
       sessionStore={props.sessionStore}
-      isInitialised={isInitialised}
+      isInitialized={isInitialized}
       degradedCause={degradedCause}
       linkedSourcePaneId={props.linkedSourcePaneId}
     />

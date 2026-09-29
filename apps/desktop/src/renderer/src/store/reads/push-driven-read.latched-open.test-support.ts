@@ -5,7 +5,7 @@
 // to be correct. It is the negative control the re-open redesign owes — the shape
 // whose defect the redesign exists to remove — so a case can put the two side by side
 // on one seam and show that they diverge. A control that only describes the old
-// behaviour in a comment proves nothing the day someone reintroduces it.
+// behavior in a comment proves nothing the day someone reintroduces it.
 //
 // THE DEFECT, IN THREE LINES. `start()` marked the model started BEFORE the subscribe
 // attempt; the refusal arm settled `failed` and returned without clearing that mark;

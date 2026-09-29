@@ -1,6 +1,6 @@
 // The ways this window is not the whole session, each said out loud.
 //
-// Three absences with three different next moves — an unrecognised type, a row the
+// Three absences with three different next moves — an unrecognized type, a row the
 // cap took, and a sequence that never arrived — and the failure this file guards is
 // one being reported as another. The scaffolding is `TranscriptFeed.test-support.tsx`'.
 

@@ -81,7 +81,7 @@ describe("the layered layout", () => {
   it("draws no edge at all when no definition was handed over", () => {
     // The whole of this fold: a run read carries an ordered array and no
     // dependencies, so a layout given only that array has nothing to connect. The
-    // previous behaviour — an edge per adjacent pair — asserted a chain a parallel
+    // previous behavior — an edge per adjacent pair — asserted a chain a parallel
     // run never declared.
     const layout = drawn(THREE_PHASES);
 

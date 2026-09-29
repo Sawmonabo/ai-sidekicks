@@ -77,7 +77,7 @@ export interface CodeToken {
   readonly content: string;
   /**
    * The family's custom-property reference, or `undefined` for a token the theme left
-   * plain. Never a colour — see `code-theme.ts`.
+   * plain. Never a color — see `code-theme.ts`.
    */
   readonly colorReference: string | undefined;
 }
@@ -102,7 +102,7 @@ class RealmHighlighter {
    * Returns `undefined` — rather than throwing — when the grammar or the core cannot be
    * loaded. A highlight that could not run is a block rendered plain, which is a
    * degrade a reader can live with; an exception here would take the whole message's
-   * card down through its row-group boundary for a colour.
+   * card down through its row-group boundary for a color.
    */
   public async tokenize(
     source: string,

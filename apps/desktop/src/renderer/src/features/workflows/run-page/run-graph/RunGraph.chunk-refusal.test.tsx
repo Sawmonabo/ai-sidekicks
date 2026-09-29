@@ -24,7 +24,7 @@ import type { RunGraphNode } from "./phase-topology.js";
  * What the substituted loader rejects with, settable per case.
  *
  * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialised when the factory
+ * lifted above the imports, so a plain binding is not initialized when the factory
  * runs. The box is read at CALL time, which is what lets one substitution serve every
  * case below.
  */

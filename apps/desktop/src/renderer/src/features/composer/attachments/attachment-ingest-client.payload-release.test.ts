@@ -69,7 +69,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   it("releases the payload when a user stops sending", async () => {
     // Abandonment is terminal in the other direction: the daemon's reaper claims the
     // spool and no artifact is minted, so nothing here will ever send these bytes
-    // either. Holding them would keep a file alive for an upload somebody cancelled.
+    // either. Holding them would keep a file alive for an upload somebody canceled.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
@@ -178,7 +178,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
 
     expect(ledger.current("attachment-1")?.state).toBe("complete");
     // Nothing was written, so no round was superseded: a continuation holding the
-    // earlier stamp still recognises this entry rather than reading it as one that
+    // earlier stamp still recognizes this entry rather than reading it as one that
     // moved.
     expect(ledger.currentIfUnchanged("attachment-1", stampAfterCompletion)).toBeDefined();
   });

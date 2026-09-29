@@ -3,7 +3,7 @@
 // Design-language rule 3 puts the console at WCAG 2.2 AA. A palette can claim that;
 // only a computation can hold it. So this file walks every pair the rules name and
 // computes the real ratio from the sRGB the browser will paint — which is why
-// `tokens/color.ts` fits each colour into gamut at AUTHORING time. If the values were
+// `tokens/color.ts` fits each color into gamut at AUTHORING time. If the values were
 // left out of gamut, the browser would map them and the number measured here would not
 // be the number a person sees.
 //
@@ -42,8 +42,8 @@ import {
   schemeColor,
 } from "./tokens.js";
 
-describe("Meridian palette — every colour is inside the sRGB gamut as authored", () => {
-  it("fits every scheme colour, so the browser maps nothing", () => {
+describe("Meridian palette — every color is inside the sRGB gamut as authored", () => {
+  it("fits every scheme color, so the browser maps nothing", () => {
     const outsideGamut: string[] = [];
     for (const scheme of COLOR_SCHEMES) {
       for (const [tokenName] of SCHEME_COLOR_TOKENS) {
@@ -52,7 +52,7 @@ describe("Meridian palette — every colour is inside the sRGB gamut as authored
         }
       }
     }
-    // A colour outside the gamut is painted as something else, so every ratio
+    // A color outside the gamut is painted as something else, so every ratio
     // measured below would be measuring a value the screen never shows.
     expect(outsideGamut).toStrictEqual([]);
   });
@@ -205,7 +205,7 @@ describe("Meridian palette — every user hue is findable on every ground", () =
 });
 
 describe("Meridian palette — a code or command-output body clears the text floor on its own well", () => {
-  // The two family vocabularies. They are text — a highlighted token and a coloured
+  // The two family vocabularies. They are text — a highlighted token and a colored
   // run of command output are both read — so they carry 1.4.3's floor like any other
   // text, and they are measured on `surface-sunken` alone because that is the only
   // ground the console ever paints them on.
@@ -213,7 +213,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
   // This census is the reason the values moved out of `ledger/ledger.css`. As
   // literals in a stylesheet they were fitted into no gamut and held to no floor, and
   // the light scheme's six bright ANSI names sat between 3.8:1 and 4.5:1 — a WCAG
-  // 1.4.3 failure that no test could have caught while the colours lived somewhere
+  // 1.4.3 failure that no test could have caught while the colors lived somewhere
   // nothing measured.
   for (const scheme of COLOR_SCHEMES) {
     for (const tokenName of SUNKEN_WELL_TEXT_TOKEN_NAMES) {
@@ -247,7 +247,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
 
   it("keeps every bright ANSI name distinguishable from the normal one it pairs with", () => {
     // The light scheme's bright values are the deepest the floor admits, which is the
-    // move that could have collapsed eight pairs into eight colours. Asserted over
+    // move that could have collapsed eight pairs into eight colors. Asserted over
     // the resolved values rather than the requests, because chroma fitting is what
     // would close the last of the gap if it did.
     for (const scheme of COLOR_SCHEMES) {

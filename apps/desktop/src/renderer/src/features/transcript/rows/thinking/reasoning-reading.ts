@@ -21,7 +21,7 @@
 //                     this arm exists to prevent, so the copy names the withholding
 //                     and the component renders `policyReason` verbatim beside it.
 //
-// NO PER-SESSION TOGGLE IS MODELLED, deliberately: visibility follows product
+// NO PER-SESSION TOGGLE IS MODELED, deliberately: visibility follows product
 // policy and there are no session overrides, so the surface offers a read and never
 // a preference. A `showReasoning` flag anywhere in this family would be a second
 // answer to a question the daemon already answers.

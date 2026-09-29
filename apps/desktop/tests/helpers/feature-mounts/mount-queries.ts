@@ -28,7 +28,7 @@ export interface MountedView {
  * pane, whichever subject it is over" anchors a pattern at the kind; a caller naming a
  * surface whose name is fixed still passes the string.
  */
-export function requireLabelledRegion(
+export function requireLabeledRegion(
   container: HTMLElement,
   accessibleName: string | RegExp,
 ): HTMLElement {

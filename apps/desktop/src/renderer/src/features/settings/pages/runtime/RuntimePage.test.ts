@@ -219,7 +219,7 @@ describe("DaemonPage — the two controls", () => {
     fireEvent.click(getButton(container, "Restart"));
 
     expect(getButton(container, "Restart").disabled).toBe(true);
-    // Cancel goes with it: nothing behind the bridge is cancellable, so a live Cancel
+    // Cancel goes with it: nothing behind the bridge is cancelable, so a live Cancel
     // here would read as retracting a call that has already gone out.
     expect(getButton(container, "Cancel").disabled).toBe(true);
     expect(container.textContent).toContain("It cannot be taken back");

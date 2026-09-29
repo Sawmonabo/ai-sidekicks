@@ -3,10 +3,10 @@
 // Three main-process suites need a fake `electron`, and before this module each
 // hand-rolled its own `vi.mock("electron", …)` factory with its own
 // `MockBrowserWindow` class. The three were near-identical and already
-// divergent: one recorded a call order and two did not, one modelled
+// divergent: one recorded a call order and two did not, one modeled
 // `setWindowOpenHandler` and two did not, and each named the same operations
 // differently. That is the failure mode a shared harness exists to prevent —
-// two copies of one behaviour drift, and the suite that is missing the arm goes
+// two copies of one behavior drift, and the suite that is missing the arm goes
 // green on the regression the other one would have caught.
 //
 // One factory, parameterised. `recordOrder` turns on the ordered operation log
@@ -29,7 +29,7 @@
 //
 // A suite that STATICALLY imports the module under test cannot use this shape —
 // the static import evaluates during the test file's own import phase, before
-// the `const` initialises, and the factory would read a binding still in its
+// the `const` initializes, and the factory would read a binding still in its
 // temporal dead zone. Those suites keep a local factory (see
 // `src/main/protocol.test.ts` and `src/main/navigation.test.ts`, neither of
 // which constructs a window); the suites over the `electron`-free modules —
@@ -301,7 +301,7 @@ class ElectronMockImpl implements ElectronMock {
       ipcMain: {
         handle: vi.fn((channel: string, handler: (event: unknown, ...args: never[]) => unknown) => {
           if (this.ipcHandlers.has(channel)) {
-            // Electron's own behaviour, kept: a second registration for one channel
+            // Electron's own behavior, kept: a second registration for one channel
             // is a startup defect, and a mock that replaced silently would let one
             // land unnoticed.
             throw new Error(`Attempted to register a second handler for '${channel}'`);

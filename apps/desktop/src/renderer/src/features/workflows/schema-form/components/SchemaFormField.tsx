@@ -31,7 +31,7 @@ export interface SchemaFormFieldProps {
   readonly issues: readonly string[];
 }
 
-/** One labelled control, with its description and the schema's verdict beneath it. */
+/** One labeled control, with its description and the schema's verdict beneath it. */
 export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element {
   const { field, issues } = props;
   const controlId = useId();

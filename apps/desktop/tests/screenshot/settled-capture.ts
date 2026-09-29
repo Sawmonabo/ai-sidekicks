@@ -18,7 +18,7 @@
 //
 // AND THE SECOND HALF OF THE SAME FAILURE IS THE WINDOW. A settled surface taller than
 // the tester window was photographed to the window's bottom edge and then in the page's
-// own background colour for every row beneath it, because a Playwright element
+// own background color for every row beneath it, because a Playwright element
 // screenshot is a CLIP in page coordinates and nothing paints an iframe's overflow.
 // Every image
 // over 900 px carried that: real content to row 899, then pure white to the bottom, in
@@ -29,7 +29,7 @@
 //
 // ONE SHAPE OF SURFACE STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
 // sized from the window is one window tall plus its own padding at every window, so
-// the loop below recognises that — on the SECOND pass after the first, having grown
+// the loop below recognizes that — on the SECOND pass after the first, having grown
 // once more to tell it apart from a surface that reflowed while the first window was
 // opening — puts the window back, and photographs it at the tier's own size. The
 // reason and its consequence are `capture-viewport.ts`'s to state, and
@@ -54,7 +54,7 @@ import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./c
  *
  * Opening a window is a layout change, so a surface can answer the first grow with a
  * taller box than the one that was measured — a deferred image lands, a container
- * reflows — and settle on the second. A surface sized BY its window is recognised on
+ * reflows — and settle on the second. A surface sized BY its window is recognized on
  * the second pass after the first and spends two of these on being confirmed, for the
  * reason `CONFIRMING_NON_CLOSING_PASSES` states; what the rest of the budget bounds is
  * the surface that keeps closing the gap by a little each pass, which would otherwise

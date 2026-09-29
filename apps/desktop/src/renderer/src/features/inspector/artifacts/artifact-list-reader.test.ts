@@ -223,7 +223,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
 
 describe("artifact reader — the frames this pane re-reads on", () => {
   it("watches every registered artifact kind, derived from the contract's census", () => {
-    // A SET claim rather than a behaviour, so the case re-derives the expected members
+    // A SET claim rather than a behavior, so the case re-derives the expected members
     // from the same registry the module reads. A literal list here would be the
     // hand-written list the derivation exists to retire, restated where nothing could
     // catch its drift — and it is exactly how a fourth `artifact.*` kind would have

@@ -16,7 +16,7 @@
 //
 // AND THE SECOND THING IT OWNS IS WHAT THAT MOUNT LEFT BEHIND. The store the mount
 // opened is DURABLE and it is shared: the sidebar's collapse, the deck's
-// arrangement and the colour scheme are written into one IndexedDB database per
+// arrangement and the color scheme are written into one IndexedDB database per
 // origin, and unmounting the tree closes a connection rather than removing a
 // record. So a case that collapsed the sidebar was restored into the NEXT case's
 // mount, and the screenshot tier minted a reference named for an expanded sidebar
@@ -205,7 +205,7 @@ export const SESSION_ROUTE_BODY_SELECTOR: string =
  * A DEADLINE, and it replaced a fixed count of forty settle turns on 2026-09-02. That
  * count was a wait measured in the wrong unit: a mount is not one turn of work —
  * `AppProviders` opens a durable persistence adapter, the session registry opens a
- * store, and the store initialises from the bridge's own session read, each resolving
+ * store, and the store initializes from the bridge's own session read, each resolving
  * a promise whose continuation schedules the next — and how many turns those take is a
  * property of the machine, not of the console. Forty of them are about 190 ms, which
  * is enough for a WARM mount and was not enough for a cold one on the pinned

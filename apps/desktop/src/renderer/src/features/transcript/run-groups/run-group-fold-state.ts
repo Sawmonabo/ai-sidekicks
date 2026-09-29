@@ -1,7 +1,7 @@
 // WHICH CHAPTERS ARE OPEN — the collapse state.
 //
 // Its own module beside `run-groups.ts` because the two change on different clocks: the
-// fold changes when rows arrive and this changes when a person clicks. The behaviour is
+// fold changes when rows arrive and this changes when a person clicks. The behavior is
 // fixed — run chapters collapse once terminal and the live chapter stays open — and the
 // live arm here answers
 // before any stored state is read, so that rule is a branch a caller cannot reach

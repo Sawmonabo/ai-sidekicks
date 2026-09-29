@@ -41,7 +41,7 @@ const SANDBOXED_POSTURE: ExecutionPosture = {
 /**
  * One synthetic run event, so a case can drive a payload no scenario scripts.
  *
- * Sequence 1 so a store initialised at cursor 0 reads it as the next event rather
+ * Sequence 1 so a store initialized at cursor 0 reads it as the next event rather
  * than as a gap, which would degrade the store for a hole the case never had.
  */
 function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): ProjectedSessionEvent {

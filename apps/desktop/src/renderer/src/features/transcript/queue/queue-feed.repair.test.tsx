@@ -3,7 +3,7 @@
 // WHAT THIS IS ABOUT. The tail keeps the rows current while it is up, and the snapshot
 // read is what says what the whole list is. A stream that dropped and was repaired must
 // take a fresh snapshot, or the pane shows the list as it stood before the drop with
-// every row the daemon queued or cancelled in between missing.
+// every row the daemon queued or canceled in between missing.
 //
 // WHY THE CONTROL IS THE WHOLE CASE. A reading that had simply started polling would
 // pass the positive assertion, so the negative one — time passing, no repair, and the

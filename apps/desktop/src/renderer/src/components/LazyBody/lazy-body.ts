@@ -36,7 +36,7 @@ import { LazyBody } from "./LazyBody.js";
  * The module a lazily loaded body is loaded from.
  *
  * The export name is fixed by this contract rather than left to the family, so a board
- * composes one specifier shape and a body module is recognisable as one by reading its
+ * composes one specifier shape and a body module is recognizable as one by reading its
  * exports. `Body` and not `default`: the package admits `export default` only for tool
  * configuration at the root, and a default export here would be the one place in the
  * console where a body had no name.

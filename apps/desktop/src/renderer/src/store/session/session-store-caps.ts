@@ -1,7 +1,7 @@
 // What one session store holds before it stops growing, and how wide a hole it repairs.
 //
 // The two bound one store and are read against each other: the repairable gap sits above
-// what the pre-initialisation buffer can shed, or the ordinary overflow would report the
+// what the pre-initialization buffer can shed, or the ordinary overflow would report the
 // stream diverged over exactly the events the buffer kept.
 
 /**
@@ -15,7 +15,7 @@
  * (and re-derived exactly, as a sequence gap, the moment a base state does
  * arrive) rather than the buffer holding an entire session's stream forever.
  */
-export const PRE_INITIALISATION_BUFFER_CAP = 512;
+export const PRE_INITIALIZATION_BUFFER_CAP = 512;
 
 /**
  * Sequences a session store will carry as a repairable hole before it calls the
@@ -24,7 +24,7 @@ export const PRE_INITIALISATION_BUFFER_CAP = 512;
  * A hole is recorded as a RANGE rather than one entry per sequence, so a wide one
  * costs exactly what a narrow one does; this bound is about REPAIRABILITY, not
  * about the size of the record. Ordinary loss is small — a delivery dropped on a
- * resumed subscription, or the oldest rows a full `PRE_INITIALISATION_BUFFER_CAP`
+ * resumed subscription, or the oldest rows a full `PRE_INITIALIZATION_BUFFER_CAP`
  * shed — and a re-pull fills it against the cursor the store already reached,
  * which is why the bound sits above that buffer's whole worth of loss. Past it
  * the arithmetic stops being a hole and starts being a different stream:

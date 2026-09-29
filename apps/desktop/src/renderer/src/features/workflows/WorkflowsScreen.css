@@ -2,7 +2,7 @@
  * The workflows screen's own composition: the column its runs section stands in, and the
  * pane host that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
  *
- * Values come from the generated token sheet: there is no literal colour and no literal
+ * Values come from the generated token sheet: there is no literal color and no literal
  * length off the space scale, and nothing animates.
  */
 

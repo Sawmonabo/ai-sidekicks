@@ -22,7 +22,7 @@
 //   1. **One geometry.** Every face is drawn inside a square box, stroked at
 //      {@link GLYPH_STROKE_WIDTH} scaled to that box, with round caps and joins,
 //      and never filled. A glyph that fills is a glyph that reads heavier than
-//      its neighbours at 16 px, and the rail is the console's most-seen surface.
+//      its neighbors at 16 px, and the rail is the console's most-seen surface.
 //      Tabler draws at a 24-unit box and a 2-unit stroke and puts those
 //      attributes on the drawing elements, so the rule is APPLIED at compile
 //      time — `vitest/icon-compilation.ts` strips what an icon set brought and

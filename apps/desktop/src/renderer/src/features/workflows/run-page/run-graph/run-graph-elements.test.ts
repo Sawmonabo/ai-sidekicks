@@ -71,7 +71,7 @@ describe("the renderer's node array", () => {
 
   it("states every box's size, so nothing on the canvas waits to be measured", () => {
     // A node without dimensions is drawn hidden until a `ResizeObserver` reports
-    // one, and its neighbours move when it does. Both are the reasons the layout
+    // one, and its neighbors move when it does. Both are the reasons the layout
     // owns these numbers rather than the browser.
     const { nodes } = toRunGraphElements(drawnSequence());
     for (const node of nodes) {
@@ -154,7 +154,7 @@ describe("what a phase is called out loud", () => {
     ).not.toContain("parked");
   });
 
-  it("says which kind of park it is, so a listener is told what the colour says", () => {
+  it("says which kind of park it is, so a listener is told what the color says", () => {
     // A reader who cannot see the neutral border is told the same thing it says: the
     // engine will pick this phase back up, and nobody is being asked for anything.
     // Announcing both kinds as "parked" would give that reader the amber reading of

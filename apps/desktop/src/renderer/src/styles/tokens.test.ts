@@ -9,8 +9,8 @@
 // widen the preference list and the guard together, and nothing may widen the guard
 // without widening the list.
 //
-// `contrast.test.ts` beside this file measures the colours. This file is about the
-// vocabulary the colours are looked up through.
+// `contrast.test.ts` beside this file measures the colors. This file is about the
+// vocabulary the colors are looked up through.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -41,7 +41,7 @@ describe("the scheme vocabulary — one tuple, three readers", () => {
   it("keeps the system preference out of the set of things that paint", () => {
     // `ColorScheme` is a resolved answer and always paints something; a
     // preference may decline to answer. Conflating them is how "system" reaches a
-    // colour lookup that has no such column.
+    // color lookup that has no such column.
     expect(COLOR_SCHEMES).not.toContain(SYSTEM_SCHEME_PREFERENCE);
   });
 });

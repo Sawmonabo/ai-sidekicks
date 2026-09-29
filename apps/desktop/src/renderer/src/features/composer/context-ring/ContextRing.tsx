@@ -1,6 +1,6 @@
 // The context-window meter: how full the conversation is.
 //
-// Always visible at every level, and labelled "conversation" rather than "budget"
+// Always visible at every level, and labeled "conversation" rather than "budget"
 // or "usage" — the word is load-bearing. A per-run spend budget is a different
 // figure with a different owner, and a meter that said "usage" beside a composer
 // would be read as money by half the people who saw it.

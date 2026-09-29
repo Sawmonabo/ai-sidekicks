@@ -241,7 +241,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     );
     typeInto(container.querySelector(".meridian-run-composer__body"), "the first body");
     await submit(container);
-    // Cancelled and reopened while the first request is still in flight.
+    // Canceled and reopened while the first request is still in flight.
     act(() => {
       rerender(
         <ReopenableHarness

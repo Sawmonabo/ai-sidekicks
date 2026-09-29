@@ -6,7 +6,7 @@
 // the EVENT it named, and these hold it to the SESSION it named. The fixture used to
 // ignore `subscribeRelay`'s session argument and forward every beat to every
 // handler, so a multi-session test could read a stranger
-// session's log and pass against behaviour the live bridge does not exhibit —
+// session's log and pass against behavior the live bridge does not exhibit —
 // `packages/contracts/src/desktop-bridge.ts` scopes the subscription to the session
 // it is opened for.
 //

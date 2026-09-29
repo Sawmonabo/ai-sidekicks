@@ -13,8 +13,8 @@
 //     in front of the new subject never caused — and worse than the frame is what can
 //     be pressed during it.
 //   • A CALL STILL IN FLIGHT AGAINST THE OLD SUBJECT SETTLES INTO THE NEW ONE.
-//     Nothing behind the bridge is cancellable, so the honest disposition is that a
-//     late answer is DROPPED — never installed, never described as cancelled. Where
+//     Nothing behind the bridge is cancelable, so the honest disposition is that a
+//     late answer is DROPPED — never installed, never described as canceled. Where
 //     that answer is a RESOURCE, dropping it is not enough: never installed means no
 //     effect closed over it, so the caller's disposal is the only path to it.
 //

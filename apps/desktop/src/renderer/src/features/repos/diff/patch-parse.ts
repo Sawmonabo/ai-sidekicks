@@ -186,7 +186,7 @@ const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
  * the pairing below. Two walks of one text pair by ordinal, and that is sound only
  * while both walks agree line for line. This used to split on `\r\n` and on a bare
  * `\v`, `\f`, `\r`, or `\u0085`, which is strictly more separators than the library
- * recognises: a hunk body line carrying a lone carriage return — an ordinary line in a
+ * recognizes: a hunk body line carrying a lone carriage return — an ordinary line in a
  * file with old-Mac endings — was ONE line to the parser and TWO to this scanner, so a
  * `@@` header inside such a line was counted as declared with no hunk to pair it with,
  * and every later hunk took the previous one's header.
@@ -330,7 +330,7 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
 }
 
 /**
- * Fold neighbouring segments that carry the same verdict into one.
+ * Fold neighboring segments that carry the same verdict into one.
  *
  * Filtering one side out of a word diff leaves runs that were separated only by the
  * other side's tokens, and a model that carried them separately would make an

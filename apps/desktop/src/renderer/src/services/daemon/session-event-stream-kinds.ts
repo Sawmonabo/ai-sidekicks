@@ -157,7 +157,7 @@ const RUN_QUEUE_STREAM_STATE_BY_KIND: Readonly<Record<RunQueueStreamKind, QueueI
  *
  * Typed as strings rather than as the union, because a subscriber's event `kind`
  * arrives wire-verbatim: the membership test the routing table runs IS what
- * recognises it, and the registration proof lives on the record above rather than on
+ * recognizes it, and the registration proof lives on the record above rather than on
  * this list. A frozen array rather than a `ReadonlySet`, because the readonly view
  * was the defect — nine members are a `.includes` away, and the array cannot be added
  * to by a caller that got hold of it.

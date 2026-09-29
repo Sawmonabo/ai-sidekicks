@@ -81,7 +81,7 @@ export interface KeybindingRow {
  */
 export type ChordRecording =
   | { readonly outcome: "captured"; readonly chord: string }
-  | { readonly outcome: "cancelled" }
+  | { readonly outcome: "canceled" }
   | { readonly outcome: "cleared" }
   | {
       readonly outcome: "incomplete";
@@ -109,7 +109,7 @@ export type CompletedChordRecording = Exclude<ChordRecording, { readonly outcome
 /** The two that change a binding. A cancellation changes nothing and is neither. */
 export type AppliedChordRecording = Exclude<
   CompletedChordRecording,
-  { readonly outcome: "cancelled" }
+  { readonly outcome: "canceled" }
 >;
 
 /**
@@ -247,7 +247,7 @@ export function readChordFromEvent(
 ): ChordRecording {
   const bare = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   if (bare && event.key === "Escape") {
-    return { outcome: "cancelled" };
+    return { outcome: "canceled" };
   }
   if (bare && (event.key === "Backspace" || event.key === "Delete")) {
     return { outcome: "cleared" };

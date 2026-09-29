@@ -29,7 +29,7 @@ export type PushDrivenReadFailureCode = (typeof PUSH_DRIVEN_READ_FAILURE_CODES)[
  * failure is neither of these — so without these two bindings the set above would be
  * declared and consumed by nothing, which is a closed set that has stopped closing
  * anything. A typo in either one is a compile error here instead of a code no
- * reader recognises on screen.
+ * reader recognizes on screen.
  */
 export const READ_FAILED: PushDrivenReadFailureCode = "read-failed";
 

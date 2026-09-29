@@ -10,7 +10,7 @@
 // `@ts-expect-error` — a directive that becomes an error itself the moment the error it
 // suppresses stops occurring, which is what keeps them honest. What the UNTYPED boundary
 // does with the same rows is `pane-address-parse.test.ts`', including the cross-product
-// sweep that makes the pre-fold behaviour — admit everything — fail on every pair rather
+// sweep that makes the pre-fold behavior — admit everything — fail on every pair rather
 // than on one hand-picked one.
 //
 // THE TWO ROW SUITES BELOW ASSERT AT BOTH DOORS, and that is deliberate rather than a

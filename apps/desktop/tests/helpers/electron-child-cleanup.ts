@@ -1,6 +1,6 @@
 // Releasing what a spawned child was holding, once the child is actually gone.
 //
-// `electron-child.ts` owns the child's LIFETIME — when it is signalled, how many
+// `electron-child.ts` owns the child's LIFETIME — when it is signaled, how many
 // times, and, since the ordering fix its `OrderedChildTeardown` records, WHEN the
 // resource that child held is released. This module owns the one question that
 // sits one moment earlier and outside every one of those: the resource exists

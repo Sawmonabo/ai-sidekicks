@@ -27,7 +27,7 @@ class SingleIdFrameScheduler {
   public static readonly PLATFORM_HANDLE = 7;
 
   readonly #pendingCallbacks: (() => void)[] = [];
-  readonly #cancelledPlatformHandles: number[] = [];
+  readonly #canceledPlatformHandles: number[] = [];
   #originalRequest: typeof globalThis.requestAnimationFrame | undefined;
   #originalCancel: typeof globalThis.cancelAnimationFrame | undefined;
 
@@ -41,7 +41,7 @@ class SingleIdFrameScheduler {
       return SingleIdFrameScheduler.PLATFORM_HANDLE;
     };
     globalThis.cancelAnimationFrame = (platformHandle): void => {
-      this.#cancelledPlatformHandles.push(platformHandle);
+      this.#canceledPlatformHandles.push(platformHandle);
       this.#pendingCallbacks.length = 0;
     };
   }
@@ -64,8 +64,8 @@ class SingleIdFrameScheduler {
     }
   }
 
-  public get cancelledPlatformHandles(): readonly number[] {
-    return this.#cancelledPlatformHandles;
+  public get canceledPlatformHandles(): readonly number[] {
+    return this.#canceledPlatformHandles;
   }
 }
 
@@ -141,7 +141,7 @@ describe("RealClock — frames", () => {
     frameScheduler.paint();
 
     expect(painted).toBe(false);
-    expect(frameScheduler.cancelledPlatformHandles).toStrictEqual([
+    expect(frameScheduler.canceledPlatformHandles).toStrictEqual([
       SingleIdFrameScheduler.PLATFORM_HANDLE,
     ]);
   });
@@ -165,7 +165,7 @@ describe("RealClock — frames", () => {
     frameScheduler.paint();
 
     expect(secondPainted).toBe(true);
-    expect(frameScheduler.cancelledPlatformHandles).toStrictEqual([]);
+    expect(frameScheduler.canceledPlatformHandles).toStrictEqual([]);
   });
 
   it("negative control: the same cancel DOES stop the frame it names", () => {
@@ -200,18 +200,18 @@ describe("RealClock — frames", () => {
 });
 
 describe("RealClock — timeouts", () => {
-  it("runs a timeout, and a cancelled one does not run beside it", async () => {
+  it("runs a timeout, and a canceled one does not run beside it", async () => {
     const clock = new RealClock();
-    let cancelledRan = false;
+    let canceledRan = false;
     let sentinelRan = false;
 
-    const cancelled = clock.scheduleTimeout(() => {
-      cancelledRan = true;
+    const canceled = clock.scheduleTimeout(() => {
+      canceledRan = true;
     }, 1);
     clock.scheduleTimeout(() => {
       sentinelRan = true;
     }, 1);
-    clock.cancel(cancelled);
+    clock.cancel(canceled);
 
     await new Promise<void>((resolve) => {
       clock.scheduleTimeout(resolve, 20);
@@ -219,9 +219,9 @@ describe("RealClock — timeouts", () => {
 
     // The sentinel is the negative control: it was armed at the same delay, so a
     // clock that never ran anything would fail here rather than passing on the
-    // cancelled one's silence.
+    // canceled one's silence.
     expect(sentinelRan).toBe(true);
-    expect(cancelledRan).toBe(false);
+    expect(canceledRan).toBe(false);
   });
 
   it("forgets work once it has run, so a later cancel is a no-op", async () => {

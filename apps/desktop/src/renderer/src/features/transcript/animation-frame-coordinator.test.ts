@@ -302,7 +302,7 @@ describe("AnimationFrameCoordinator", () => {
     clock.runFrame();
 
     expect(ran).toBe(false);
-    // The budget claim moved here with the scheduler: cancelling the last task
+    // The budget claim moved here with the scheduler: canceling the last task
     // releases the frame, so a settled console holds no timer at all.
     expect(clock.pendingCount).toBe(0);
     // Idempotent: a second cancel of a key that never ran is a no-op.

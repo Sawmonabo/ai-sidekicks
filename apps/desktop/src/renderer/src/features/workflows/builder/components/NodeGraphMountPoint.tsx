@@ -3,7 +3,7 @@
 //
 // OWNED BY THE WORKFLOW ENGINE. The canvas is its own authoring surface: the entry
 // node plus the four phase classes, the gate on a phase's outgoing shoulder, the
-// agent avatars and binding badge inside a node, the labelled back-reference, and
+// agent avatars and binding badge inside a node, the labeled back-reference, and
 // the seven shapes a connection may never complete. This console frames that canvas;
 // it does not draw one.
 //

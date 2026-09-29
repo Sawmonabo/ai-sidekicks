@@ -1,6 +1,6 @@
 // Run chapters — the fold that makes parallel runs read as parallel stories.
 //
-// The collapse behaviour is fixed: run chapters collapse once terminal and the live
+// The collapse behavior is fixed: run chapters collapse once terminal and the live
 // chapter stays open. THE GROUPING IS THIS MODULE'S: a run's rows sit under one chapter
 // header so parallel runs read as parallel stories, one chapter per run, a terminal
 // chapter folded to a header and a past-tense receipt, and nothing re-ordered.
@@ -45,7 +45,7 @@ import {
 /**
  * Whether a chapter is still being written.
  *
- * Two values, and the distinction is the whole of rule 7's collapse behaviour: a
+ * Two values, and the distinction is the whole of rule 7's collapse behavior: a
  * terminal chapter folds to one line and a live one stays open.
  */
 export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;

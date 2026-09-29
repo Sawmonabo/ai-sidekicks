@@ -122,7 +122,7 @@
  * The two channel values only reverse video reaches, and the only two of the four
  * combinations that are reachable at all: a reversed run paints the body's background
  * as its FOREGROUND and the body's foreground as its BACKGROUND. The other two would be
- * a run painting the colour it already had, which nothing emits.
+ * a run painting the color it already had, which nothing emits.
  */
 .meridian-ansi__fg--default-background {
   color: var(--meridian-ansi-default-background);

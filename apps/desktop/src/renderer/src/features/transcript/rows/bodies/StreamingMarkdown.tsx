@@ -48,7 +48,7 @@
 // the snapshot it was taken from, so every derivation below it — both parse passes, the
 // declared-identifier set, the preamble, and the definition registration — is keyed on an
 // identity that only a change in this body's own text can move. A re-render caused by the
-// viewport, the layout, or a neighbouring row therefore walks none of them. That property
+// viewport, the layout, or a neighboring row therefore walks none of them. That property
 // was the whole point of the committed prefix and it was lost the moment one of these
 // derivations depended on an array rebuilt per render.
 
@@ -218,7 +218,7 @@ function settledBlockKey(block: string, positionInPrefix: number): string {
  * MEMOISED ON THE SNAPSHOT, and that is what makes every derivation below cheap on a
  * render the text did not change in. `segment` returns fresh arrays each call, so an
  * unmemoised split hands every consumer a new identity on a re-render caused by the
- * viewport, the layout, or a neighbouring row — and each of them then redoes work
+ * viewport, the layout, or a neighboring row — and each of them then redoes work
  * about a body that did not move. Idempotence is what makes the memo safe rather than
  * merely fast: a cache React discards is recomputed to the same split.
  */

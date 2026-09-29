@@ -1,6 +1,6 @@
-// The seam between recognising a client command and running one.
+// The seam between recognizing a client command and running one.
 //
-// The router INTERCEPTS: a leading slash whose name a recogniser knows resolves to
+// The router INTERCEPTS: a leading slash whose name a recognizer knows resolves to
 // `client-command`, carrying the name and no request, because the prefix is reserved
 // and such a line never composes into a message on any path.
 // Interception is where the send path ends — and it is not where the act happens.
@@ -40,13 +40,13 @@ export interface ComposerCommandLine {
  * can perform it: the line stays exactly as typed and no message is drawn.
  *
  * There is deliberately no "not found" arm: whether a name is registered is the
- * recogniser's question and is answered before this seam is reached, and an executor
- * that could disagree with the recogniser would be a second registry.
+ * recognizer's question and is answered before this seam is reached, and an executor
+ * that could disagree with the recognizer would be a second registry.
  */
 export type CommandOutcome =
   | { readonly status: "applied" }
   | { readonly status: "not-run" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
-/** Run one recognised client command. Returns a settlement; never throws to report one. */
+/** Run one recognized client command. Returns a settlement; never throws to report one. */
 export type CommandExecutor = (line: ComposerCommandLine) => Promise<CommandOutcome>;

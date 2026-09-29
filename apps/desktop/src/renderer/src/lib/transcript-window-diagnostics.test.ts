@@ -1,6 +1,6 @@
 // What the ledger-window registry answers, and the one ordering that decides it.
 //
-// The registry is three lines of behaviour and one of them is load-bearing: a route
+// The registry is three lines of behavior and one of them is load-bearing: a route
 // change mounts the next ledger before React runs the outgoing one's cleanup, so the
 // unregister a mount is handed has to remove ITS reader and not whichever one is
 // current. A blind delete there leaves the session reporting no viewport for the rest

@@ -89,7 +89,7 @@ export async function awaitPaintingAppWindow(
   if (!frames.painting) {
     throw new Error(
       `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
-        "signalling ready, so it is not painting and nothing timed in it would describe the " +
+        "signaling ready, so it is not painting and nothing timed in it would describe the " +
         "console; an unrevealed window paints only with background throttling off " +
         "(src/main/window-reveal.ts)",
     );

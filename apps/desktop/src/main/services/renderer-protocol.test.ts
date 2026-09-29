@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // `tests/helpers/electron-mock.ts`, and the reason is mechanical rather than
 // stylistic: it imports the module under test STATICALLY, so `electron` is
 // resolved during this file's own import phase — before a top-level
-// `const electronMock = createElectronMock(...)` would have initialised, which
+// `const electronMock = createElectronMock(...)` would have initialized, which
 // would leave the hoisted `vi.mock` factory reading a binding in its temporal
 // dead zone. The stub is also the whole surface this file needs, and it
 // constructs no window, so it is not a second copy of the shared harness's

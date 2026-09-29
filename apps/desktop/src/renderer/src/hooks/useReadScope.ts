@@ -34,7 +34,7 @@ const READ_SCOPE_DISPOSAL: SubjectScopedTerminalDisposal<ReadScope> = {
  * four lines and not a lifetime of its own. A scope opened by a render React throws
  * away is closed by the holder inside that render; one the subject moved out from
  * under is closed by the effect that held it; one the double-mount disposed is
- * recognised and re-minted. Writing any of that again here would be a second
+ * recognized and re-minted. Writing any of that again here would be a second
  * disposal rule for a family that has one.
  *
  * The scope is returned bare rather than as its holder's state, because nothing

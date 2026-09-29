@@ -2,7 +2,7 @@
 //
 // `Refusal` exists so that five producers stop minting five vocabularies for
 // three renderers, and the whole value of that is structural: the shape has to be
-// recognisable from OUTSIDE the module that built it, because a refusal crossing a
+// recognizable from OUTSIDE the module that built it, because a refusal crossing a
 // family boundary arrives as an `unknown` result or a caught error. So the cases
 // below are about recognition and about what survives the trip — the guard, the
 // message an error carries, and the refusal an error still holds after the throw.

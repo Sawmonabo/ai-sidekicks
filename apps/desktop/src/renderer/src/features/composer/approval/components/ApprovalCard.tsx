@@ -23,7 +23,7 @@
 // the page scroll they would otherwise cause. Base UI supplies the disclosure under
 // Meridian tokens — `@base-ui/react` is the one adopted widget family and ships zero
 // CSS; the row itself is two ordinary buttons, because a library button would add
-// weight without adding behaviour a `<button>` does not already have.
+// weight without adding behavior a `<button>` does not already have.
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";

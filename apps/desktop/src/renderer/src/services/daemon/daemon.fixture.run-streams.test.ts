@@ -12,7 +12,7 @@
 // `payload.newState`. Nothing rendered differently, because nothing reads those
 // members yet. It will.
 //
-// The projector's OWN behaviour — which subscriptions it answers for at all, and
+// The projector's OWN behavior — which subscriptions it answers for at all, and
 // which optional members it carries — is a different subject with a different
 // failure, and lives beside the module in `run-stream-projection.test.ts`.
 //

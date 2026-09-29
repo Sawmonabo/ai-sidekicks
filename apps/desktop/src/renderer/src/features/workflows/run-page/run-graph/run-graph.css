@@ -14,7 +14,7 @@
  * component writes those inline from its own props, and a stylesheet that set one
  * would silently overrule a caller.
  *
- * TWO COLOURS IN `base.css` REACH NO CUSTOM PROPERTY AT ALL, so the "all of them
+ * TWO COLORS IN `base.css` REACH NO CUSTOM PROPERTY AT ALL, so the "all of them
  * from Meridian" rule cannot be met by tokens alone and the rules are overridden
  * directly:
  *   • `.react-flow__attribution a { color: #999 }` — this one RENDERS on this
@@ -205,7 +205,7 @@
   --xy-resize-background-color-default: var(--meridian-accent);
 }
 
-/* The one library colour that renders here and reaches no custom property. */
+/* The one library color that renders here and reaches no custom property. */
 .meridian-run-graph .react-flow__attribution {
   font-size: var(--meridian-text-xs);
 }
@@ -265,7 +265,7 @@
 /*
  * The phase's wire identifier. Always drawn, and always in the mono signature rule 4
  * gives a wire-true figure — the `WireFigure` inside carries the face; this span
- * carries only the size, the colour and the clip.
+ * carries only the size, the color and the clip.
  *
  * Two lines when it stands alone, which is the case every read reachable today
  * produces: an identifier is long, and one clipped line of it identifies nothing.
@@ -280,7 +280,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   /* Break inside the identifier rather than past the box: a hyphenated wire id has
-     no space to wrap at, so without this it would run under its neighbour. */
+     no space to wrap at, so without this it would run under its neighbor. */
   overflow-wrap: anywhere;
 }
 
@@ -306,7 +306,7 @@
  * park: rule 3 spends amber on "a person is needed", and a phase the engine armed a
  * readable resume for needs nobody — so it is marked and not tinted. The two rules
  * below are the whole of the difference; the mark's text differs with them, so the
- * distinction survives for a reader who sees no colour at all.
+ * distinction survives for a reader who sees no color at all.
  */
 .meridian-phase-node__park {
   padding-inline: var(--meridian-space-1);
@@ -349,7 +349,7 @@
  * than by hue — the full-strength text token on the state word against `text-muted` for
  * a completed phase and `text-faint` for the two that are not going to run — over the
  * same control-boundary edge `completed` carries. The state WORD differs in every case
- * regardless, so the distinction survives for a reader who sees no colour at all.
+ * regardless, so the distinction survives for a reader who sees no color at all.
  */
 .meridian-phase-node[data-state="running"] {
   border-color: var(--meridian-edge-strong);

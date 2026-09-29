@@ -20,7 +20,7 @@
 //
 //   • `sequence-reconciler.ts` — ordering, dedupe, the recorded holes, and the
 //     divergence bound past which a sequence is refused rather than admitted.
-//   • `pre-initialisation-buffer.ts` — the bounded hold for events that arrive
+//   • `pre-initialization-buffer.ts` — the bounded hold for events that arrive
 //     before a base state, and the counted drop at its cap.
 //   • `store/entities/entity-projection.ts` — running one event's projector all-or-nothing.
 //   • `store/entities/entity-partitions.ts` — the immutable partition merges a mutation performs.
@@ -118,7 +118,7 @@ export class SessionStore {
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();
   readonly #reconciler = new SequenceReconciler();
-  readonly #preInitialisationBuffer = new PreInitializationBuffer();
+  readonly #preInitializationBuffer = new PreInitializationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
   /**
    * What is still waiting on a person, held apart from the window it was learned from.
@@ -184,14 +184,14 @@ export class SessionStore {
     return this.#hueAllocator;
   }
 
-  /** Events waiting for a base state. Never more than `PRE_INITIALISATION_BUFFER_CAP`. */
-  public get pendingPreInitialisationCount(): number {
-    return this.#preInitialisationBuffer.pendingCount;
+  /** Events waiting for a base state. Never more than `PRE_INITIALIZATION_BUFFER_CAP`. */
+  public get pendingPreInitializationCount(): number {
+    return this.#preInitializationBuffer.pendingCount;
   }
 
-  /** Events this store dropped from the pre-initialisation buffer at the cap. */
-  public get preInitialisationDropCount(): number {
-    return this.#preInitialisationBuffer.dropCount;
+  /** Events this store dropped from the pre-initialization buffer at the cap. */
+  public get preInitializationDropCount(): number {
+    return this.#preInitializationBuffer.dropCount;
   }
 
   /** Sequences still retained for duplicate detection. Bounded by construction. */
@@ -238,7 +238,7 @@ export class SessionStore {
    */
   public initialize(snapshot: SessionSnapshot): void {
     const current = this.#store.getState();
-    if (current.initialised && !admitsSnapshotAt(snapshot.cursor, current)) {
+    if (current.initialized && !admitsSnapshotAt(snapshot.cursor, current)) {
       return;
     }
 
@@ -281,7 +281,7 @@ export class SessionStore {
       }),
     );
 
-    const buffered = this.#preInitialisationBuffer.drain();
+    const buffered = this.#preInitializationBuffer.drain();
     if (buffered.length > 0) {
       this.applyBatch(buffered);
     }
@@ -333,7 +333,7 @@ export class SessionStore {
         sessionId: this.#sessionId,
         reconciler: this.#reconciler,
         projectionRunner: this.#projectionRunner,
-        preInitialisationBuffer: this.#preInitialisationBuffer,
+        preInitializationBuffer: this.#preInitializationBuffer,
         hueAllocator: this.#hueAllocator,
         outstandingAsks: this.#outstandingAsks,
         timelineCap: this.#timelineCap,

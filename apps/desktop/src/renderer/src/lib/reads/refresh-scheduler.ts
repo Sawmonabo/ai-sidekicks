@@ -24,7 +24,7 @@
 // It is terminal on `dispose()`. A pane that unmounts mid-stream must not be able
 // to re-arm a timer from a late event — "a timer that outlives its pane" is one of
 // the failure modes this substrate exists to make unrepresentable, and a `dispose`
-// that merely cancelled the current arm would leave the next `request` to start it
+// that merely canceled the current arm would leave the next `request` to start it
 // again.
 //
 // AND IT OWNS ITS SUPERSESSION. Every fire opens a round on this scheduler's own
@@ -40,7 +40,7 @@ import { ReadScope, type ReadRound } from "./read-scope.js";
  * Why a refresh was requested. Rendered in diagnostics; never inferred.
  *
  * `user-request` is the one a person caused: somebody pressed the control that
- * reads again. It is its own member rather than borrowed from a neighbour, and the rule
+ * reads again. It is its own member rather than borrowed from a neighbor, and the rule
  * is that a press is a reason of its own — never disguised as a subscription, which
  * says a surface has just opened, and never as a terminal event, which says the wire
  * delivered something. Both of those are claims about the SYSTEM, and a diagnostics

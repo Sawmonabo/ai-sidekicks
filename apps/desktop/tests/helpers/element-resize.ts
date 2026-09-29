@@ -38,7 +38,7 @@ export interface FakeResizeObserverControl {
  *
  * `vi.stubGlobal` rather than a constructor injected into the module under test,
  * because the seam reads `globalThis.ResizeObserver` at arm time — which is the
- * behaviour being checked, including its absence — and a caller that took the
+ * behavior being checked, including its absence — and a caller that took the
  * constructor as an argument would be a different module.
  *
  * The caller restores the global with `vi.unstubAllGlobals()`; this returns the

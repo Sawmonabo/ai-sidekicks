@@ -35,7 +35,7 @@ export const PARK_REASON_LABELS: Readonly<Record<WorkflowParkReason, string>> = 
  *
  * Amber is spent on "a person is needed" and on nothing else (rule 3), which is every
  * park that did not arm a boundary this console can read. A scheduled park is a
- * machine waiting for a machine and earns no colour; an unreadable boundary earns the
+ * machine waiting for a machine and earns no color; an unreadable boundary earns the
  * amber, because nothing legible says the run will resume itself.
  *
  * Takes the ANSWER rather than the schedule, so the fold — whose answer is a

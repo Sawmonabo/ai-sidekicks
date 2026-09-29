@@ -6,7 +6,7 @@
 // is as long as the window. So the clean assertions check both members against the
 // enumeration rather than against the mounted slice, and the fail-closed case checks
 // that an index which is not a position declares the set unknown instead of claiming
-// a neighbour's place.
+// a neighbor's place.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

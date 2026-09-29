@@ -14,7 +14,7 @@
 //     one kind's map, whose identity only changes when that kind changes, so a
 //     `run.*` burst re-renders the runs list and nothing else. `useSessionEntity`
 //     narrows further to one row, so a row re-renders when its own entity changes
-//     and not when its neighbour does.
+//     and not when its neighbor does.
 //
 // zustand v5's `useStore` compares with `Object.is` and does no shallow-equality
 // pass, which is exactly what these selectors want: the store merges immutably, so

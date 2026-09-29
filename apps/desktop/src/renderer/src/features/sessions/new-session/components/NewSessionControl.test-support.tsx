@@ -136,7 +136,7 @@ export function renderControl(options: { readonly scriptsCreate: boolean }): HTM
 }
 
 /**
- * A bridge whose `session.create` fulfils with a reply the registered schema refuses.
+ * A bridge whose `session.create` fulfills with a reply the registered schema refuses.
  *
  * Short of `state`, so the call door answers
  * `reply-unreadable` — the daemon was reached, ran, and answered, and only this

@@ -7,7 +7,7 @@
 // it hands them only to a subscriber the seam says they reach, in the shape that
 // subscription registers. A fixture that forwarded the whole script to every
 // subscriber delivered `session.created` into a handler that had asked for
-// `run.starting`; a fixture that recognised only ONE stream name delivered
+// `run.starting`; a fixture that recognized only ONE stream name delivered
 // nothing at all to the two `run.*` streams the daemon serves, which reads
 // exactly like a quiet session; a fixture that delivered the envelope to those
 // two streams sent a frame with no `currentState` on a wire whose whole payload
@@ -86,7 +86,7 @@ export function subscribeToScenario(
   subscriptionName: string,
   deliver: (delivered: unknown) => void,
 ): Unsubscribe {
-  // Replay-then-tail is the whole-session stream's registered behaviour and no other
+  // Replay-then-tail is the whole-session stream's registered behavior and no other
   // name's, and which name is which is `session-event-streams.ts`'s answer rather
   // than a second reading taken here: its `scope` IS that distinction — a stream that
   // represents the whole log is the one a subscriber can join late and expect the log
@@ -131,7 +131,7 @@ export function subscribeToScenario(
  * opens the relay for THAT session and forwards its frames, so a subscriber for one
  * session never receives another's. The fixture ignored the argument and forwarded
  * every beat to every handler, so a multi-session test could
- * consume a stranger session's log and pass against behaviour production does not
+ * consume a stranger session's log and pass against behavior production does not
  * exhibit.
  *
  * DECIDED ONCE AT ATTACH, NOT PER DELIVERY, and that follows from the live contract

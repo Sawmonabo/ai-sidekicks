@@ -155,7 +155,7 @@ export class PushDrivenRead<TValue> {
    * `dispose()` is terminal, so a disposed model answers `start()` and `refresh()`
    * with nothing at all. A holder that re-mounts the same instance — React's second
    * strict-mode mount, whose cleanup already disposed the first — has to be able to
-   * recognise that corpse and open a fresh model instead of committing it, and
+   * recognize that corpse and open a fresh model instead of committing it, and
    * `isSubscribed` cannot tell it apart from a model nobody has started yet.
    */
   public get isDisposed(): boolean {
@@ -209,7 +209,7 @@ export class PushDrivenRead<TValue> {
 
   /**
    * Take the subscription, then request the read the caller came for. The handle is
-   * stored only once `subscribe` has RETURNED it, so a seam signalling synchronously
+   * stored only once `subscribe` has RETURNED it, so a seam signaling synchronously
    * from inside its own subscribe re-enters holding nothing — which `#opening`
    * catches rather than take a second subscription no one can release.
    */

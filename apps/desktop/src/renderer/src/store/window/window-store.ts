@@ -298,7 +298,7 @@ export class WindowStore {
    * Both directions of the route — the rail's `navigate` and the hash's
    * `adoptHash` — pass through here so the retained session cannot be left behind
    * by one of them. A route that names no session leaves it alone, which is the
-   * whole behaviour: leaving a workspace does not make it unreachable.
+   * whole behavior: leaving a workspace does not make it unreachable.
    */
   #setRoute(route: AppRoute): void {
     const sessionId = routeSessionId(route);

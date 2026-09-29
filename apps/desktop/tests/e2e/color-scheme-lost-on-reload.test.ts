@@ -12,7 +12,7 @@
 // timeouts are read from a test context this runner does not provide. Waiting is
 // explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
 //
-// THE INCIDENT: the colour scheme a person chose was back to the default after a
+// THE INCIDENT: the color scheme a person chose was back to the default after a
 // restart.
 //
 // The applied attribute is written synchronously and the durable record is not, so
@@ -51,8 +51,8 @@ import { LaunchDeadline } from "../helpers/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", () => {
-  it("persists an explicit colour scheme across a reload", async () => {
+describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", () => {
+  it("persists an explicit color scheme across a reload", async () => {
     await withLaunchedApp({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>

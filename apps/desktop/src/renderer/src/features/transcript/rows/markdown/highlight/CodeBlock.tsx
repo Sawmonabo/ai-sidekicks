@@ -29,7 +29,7 @@ export interface CodeBlockProps {
    *
    * A volatile block is NOT highlighted: its text changes every frame, so each pass
    * would be a cache miss whose tokens are evicted before they are read again, and the
-   * colours would ripple as the grammar's interpretation of an unfinished line changed
+   * colors would ripple as the grammar's interpretation of an unfinished line changed
    * under the reader. Settled blocks parse once with a two-block settle lag, applied to
    * the one thing in a card that is expensive.
    */
@@ -79,7 +79,7 @@ export function CodeBlock(props: CodeBlockProps): React.JSX.Element {
  * The tokens for this block, or `undefined` while there are none to show.
  *
  * A hook rather than an inline effect, because the rule the component must not break is
- * that it renders and nothing else. The effect is cancelled by a mounted flag rather
+ * that it renders and nothing else. The effect is canceled by a mounted flag rather
  * than an `AbortController`: the work is already running in another thread and there is
  * nothing to abort — what has to be prevented is a state write after unmount, which is
  * exactly what the flag prevents.

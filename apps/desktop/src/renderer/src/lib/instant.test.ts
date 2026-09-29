@@ -320,7 +320,7 @@ describe("the millisecond unit factors", () => {
     // The factors are written as arithmetic over one base so a reader can check the
     // sentence rather than count digits, and this is the other half of that trade:
     // the magnitudes are stated here as literals, so a wrong multiplier in the chain
-    // fails here instead of travelling into every duration the console composes.
+    // fails here instead of traveling into every duration the console composes.
     expect(MILLISECONDS_PER_SECOND).toBe(1_000);
     expect(MILLISECONDS_PER_MINUTE).toBe(60_000);
     expect(MILLISECONDS_PER_HOUR).toBe(3_600_000);

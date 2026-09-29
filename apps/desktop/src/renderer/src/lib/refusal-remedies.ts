@@ -16,7 +16,7 @@
 // one. `session.not_found` can answer almost anything; `intervention.idempotency_conflict`
 // refuses a composer steer and a runs-pane control alike. Two surfaces writing their
 // own words for one code is how a person learns a remedy on one screen and does not
-// recognise it on the next.
+// recognize it on the next.
 //
 // AND EVERY KEY IS A CODE `error-contracts.md` ACTUALLY REGISTERS, which is checked
 // against that file rather than asserted here: a key the wire never sends answers

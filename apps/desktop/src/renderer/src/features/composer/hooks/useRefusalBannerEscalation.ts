@@ -13,7 +13,7 @@
 // reader mints a fresh one on each failed refresh, including the window-focus ones
 // the read triggers arm — so an unchanged condition arrived as a new object and the
 // dismissal lasted until the next retry. What is remembered is therefore the
-// refusal's CONTENT, and the two arms of that rule are both behaviours a person
+// refusal's CONTENT, and the two arms of that rule are both behaviors a person
 // notices: an unchanged condition stays dismissed, and a changed one comes back.
 //
 // WHAT COUNTS AS THE SAME CONDITION is the whole of what a banner shows plus who
@@ -60,7 +60,7 @@ export function useRefusalBannerEscalation(
  * What makes two refusals the same condition, as one comparable value.
  *
  * The three fields a banner is built from, joined by a separator no wire string
- * carries, so a code ending where a detail begins cannot collide with its neighbour.
+ * carries, so a code ending where a detail begins cannot collide with its neighbor.
  */
 function escalationIdentityOf(refusal: Refusal): string {
   return `${refusal.origin}\u0000${refusal.code}\u0000${refusal.detail}`;

@@ -78,7 +78,7 @@ describe("which refusals reach the frame", () => {
 
 describe("how often it escalates", () => {
   it("does not raise the banner again while the refusal is unchanged", () => {
-    // The behaviour that matters: dismiss stays dismissed under a pane that keeps
+    // The behavior that matters: dismiss stays dismissed under a pane that keeps
     // re-rendering with the same failed read.
     const frameStore = new WindowStore();
     const rendered = renderHook(() => {

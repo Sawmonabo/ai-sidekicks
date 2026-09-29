@@ -74,7 +74,7 @@ function scheduleFigureText(park: WorkflowPhasePark): string {
 }
 
 describe("a park with an armed schedule", () => {
-  it("wears no colour, because nobody is being asked for anything", () => {
+  it("wears no color, because nobody is being asked for anything", () => {
     const badge = renderBadge(WAITING_ON_CAPACITY);
     expect(badge.querySelector(".meridian-chip--attention")).toBeNull();
     expect(badge.querySelector(".meridian-chip--neutral")).not.toBeNull();

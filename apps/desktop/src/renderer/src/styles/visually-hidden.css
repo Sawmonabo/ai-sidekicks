@@ -16,7 +16,7 @@
  * already write it. Design-language rule 3 still governs its shape wherever it is
  * written: an outline rather than a box-shadow so it survives an `overflow: hidden`
  * ancestor, and `outline-offset` so it is never drawn over the control's own boundary
- * and always has an adjacent colour to be measured against.
+ * and always has an adjacent color to be measured against.
  */
 
 .meridian-visually-hidden {

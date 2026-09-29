@@ -81,7 +81,7 @@ export interface PaneBindings {
    * silently, by writing their own builder around `UiStateStore.opening()`, and the
    * cost of that was not the extra function: a pane in either of them could grow a
    * UI-state read, pass against a store that answered empty, and hang in the four
-   * families that had kept the adapter — one behaviour with two answers, which is
+   * families that had kept the adapter — one behavior with two answers, which is
    * the divergence a second builder always buys.
    */
   readonly uiStateStore?: UiStateStore | undefined;

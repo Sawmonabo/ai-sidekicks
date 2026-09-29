@@ -1,7 +1,7 @@
 // A one-line answer.
 //
 // The plainest of the five, and the default a string member lands on: a string with no
-// `format` the mapper recognises is one line of text, because that is what the corpus's
+// `format` the mapper recognizes is one line of text, because that is what the corpus's
 // own `text` field type is.
 //
 // AND A CLEARED BOX REPORTS AN UNANSWERED NODE, which leaves what that is WORTH to the

@@ -74,7 +74,7 @@
    this column carries has that shape, so the rule sits on the column and is
    inherited rather than being written once per figure.
 
-   Wrapping and not an ellipsis: a session is told apart from its neighbour by the
+   Wrapping and not an ellipsis: a session is told apart from its neighbor by the
    TAIL of its id, so a truncated one is two rows that read alike, and `figure.css`
    states in its own words that a figure a person cannot read whole is one they have
    to retype. Clipping the row would satisfy the reflow walk — which skips a box the

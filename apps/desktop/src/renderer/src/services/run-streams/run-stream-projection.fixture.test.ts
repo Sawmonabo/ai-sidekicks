@@ -1,4 +1,4 @@
-// The projector's own behaviour, apart from the bridge that calls it.
+// The projector's own behavior, apart from the bridge that calls it.
 //
 // `services/daemon/daemon.fixture.run-streams.test.ts` drives this module through a real bridge and
 // a real engine, which is the right way to prove that a subscriber receives the

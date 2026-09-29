@@ -58,7 +58,7 @@ describe("a surface's command seat", () => {
     const stopWatching = subscribeToCommandContributions(() => {
       signals += 1;
     });
-    const commands = [command("suite.signalled")];
+    const commands = [command("suite.signaled")];
     const mounted = renderHook(() => {
       useRegisterCommands(OWNER, commands);
     });

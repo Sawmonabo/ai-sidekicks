@@ -206,7 +206,7 @@ function disposeWindowSessionPlumbing(plumbing: WindowSessionPlumbing): void {
  * THE TERMINAL ARM, WHICH IS WHAT THE SHAPE OF THIS OBJECT SAYS. `disposeAll` is
  * one-way — a registry that has run it never serves another store — so React's
  * double-mount would re-commit the retired plumbing if the hook had no way to
- * recognise it, and the window would go on addressing a registry that answers
+ * recognize it, and the window would go on addressing a registry that answers
  * nothing. The reading is `isDisposed` because that is the registry's own record of
  * having run it, not a flag this module keeps beside it.
  *

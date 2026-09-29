@@ -175,7 +175,7 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
   },
   "workspace.execution_root_unresolved": {
     nextMove:
-      "A run reached its setup gate with no execution root for the mode this workspace is bound as, and is parked in starting. Preparing a root for it, or cancelling the run, are the two ways out.",
+      "A run reached its setup gate with no execution root for the mode this workspace is bound as, and is parked in starting. Preparing a root for it, or canceling the run, are the two ways out.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.branch_name_required": {

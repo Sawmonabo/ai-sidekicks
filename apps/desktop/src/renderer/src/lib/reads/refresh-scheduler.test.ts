@@ -104,7 +104,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(batches).toStrictEqual([["subscribe"]]);
 
     // Asked for while the first read is still outstanding. It must not run in
-    // parallel, and it must not be re-labelled.
+    // parallel, and it must not be re-labeled.
     scheduler.request("gap-repull");
     expect(batches).toHaveLength(1);
 
@@ -300,7 +300,7 @@ describe("the user's own reason — a press, recorded as a press", () => {
     const press: RefreshReason = "user-request";
 
     // @ts-expect-error — the planted union has no member for a user's press, so
-    // a console holding it had to reuse a neighbour's reason or invent one.
+    // a console holding it had to reuse a neighbor's reason or invent one.
     const borrowed: ReasonsBeforeThePress = press;
 
     expect(String(borrowed)).toBe("user-request");

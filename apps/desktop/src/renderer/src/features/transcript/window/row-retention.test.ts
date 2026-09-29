@@ -2,7 +2,7 @@
 //
 // The subject is `TranscriptRowRetention`, driven THROUGH `deriveTranscriptWindow` rather than
 // alone: the retention's value is a property of the derivation that uses it — which
-// objects reach the feed and which of them are recognisable — and a case that called
+// objects reach the feed and which of them are recognizable — and a case that called
 // the table directly would prove the table works while saying nothing about whether
 // the window is wired to it.
 //
@@ -105,7 +105,7 @@ describe("the transcript window's row retention", () => {
     // This is the code that was here, stated as a case: `deriveTranscriptWindow` used to
     // mint every row and every identity triple per call, so a log that gained one entry
     // handed the feed a window in which nothing had changed and nothing was
-    // recognisable. Every assertion above would pass over a `toBe` that had quietly
+    // recognizable. Every assertion above would pass over a `toBe` that had quietly
     // become a structural compare; this one fails if it ever does.
     const entries = log(LOG_ENTRY_COUNT);
     const before = deriveTranscriptWindow(entries, false);

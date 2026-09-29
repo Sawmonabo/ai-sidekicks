@@ -116,7 +116,7 @@ describe("the window's idle warm", () => {
       rendered.unmount();
     });
 
-    expect(scheduler.cancelledHandles).toHaveLength(2);
+    expect(scheduler.canceledHandles).toHaveLength(2);
     expect(scheduler.pendingCount).toBe(0);
     scheduler.runToQuiescence();
     expect(loaded).toStrictEqual([]);
@@ -125,8 +125,8 @@ describe("the window's idle warm", () => {
   it("warms both boards under a replayed effect", () => {
     // `StrictMode` runs every effect setup, its cleanup, and the setup again. Holding
     // the walks across that replay was silently fatal: the first setup started them, the
-    // synthetic cleanup CANCELLED them, and the replayed setup found the same objects
-    // already started and already cancelled and returned — so both boards stayed cold
+    // synthetic cleanup CANCELED them, and the replayed setup found the same objects
+    // already started and already canceled and returned — so both boards stayed cold
     // for the life of the window, with nothing failing and nothing logged. Building the
     // pair inside each setup is what makes a replay a fresh pair.
     const loaded: string[] = [];
@@ -138,7 +138,7 @@ describe("the window's idle warm", () => {
       </StrictMode>,
     );
 
-    // The replay's own cleanup cancelled the first pair, so exactly one live pair is
+    // The replay's own cleanup canceled the first pair, so exactly one live pair is
     // armed — a count that also fails if the fix had left BOTH pairs walking.
     expect(scheduler.pendingCount).toBe(2);
 
@@ -151,7 +151,7 @@ describe("the window's idle warm", () => {
 
   it("releases the replayed pair when the window goes away", () => {
     // The lifetime claim, re-asked over the replay: whichever pair is live at unmount is
-    // the pair that gets cancelled, and nothing walks afterwards.
+    // the pair that gets canceled, and nothing walks afterwards.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();

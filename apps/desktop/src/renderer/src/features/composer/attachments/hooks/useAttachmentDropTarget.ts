@@ -123,7 +123,7 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
       deliver(event.dataTransfer?.files);
     };
     const onPaste = (event: ClipboardEvent): void => {
-      // The default is left alone unless files actually travelled, so pasting text
+      // The default is left alone unless files actually traveled, so pasting text
       // into the message line behaves exactly as it did before this binding existed.
       if (deliver(event.clipboardData?.files)) {
         event.preventDefault();

@@ -34,7 +34,7 @@
  * The computed `overflow` values that clip a descendant.
  *
  * A closed positive set rather than a `!== "visible"` test: the negative form calls an
- * ancestor a clipper on any value it does not recognise, and a stylesheet-free document
+ * ancestor a clipper on any value it does not recognize, and a stylesheet-free document
  * reports the empty string for every box. Under that reading every pane is clipped to
  * nothing by an unlaid-out ancestor and hides itself, which looks exactly like a pane
  * that never attached.

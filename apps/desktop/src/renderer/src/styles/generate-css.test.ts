@@ -117,7 +117,7 @@ describe("assets — the generated token sheet", () => {
     }
   });
 
-  it("emits every colour through the shared formatter, never a hand-rounded literal", () => {
+  it("emits every color through the shared formatter, never a hand-rounded literal", () => {
     const css = generateMeridianCss();
     for (const scheme of COLOR_SCHEMES) {
       for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {

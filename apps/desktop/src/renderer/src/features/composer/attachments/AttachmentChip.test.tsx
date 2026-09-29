@@ -89,7 +89,7 @@ describe("the attachment chip's remedies", () => {
     expect(titled).not.toContain(INGEST_DISPOSITION_COPY.restart);
   });
 
-  it("says what cancelling does beside the control that offers it", () => {
+  it("says what canceling does beside the control that offers it", () => {
     const container = renderChip(
       sendingEntry("ingesting", { declaredName: "notes.md", receivedBytes: 250 }),
     );

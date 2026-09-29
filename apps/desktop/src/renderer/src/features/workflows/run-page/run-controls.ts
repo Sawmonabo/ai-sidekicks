@@ -11,7 +11,7 @@
 // and declares nothing about it.
 //
 // ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
-// Whether a run may be cancelled or resumed is a daemon adjudication, and nothing in
+// Whether a run may be canceled or resumed is a daemon adjudication, and nothing in
 // this console can know it before it asks. So a control is OFFERED and its press puts
 // the question; an act the daemon served lands on {@link WorkflowRunControlOutcome}
 // beside the button that asked it.
@@ -73,9 +73,9 @@ export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-i
 /** What a served `workflow.runCancel` answers with. */
 export interface WorkflowRunCancelReply {
   readonly workflowRunId: string;
-  readonly state: Extract<WorkflowRunState, "cancelled">;
-  readonly cancelledEventId: string;
-  readonly alreadyCancelled: boolean;
+  readonly state: Extract<WorkflowRunState, "canceled">;
+  readonly canceledEventId: string;
+  readonly alreadyCanceled: boolean;
 }
 
 /** What a served `workflow.runResume` answers with. */
@@ -168,7 +168,7 @@ export function reasonPastBoundRefusal(budget: CancelReasonBudget): Refusal {
 
 /** What each action is called where a person reads a sentence about it. */
 const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
-  cancel: "Cancelling a run",
+  cancel: "Canceling a run",
   resume: "Resuming a run",
 };
 

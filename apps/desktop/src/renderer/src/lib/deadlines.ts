@@ -20,7 +20,7 @@
 //
 // THE DEPENDENCY IS THE DEADLINE, NOT THE ARRAY. Every family that wrote this by
 // hand keyed its effect on the record array, so a caller that rebuilt the array each
-// render — a `.map` over a store selection, which is the ordinary case — cancelled
+// render — a `.map` over a store selection, which is the ordinary case — canceled
 // and re-armed a timer on every single render. The earliest future deadline is a
 // NUMBER, and a number is what the effect depends on here, so an array with the same
 // contents re-arms nothing and the steady path allocates nothing.

@@ -16,10 +16,10 @@
 // which is the only reading that separates "it ran" from "it was skipped".
 //
 // AND WHAT IT ASSERTS ON IS READ PLAIN. Every reading of the child's streams
-// goes through one stripper and the child runs with colour turned off, because
+// goes through one stripper and the child runs with color turned off, because
 // the first version of the selection case did neither and asserted on raw bytes:
-// on a developer's machine a piped child stays uncoloured and the case passed,
-// while the runner colourizes and the reporter puts escapes BETWEEN the words of
+// on a developer's machine a piped child stays uncolored and the case passed,
+// while the runner colorizes and the reporter puts escapes BETWEEN the words of
 // the very line the case matched. It was measuring terminal support.
 //
 // The refusal matters because a wrong invocation of this script is SILENT. Both
@@ -90,30 +90,30 @@ function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
     {
       cwd: PACKAGE_ROOT,
       encoding: "utf8",
-      env: colourFreeEnvironment(),
+      env: colorFreeEnvironment(),
     },
   );
 }
 
 /**
- * The child's environment with colour turned off, whatever this host exports.
+ * The child's environment with color turned off, whatever this host exports.
  *
  * `NO_COLOR` AND NOT `FORCE_COLOR=0`, and the difference is a real inversion
- * rather than a preference. Both colour libraries in this tree decide on
+ * rather than a preference. Both color libraries in this tree decide on
  * PRESENCE or on JavaScript truthiness, never on the number a reader would
  * expect: vitest's `tinyrainbow@3.1.0` asks `"FORCE_COLOR" in env`, and
  * `picocolors@1.1.1` asks `!!env.FORCE_COLOR` — and `"0"` is a non-empty string,
- * so it is truthy. Setting `FORCE_COLOR` to `"0"` therefore turns colour ON in
+ * so it is truthy. Setting `FORCE_COLOR` to `"0"` therefore turns color ON in
  * both. `NO_COLOR` is what actually decides, in both, ahead of everything else.
  *
  * The inherited variable is DELETED rather than overwritten for the same
- * reason: under a presence check any value at all forces colour, so the only
+ * reason: under a presence check any value at all forces color, so the only
  * safe value is no variable.
  *
  * This is the child's environment and never the operator's — the script itself
- * keeps whatever colour its caller wants, and nothing here is exported.
+ * keeps whatever color its caller wants, and nothing here is exported.
  */
-function colourFreeEnvironment(): NodeJS.ProcessEnv {
+function colorFreeEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
   delete environment["FORCE_COLOR"];
   return environment;
@@ -123,12 +123,12 @@ function colourFreeEnvironment(): NodeJS.ProcessEnv {
  * The child's stdout with terminal control sequences removed. The ONE reader.
  *
  * Every assertion about what the command reported goes through this, because a
- * summary line the runner colourized carries escapes BETWEEN its words — CI
+ * summary line the runner colorized carries escapes BETWEEN its words — CI
  * emitted `Test Files \u001B[22m \u001B[1m\u001B[32m1 passed`, where `\s+`
  * cannot match — and an assertion that reads the raw bytes is measuring the
- * host's terminal support rather than the command's behaviour. It passed on a
- * developer's machine, where a piped child stays uncoloured, and failed on the
- * runner, where the job's environment turns colour on.
+ * host's terminal support rather than the command's behavior. It passed on a
+ * developer's machine, where a piped child stays uncolored, and failed on the
+ * runner, where the job's environment turns color on.
  *
  * `node:util`'s own stripper rather than a pattern of ours: the escape grammar
  * is not a thing this package should hold an opinion about, and a regex written
@@ -263,7 +263,7 @@ describe("test:changed runs the project that owns each forwarded file", () => {
    * Vitest's own count line, which is the reading that says the file RAN.
    *
    * Named once because the control below has to hold the same pattern against a
-   * colourized sample; two copies would let the control drift off the assertion
+   * colorized sample; two copies would let the control drift off the assertion
    * it exists to justify.
    */
   const TEST_FILE_COUNT = /Test Files\s+1 passed/;
@@ -280,7 +280,7 @@ describe("test:changed runs the project that owns each forwarded file", () => {
    */
   const VITEST_RUN_USAGE_LINE = "$ vitest run";
 
-  it("negative control: the colourized summary this pattern must survive", () => {
+  it("negative control: the colorized summary this pattern must survive", () => {
     // The bytes GitHub Actions produced, copied from the failing job rather than
     // imagined: the reporter emits the count with escapes BETWEEN the words, so
     // `\s+` has a `\u001B[22m` where it wants a space. Without the strip this
@@ -289,13 +289,13 @@ describe("test:changed runs the project that owns each forwarded file", () => {
     // Both halves are asserted, and the first is what makes the second mean
     // anything: a pattern that matched the raw bytes would prove nothing about
     // the stripping, and one that matched neither would prove nothing at all.
-    const colourized =
+    const colorized =
       "\u001B[2m Test Files \u001B[22m \u001B[1m\u001B[32m1 passed\u001B[39m\u001B[22m (1)\n";
 
-    expect(colourized, "the hazard is gone, so this control now proves nothing").not.toMatch(
+    expect(colorized, "the hazard is gone, so this control now proves nothing").not.toMatch(
       TEST_FILE_COUNT,
     );
-    expect(stripVTControlCharacters(colourized)).toMatch(TEST_FILE_COUNT);
+    expect(stripVTControlCharacters(colorized)).toMatch(TEST_FILE_COUNT);
   });
 
   it("selects `main-unit` for a `main-unit` file and actually runs it", () => {

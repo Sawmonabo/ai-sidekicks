@@ -117,7 +117,7 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
   // a duplicate key still renders both children and still updates the second by
   // position, so that case passes either way. Keying is a property of the derivation
   // (asserted above, where scope uniqueness is structural) and of what React is handed
-  // (asserted here); it is deliberately not asserted through a misbehaviour React
+  // (asserted here); it is deliberately not asserted through a misbehavior React
   // documents as unpredictable and could change between versions.
 
   it("renders both crumbs and raises no duplicate-key warning", async () => {
@@ -152,7 +152,7 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
 
   it("moves the right crumb when one scope of a colliding pair changes", () => {
     // The OUTCOME the key exists to protect, pinned separately from the key itself.
-    // React documents its behaviour on duplicate keys as unpredictable, and measured
+    // React documents its behavior on duplicate keys as unpredictable, and measured
     // on the version this console pins it keeps both children and reconciles the
     // second by position — so this case passes on the pre-fix shape too, and it is
     // NOT the control for the finding. It is here because "the trail shows the new run

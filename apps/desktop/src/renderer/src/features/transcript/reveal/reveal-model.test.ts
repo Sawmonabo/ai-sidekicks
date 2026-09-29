@@ -1,9 +1,9 @@
 // The reveal engine's two closed sets, pinned where they are declared.
 //
-// This case travelled here with the declarations it is about. It was written
+// This case traveled here with the declarations it is about. It was written
 // beside the engine because that is where the enumerations lived, and asserting a
-// module's own closed set from a neighbour's test file is the shape that goes
-// stale: the neighbour is deleted or narrowed, and the only assertion that a
+// module's own closed set from a neighbor's test file is the shape that goes
+// stale: the neighbor is deleted or narrowed, and the only assertion that a
 // vocabulary is CLOSED goes with it.
 //
 // Order is part of the claim in both. The states read as the machine walks them —

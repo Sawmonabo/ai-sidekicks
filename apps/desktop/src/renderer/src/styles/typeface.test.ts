@@ -158,7 +158,7 @@ describe("the generated @font-face block", () => {
       expect(blockOfFace).toContain(`font-feature-settings: ${face.featureSettings};`);
     }
     // And the roster itself carries the scoping, so a later face cannot pick up the
-    // signature by copying a neighbouring entry: exactly the mono family declares it.
+    // signature by copying a neighboring entry: exactly the mono family declares it.
     const familiesCarryingFeatures = new Set(
       TYPEFACE_FACES.filter((face) => face.featureSettings !== null).map((face) => face.family),
     );

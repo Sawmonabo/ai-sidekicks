@@ -8,7 +8,7 @@
 //
 //   • **The boundary and the pattern are one decision.** A rule that covers a whole
 //     category for a whole session is a different grant from one that covers a
-//     single path for one run, and the two controls that decide that are labelled
+//     single path for one run, and the two controls that decide that are labeled
 //     and disclosed together rather than sitting apart.
 //   • **The copy claims nothing the corpus has not registered.** No per-category
 //     syntax is registered anywhere — no path-prefix rule, no host-matching rule, no

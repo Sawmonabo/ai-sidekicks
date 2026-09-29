@@ -243,7 +243,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("negative control: a subscriber that asks for no replay still receives no prefix", () => {
-    // Replay is the whole-session stream's registered behaviour and not the engine's
+    // Replay is the whole-session stream's registered behavior and not the engine's
     // default: the narrowed run streams and the relay are live, and an engine that
     // replayed unconditionally would hand a runs surface transitions it never
     // subscribed in time for.

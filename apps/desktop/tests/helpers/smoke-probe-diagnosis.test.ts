@@ -237,7 +237,7 @@ describe("diagnoseMissingProbe", () => {
     [
       "output that matches no marker",
       { exitCode: 3, combinedOutput: "some unrelated chatter" },
-      "without a recognised failure marker",
+      "without a recognized failure marker",
     ],
   ] as const)("names %s", (_label, overrides, expectedFragment) => {
     expect(diagnoseMissingProbe(failedSpawn(overrides))).toContain(expectedFragment);

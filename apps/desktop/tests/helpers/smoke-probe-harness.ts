@@ -542,7 +542,7 @@ export function spawnElectron(): Promise<SpawnResult> {
       // stdout write end open and `close` would never fire (the unbounded
       // hang this timer exists to prevent).
       //
-      // Capture the environment BEFORE signalling: once SIGTERM lands the
+      // Capture the environment BEFORE signaling: once SIGTERM lands the
       // process tree is gone and `ps` has nothing left to report, which is
       // precisely the reading that would have named this flake on its first
       // occurrence instead of its fourth.

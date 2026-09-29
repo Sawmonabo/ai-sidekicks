@@ -38,7 +38,7 @@
  * person acts on: "the pane I am typing in". Without it a pane is marked for one
  * keystroke and then reads as unfocused for the whole time it is being used. It is
  * drawn as a border and an inset shadow rather than an outline, because an outline on a
- * rounded container paints outside the radius and clips against the neighbour's edge.
+ * rounded container paints outside the radius and clips against the neighbor's edge.
  *
  * Their fallbacks differ for the same reason their treatments do: a ring falls back to
  * the ring token, a boundary to the neutral control boundary.

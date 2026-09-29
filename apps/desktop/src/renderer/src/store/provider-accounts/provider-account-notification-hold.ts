@@ -22,7 +22,7 @@
 //
 // A SECOND ATTEMPT INHERITS WHAT THE FIRST WAS HOLDING, WHICH IS THE SAME RULE
 // ARRIVED AT FROM THE OTHER SIDE. `begin()` used to clear, and a read begun while an
-// earlier one was still travelling therefore threw away every frame that earlier one
+// earlier one was still traveling therefore threw away every frame that earlier one
 // had held — silently, and by the very method whose purpose is that no frame is
 // dropped. It is reachable without anything failing: the opening read is taken
 // straight, a tail frame is held across it, and a `window-focus` trigger begins a

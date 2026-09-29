@@ -1,6 +1,6 @@
 // The palette's bridge-backed commands, and the door they reach the bridge through.
 //
-// Two claims worth proving separately. The BEHAVIOUR — an act that the bridge
+// Two claims worth proving separately. The BEHAVIOR — an act that the bridge
 // refuses settles as a rendered refusal rather than as a dropped promise — is
 // driven against the real fixture bridge, whose `update.requestCheck` genuinely
 // rejects and whose `native.copyToClipboard` genuinely resolves, so neither arm is

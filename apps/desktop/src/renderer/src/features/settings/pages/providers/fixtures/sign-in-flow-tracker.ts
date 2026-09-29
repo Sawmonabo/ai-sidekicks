@@ -119,7 +119,7 @@ export class SignInFlowTracker {
    *
    * Held because the tail opens BEFORE `providerAccount.login` is called — the ordering
    * the registered contract states — so a flow that finishes fast reports its
-   * completion while the start reply is still travelling. Without this the plane would
+   * completion while the start reply is still traveling. Without this the plane would
    * seat an attempt that is already over and hold the key until somebody pressed
    * cancel. ONE id and not a set: the daemon runs one brokered flow at a time, so the
    * newest completion is the only one a seating attempt could be.
@@ -175,7 +175,7 @@ export class SignInFlowTracker {
       claim.settle(() => {
         if (outcome.attempt.attemptId === this.#completedAttemptId) {
           // The registry reported this very attempt finished while its start reply was
-          // still travelling, which the registered ordering makes ordinary: the tail is
+          // still traveling, which the registered ordering makes ordinary: the tail is
           // open before the call goes out. Seating it would put a card on screen for a
           // flow that is over.
           claim.release();
@@ -200,7 +200,7 @@ export class SignInFlowTracker {
     }
     const { accountId, attempt } = flow;
     const round = this.#flows.currentClaim(this, SIGN_IN_FLOW_KEY);
-    this.#publish({ flow: { kind: "cancelling", accountId, attempt } });
+    this.#publish({ flow: { kind: "canceling", accountId, attempt } });
     void this.#cancelSignIn(attempt).then((outcome) => {
       round.settle(() => {
         this.#flows.supersede(this, SIGN_IN_FLOW_KEY);

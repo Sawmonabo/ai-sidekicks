@@ -11,10 +11,10 @@ import { ManualClock } from "@renderer/lib/clock.js";
 const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
 function StoreHeader(props: { readonly store: SessionStore }): React.JSX.Element {
-  const initialised = useSessionInitialized(props.store);
+  const initialized = useSessionInitialized(props.store);
   const cursor = useSessionStore(props.store, (state) => state.cursor);
   return (
-    <span data-testid="header">{`${initialised ? "ready" : "loading"}:${String(cursor)}`}</span>
+    <span data-testid="header">{`${initialized ? "ready" : "loading"}:${String(cursor)}`}</span>
   );
 }
 

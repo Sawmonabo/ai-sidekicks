@@ -105,7 +105,7 @@ export class ChildRunExpansionState {
    * End every read line: outstanding expansions stop, and no later one is live.
    *
    * The expansions themselves are left as they stand — a holder handing this object
-   * back recognises the corpse through `isAbandoned` and mints a fresh one, so nothing
+   * back recognizes the corpse through `isAbandoned` and mints a fresh one, so nothing
    * here is ever read again.
    */
   public abandonReads(): void {

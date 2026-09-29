@@ -10,7 +10,7 @@ import { type PaneContext } from "@renderer/console/seats/index.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
 import { renderSettled } from "../app-harness.js";
-import { type MountedView, paneTrailName, requireLabelledRegion } from "./mount-queries.js";
+import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
 import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
 
 /** The preview pane, mounted and settled. */
@@ -27,7 +27,7 @@ export async function mountPreviewPane(): Promise<MountedView> {
     />,
   );
   return {
-    element: requireLabelledRegion(container, paneTrailName(undefined, "Browser")),
+    element: requireLabeledRegion(container, paneTrailName(undefined, "Browser")),
     bridge,
   };
 }

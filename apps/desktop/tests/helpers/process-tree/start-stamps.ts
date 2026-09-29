@@ -77,7 +77,7 @@ export function stampStillNamesMember(
  *
  * A row absent from the table is the ordinary shape for a descendant that has
  * already exited, and such a member is kept: it is filtered by the caller's own
- * liveness reading before anything is signalled. A listing that could not be read
+ * liveness reading before anything is signaled. A listing that could not be read
  * at all never reaches here as a table, because `readers.ts` answers that with its
  * own sentinel — so "the host would not answer" can never be mistaken here for
  * "everything has exited".
@@ -132,7 +132,7 @@ function orderedStartStamp(
  *
  * FALSE IS THE ANSWER TO EVERY DOUBT, which is this module's failure direction
  * and not a shortcut: a missing stamp on either side, two stamps in orders that
- * cannot be compared, and a stamp in no order this recognises all answer `false`
+ * cannot be compared, and a stamp in no order this recognizes all answer `false`
  * and admit the claimant. Refusing a member on an unreadable stamp would drop
  * real descendants out of the only kill list a rootless tree has, which is a
  * worse failure than the one this prevents.

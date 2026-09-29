@@ -246,7 +246,7 @@ type SecondRecord = Record<string, Record<string, number | boolean | string>>;
 
 describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {
   it("flushes what was waiting rather than dropping it", async () => {
-    // A retirement that cancelled would throw away the newest arrangement — the one
+    // A retirement that canceled would throw away the newest arrangement — the one
     // act the person performed last, and the one they expect to find on the way back.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({

@@ -65,7 +65,7 @@ describe("an ask nobody is listening for", () => {
   });
 
   it("is dropped rather than replayed at the next mount", () => {
-    // The behaviour a buffer would defeat: the caret must not jump into a composer
+    // The behavior a buffer would defeat: the caret must not jump into a composer
     // that mounted after the ask, because by then the person is somewhere else.
     requestComposerFocus();
     const takeFocus = vi.fn();

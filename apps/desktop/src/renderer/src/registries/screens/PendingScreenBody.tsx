@@ -29,7 +29,7 @@ export interface PendingScreenBodyProps {
  * The route's frame, before its surface.
  *
  * The marker's VALUE is the route kind rather than a surface slot, so a refusal to
- * capture names the address a person would recognise. It is the same attribute a pending
+ * capture names the address a person would recognize. It is the same attribute a pending
  * pane stamps, because the question a capture asks is one question — is anything on this
  * page still loading — and two attributes would be two sweeps that agree until one is
  * forgotten.

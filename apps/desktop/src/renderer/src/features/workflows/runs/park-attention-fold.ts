@@ -6,7 +6,7 @@
 // phases with the same `parkAttentionKey`. Drawn one entry per run that is one fact
 // reported N times — six lines saying the same account is out of capacity, none of
 // them saying it is one account. The engine mints the key for exactly this, and until
-// this module nothing read it: the key reached `WorkflowParkedPhase`, travelled
+// this module nothing read it: the key reached `WorkflowParkedPhase`, traveled
 // through the projection, and stopped.
 //
 // THE FOLD IS OVER PARKED PHASES AND THE COUNT IS OVER RUNS. Those are two different

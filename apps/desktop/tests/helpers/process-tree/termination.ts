@@ -30,7 +30,7 @@
 //     runner's own group is a different number and is never passed.
 //
 //   • Windows has no process group to signal, and its "signals" are
-//     `TerminateProcess` calls that are never forwarded, so signalling the
+//     `TerminateProcess` calls that are never forwarded, so signaling the
 //     launcher alone orphans the browser holding the inherited stdout write end.
 //     `taskkill /pid N /t` walks the descendant tree instead — `runPlatformTreeKill`
 //     in `arms.ts` states what the flags do and why. It is a SEPARATE PROGRAM
@@ -53,7 +53,7 @@ import {
   deliverSignal,
   runPlatformTreeKill,
   terminateExternalTree,
-  terminateSignalledTree,
+  terminateSignaledTree,
   type ExternalTreeTools,
 } from "./platform-termination.js";
 import { HostCommandBudget, TERMINATION_CONSUMES_CAPTURED_DESCENDANTS } from "./budget.js";
@@ -176,7 +176,7 @@ export function externalTreeToolsOver(
  * copied to every call site entitles each command to the whole remainder, so
  * `taskkill` spends it and the listing after it spends it again. Each command
  * takes the smaller of what is left and its own bound; a budget spent to zero
- * runs none of them and reports the tree as neither signalled nor terminated,
+ * runs none of them and reports the tree as neither signaled nor terminated,
  * which is the reading that keeps a caller escalating rather than one that
  * claims a kill it never attempted.
  *
@@ -198,7 +198,7 @@ export function terminateProcessTree(
       externalTreeToolsOver(processId, rootIdentity, budget),
     );
   }
-  return terminateSignalledTree(processId, signal, {
+  return terminateSignaledTree(processId, signal, {
     deliver: deliverSignal,
     groupHasMember: processGroupExists,
     hasTerminated: (treeMemberProcessId: number): boolean =>

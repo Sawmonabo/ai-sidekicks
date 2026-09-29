@@ -42,7 +42,7 @@ import {
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
 import { renderSettled } from "../app-harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
-import { requireElement, requireLabelledRegion, type MountedView } from "./mount-queries.js";
+import { requireElement, requireLabeledRegion, type MountedView } from "./mount-queries.js";
 
 /**
  * The repos sidebar section, open, with its three mounts read.
@@ -102,5 +102,5 @@ export async function mountDiffPane(): Promise<MountedView> {
   // Anchored at the kind rather than spelled whole: the chrome names the pane by its
   // trail, so the full name carries the session id and the workspace this diff is a view
   // of — both stated by the fixture, and neither this module's to restate.
-  return { element: requireLabelledRegion(container, /Diff$/u), bridge };
+  return { element: requireLabeledRegion(container, /Diff$/u), bridge };
 }

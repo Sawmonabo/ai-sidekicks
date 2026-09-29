@@ -6,7 +6,7 @@
 // plus the two the chokepoint answers with memory: a subscriber writing back during
 // notification, and the dedupe set over a long-lived session. The other modes have
 // their own files: `failure-modes.repair.test.ts` for the authoritative re-read and
-// the pre-initialisation cap, `failure-modes.sequence.test.ts` for a delivered
+// the pre-initialization cap, `failure-modes.sequence.test.ts` for a delivered
 // sequence the store cannot reconcile, and `failure-modes.projection.test.ts` for a
 // projector that throws.
 //
@@ -36,8 +36,8 @@ beforeEach(() => {
   windowTripwires.reset();
 });
 
-describe("failure matrix — a bridge event arrives before the store is initialised", () => {
-  it("buffers rather than dropping, and drains in sequence order once initialised", () => {
+describe("failure matrix — a bridge event arrives before the store is initialized", () => {
+  it("buffers rather than dropping, and drains in sequence order once initialized", () => {
     const store = new SessionStore({ sessionId: "session-1" });
 
     const early = store.applyBatch([eventAt(3), eventAt(2)]);

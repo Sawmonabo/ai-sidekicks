@@ -30,7 +30,7 @@ import type { DriverInterventionResult } from "@ai-sidekicks/contracts";
  */
 export type TextNeutralizationRefusalCode = NonNullable<DriverInterventionResult["refusalCode"]>;
 
-/** The one code this reading recognises, bound to the contract's own literal type. */
+/** The one code this reading recognizes, bound to the contract's own literal type. */
 const TEXT_NEUTRALIZATION_CODE: TextNeutralizationRefusalCode = "driver.text_neutralization_failed";
 
 /** The key the origin arm rides under inside the fixed form. */
@@ -57,7 +57,7 @@ export interface TextNeutralizationReading {
    *
    * `undefined` rather than defaulting to `"unknown"`: the wire's own `unknown` arm
    * is a driver SAYING it could not attribute the text, and a detail carrying no
-   * recognised arm at all is the console failing to read it. Collapsing the two
+   * recognized arm at all is the console failing to read it. Collapsing the two
    * would report a driver statement the driver never made.
    */
   readonly origin: TextNeutralizationOrigin | undefined;

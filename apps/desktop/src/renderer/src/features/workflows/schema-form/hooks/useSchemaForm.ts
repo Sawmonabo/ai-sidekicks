@@ -240,7 +240,7 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   // step.
   const plan = choosePlanForValidator(mappedPlan, validator);
   // Seeded per control from what the plan says each one opens holding, and read once: the
-  // header's reason, and why this is an initialiser rather than anything that re-runs.
+  // header's reason, and why this is an initializer rather than anything that re-runs.
   const [draft, setDraft] = useState<SchemaFormDraft>(() => seedDraftFromPlan(plan));
   const [rawText, setRawText] = useState<string>(EMPTY_RAW_TEXT);
 

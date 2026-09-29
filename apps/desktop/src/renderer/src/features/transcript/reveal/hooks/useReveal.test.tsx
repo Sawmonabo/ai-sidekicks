@@ -128,7 +128,7 @@ describe("the reveal binding — what a row is published", () => {
 });
 
 describe("the reveal binding — teardown", () => {
-  it("disposes the engine with the mount, cancelling the frame it had armed", () => {
+  it("disposes the engine with the mount, canceling the frame it had armed", () => {
     const clock = new ManualClock();
     const binding = mountBinding(clock);
     act(() => {

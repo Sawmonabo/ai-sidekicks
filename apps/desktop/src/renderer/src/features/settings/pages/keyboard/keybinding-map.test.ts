@@ -193,7 +193,7 @@ describe("reading a keystroke as a chord", () => {
 
   it("cancels on Escape and clears on Backspace or Delete, pressed alone", () => {
     expect(readChordFromEvent(press({ key: "Escape", code: "Escape" }))).toEqual({
-      outcome: "cancelled",
+      outcome: "canceled",
     });
     expect(readChordFromEvent(press({ key: "Backspace", code: "Backspace" }))).toEqual({
       outcome: "cleared",

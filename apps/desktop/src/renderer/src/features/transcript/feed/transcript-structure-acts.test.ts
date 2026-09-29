@@ -26,7 +26,7 @@ const WALKED_ROW_ID = "row-the-walk-found";
 /**
  * A find state whose members record rather than derive.
  *
- * `useTranscriptFind`'s real behaviour is `useTranscriptFind.test.ts`'; what matters
+ * `useTranscriptFind`'s real behavior is `useTranscriptFind.test.ts`'; what matters
  * here is which member an act calls, which a recording stand-in answers and a real
  * hook would only obscure.
  */

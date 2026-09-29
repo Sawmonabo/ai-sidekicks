@@ -20,7 +20,7 @@ describe("readTextNeutralization — the fixed form, read the way the wire says 
 
   it("separates an unread arm from the wire's own `unknown` arm", () => {
     // The wire's `unknown` is a driver SAYING it could not attribute the text; an
-    // unrecognised arm is the console failing to read one. Collapsing them would
+    // unrecognized arm is the console failing to read one. Collapsing them would
     // report a statement the driver never made.
     expect(
       readTextNeutralization("driver.text_neutralization_failed origin=elsewhere")?.origin,

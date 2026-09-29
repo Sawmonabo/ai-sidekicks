@@ -4,7 +4,7 @@
 // wrong: `ScheduledHandle` is a number each clock mints for itself, so forwarding a
 // cancel to whichever clock is current cancels a stranger's work. `ManualClock` is
 // the instrument here because it counts what is armed — `pendingCount` is what makes
-// "the right one was cancelled" a reading rather than an inference.
+// "the right one was canceled" a reading rather than an inference.
 
 import { describe, expect, it } from "vitest";
 

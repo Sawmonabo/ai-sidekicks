@@ -152,7 +152,7 @@ function fill(container: HTMLElement, labelText: string, value: string): void {
   );
   const input = field?.querySelector("input");
   if (input === null || input === undefined) {
-    throw new Error(`no field labelled ${labelText}`);
+    throw new Error(`no field labeled ${labelText}`);
   }
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;

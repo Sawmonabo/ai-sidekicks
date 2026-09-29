@@ -76,7 +76,7 @@ export type ComposerRefusalsByOperation = Readonly<
 >;
 
 /**
- * The key one act's in-flight slot is held under, while it is still travelling.
+ * The key one act's in-flight slot is held under, while it is still traveling.
  *
  * The same three axes the identity carries, minus the attempt: the latch answers
  * whether THIS VISIT to this address already has a send going, and the attempt id is
@@ -86,7 +86,7 @@ export type ComposerRefusalsByOperation = Readonly<
  * settlement calls it cannot drift apart.
  *
  * The visit is what frees a returning visit's slot. Without it a call still
- * travelling for the first stay at a target held the key the second stay computes,
+ * traveling for the first stay at a target held the key the second stay computes,
  * so the second stay's Send found the slot taken by a call it could not see, and the
  * press did nothing at all — the one outcome a control may not have.
  *

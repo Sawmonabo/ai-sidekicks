@@ -74,7 +74,7 @@ export class LazyBodyIdleWarm<TKey> {
   readonly #attemptedKeys = new Set<TKey>();
   #scheduledHandle: number | undefined;
   #hasStarted = false;
-  #isCancelled = false;
+  #isCanceled = false;
 
   public constructor(board: PreloadableRegistry<TKey>, scheduler: IdleWarmScheduler) {
     this.#board = board;
@@ -87,14 +87,14 @@ export class LazyBodyIdleWarm<TKey> {
   }
 
   /**
-   * Begin the walk, if it has not begun and has not been cancelled.
+   * Begin the walk, if it has not begun and has not been canceled.
    *
-   * The cancelled arm matters as much as the started one: an effect that tore down and
+   * The canceled arm matters as much as the started one: an effect that tore down and
    * whose cleanup ran before a queued start would otherwise re-arm a walk for a window
    * that is gone.
    */
   public start(): void {
-    if (this.#hasStarted || this.#isCancelled) {
+    if (this.#hasStarted || this.#isCanceled) {
       return;
     }
     this.#hasStarted = true;
@@ -103,7 +103,7 @@ export class LazyBodyIdleWarm<TKey> {
 
   /** Stop the walk wherever it is. Safe to call before `start` and twice after it. */
   public cancel(): void {
-    this.#isCancelled = true;
+    this.#isCanceled = true;
     if (this.#scheduledHandle !== undefined) {
       this.#scheduler.cancel(this.#scheduledHandle);
       this.#scheduledHandle = undefined;
@@ -111,7 +111,7 @@ export class LazyBodyIdleWarm<TKey> {
   }
 
   #armNextStep(): void {
-    if (this.#isCancelled) {
+    if (this.#isCanceled) {
       return;
     }
     // Re-read the board on every step rather than snapshotting it once. A family that
@@ -141,7 +141,7 @@ export class LazyBodyIdleWarm<TKey> {
   }
 
   #warmThenContinue(key: TKey): void {
-    if (this.#isCancelled) {
+    if (this.#isCanceled) {
       return;
     }
     // The preload's own rejection is deliberately swallowed HERE and nowhere else. A
@@ -164,7 +164,7 @@ export class LazyBodyIdleWarm<TKey> {
  * The host's idle scheduler, or the timeout floor beneath it.
  *
  * FEATURE-DETECTED ON BOTH HALVES, because a host that has `requestIdleCallback` and
- * not `cancelIdleCallback` would leave this walk unable to stop — and an uncancellable
+ * not `cancelIdleCallback` would leave this walk unable to stop — and an uncancelable
  * background walk outliving the window that started it is the leak this seam exists to
  * make impossible. Detecting the pair together is what keeps the two branches honest:
  * whichever is chosen, `schedule` and `cancel` come from the same API.

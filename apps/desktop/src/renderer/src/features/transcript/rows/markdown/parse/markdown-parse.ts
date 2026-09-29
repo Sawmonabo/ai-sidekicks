@@ -47,7 +47,7 @@ export type MarkdownBlockNode = MarkdownRoot["children"][number];
  *     ambiguous with a currency symbol, and closing it would turn "it cost $5" into an
  *     unterminated formula the moment a second `$` never arrives.
  *   • `linkMode` stays `"protocol"`, so an unfinished link becomes the sentinel URL the
- *     mapper recognises. `"text-only"` would drop the link's own text mid-stream and
+ *     mapper recognizes. `"text-only"` would drop the link's own text mid-stream and
  *     then re-introduce it, which is the flicker `markdown-rules.ts` rule 1 forbids.
  */
 const REMEND_OPTIONS = { inlineKatex: false, linkMode: "protocol" } as const;
@@ -156,7 +156,7 @@ export function parseSettledBlock(blockSource: string, definitionPreamble = ""):
  * `remend` is applied HERE and nowhere else — the "tail only" half of its
  * ADOPT-with-constraints row. Running it over a settled block would rewrite text that is
  * already complete, and running it over the whole message would rewrite the committed
- * prefix on every frame, which is the quadratic behaviour the split exists to avoid.
+ * prefix on every frame, which is the quadratic behavior the split exists to avoid.
  *
  * It runs on the tail BEFORE the preamble is prepended, so the synthetic definitions are
  * never among the constructs it inspects or closes.

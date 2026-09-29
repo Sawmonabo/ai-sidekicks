@@ -57,7 +57,7 @@ export type KeybindingDispatch =
        * Exactly the registry's non-running outcomes, DERIVED rather than restated.
        * The hand-written copy this replaced was mapped across with a ternary, so a
        * third refusal status added to `CommandInvocationOutcome` would have been
-       * silently relabelled as `hidden-in-context` here — a dispatch record naming
+       * silently relabeled as `hidden-in-context` here — a dispatch record naming
        * the wrong reason, which is worse than none.
        */
       readonly reason: Exclude<CommandInvocationOutcome["status"], "ran">;

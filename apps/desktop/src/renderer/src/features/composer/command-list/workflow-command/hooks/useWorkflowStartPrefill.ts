@@ -5,7 +5,7 @@
 // the directive on the line and ask for the caret, which is the act a person who found
 // the command in a list actually wants. The command-line handler is what runs when
 // the line is complete. Both are registered under the ROOT id, so the keyboard page,
-// the discovery popover, and the recogniser are all naming one command.
+// the discovery popover, and the recognizer are all naming one command.
 //
 // A PREFILL IS A WRITE, AND A WRITE OVER UNSENT TEXT IS A LOSS. `DraftStore.write`
 // replaces the key's whole text and keeps no history, so a palette entry that wrote

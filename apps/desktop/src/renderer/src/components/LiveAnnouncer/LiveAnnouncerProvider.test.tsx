@@ -102,7 +102,7 @@ describe("LiveAnnouncerProvider — it disposes only the announcer it built", ()
     expect(announcer.isDisposed).toBe(false);
   });
 
-  it("negative control: the announcer it built has its clear timer cancelled on unmount", () => {
+  it("negative control: the announcer it built has its clear timer canceled on unmount", () => {
     // Without this, a provider that disposed nothing at all would satisfy the case
     // above while leaking one armed `setTimeout` per window that was ever spoken
     // through. The announcer it builds runs on `RealClock`, so the platform timer

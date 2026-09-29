@@ -190,7 +190,7 @@ export function KeyboardPage(): ReactNode {
                   }}
                   onRecorded={(recording) => {
                     stopRecording();
-                    if (recording.outcome !== "cancelled") {
+                    if (recording.outcome !== "canceled") {
                       void settleRecording(row, recording);
                     }
                   }}

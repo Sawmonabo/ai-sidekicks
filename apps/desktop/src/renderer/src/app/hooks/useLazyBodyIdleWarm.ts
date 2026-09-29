@@ -11,14 +11,14 @@
 // precisely so this file arms the same walk over both rather than owning two.
 //
 // THE WALKS ARE THE WINDOW'S, not the process's. Each is constructed for this frame and
-// cancelled when it unmounts — an auxiliary window closing must not leave an idle
+// canceled when it unmounts — an auxiliary window closing must not leave an idle
 // callback re-arming against a board its window no longer reads.
 //
 // AND EACH EFFECT SETUP BUILDS ITS OWN PAIR, which is the correction to holding them in
-// state across the effect. A walk is once-per-instance and permanently cancellable — the
+// state across the effect. A walk is once-per-instance and permanently cancelable — the
 // two properties that make it safe — and `StrictMode` replays every effect: setup starts
 // the walks, the synthetic cleanup cancels them, and the replayed setup finds the SAME
-// objects already started and already cancelled, so it returns and both boards stay cold
+// objects already started and already canceled, so it returns and both boards stay cold
 // for the life of the window. Nothing reports it; the console simply stops warming.
 // Constructing inside the setup makes the walk's lifetime the EFFECT's lifetime, which
 // is what it always meant. It costs no extra walks per render either: the effect's

@@ -33,7 +33,7 @@ import { detailRefusal } from "./definition-authoring.js";
  * Read the pasted text and submit what it describes into this session's own scope.
  *
  * THE TARGET IS THE NARROWEST SCOPE AND IS NOT A CHOICE, which is a decision rather
- * than an omission. A file carries no scope — it is bytes that travelled between
+ * than an omission. A file carries no scope — it is bytes that traveled between
  * machines — so somebody has to say where it lands, and the answer that needs no
  * picker and no authorization argument is the session a person is importing into.
  */

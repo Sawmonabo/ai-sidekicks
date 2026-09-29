@@ -1,4 +1,4 @@
-// That a recognised command actually PERFORMS its act, and that the composer waits.
+// That a recognized command actually PERFORMS its act, and that the composer waits.
 //
 // Driven through the real registry — `commandRegistry`, the one the palette and the
 // chord table read — rather than a stand-in, so the claim is about the surface a
@@ -224,7 +224,7 @@ describe("a command that reads arguments off its own line", () => {
   });
 
   it("does not widen recognition: a handler for an unregistered id is unreachable", async () => {
-    // The recogniser answers first. A second registry that could claim a name the
+    // The recognizer answers first. A second registry that could claim a name the
     // console has never heard of is what `client-command-recognizer.ts` prevents.
     const handled = vi.fn();
 

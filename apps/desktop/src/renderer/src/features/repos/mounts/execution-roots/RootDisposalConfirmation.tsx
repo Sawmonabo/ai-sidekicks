@@ -79,7 +79,7 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
           <div className="meridian-root-disposal__acts">
             <AlertDialog.Close
               className="meridian-root-disposal__cancel"
-              onClick={lifecycle.cancelled}
+              onClick={lifecycle.canceled}
             >
               Keep it
             </AlertDialog.Close>

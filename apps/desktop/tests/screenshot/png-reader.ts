@@ -12,14 +12,14 @@
 // inflate-and-unfilter here would be a second implementation of something the runtime
 // already has — which the shared-code rule in `apps/desktop/AGENTS.md` rejects in terms ("check the
 // `node:` standard library"; in a page the platform is the library). What is written
-// here is the one thing the platform does not give: the colour-management pins that
+// here is the one thing the platform does not give: the color-management pins that
 // keep a decode byte-exact.
 //
-// COLOUR CONVERSION IS TURNED OFF, ON PURPOSE. A 2D canvas will happily convert a
-// decoded image into its own colour space, and a capture read back through a conversion
-// is a capture nobody can assert an exact colour against. `colorSpaceConversion: "none"`
+// COLOR CONVERSION IS TURNED OFF, ON PURPOSE. A 2D canvas will happily convert a
+// decoded image into its own color space, and a capture read back through a conversion
+// is a capture nobody can assert an exact color against. `colorSpaceConversion: "none"`
 // and `premultiplyAlpha: "none"` on the decode, and an explicit `srgb` context, are what
-// make `rowColours` report the bytes the capture holds rather than a rendering of them.
+// make `rowColors` report the bytes the capture holds rather than a rendering of them.
 //
 // Not a test file — no `include` glob reaches it.
 
@@ -77,28 +77,28 @@ export class CapturedPng {
   }
 
   /**
-   * Every distinct colour on one row, as `#rrggbb`, sorted.
+   * Every distinct color on one row, as `#rrggbb`, sorted.
    *
    * A SET rather than a sample, because the claims worth making about a capture are
-   * about a whole band: "this row is one colour and it is this one" fails loudly on a
+   * about a whole band: "this row is one color and it is this one" fails loudly on a
    * row that is half right, which a spot check at one x does not. Hex rather than a
-   * tuple so a failure prints something a reader recognises, and alpha is dropped
+   * tuple so a failure prints something a reader recognizes, and alpha is dropped
    * because a capture of an opaque surface has none to report.
    */
-  public rowColours(row: number): readonly string[] {
+  public rowColors(row: number): readonly string[] {
     if (row < 0 || row >= this.#height) {
       throw new Error(`row ${String(row)} is outside a ${String(this.#height)}px image`);
     }
-    const colours = new Set<string>();
+    const colors = new Set<string>();
     const rowStart = row * this.#width * 4;
     for (let column = 0; column < this.#width; column += 1) {
       const pixel = rowStart + column * 4;
-      colours.add(
+      colors.add(
         `#${[this.#pixels[pixel], this.#pixels[pixel + 1], this.#pixels[pixel + 2]]
           .map((channel) => (channel ?? 0).toString(16).padStart(2, "0"))
           .join("")}`,
       );
     }
-    return [...colours].sort();
+    return [...colors].sort();
   }
 }

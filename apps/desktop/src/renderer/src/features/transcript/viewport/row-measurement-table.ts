@@ -9,7 +9,7 @@
 // The library answers two of those on its own — the total size is a memoized prefix
 // walk over its own measurements, and our `observeElementOffset` hands it an offset
 // the scroll chokepoint already sampled, so no scroll event costs a hit test. The
-// other four are ours, because the library's own behaviour is the opposite of what
+// other four are ours, because the library's own behavior is the opposite of what
 // this ledger needs:
 //
 //   • **Epsilon.** `virtual-core`'s `resizeItem` acts on `delta !== 0`, an exact

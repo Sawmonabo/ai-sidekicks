@@ -1,6 +1,6 @@
 // What a caught render failure is RECORDED as.
 //
-// The boundary's other behaviours — the fallback card, the retry remount — are read
+// The boundary's other behaviors — the fallback card, the retry remount — are read
 // off the screen by the browser and screenshot tiers. The claim that only a unit
 // test can hold is the one about the diagnostic band: a surface that threw while
 // rendering mutated no store, so it must not land in the count that says a store

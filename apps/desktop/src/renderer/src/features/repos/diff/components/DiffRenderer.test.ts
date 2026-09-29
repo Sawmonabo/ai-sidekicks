@@ -128,7 +128,7 @@ describe("diff renderer — the two-hue rule", () => {
   it("negative control: no diff row reaches for amber or red", () => {
     // Amber means a person is needed and red means something failed. A deleted
     // line is neither, and this is the case that fails the day somebody reaches
-    // for the familiar colours.
+    // for the familiar colors.
     const container = renderDiff();
     for (const row of container.querySelectorAll(".meridian-diff__row")) {
       expect(row.className).not.toContain("amber");

@@ -144,7 +144,7 @@ export type InstantReading = Instant | MalformedInstant;
  *     reports the change instead of absorbing it.
  *
  * The default is `"any-offset"` because that is what the grammar above already was,
- * so a caller that has not thought about its plane keeps the behaviour it had rather
+ * so a caller that has not thought about its plane keeps the behavior it had rather
  * than silently gaining a refusal.
  */
 export type InstantOffsetPolicy = "any-offset" | "utc-only";

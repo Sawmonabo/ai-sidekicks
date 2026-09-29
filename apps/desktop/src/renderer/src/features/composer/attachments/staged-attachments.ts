@@ -20,7 +20,7 @@
 // crossed — for precisely the stream that went quiet. A ONE-SHOT timeout at the
 // earliest outstanding entry's own disclosure deadline closes that, and every word of
 // that is load-bearing: it is armed once per deadline and not per card, it re-arms to
-// the next outstanding deadline rather than repeating, it is cancelled by the next
+// the next outstanding deadline rather than repeating, it is canceled by the next
 // progress, settlement, abandonment, or disposal, and it READS NOTHING — it re-stamps
 // the entries the ledger already published, so it is not a refresh and does not belong
 // to `store/read/refresh-scheduler.ts`. There is no interval here, and there can be none.
@@ -157,7 +157,7 @@ export class StagedAttachments {
   /**
    * Drop the subscription first, then give the daemon back every spool still open.
    *
-   * The wake-up is cancelled here rather than left to fire against a disposed staged list:
+   * The wake-up is canceled here rather than left to fire against a disposed staged list:
    * a timeout that outlived its surface would publish into an emitter whose sinks are
    * gone, which is a stamp nobody reads and a handle nobody can cancel.
    */

@@ -21,9 +21,9 @@
 //      holds no latest.
 //
 // WHAT THIS MODULE IS NOT. It is not eligibility. Nothing here decides whether a run
-// may be cancelled, resumed, or re-pinned — those are daemon adjudications reaching
+// may be canceled, resumed, or re-pinned — those are daemon adjudications reaching
 // the console as typed refusals (`workflow.control_denied`,
-// `workflow.run_not_cancellable`, `workflow.resume_not_parked`, and the three
+// `workflow.run_not_cancelable`, `workflow.resume_not_parked`, and the three
 // `workflow.repair_*` codes), and a renderer that predicted one would be a second
 // authority on a question the daemon owns. What it computes is what the operator can
 // SEE: a park, its shape, and a pin that has fallen behind.

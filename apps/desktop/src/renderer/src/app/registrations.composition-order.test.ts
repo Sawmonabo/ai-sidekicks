@@ -26,7 +26,7 @@ const WHOLE_CONSOLE_IMPORT_TIMEOUT_MS = 30_000;
 // The real registrations replaced by one that reports. `vi.mock`'s factory is invoked
 // lazily — when `providers.js` first imports this specifier, which is inside the
 // `beforeAll` below — so it reads a `windowTripwires` binding that has long since
-// initialised, the shape `test/helpers/electron-mock.ts` documents for the same reason.
+// initialized, the shape `test/helpers/electron-mock.ts` documents for the same reason.
 vi.mock("./registrations.js", () => ({
   registerFeatureContributions: () => {
     windowTripwires.report({

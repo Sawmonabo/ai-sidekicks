@@ -2,7 +2,7 @@
 //
 // The surface is fixed: one command root, `workflow`, one verb, `start`, and the line
 // `/workflow start <name>`. The end-to-end case below is what makes that a claim about
-// the SHIPPED path rather than about this module — the same recogniser the send bar
+// the SHIPPED path rather than about this module — the same recognizer the send bar
 // hands the router, the real router, and the real executor over the real console
 // registry — and its negative control registers the dotted id instead of the root, which
 // leaves the documented line an unregistered name.
@@ -85,7 +85,7 @@ describe("the `/workflow` line", () => {
     expect(readWorkflowCommandLine("/workflow   ")).toStrictEqual({ status: "verb-missing" });
   });
 
-  it("names an unrecognised verb rather than reading it as a definition", () => {
+  it("names an unrecognized verb rather than reading it as a definition", () => {
     expect(readWorkflowCommandLine("/workflow stop nightly")).toStrictEqual({
       status: "verb-unknown",
       verb: "stop",
@@ -98,7 +98,7 @@ describe("the `/workflow` line", () => {
   });
 });
 
-describe("the documented line, end to end through the recogniser and the router", () => {
+describe("the documented line, end to end through the recognizer and the router", () => {
   it("intercepts `/workflow start <name>` and starts the named definition", async () => {
     registerRoot(WORKFLOW_COMMAND_ROOT);
     const calls = recordedWorkflowCalls();
@@ -142,7 +142,7 @@ describe("the documented line, end to end through the recogniser and the router"
   });
 
   it("negative control: under a dotted id the documented line goes out as typed", () => {
-    // `directive-syntax.ts` hands the recogniser the FIRST WORD, so with `workflow.start`
+    // `directive-syntax.ts` hands the recognizer the FIRST WORD, so with `workflow.start`
     // registered the documented line names `workflow` — an id the console does not hold —
     // and the line goes on as a new turn rather than reaching the workflow handler.
     registerRoot(DOTTED_ID);

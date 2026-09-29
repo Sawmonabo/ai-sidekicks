@@ -159,7 +159,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   it("reports a beat that steps backwards in the log", () => {
     // The other direction, and the louder one: the reconciler reads it as a divergence
     // rather than a gap. Reported separately because the two produce different store
-    // behaviour and a scenario author fixes them differently — which is why the two
+    // behavior and a scenario author fixes them differently — which is why the two
     // cases assert the two REASONS and not merely that something was reported.
     //
     // Both beats sit at the opening position rather than at the second and the first,

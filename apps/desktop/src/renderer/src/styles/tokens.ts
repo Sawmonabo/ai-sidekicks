@@ -267,7 +267,7 @@ export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
 
 /**
  * The foregrounds painted on that well — the code families and the ANSI names that
- * carry a colour of their own.
+ * carry a color of their own.
  *
  * DERIVED from the two palette records rather than listed, so a family added there
  * is measured here on the same commit. That is the whole point of the move: these

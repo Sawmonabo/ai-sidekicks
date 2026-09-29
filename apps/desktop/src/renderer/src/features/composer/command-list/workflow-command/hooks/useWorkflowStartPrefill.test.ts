@@ -139,7 +139,7 @@ describe("the palette entry", () => {
     mountPrefillSurface();
 
     expect(commandRegistry.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
-    // The superseded dotted id is nobody's command: the palette, the recogniser, and
+    // The superseded dotted id is nobody's command: the palette, the recognizer, and
     // the keyboard page all name the root.
     expect(commandRegistry.has("workflow.start")).toBe(false);
   });

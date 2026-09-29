@@ -62,7 +62,7 @@ import { type LaunchProfile, removeLaunchProfile } from "./launch-profile.js";
  * Closes an application within the cleanup budget, or kills it.
  *
  * A class for the reason its three collaborators are constructor arguments: the
- * application, the terminator, and the profile are all seams, and the behaviours
+ * application, the terminator, and the profile are all seams, and the behaviors
  * worth checking — a close that never settles, a removal that will not — are
  * unreachable through the real ones. The bound is the fourth argument for the
  * same reason and no other: a case that has to EXHAUST it cannot afford to wait

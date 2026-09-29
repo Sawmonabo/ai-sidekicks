@@ -276,7 +276,7 @@ describe("the definition file form — what it reads, and what it refuses", () =
 
   it("refuses a supplied start mode the engine cannot honour, rather than defaulting it", () => {
     // End to end, because the defect was end to end: the reader dropped an entry it did
-    // not recognise, the create request then carried none, and the daemon materialized
+    // not recognize, the create request then carried none, and the daemon materialized
     // `manual` — so a definition meant to fire on a schedule imported as one that runs
     // when somebody presses a button, and every layer reported success.
     const reading = parseOrFail(exportedFileWith({ entry: { startMode: "schedule" } }));

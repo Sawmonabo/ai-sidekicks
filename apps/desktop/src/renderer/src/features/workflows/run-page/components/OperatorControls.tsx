@@ -223,7 +223,7 @@ function revealReasonField(fields: CancelFieldState): void {
  * Cancel, with its optional reason one disclosure away.
  *
  * The reason is behind a `<details>` because rule 7 puts the secondary thing one
- * click away and because cancelling without a reason is the common act — a field
+ * click away and because canceling without a reason is the common act — a field
  * always open would make the empty case look unfinished. `<details>` is the
  * platform's own disclosure, so it is keyboard-reachable and announced without this
  * file inventing a toggle.
@@ -260,7 +260,7 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
           Cancel this run
         </button>
         <span className="meridian-workflow-run-controls__note">
-          Cancelling is never queued and never waits on a provider window.
+          Canceling is never queued and never waits on a provider window.
         </span>
       </div>
       {pastBound ? <InlineRefusal {...reasonPastBoundRefusal(fields.budget)} /> : null}

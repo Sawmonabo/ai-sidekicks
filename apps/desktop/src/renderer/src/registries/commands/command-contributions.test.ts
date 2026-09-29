@@ -52,8 +52,8 @@ describe("command contributions — one owner's whole set, contributed together"
     // Composition is idempotent everywhere else in the console, and this door is
     // run again by a hot reload and by every test that composes the families. An
     // additive door would raise on the second pass instead.
-    const releaseNeighbour = commandContributionRegistry.contribute({
-      owner: "contribution-test-neighbour",
+    const releaseNeighbor = commandContributionRegistry.contribute({
+      owner: "contribution-test-neighbor",
       commands: [inertCommand("contribution-test.kept")],
       keyBindings: [{ chord: "$mod+Shift+8", commandId: "contribution-test.kept" }],
     });
@@ -82,7 +82,7 @@ describe("command contributions — one owner's whole set, contributed together"
         "contribution-test.second",
       ]);
     } finally {
-      releaseAll(releaseNeighbour, releaseSecond);
+      releaseAll(releaseNeighbor, releaseSecond);
     }
   });
 

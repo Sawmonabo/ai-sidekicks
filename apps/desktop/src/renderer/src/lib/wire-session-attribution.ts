@@ -15,7 +15,7 @@
 // is in `frame/`, the approval fold in `bridge/`, and the presence fold in a VIEW
 // family — and a view family may import neither of the other two. The floor is the
 // only home all three share, and this module needs nothing to be there: no store type,
-// no contracts schema, no React. It is `core/wire-strings.ts`'s neighbour rather than
+// no contracts schema, no React. It is `core/wire-strings.ts`'s neighbor rather than
 // another of its exports for that module's own stated reason — it is named for the
 // noun it owns and its header is the string rule end to end, and none of those
 // sentences is about two members that have to agree.

@@ -65,7 +65,7 @@ describe("inline diff card — the seat", () => {
    * The registrar writes only what it is handed, so there is nothing to release
    * afterwards — the previous shape claimed the process-wide board and needed an
    * `afterEach` unregistering the kind by hand, where a case that forgot made the
-   * next one pass for its neighbour's reason.
+   * next one pass for its neighbor's reason.
    */
   function fill(): InlineCardRegistry {
     const seats = new InlineCardRegistry();

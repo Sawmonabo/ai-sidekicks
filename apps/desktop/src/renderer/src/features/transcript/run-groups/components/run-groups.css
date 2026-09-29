@@ -12,7 +12,7 @@
  *
  * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
  * from the user wheel by the component so a chapter and the rows inside it
- * are coloured by one allocation. The fallback is the neutral border, which is what
+ * are colored by one allocation. The fallback is the neutral border, which is what
  * an unattributed chapter takes — never a user hue nobody was allocated.
  */
 

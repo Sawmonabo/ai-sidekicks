@@ -292,7 +292,7 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
 
 describe("parseUnifiedPatch — a body line this parser cannot place", () => {
   it("is refused by the parse rather than reaching the renderer short", () => {
-    // The unrecognised-prefix branch in the line mapper is a backstop and not a path:
+    // The unrecognized-prefix branch in the line mapper is a backstop and not a path:
     // `parsePatch` pushes a body line only where its operation is ` `, `+`, `-`, or
     // `\`, and throws on anything else — measured against `diff` 9.0.0's `parseHunk`,
     // not assumed. That guarantee is the LIBRARY'S, which is exactly why the mapper

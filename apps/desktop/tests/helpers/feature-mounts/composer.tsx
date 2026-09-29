@@ -197,7 +197,7 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedView> 
 function requireRegion(container: HTMLElement, accessibleName: string): HTMLElement {
   const region = container.querySelector(`[aria-label="${accessibleName}"]`);
   if (!(region instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree is labelled \`${accessibleName}\``);
+    throw new Error(`nothing in the mounted tree is labeled \`${accessibleName}\``);
   }
   return region;
 }

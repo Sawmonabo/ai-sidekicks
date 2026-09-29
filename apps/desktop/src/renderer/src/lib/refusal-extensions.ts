@@ -11,7 +11,7 @@
 // refusal structurally and then rebuilds it onto a fresh object rather than handing
 // the candidate back, because a candidate's second property read is free to throw
 // into a renderer that has already left every `catch`. That rebuild is correct and it
-// dropped everything it did not know about — so a refusal that travelled as a thrown
+// dropped everything it did not know about — so a refusal that traveled as a thrown
 // `RefusalError` reached a surface with its extensions gone, and the one answer
 // available was for the caller to skip the normalizer for that case and hand
 // the value back verbatim. Verbatim is the thing the rebuild exists to prevent. So
@@ -30,7 +30,7 @@
 // `readGuardedProperty`, so a getter that throws is an absent member rather than a
 // throw on the failure path; and every reader answers `undefined` for a value that is
 // not what the member is registered as, so a hostile `{ failedBindingIds: { …a Proxy… } }`
-// contributes nothing rather than travelling to a renderer that will format it.
+// contributes nothing rather than traveling to a renderer that will format it.
 //
 // `code`, `detail` and `origin` are NOT here. They are the refusal, not an extension
 // of one, and `wire-rejection.ts` classifies on them — a member in both places would

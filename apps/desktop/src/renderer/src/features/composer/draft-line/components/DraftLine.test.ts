@@ -87,7 +87,7 @@ describe("DraftLine — the line without Send", () => {
     fireEvent.change(line, { target: { value: "/workflow start nightly" } });
     const wasLeftToTheBrowser = fireEvent.keyDown(line, { key: "Enter" });
 
-    // A cancelled key event is the line taking Enter: no newline goes into the field.
+    // A canceled key event is the line taking Enter: no newline goes into the field.
     expect(wasLeftToTheBrowser).toBe(false);
     expect(line.value).toBe("/workflow start nightly");
     expect(result.container.querySelector(".meridian-refusal")).toBeNull();
@@ -96,9 +96,9 @@ describe("DraftLine — the line without Send", () => {
 
 describe("DraftLine — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
-    // The finding at the surface: fulfilment was treated as success, so the line
+    // The finding at the surface: fulfillment was treated as success, so the line
     // emptied and the user's words were gone for an intervention the run had
-    // declined. Nothing about the reply says the message travelled, so nothing about
+    // declined. Nothing about the reply says the message traveled, so nothing about
     // the composer may say so either.
     const bar = mountAddressable(
       sendCallsAnswering(async ({ method }) =>

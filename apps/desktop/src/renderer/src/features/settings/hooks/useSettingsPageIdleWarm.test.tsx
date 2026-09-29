@@ -106,7 +106,7 @@ describe("the settings page board's idle warm", () => {
       rendered.unmount();
     });
 
-    expect(scheduler.cancelledHandles).toHaveLength(1);
+    expect(scheduler.canceledHandles).toHaveLength(1);
     expect(scheduler.pendingCount).toBe(0);
     scheduler.runToQuiescence();
     expect(loadedSections).toStrictEqual([]);
@@ -116,7 +116,7 @@ describe("the settings page board's idle warm", () => {
     // `StrictMode` runs every effect setup, its cleanup, and the setup again. A walk held
     // across that replay is silently fatal: the first setup starts it, the synthetic
     // cleanup cancels it, and the replayed setup finds the same object already started and
-    // already cancelled and returns — so the board stays cold for the life of the surface
+    // already canceled and returns — so the board stays cold for the life of the surface
     // with nothing failing and nothing logged. Building it inside each setup is what makes
     // a replay a fresh walk.
     const loadedSections: string[] = [];
@@ -128,7 +128,7 @@ describe("the settings page board's idle warm", () => {
       </StrictMode>,
     );
 
-    // The replay's own cleanup cancelled the first walk, so exactly one is armed — a count
+    // The replay's own cleanup canceled the first walk, so exactly one is armed — a count
     // that also fails if the fix had left both of them walking.
     expect(scheduler.pendingCount).toBe(1);
 

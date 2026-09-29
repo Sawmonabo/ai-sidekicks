@@ -69,7 +69,7 @@ export default defineConfig({
           // while `launch.smoke.test.ts` is trying to complete a cold Chromium
           // boot against its spawn deadline, and both are also the runner's FIRST
           // Electron launches, so they contend for the same cold per-`$HOME`
-          // Chromium initialisation (fontconfig cache build, NSS DB creation).
+          // Chromium initialization (fontconfig cache build, NSS DB creation).
           //
           // Measured on the failing run (GitHub Actions run 33571210321):
           // vitest reported `tests 41.32s` against a wall `Duration 27.58s`,

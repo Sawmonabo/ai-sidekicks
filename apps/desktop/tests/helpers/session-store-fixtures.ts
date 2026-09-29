@@ -1,12 +1,12 @@
 // The collaborators every session-store-registry suite constructs a registry with.
 //
 // AT THE FAMILY ROOT AND NOT IN `session/`, for `session-event.test-support.ts`'s
-// reason: six families outside this one build their initialised store through it, and
+// reason: six families outside this one build their initialized store through it, and
 // `read/`'s scheduler suites settle microtasks through it, so it is the family's
 // scaffolding rather than one sub-module's.
 //
 // One home for the reader, the projector, the event and snapshot builders, the
-// microtask settle, and the initialised store the sibling suites share. Nothing here
+// microtask settle, and the initialized store the sibling suites share. Nothing here
 // is a stand-in for the registry: it is the surrounding cast, and a second copy of the
 // projector would let two suites disagree about what an applied event looks like.
 //
@@ -62,7 +62,7 @@ export async function settleMicrotasks(): Promise<void> {
 }
 
 /**
- * An initialised store, so an appended event is admitted rather than buffered.
+ * An initialized store, so an appended event is admitted rather than buffered.
  *
  * Built from {@link emptySnapshot} rather than from a second base-state literal, so
  * the shape a store is opened with is written once in this file too.

@@ -6,7 +6,7 @@
 //
 // That the launcher spells no switch of its own, and feeds the composer the host it
 // launches on rather than a platform written down, is a structure rule rather than a
-// behaviour: it lives in `apps/desktop/AGENTS.md` and reviewers hold code to it. The
+// behavior: it lives in `apps/desktop/AGENTS.md` and reviewers hold code to it. The
 // history behind it is worth keeping: `composeLaunchArgs` and its whole refusal
 // machinery landed once with a passing test and NO caller, and were deleted for it
 // two commits later, while the tier that motivated them went on launching with a

@@ -5,7 +5,7 @@
 // probe pairs run and says nothing about how long ONE of them may take, and one
 // pair is still two blocking `spawnSync` calls at `HOST_QUERY_TIMEOUT_MS` each:
 // half the registered cleanup budget apiece. So the second half of the fix is a
-// number travelling — from the deadline, through `ProcessTerminator`, into the
+// number traveling — from the deadline, through `ProcessTerminator`, into the
 // shared door in `readers.ts` that takes the smaller of that ceiling and what it
 // is handed and spawns nothing at all once it reaches zero.
 //

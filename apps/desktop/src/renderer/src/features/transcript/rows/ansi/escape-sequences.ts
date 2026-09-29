@@ -73,7 +73,7 @@ export function carriesAnsiEscapes(source: string): boolean {
  * `content`, where they would reach the page as text. So the residue is removed here,
  * after the parse rather than before it: the sequences the library DOES consume are
  * the ones carrying the styling, and a pre-pass over the source would take those with
- * them and render a build log in one colour.
+ * them and render a build log in one color.
  *
  * A body carrying no escape is returned BY IDENTITY, which is nearly every body.
  *

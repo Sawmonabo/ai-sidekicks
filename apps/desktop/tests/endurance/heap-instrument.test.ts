@@ -90,7 +90,7 @@ const MINIMUM_MEASURED_PLANT_BYTES = PRECISION_PROBE_NOMINAL_BYTES / 2;
  * The character code comes back because the read that produces it is what gets the
  * value flattened: a repeat answers a rope of concatenation cells weighing a few
  * hundred bytes, and V8's character accessor flattens its receiver before indexing
- * it. That is today's runtime behaviour and not a guarantee, so the returned code is
+ * it. That is today's runtime behavior and not a guarantee, so the returned code is
  * NOT the evidence of flatness — the arms below are, since a rope moves the reading
  * by three orders of magnitude too little to satisfy either. What returning it buys
  * is smaller and still necessary: an indexing read nothing consumes is elidable, and

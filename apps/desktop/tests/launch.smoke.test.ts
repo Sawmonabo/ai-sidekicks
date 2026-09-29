@@ -341,7 +341,7 @@ describe("desktop main process boot", () => {
       // Classified, not the catch-all arm — the reader is told which
       // precondition failed.
       expect(failureMessage).toContain("was not serving");
-      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).not.toContain("without a recognized failure marker");
 
       // The dump itself, with the offending display named in it.
       expect(failureMessage).toContain("--- readiness events observed ---");
@@ -440,7 +440,7 @@ describe("desktop main process boot", () => {
       expect(failureMessage).toContain(
         `still running at the ${String(FORCED_STALL_SPAWN_TIMEOUT_MS)}ms deadline`,
       );
-      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).not.toContain("without a recognized failure marker");
       expect(failureMessage).toContain("--- environment ---");
 
       // The at-deadline capture ran and its readings are present — the point of

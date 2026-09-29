@@ -6,15 +6,15 @@
 // collapsed inside the theme rather than by a pass after it, and a test cross-checks
 // the families against the theme CSS.
 //
-// HOW BOTH ARE TRUE AT ONCE. A shiki theme maps TextMate scopes to a foreground colour,
-// and a highlighter returns tokens carrying that colour. If the colour were a hex value
+// HOW BOTH ARE TRUE AT ONCE. A shiki theme maps TextMate scopes to a foreground color,
+// and a highlighter returns tokens carrying that color. If the color were a hex value
 // the cache would hold LIGHT-scheme tokens, and a scheme switch would have to discard
 // every entry — a theme-dependent cache wearing a content-addressed name.
 //
-// So this theme's foregrounds are not colours. Each is a CSS custom-property reference
+// So this theme's foregrounds are not colors. Each is a CSS custom-property reference
 // naming the token's FAMILY — `var(--meridian-code-keyword)` — so the collapse to
 // families happens inside the theme rather than in a pass after it, a cached token is
-// identical in both schemes, and the actual colours live in `tokens/palette.ts` where
+// identical in both schemes, and the actual colors live in `tokens/palette.ts` where
 // the rest of the Meridian palette does, emitted into the generated token sheet by
 // `tokens/generate-css.ts` and measured against the code block's own ground by
 // `tokens/contrast.test.ts`. Shiki's own `createCssVariablesTheme` is the same
@@ -23,7 +23,7 @@
 //
 // THE FAMILIES ARE A CLOSED SET, and review cross-checks that every
 // member has a declaration in that generated sheet. That is the cross-check above: a
-// family added here without a colour there renders as the sheet's fallback and reads as
+// family added here without a color there renders as the sheet's fallback and reads as
 // plain text, which is a silent failure a type cannot catch.
 
 import type { ThemeRegistrationRaw } from "shiki/types";
@@ -35,7 +35,7 @@ import type { ThemeRegistrationRaw } from "shiki/types";
  * work log, and a code block inside it competes with the prose around it for a reader's
  * attention. Nine families are enough to make structure legible — what is a name, what
  * is a literal, what is an aside — and few enough that the block does not become the
- * loudest thing on the screen, which the console's whole colour budget is spent avoiding
+ * loudest thing on the screen, which the console's whole color budget is spent avoiding
  * elsewhere.
  */
 export const CODE_TOKEN_KINDS = [
@@ -53,12 +53,12 @@ export const CODE_TOKEN_KINDS = [
 /** One token family. Derived from the enumeration, never restated. */
 export type CodeTokenKind = (typeof CODE_TOKEN_KINDS)[number];
 
-/** The custom property a family's colour is declared under, in one place. */
+/** The custom property a family's color is declared under, in one place. */
 export function codeTokenVariableName(family: CodeTokenKind): string {
   return `--meridian-code-${family}`;
 }
 
-/** The value a theme foreground carries for a family — a reference, never a colour. */
+/** The value a theme foreground carries for a family — a reference, never a color. */
 export function codeTokenColorReference(family: CodeTokenKind): string {
   return `var(${codeTokenVariableName(family)})`;
 }
@@ -92,8 +92,8 @@ const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenKind, "plain">, readonl
 export function buildCodeTheme(): ThemeRegistrationRaw {
   return {
     name: "meridian",
-    // `type` is shiki's light/dark hint for its own colour replacements. The theme is
-    // neither: it carries no colours to replace, and the sheet answers the scheme.
+    // `type` is shiki's light/dark hint for its own color replacements. The theme is
+    // neither: it carries no colors to replace, and the sheet answers the scheme.
     type: "dark",
     colors: { "editor.foreground": codeTokenColorReference("plain") },
     fg: codeTokenColorReference("plain"),

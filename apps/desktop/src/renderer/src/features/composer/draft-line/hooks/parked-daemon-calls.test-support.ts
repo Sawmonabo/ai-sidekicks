@@ -1,7 +1,7 @@
 // Send calls that park until the case settles them.
 //
 // A scripted answer arrives on its own schedule, which suits "what does this surface
-// do with the reply" and not "what does it do while the reply is still travelling":
+// do with the reply" and not "what does it do while the reply is still traveling":
 // a call issued under one address, completing after the surface has moved to another.
 // Parking the call puts the case in charge of that interval.
 //

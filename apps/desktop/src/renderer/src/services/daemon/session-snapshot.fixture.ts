@@ -14,8 +14,8 @@
 // position derived from the scenario's beats, because a base state ahead of the stream
 // would make the store discard every beat below it; the subscription is
 // replay-then-tail, so nothing is missed by starting at the bottom. A re-read therefore
-// lands behind an initialised store's cursor and is a silent no-op, which is
-// `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect of this
+// lands behind an initialized store's cursor and is a silent no-op, which is
+// `SessionStore.admitsSnapshotAt`'s documented behavior and not a defect of this
 // derivation: repairing a degraded store needs a read that carries a position, and this
 // one cannot until the wire does.
 //

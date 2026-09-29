@@ -13,7 +13,7 @@
 // makes this path reachable at all without a stand-in for the store under test.
 //
 // Two things are asserted together every time, because either alone is the wrong
-// behaviour: the scheme IS applied, and the banner says it will not come back.
+// behavior: the scheme IS applied, and the banner says it will not come back.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

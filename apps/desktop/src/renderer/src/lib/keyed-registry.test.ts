@@ -1,7 +1,7 @@
 // One registry, three policies, and the refusal each of them raises.
 //
 // The reason this module exists is that five registries had already diverged on
-// what a second registration MEANS. So the cases below are organised by policy
+// what a second registration MEANS. So the cases below are organized by policy
 // rather than by method: the question a reader has is "what happens on a repeat
 // here", and the answer has to be readable per policy or the parameter is just a
 // switch statement nobody can audit.
@@ -132,7 +132,7 @@ describe("KeyedRegistry — the throw policy", () => {
     expect(refusal.detail).toContain("two families cannot own one command id");
   });
 
-  it("keeps the first value, so behaviour does not depend on module import order", () => {
+  it("keeps the first value, so behavior does not depend on module import order", () => {
     const registry = throwingCommandRegistry();
     registry.register("open-palette", { owner: "palette", label: "Open" });
     refusalFrom(() => {

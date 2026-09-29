@@ -100,7 +100,7 @@ export class KeybindingOverrideStore {
    * `features/settings/machine-settings/machine-settings-store.ts` takes the same way:
    * a rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
-   * `app/hooks/useSchemePreference.ts` states for the colour scheme — and a second hydration
+   * `app/hooks/useSchemePreference.ts` states for the color scheme — and a second hydration
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */
@@ -237,7 +237,7 @@ export class KeybindingOverrideStore {
    * Suspend the console keyboard while a chord is being recorded.
    *
    * A pair rather than a setter, so a call site reads as what it does. `endRecording`
-   * is safe twice: a cancelled recorder and a completed one both end here.
+   * is safe twice: a canceled recorder and a completed one both end here.
    */
   public beginRecording(): void {
     if (!this.#recording) {

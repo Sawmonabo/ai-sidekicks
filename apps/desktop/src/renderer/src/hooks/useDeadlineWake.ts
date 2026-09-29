@@ -96,7 +96,7 @@ export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): num
     };
     armNextStep();
     return () => {
-      // Cancelled when the earliest deadline changes, when the wake-up has landed,
+      // Canceled when the earliest deadline changes, when the wake-up has landed,
       // and when the consumer unmounts — a timeout that outlived its surface would
       // set state on a component that is gone.
       if (armedHandle !== undefined) {

@@ -1,7 +1,7 @@
 // The scripted platform every termination cell is answered against.
 //
 // WHAT IS DRIVEN, AND WHAT CANNOT BE. No platform can be asked to refuse a kill
-// on demand, no runner can be made Windows, and a zombie is the reaping behaviour
+// on demand, no runner can be made Windows, and a zombie is the reaping behavior
 // of an init this process does not own. So the platform I/O stays unexecuted by
 // construction — `process-tree.test.ts` says the same about itself — and the
 // DECISIONS those arms funnel through are driven directly with the collaborators
@@ -16,7 +16,7 @@
 // pid as its parent before this tree ever existed, still listed under that number
 // because Windows retains the column after a parent exits. The two strangers are
 // separate constants on purpose — a cell asserting "the stranger's tree was not
-// walked" and one asserting "the stale row was not signalled" are different
+// walked" and one asserting "the stale row was not signaled" are different
 // claims, and one pid playing both parts would let a fix for either satisfy both.
 
 import {
@@ -177,7 +177,7 @@ export function rootlessTreeTools(
  *
  * The root is gone and the number the capture named is somebody else's now, so
  * the member this tree held is itself gone — the stranger holding its pid stays
- * alive, which is what makes "it was not signalled" observable rather than
+ * alive, which is what makes "it was not signaled" observable rather than
  * vacuous.
  */
 export function reissuedDescendantTools(): ExternalTreeTools & {
@@ -197,9 +197,9 @@ export function reissuedDescendantTools(): ExternalTreeTools & {
  *
  * The STRANGER is scripted to take the kill and to stay alive — both halves
  * matter. Taking it is the clean `taskkill` exit that used to latch the child as
- * killed; staying alive is what makes "the root was signalled" observable in
+ * killed; staying alive is what makes "the root was signaled" observable in
  * `hasTerminated` as well as in `killedFrom`, so a rewrite cannot satisfy the
- * cell by signalling and then reading the wrong pid.
+ * cell by signaling and then reading the wrong pid.
  */
 export function reissuedRootTools(
   capturedDescendants: readonly CapturedTreeMember[],

@@ -14,7 +14,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
  * Idle, confirming, pending — three states on one control.
  *
  * `onConfirm` is the only handler that calls the mutation, which is what makes
- * "cancelling returns to idle with zero mutations" a fact about the code rather
+ * "canceling returns to idle with zero mutations" a fact about the code rather
  * than a claim about it.
  */
 export function RevokeRuleControl(props: {

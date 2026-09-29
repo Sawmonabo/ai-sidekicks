@@ -15,7 +15,7 @@
 // daemon and cannot be recalled, so the honest answer to the second is no — said out
 // loud on the control, rather than queued or dropped.
 //
-// THE KEY IS `(action, run)` AND THE SUBJECT IS THE CALLS. Cancelling and resuming are
+// THE KEY IS `(action, run)` AND THE SUBJECT IS THE CALLS. Canceling and resuming are
 // separately grantable and separately in flight — an outstanding resume must not
 // refuse a cancel — so each action takes its own key, and the run is in the key
 // because this pane is RETARGETED IN PLACE: run A's outstanding call must not refuse
@@ -34,7 +34,7 @@
 // that read, which is a different thing — see `servedActCount`.
 //
 // AND THAT ROUND IS THE RUN'S RATHER THAN THESE TWO CONTROLS'. Answering a phase parked
-// on a person moves the run exactly as cancelling it does, and the surface that does it
+// on a person moves the run exactly as canceling it does, and the surface that does it
 // is a body mounted in a seat with no dispatcher in reach — so the count is published
 // here and its advance is offered through `served-run-act.ts`, which states why the seam
 // is a context. One counter reached from two surfaces, and not a second number the pane
@@ -299,9 +299,9 @@ function publishOutcome(
 function readCancelReply(value: WorkflowRunCancelReply): ServedActReading {
   return {
     runState: value.state,
-    detail: value.alreadyCancelled
-      ? "This run was already cancelled; the background service replayed the first cancellation rather than performing a second."
-      : "This run is cancelled.",
+    detail: value.alreadyCanceled
+      ? "This run was already canceled; the background service replayed the first cancellation rather than performing a second."
+      : "This run is canceled.",
   };
 }
 

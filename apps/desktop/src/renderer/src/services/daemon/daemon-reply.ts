@@ -1,6 +1,6 @@
 // The one place a daemon reply enters the console.
 //
-// THE DEFECT THIS CLOSES. A surface calls the daemon, the promise fulfils, and the
+// THE DEFECT THIS CLOSES. A surface calls the daemon, the promise fulfills, and the
 // surface reports success — clearing a draft, marking a turn sent, advancing an
 // upload ledger — without the reply having been parsed against the shape the corpus
 // registers for that method. It is not a mistake anyone makes deliberately: the
@@ -77,7 +77,7 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
  *
  * Three members, closed, and none of them overlaps a DAEMON code: a typed wire
  * refusal keeps its own code verbatim (`repo.not_found`, `run.version_conflict`, …)
- * and is never re-labelled with one of these. These name the three failures that
+ * and is never re-labeled with one of these. These name the three failures that
  * are the console's own to describe.
  *
  *   • `request-unsendable` — the caller composed a request the registered schema
@@ -248,7 +248,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // listener as it goes. An abort that lands after that resolution and before this
     // frame is resumed therefore finds no listener to reach, and the settlement says
     // `settled` while nobody is waiting — one microtask apart, which is exactly the
-    // gap a fulfilment and a pane teardown scheduled in the same tick fall into.
+    // gap a fulfillment and a pane teardown scheduled in the same tick fall into.
     // Reading the signal again is what makes "an abandoned reply is never parsed" a
     // property of the door instead of a property of the microtask order, and it is
     // read HERE, adjacent to the parse it guards, so no `await` can ever be

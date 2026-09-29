@@ -35,7 +35,7 @@ import type { AppRoute } from "@renderer/routing/routes.js";
  * where this composer is, which is what the discovery popover may LIST — offering a
  * command that does not apply here would be an invitation to a refusal.
  * `registeredCommandIds` is every id this window holds, visible or not, and it is
- * what a typed name is RECOGNISED against: a person who types the exact id of a
+ * what a typed name is RECOGNIZED against: a person who types the exact id of a
  * command that exists but does not apply here has not typed an unknown name, and
  * telling them so would send them looking for a spelling mistake they did not make.
  * Visibility still decides whether it RUNS — `invoke` is fail-closed on it — so the

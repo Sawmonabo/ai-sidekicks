@@ -10,7 +10,7 @@
 //
 // THE PROTOCOL IS OWN-BUILT, and this module is where that is decided and why: the
 // chunking, the decoded-byte accounting, and the replay-safe retry are all CONTRACT
-// behaviour, and a generic upload library would obscure every one of them. So
+// behavior, and a generic upload library would obscure every one of them. So
 // this is a class with private fields rather than a hook holding four `useState`s.
 //
 // WHAT IT CALLS. Every leg goes through the `AttachmentIngestPort` the client was handed,

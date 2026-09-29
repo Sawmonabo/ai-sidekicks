@@ -6,7 +6,7 @@
 // wire, or holds state.
 //
 // EVERY READING COMES FROM THE FAMILY THAT OWNS THE INGEST. The name an entry goes by,
-// which media-type readings it has, what cancelling does, and what a refusal recommends
+// which media-type readings it has, what canceling does, and what a refusal recommends
 // are all `console/repos/` answers taken through its door — this module composes them
 // into one line and answers none of them itself. The composer and the artifact pane
 // therefore cannot disagree about an upload: one says it as a card and one as a chip,
@@ -15,7 +15,7 @@
 // THE TONE IS THE TWO-HUE RULE AND NOT A PALETTE. A refusal is red because something
 // failed; everything else is neutral, including an upload in flight, which needs nobody.
 // An entry past the byte bound is deliberately NOT amber: the bound is the daemon's and
-// the upload is still attempted, so a colour there would report a verdict the console
+// the upload is still attempted, so a color there would report a verdict the console
 // has not been given.
 
 import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";

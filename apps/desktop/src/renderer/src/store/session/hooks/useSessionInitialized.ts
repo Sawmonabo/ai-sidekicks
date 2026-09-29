@@ -26,9 +26,9 @@ import type { SessionDegradedCause } from "../../session-degradation.js";
 import type { SessionStore, SessionStoreState } from "../session-store.js";
 import type { TimelineResumeDecision } from "../timeline-resume.js";
 
-/** Whether the store has been initialised, so a surface can tell "not loaded" apart. */
+/** Whether the store has been initialized, so a surface can tell "not loaded" apart. */
 export function useSessionInitialized(store: SessionStore): boolean {
-  return useStore(store.readable, readInitialised);
+  return useStore(store.readable, readInitialized);
 }
 
 /**
@@ -106,7 +106,7 @@ export function useSessionDegradedCause(store: SessionStore): SessionDegradedCau
  *
  * The registry rather than the store HOLDS the decision because the store is the
  * PROJECTION and this is a fact about the read that produced it — a store that never
- * initialises still has a decision to report, which is precisely the case above.
+ * initializes still has a decision to report, which is precisely the case above.
  */
 export function useTimelineResume(
   registry: SessionStoreRegistry,
@@ -128,8 +128,8 @@ export function useTimelineResume(
   return useSyncExternalStore(subscribe, readDecision, readDecision);
 }
 
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
+function readInitialized(state: SessionStoreState): boolean {
+  return state.initialized;
 }
 
 function readRevision(state: SessionStoreState): number {

@@ -11,7 +11,7 @@
 //   • **The cache is content-addressed and bounded in bytes.** Keyed by language and
 //     source, so the same block re-rendered — a scroll back, a re-mount, the same snippet
 //     quoted twice — is free, and theme-independent because the tokens carry family
-//     references rather than colours.
+//     references rather than colors.
 //   • **A block past `CODE_HIGHLIGHT_SOURCE_BYTE_CAP` is not highlighted at all.** The
 //     worker keeps a huge block off the frame; it does not make it cheap, and the tokens
 //     it produces would evict the whole cache to hold one paste.

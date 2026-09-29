@@ -48,7 +48,7 @@ const RUN_ID = "019b79ee-0280-7f00-8110-a11ce0000002" as RunId;
  * A bare `AbortController` and NOT `ReadScope`, deliberately. What is under test here
  * is the door, whose contract is an `AbortSignal` and nothing narrower; driving the
  * scope instead would put a second module inside every assertion and make a failure
- * ambiguous between the two. The scope's own behaviour — that it aborts on unmount,
+ * ambiguous between the two. The scope's own behavior — that it aborts on unmount,
  * on re-address, and on supersession — is asserted where it lives, in
  * `store/read/read-cancellation.test.ts` and its hook suite beside it.
  */
@@ -100,14 +100,14 @@ function heldReply(reply: unknown): {
 const PRESENCE_REPLY_SCHEMA = DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
 
 /**
- * A reply that fulfils, and queues the abandonment BEHIND its own fulfilment.
+ * A reply that fulfills, and queues the abandonment BEHIND its own fulfillment.
  *
  * A HAND-WRITTEN THENABLE rather than a promise and a counted number of turns, and
  * the reason is that the interleaving under test is one microtask wide: the reply has
  * to win the door's race — retiring its abort listener as it settles — and the abort
  * has to land before the door's own `await` is resumed. Adopting a thenable calls
  * this `then` with the adopting promise's own resolver, so `settle` IS that
- * fulfilment and the `queueMicrotask` beside it is the first job queued after it.
+ * fulfillment and the `queueMicrotask` beside it is the first job queued after it.
  * Spelled instead as a resolved promise and some number of awaited turns, the same
  * case would be asserting how many microtasks a runtime spends adopting a promise,
  * which is a claim about the runtime rather than about this door — and one that

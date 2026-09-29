@@ -21,7 +21,7 @@ import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/workflow-command-gramm
  * the palette entry, and the keyboard page all keep naming one command.
  *
  * IT DOES NOT WIDEN RECOGNITION. A handler for an id the registry does not hold is
- * unreachable: the recogniser answers first and refuses the name. That ordering is
+ * unreachable: the recognizer answers first and refuses the name. That ordering is
  * deliberate — a second registry that could claim a name the console has never heard
  * of is the thing `client-command-recognizer.ts` exists to prevent.
  */

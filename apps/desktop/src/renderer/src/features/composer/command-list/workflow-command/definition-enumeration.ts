@@ -16,7 +16,7 @@
 // caller that renders it says what an incomplete list cannot support, exactly as the
 // provider enumeration does with a truncated group.
 //
-// AND IT IS CANCELLABLE WITHOUT A SECOND MECHANISM. The walk takes a liveness
+// AND IT IS CANCELABLE WITHOUT A SECOND MECHANISM. The walk takes a liveness
 // predicate, so a superseded read stops asking for pages as well as dropping the
 // answer it already has — the pages it would fetch are pages nobody can be shown.
 //

@@ -109,14 +109,14 @@ describe("the composer attachment chip", () => {
     expect(done.offersAbandon).toBe(false);
   });
 
-  it("says what cancelling does in the daemon's own terms, never as `cancelled`", () => {
+  it("says what canceling does in the daemon's own terms, never as `canceled`", () => {
     const chip = composerAttachmentChip(sendingEntry("ingesting"), PUBLISHED_AT);
     expect(chip.abandonCopy).toBe(INGEST_ABANDON_COPY);
     expect(chip.abandonCopy).toContain("cleaned up shortly");
   });
 
   it("stays neutral for a file past the byte bound, because the upload is still attempted", () => {
-    // The two-hue rule: colour is identity and attention, and a bound the daemon owns
+    // The two-hue rule: color is identity and attention, and a bound the daemon owns
     // is neither — a hue here would report a verdict the console has not been given.
     const chip = composerAttachmentChip(
       sendingEntry("declared", { byteLength: 1024 * 1024 * 1024 }),

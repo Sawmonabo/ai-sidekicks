@@ -189,7 +189,7 @@ describe("SignInPlane", () => {
   it("ends a flow whose completion arrived before the start reply seated it", async () => {
     // The tail opens BEFORE `providerAccount.login` is called — the registered ordering
     // — so a flow that finishes fast reports its completion while the start reply is
-    // still travelling. The plane would otherwise seat an attempt that is already over
+    // still traveling. The plane would otherwise seat an attempt that is already over
     // and hold the key until somebody pressed cancel.
     const { plane, onFlowSettled } = planeOverServedCalls();
 

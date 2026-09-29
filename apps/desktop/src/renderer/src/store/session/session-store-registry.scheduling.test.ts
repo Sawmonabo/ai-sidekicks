@@ -107,7 +107,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     expect(registry.refreshCountFor("session-1")).toBe(1);
     // The read is what establishes the store; the registry does not make the
     // caller remember to call `initialize` afterwards.
-    expect(store.snapshot().initialised).toBe(true);
+    expect(store.snapshot().initialized).toBe(true);
     expect(store.snapshot().cursor).toBe(7);
     expect(store.snapshot().partitions.run["session-1-run"]?.state).toBe("queued");
     registry.disposeAll();

@@ -4,7 +4,7 @@
 // Boundary seams for provider switch, compaction, and rollback are part of the
 // console's signature set. HOW THEY RENDER IS THIS MODULE'S: the log's epochs are
 // geography —
-// switches, compactions, and rollbacks draw as labelled seams across the ledger.
+// switches, compactions, and rollbacks draw as labeled seams across the ledger.
 //
 // A seam is ONE LINE. Never a message row, never a block — that is the whole
 // visual claim, and it is why the binding below carries named parts rather than

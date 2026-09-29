@@ -8,7 +8,7 @@
 // for. Nothing here composes a provider command, completes one, or offers one the read
 // did not carry.
 //
-// THE LIST IS TWO LABELLED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
+// THE LIST IS TWO LABELED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
 // are acts this window performs; the provider's are names it will not send. `CommandListGroup`
 // carries the heading and the `role="group"` that states the difference before a press;
 // what stays here is the partition, which preserves each row's position in the single
@@ -222,7 +222,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           onKeyDown={onListKeyDown}
         >
           {/* An EMPTY group is left out rather than drawn with a heading over
-              nothing: a labelled section with no rows asserts a category the filtered
+              nothing: a labeled section with no rows asserts a category the filtered
               catalog does not have. Nothing is filtered by being in a group — every
               entry reaches exactly one of the two. */}
           {consoleRows.length === 0 ? null : (

@@ -90,7 +90,7 @@ export function hunkLines(
       reportTripwire(
         "wire-figure-formatting",
         HUNK_LINES_SITE,
-        `a hunk body line carried the unrecognised prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
+        `a hunk body line carried the unrecognized prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
       );
       continue;
     }

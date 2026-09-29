@@ -137,7 +137,7 @@ describe("what a contributed row does", () => {
     expect(onRevoke.mock.calls).toStrictEqual([[SECOND_RULE]]);
   });
 
-  it("is cancellable from the control, with zero mutations", () => {
+  it("is cancelable from the control, with zero mutations", () => {
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 

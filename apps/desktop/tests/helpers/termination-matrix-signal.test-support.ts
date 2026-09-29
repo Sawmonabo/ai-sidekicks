@@ -13,7 +13,7 @@
 
 import { expect } from "vitest";
 
-import { terminateSignalledTree } from "./process-tree/platform-termination.js";
+import { terminateSignaledTree } from "./process-tree/platform-termination.js";
 import { PROCESS_TREE_TERMINATION_MODE } from "./process-tree/termination.js";
 import { readProcessLiveness } from "./process-tree/liveness.js";
 import { RefusedRegistrationSpawn } from "./electron-child-lifetime.test-support.js";
@@ -26,7 +26,7 @@ import {
 } from "./termination-matrix-tools.test-support.js";
 
 /** The group-signal cells, the liveness readings, and the one real child. */
-export const SIGNALLED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
+export const SIGNALED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
   {
     name: "a group signal that could not be delivered while the GROUP still holds a member",
     axes: {
@@ -43,7 +43,7 @@ export const SIGNALLED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
     // a group is alive for as long as one member is.
     answer: () =>
       Promise.resolve(
-        terminateSignalledTree(
+        terminateSignaledTree(
           ROOT_PID,
           "SIGKILL",
           undeliverableSignalTools({ groupHasMember: true, rootHasTerminated: true }),
@@ -62,7 +62,7 @@ export const SIGNALLED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
     owedTermination: true,
     answer: () =>
       Promise.resolve(
-        terminateSignalledTree(
+        terminateSignaledTree(
           ROOT_PID,
           "SIGKILL",
           undeliverableSignalTools({ groupHasMember: false, rootHasTerminated: true }),

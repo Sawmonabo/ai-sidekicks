@@ -71,7 +71,7 @@ const PHASE_GRAPH_FIT_VIEW_PADDING = 0.12;
 const PHASE_GRAPH_FIT_VIEW_OPTIONS: FitViewOptions = { padding: PHASE_GRAPH_FIT_VIEW_PADDING };
 
 /**
- * The arrowhead's colour.
+ * The arrowhead's color.
  *
  * The library paints markers from a string it writes into an inline `style`, which is
  * a CSS declaration and so resolves `var()` — this is the one place a token reaches

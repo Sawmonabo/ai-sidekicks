@@ -10,7 +10,7 @@
 // So the policy is a parameter and not a coincidence of which file you landed in:
 //
 //   • `"throw"` — a repeat is a defect. Two families claiming one command id have a
-//     real conflict, and keeping the last would make behaviour depend on module
+//     real conflict, and keeping the last would make behavior depend on module
 //     import order.
 //   • `"idempotent"` — a repeat is expected and a no-op. Registration that runs
 //     once per window but may run twice under a double-mount.

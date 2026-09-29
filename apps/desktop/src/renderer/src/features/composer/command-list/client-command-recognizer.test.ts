@@ -19,7 +19,7 @@ const INPUT: ClientCommandRecognitionInput = {
 };
 
 describe("recognizeClientCommand", () => {
-  it("recognises a registered console command by its exact id", () => {
+  it("recognizes a registered console command by its exact id", () => {
     const recognition = recognizeClientCommand("frame.goToSettings", INPUT);
 
     expect(recognition).toEqual({ status: "recognized", commandId: "frame.goToSettings" });
@@ -30,7 +30,7 @@ describe("recognizeClientCommand", () => {
 
     expect(recognition.status).toBe("refused");
     if (recognition.status !== "refused") {
-      throw new Error("a name the console never registered must not be recognised");
+      throw new Error("a name the console never registered must not be recognized");
     }
     expect(recognition.refusal.origin).toBe(CLIENT_COMMAND_REFUSAL_ORIGIN);
     expect(recognition.refusal.detail).toContain("compact");
@@ -41,7 +41,7 @@ describe("recognizeClientCommand", () => {
 
     expect(recognition.status).toBe("refused");
     if (recognition.status !== "refused") {
-      throw new Error("an unregistered name must not be recognised");
+      throw new Error("an unregistered name must not be recognized");
     }
     expect(recognition.refusal.code).toBe("unknown-command");
     expect(recognition.refusal.detail).toContain("nowhere.atAll");

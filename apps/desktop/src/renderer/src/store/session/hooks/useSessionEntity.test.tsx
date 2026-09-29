@@ -2,7 +2,7 @@
 //
 // The whole reason `SessionStoreState` is a map per entity KIND rather than one
 // flat map is that a row must re-render when its own entity changes and NOT when
-// its neighbour does. That is a property nothing else in the tree can check: it is
+// its neighbor does. That is a property nothing else in the tree can check: it is
 // invisible to a snapshot assertion, invisible to a type, and it degrades silently
 // — a selector that started building a value instead of returning a stored one
 // still renders the right thing, just on every event in the session.
@@ -87,7 +87,7 @@ function ArtifactList(props: PartitionProps): React.JSX.Element {
 }
 
 describe("useSessionEntity — a row re-renders for its own entity and no other", () => {
-  it("leaves the neighbouring row alone while re-rendering the touched one", () => {
+  it("leaves the neighboring row alone while re-rendering the touched one", () => {
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
       read: readsNothing,
@@ -123,7 +123,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     // The touched row re-rendered…
     expect(tally.countFor("row-run-1")).toBe(firstRowRenders + 1);
     expect(view.getByTestId("row-run-1").textContent).toBe("state-1");
-    // …and its neighbour did not, even though both subscribe to the same store and
+    // …and its neighbor did not, even though both subscribe to the same store and
     // the same notification reached both.
     expect(tally.countFor("row-run-2")).toBe(secondRowRenders);
     expect(view.getByTestId("row-run-2").textContent).toBe("queued");

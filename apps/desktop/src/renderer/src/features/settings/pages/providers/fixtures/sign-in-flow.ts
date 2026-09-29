@@ -47,7 +47,7 @@ export type SignInFlowState =
       readonly attempt: ProviderAccountLoginResponse;
     }
   | {
-      readonly kind: "cancelling";
+      readonly kind: "canceling";
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
     }
@@ -83,7 +83,7 @@ const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boole
   idle: false,
   starting: true,
   live: true,
-  cancelling: true,
+  canceling: true,
   ended: false,
 };
 

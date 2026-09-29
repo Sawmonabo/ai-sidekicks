@@ -106,7 +106,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   });
 
   it("keeps a carried console refusal, origin and all", async () => {
-    // The fixture bridge's own errors arrive this way. Re-labelling one would lose
+    // The fixture bridge's own errors arrive this way. Re-labeling one would lose
     // the subsystem it names, which is the whole point of `origin`.
     const carried = refuse("fixture-bridge", "reply-unscripted", "the scenario scripts no reply");
     const { bridge } = bridgeAnswering(async () => {

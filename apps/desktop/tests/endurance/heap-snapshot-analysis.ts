@@ -74,7 +74,7 @@ export async function captureHeapSnapshot(
   snapshotPath: string,
 ): Promise<void> {
   const snapshotFile = createWriteStream(snapshotPath, { encoding: "utf8" });
-  // `once` on `"error"` FULFILS with the event's arguments rather than rejecting, so
+  // `once` on `"error"` FULFILLS with the event's arguments rather than rejecting, so
   // this is simply pending for the whole of an ordinary run — never an unhandled
   // rejection, and never a listener that has to be removed.
   const streamFailure = once(snapshotFile, "error");

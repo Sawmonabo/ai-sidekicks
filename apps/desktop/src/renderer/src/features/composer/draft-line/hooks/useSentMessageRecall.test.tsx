@@ -25,7 +25,7 @@ describe("useSentMessageRecall — the histories map is built once per mount", (
   it("does not build a new one on every render", () => {
     // `useRef(new SentMessageHistories())` evaluates its argument on EVERY
     // render and discards all but the first — an allocation per keystroke in the
-    // composer's own hot path, invisible to every behavioural case because the ref
+    // composer's own hot path, invisible to every behavioral case because the ref
     // keeps the first instance and the rest are garbage the moment they are made.
     const built = vi.mocked(SentMessageHistories);
     built.mockClear();

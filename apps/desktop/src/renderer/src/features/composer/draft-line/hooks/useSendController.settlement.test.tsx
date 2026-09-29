@@ -203,7 +203,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
 describe("useSendController — an operation's busy state belongs to the address it was issued at", () => {
   it("leaves the next address idle while a send for the previous one is still going", async () => {
     // The finding: the sending status and the single-flight latch were hook-wide, so
-    // a message still travelling to one session left the composer read-only for the
+    // a message still traveling to one session left the composer read-only for the
     // session the person had moved to — until the first call settled, and forever
     // where it never did.
     const driven = driveAddressableComposer();

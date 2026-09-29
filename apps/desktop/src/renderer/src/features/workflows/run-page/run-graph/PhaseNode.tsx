@@ -3,7 +3,7 @@
 // The visuals are OWN-BUILT, which the console's library policy requires of the
 // node and edge treatment: the library supplies the box's position, its focus
 // handling and its handle geometry, and everything a reader looks at is this file's
-// and this family's sheet. Nothing here reads a library colour — the treatment comes
+// and this family's sheet. Nothing here reads a library color — the treatment comes
 // off Meridian tokens through data attributes, so light and dark are one rule.
 //
 // THE SAME WORDS, LOOKING AND LISTENING. The state line below prints exactly the

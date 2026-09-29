@@ -18,7 +18,7 @@ import { RefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
 import type { PersistedValueClass } from "./persisted-value-classes.js";
 
-/** Which adapter is serving the store. Rendered; never inferred from behaviour. */
+/** Which adapter is serving the store. Rendered; never inferred from behavior. */
 export type PersistenceAdapterKind = "indexeddb" | "memory";
 
 /**
@@ -156,14 +156,14 @@ export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefin
 
 /**
  * The partition holding preferences that belong to the window rather than to one
- * session (the colour scheme, the keybinding overrides). Deliberately a reserved
+ * session (the color scheme, the keybinding overrides). Deliberately a reserved
  * identifier rather than an empty string, so a bug that loses a session id writes
  * somewhere obviously wrong instead of silently into the global bucket.
  */
 export const PERSISTENCE_GLOBAL_PARTITION = "global";
 
 /**
- * The key the colour scheme occupies inside that partition.
+ * The key the color scheme occupies inside that partition.
  *
  * Beside the partition rather than beside the store's `writeGlobal`, because
  * partition and key are one address and splitting an address across two modules

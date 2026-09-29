@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe("tokenising a small block", () => {
-  it("returns lines whose tokens carry family references and never colours", () => {
+  it("returns lines whose tokens carry family references and never colors", () => {
     const created = scheduler();
     return created.requestTokens("const answer = 1;\n", "typescript").then((outcome) => {
       expect(outcome.status).toBe("highlighted");

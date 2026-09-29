@@ -34,7 +34,7 @@
 //
 // The stand-ins are `bounded-cleanup.test-support.ts`'s, for that module's reason:
 // no platform can be asked to refuse a kill on demand, and these cases run inside
-// the runner, where a terminator that really signalled would reach a process group
+// the runner, where a terminator that really signaled would reach a process group
 // this suite does not own.
 
 import { describe, expect, it } from "vitest";

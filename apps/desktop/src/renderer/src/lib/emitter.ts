@@ -6,7 +6,7 @@
 // thing and stays — it backs `useSyncExternalStore` and carries state. The other
 // three are this.
 //
-// Two behaviours are decisions rather than mechanics:
+// Two behaviors are decisions rather than mechanics:
 //
 //   • **Emission iterates a snapshot.** A sink that unsubscribes another sink
 //     during emission must not make that other sink miss the event it was still

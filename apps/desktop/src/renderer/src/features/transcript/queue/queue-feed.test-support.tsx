@@ -60,11 +60,11 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   deliver: (item: QueueItemSummary) => void;
   tailedSessionIds: readonly string[];
   listedSessionIds: readonly string[];
-  cancelledItemIds: readonly string[];
+  canceledItemIds: readonly string[];
 } {
   const tailedSessionIds: string[] = [];
   const listedSessionIds: string[] = [];
-  const cancelledItemIds: string[] = [];
+  const canceledItemIds: string[] = [];
   const tails = new Set<(item: QueueItemSummary) => void>();
   return {
     bridge: createFixture().bridge,
@@ -81,7 +81,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
         };
       },
       cancel: async (queueItemId) => {
-        cancelledItemIds.push(queueItemId);
+        canceledItemIds.push(queueItemId);
       },
     },
     deliver: (item) => {
@@ -91,7 +91,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
     },
     tailedSessionIds,
     listedSessionIds,
-    cancelledItemIds,
+    canceledItemIds,
   };
 }
 

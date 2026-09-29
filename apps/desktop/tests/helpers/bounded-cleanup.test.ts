@@ -7,7 +7,7 @@
 // remove, one line further down, with a temporary profile left on disk for the
 // next launch to trip over.
 //
-// The behaviour that matters here is unreachable through a real Electron: no
+// The behavior that matters here is unreachable through a real Electron: no
 // fixture makes a browser process refuse to close on demand, and no `rmSync` over
 // a directory this process owns fails on a POSIX runner — which is exactly why
 // both were cases nothing checked. So `BoundedCleanup` takes all three
@@ -84,7 +84,7 @@ describe("bounded cleanup — a close that never settles", () => {
     // reserve)` — so a readiness failure two seconds in handed cleanup nearly
     // the whole 55 000 ms deadline and a budget audit read a constraint the
     // harness did not apply. The leftover launch time is not an input any more,
-    // which is why the old behaviour cannot be constructed here at all: there is
+    // which is why the old behavior cannot be constructed here at all: there is
     // no deadline to hand this class, and every launched console is held to the
     // row.
     const outcome = await new BoundedCleanup(
@@ -226,7 +226,7 @@ describe("bounded cleanup — a close that never settles", () => {
   });
 
   it("kills the process a rejected close left running, carrying the rejection", async () => {
-    // THE FINDING. A rejected close used to be labelled `closed` outright: the
+    // THE FINDING. A rejected close used to be labeled `closed` outright: the
     // termination was skipped and the rejection discarded, so a tier could report
     // green with an Electron still holding its profile — and every Playwright
     // tier shares this harness, so the leak reaches the rest of the run.
@@ -324,7 +324,7 @@ describe("bounded cleanup — which liveness reading a verdict rests on", () => 
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(reaped.pid, HOST_QUERY_TIMEOUT_MS)).toBe(false);
     // The two pids above agree under either reading, which is exactly why they
     // cannot settle the class on their own — the one pid that separates them is
-    // an unreaped zombie, and whether one lingers is the reaping behaviour of an
+    // an unreaped zombie, and whether one lingers is the reaping behavior of an
     // init this process does not own. So the binding is asserted as well.
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(
       !processHasTerminated(process.pid, HOST_QUERY_TIMEOUT_MS),

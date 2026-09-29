@@ -57,7 +57,7 @@ export interface EarlierHistoryPaging extends EarlierHistoryState {
  * was let go of is not a line that can be handed to the next render: the session this
  * walk was addressed at is gone, its outstanding page belongs to nobody, and a page
  * landing afterwards must not grow a log the console has moved off. `isClosed` is what
- * makes React's double-mount survivable — the disposed reader is recognised and a
+ * makes React's double-mount survivable — the disposed reader is recognized and a
  * fresh one minted, rather than the pane spending its life pressing a control on a
  * line that can never open a live round again.
  */

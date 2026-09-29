@@ -3,7 +3,7 @@
  * ONE RULE, because the parts are the console's own primitives and each dresses
  * itself: the chip is `primitives/figures/chip.css`' and every wire-sourced part is
  * `primitives/figures/figure.css`' mono treatment. What is left is the row of them, and a
- * second declaration of either part's colour or size here would be this family
+ * second declaration of either part's color or size here would be this family
  * restating a decision the primitives already made.
  */
 

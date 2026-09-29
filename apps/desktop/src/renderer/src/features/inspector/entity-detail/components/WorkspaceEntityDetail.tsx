@@ -21,7 +21,7 @@ export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Eleme
       heading="Workspace"
       entityId={props.entityId}
       state={props.entity?.state}
-      isInitialised={props.isInitialised}
+      isInitialized={props.isInitialized}
       hasRecord={props.entity !== undefined}
       degradedCause={props.degradedCause}
       degradedConsequence="the state below may predate the provisioning that finished it."

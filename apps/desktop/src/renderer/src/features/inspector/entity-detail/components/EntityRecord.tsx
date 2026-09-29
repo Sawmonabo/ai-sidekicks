@@ -51,7 +51,7 @@ export interface EntityRecordProps {
   readonly entityId: string;
   /** The record's headline state, wire-verbatim, where the projection carries one. */
   readonly state: string | undefined;
-  readonly isInitialised: boolean;
+  readonly isInitialized: boolean;
   /** Whether the store holds a record for this identifier. */
   readonly hasRecord: boolean;
   readonly degradedCause: SessionDegradedCause | undefined;
@@ -73,7 +73,7 @@ export interface EntityRecordProps {
 
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();
-  if (!props.isInitialised) {
+  if (!props.isInitialized) {
     return (
       <Nothing kind="not-loaded" placement="surface" title={`Reading the ${subject} record.`} />
     );

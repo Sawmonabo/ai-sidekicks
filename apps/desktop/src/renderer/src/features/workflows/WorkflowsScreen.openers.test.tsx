@@ -28,7 +28,7 @@ import { WorkflowsScreen } from "./WorkflowsScreen.js";
  * What the run list was handed, in render order.
  *
  * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialised when they run.
+ * lifted above the imports, so a plain binding is not initialized when they run.
  */
 const handedDown = vi.hoisted(() => ({ runOpeners: [] as unknown[] }));
 

@@ -50,7 +50,7 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
   // minted per provider session, so two runs blocked at once legitimately raise the
   // same one — and an id built from it gave both fields the same `id`, at which point
   // a click on either label focuses whichever the document reached first and the second
-  // ask's field is unlabelled to a screen reader. A composite over `(runId, askId)`
+  // ask's field is unlabeled to a screen reader. A composite over `(runId, askId)`
   // would fix that pair and not the general one: nothing stops one ask from being
   // rendered in two panes at once. `useId` is the console's own mechanism for exactly
   // this, and it is unique per rendered instance, which is what the DOM requires.

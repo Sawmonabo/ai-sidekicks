@@ -80,7 +80,7 @@ type BlockContainer = { readonly kind: "indented-code" } | ListContainer;
 /** The list arm of that set, named so the reader that builds one can be typed by it. */
 interface ListContainer {
   readonly kind: "list";
-  /** Columns of indent the marker itself sat at, so a sibling can be recognised. */
+  /** Columns of indent the marker itself sat at, so a sibling can be recognized. */
   readonly markerIndent: number;
   /**
    * The marker's own delimiter — a bullet character, or an ordered list's `.` / `)`.

@@ -66,7 +66,7 @@ export interface UseRevealOptions {
    * a coordinator whose frames nothing arms. The effect below re-mints on a
    * replacement, and deliberately: it costs one identity comparison, and a re-mint
    * drops the lane text published so far, which is a loss this engine takes rather
-   * than carrying work submitted to one scheduler and cancelled on another.
+   * than carrying work submitted to one scheduler and canceled on another.
    */
   readonly frameCoordinator: AnimationFrameCoordinator;
 }

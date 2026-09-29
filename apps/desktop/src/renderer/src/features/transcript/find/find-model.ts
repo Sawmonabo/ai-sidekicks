@@ -122,7 +122,7 @@ function matchFieldOf(row: TimelineRow, needle: string): FindMatch["matchedIn"] 
  * Where the walk sits before anything has been selected.
  *
  * Negative rather than `undefined` because the field renders "n of m" from the
- * same number, and a sentinel one comparison recognises is what keeps the two
+ * same number, and a sentinel one comparison recognizes is what keeps the two
  * readings — "nothing is selected" and "the first match is selected" — from
  * collapsing into index 0.
  */

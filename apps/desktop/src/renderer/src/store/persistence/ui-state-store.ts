@@ -6,7 +6,7 @@
 // not one. The adapters are deliberately not exported from the console's barrel, so the
 // only reachable path to a durable byte is this class.
 //
-// Four behaviours are worth stating because they are decisions rather than
+// Four behaviors are worth stating because they are decisions rather than
 // mechanics:
 //
 //   1. **Refuse; never repair.** An address that is not identifier-shaped, a

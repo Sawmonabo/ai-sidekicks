@@ -144,7 +144,7 @@ describe("mount inventory read — the line is abandoned between its own calls",
     mountRead.serve(mountReadFor(MOUNT_A));
 
     expect((await abandonedRefusalOf(reading)).code).toBe(READ_ABANDONED);
-    // Both calls were handed the read's own signal, so the departure cancelled them
+    // Both calls were handed the read's own signal, so the departure canceled them
     // in flight rather than only being noticed after they settled.
     expect(signals).toHaveLength(2);
     expect(signals[0]).toBe(line.signal);

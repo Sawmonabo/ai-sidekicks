@@ -22,7 +22,7 @@
 // each caller passes its own and two recorders in one tree stay distinguishable.
 //
 // IT READS THE DOCUMENT rather than a container handle, so one recorder serves any tree
-// a case renders — and because the container is not initialised yet on the first commit,
+// a case renders — and because the container is not initialized yet on the first commit,
 // which is the one frame this instrument most needs to see.
 //
 // IN `core/` AND NOT BESIDE EITHER CALLER. Its readers are view families, which are

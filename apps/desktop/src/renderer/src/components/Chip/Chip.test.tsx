@@ -37,13 +37,13 @@ describe("Chip — the tone set is closed and each tone is spent once", () => {
       "meridian-chip--accent",
     ]);
     // The negative control for the assertion above: if two tones ever collapsed
-    // onto one class — the shape rule 3's "at most one colour" fails as — the
+    // onto one class — the shape rule 3's "at most one color" fails as — the
     // literal list would still be four entries long but would not be four
     // DISTINCT entries.
     expect(new Set(modifiers).size).toBe(CHIP_TONES.length);
   });
 
-  it("defaults to neutral, because a chip that carries no urgency carries no colour", () => {
+  it("defaults to neutral, because a chip that carries no urgency carries no color", () => {
     const chip = renderChip(<Chip label="claimed" />);
     expect(chip.classList.contains("meridian-chip--neutral")).toBe(true);
     expect(chip.classList.contains("meridian-chip--attention")).toBe(false);

@@ -12,7 +12,7 @@
 //
 // SO THE DISCARD IS KEYED ON THE TWO MOMENTS IT BELONGS TO. A confirmation OPENING is a
 // new consideration of the act, so nothing an earlier press settled stands under it; a
-// confirmation CANCELLED is a person walking away from one, so the record they walked
+// confirmation CANCELED is a person walking away from one, so the record they walked
 // away from goes with them. The confirm press is neither — it is what produces the next
 // settlement, and it is the one close this module exists to leave alone.
 //
@@ -33,7 +33,7 @@ export interface ConfirmationLifecycle {
    */
   readonly openChanged: (isOpen: boolean) => void;
   /** Hand to the cancel `AlertDialog.Close`'s `onClick`, and to no other control. */
-  readonly cancelled: () => void;
+  readonly canceled: () => void;
 }
 
 /**
@@ -52,8 +52,8 @@ export function useConfirmationLifecycle(discardSettlement: () => void): Confirm
     },
     [discardSettlement],
   );
-  const cancelled = useCallback(() => {
+  const canceled = useCallback(() => {
     discardSettlement();
   }, [discardSettlement]);
-  return useMemo(() => ({ openChanged, cancelled }), [openChanged, cancelled]);
+  return useMemo(() => ({ openChanged, canceled }), [openChanged, canceled]);
 }

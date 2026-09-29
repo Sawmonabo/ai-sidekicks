@@ -2,7 +2,7 @@
 //
 // Anyone can write subscribe / emit / unsubscribe over a `Set` in four lines. The
 // reason this one is a module rather than four lines per family is the two
-// behaviours its header calls decisions, and both are invisible until the day they
+// behaviors its header calls decisions, and both are invisible until the day they
 // matter: mutating a `Set` while iterating it is DEFINED in JavaScript, so an
 // unsubscribe during emission silently skips a sink that was still subscribed; and
 // a throwing sink swallowed or propagated early makes delivery depend on

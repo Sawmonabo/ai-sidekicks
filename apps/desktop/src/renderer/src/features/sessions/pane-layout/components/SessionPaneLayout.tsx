@@ -18,7 +18,7 @@
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
 //     Rects are `rect/rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
 //   • **Rows are memoised.** A four-pane deck under a streaming session re-renders
-//     the pane whose store changed and not its neighbours, which is what the
+//     the pane whose store changed and not its neighbors, which is what the
 //     partitioned store buys and what an unmemoised map would give straight back.
 //   • **Keyboard before pointer.** Focus, move, and close are chords; resize is on
 //     the separator, which is focusable and operable with the arrow keys. A deck

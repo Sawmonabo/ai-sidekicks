@@ -49,14 +49,14 @@
 // a delivered kill.
 //
 // So identity is a READING like every other one here, taken BEFORE anything is
-// signalled, and it has three answers because "not ours" is two facts and not
+// signaled, and it has three answers because "not ours" is two facts and not
 // one:
 //
 //   • `same` — the pid still names the instance this tree was captured from. It
 //     is the only answer under which the root is walked at all.
 //   • `gone` — the pid names nothing. The root exited and was reaped.
 //   • `recycled` — the pid names a DIFFERENT process. Nothing reachable through
-//     that number is this tree's, so nothing is signalled through it. Only the
+//     that number is this tree's, so nothing is signaled through it. Only the
 //     members captured while the root last read `same` may be addressed, and
 //     with no such capture the verdict is a refusal: an empty capture is absence
 //     of evidence, and absence of evidence must never read as a clean tree.
@@ -164,7 +164,7 @@ export interface ExternalTreeTools {
   /**
    * What the root pid names right now, relative to what this tree captured.
    *
-   * Asked before anything is signalled, because a signal is the one act that
+   * Asked before anything is signaled, because a signal is the one act that
    * cannot be taken back: a `taskkill` issued at a reissued pid has already
    * terminated a stranger by the time any verdict is computed.
    */
@@ -191,7 +191,7 @@ export interface ExternalTreeTools {
  * while any member does — so this is the reading that stays right across the
  * root's exit, and it is the one the root-only probe got wrong.
  */
-export function terminateSignalledTree(
+export function terminateSignaledTree(
   processId: number,
   signal: NodeJS.Signals,
   tools: SignalTreeTools,
@@ -316,7 +316,7 @@ function addressableTreeMembers(
 /**
  * The rows this host still hangs off the root pid that this tree cannot vouch for.
  *
- * READ AND NEVER SIGNALLED. Each one is either a descendant this tree never
+ * READ AND NEVER SIGNALED. Each one is either a descendant this tree never
  * captured or a leftover child of whoever held the number before it, and nothing
  * in the table can tell those apart — so killing one risks an unrelated process
  * and ignoring one risks reporting a live tree as gone. Refusing the verdict is
@@ -360,7 +360,7 @@ function unverifiedRootClaimants(
  * return blocks the thread vitest's own timeout runs on. A caller inside a
  * deadline passes what is left of it; a bound already spent runs nothing and
  * reports the kill as undelivered, which is the reading that keeps the caller
- * escalating rather than one that claims a tree it never signalled.
+ * escalating rather than one that claims a tree it never signaled.
  */
 export function runPlatformTreeKill(
   processId: number,

@@ -123,7 +123,7 @@ export class ScrollController {
    * Re-attaching detaches the previous surface first: a pane that re-mounts must
    * not leave a listener on a node React has already dropped.
    *
-   * AND IT ARMS ITS OWN OVERFLOW PASS. That detach cancelled the frame the outgoing
+   * AND IT ARMS ITS OWN OVERFLOW PASS. That detach canceled the frame the outgoing
    * attachment armed — right, since a pass on a detached controller samples nothing —
    * but the obligation was the LEDGER's and not the departed node's, and an heir that
    * inherited none waited on the next resize. Coalesced, so an attachment that is also

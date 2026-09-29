@@ -18,7 +18,7 @@ import { type ViewportRow } from "../viewport/viewport-snapshot.js";
  * every admitted event, and the identity triple beside each one used to be minted
  * fresh with it. Every memo below the feed keys on those identities, so a log that
  * gained one entry handed the viewport a window in which nothing had changed and
- * nothing was recognisable: a ten-row window drew ten row bodies at mount and
+ * nothing was recognizable: a ten-row window drew ten row bodies at mount and
  * twenty-one more per admitted event, and none of that work produced a different
  * pixel.
  *

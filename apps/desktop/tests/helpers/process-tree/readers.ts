@@ -75,7 +75,7 @@ export interface ProcessTableRow {
  * THE SENTINEL IS THE WHOLE POINT OF THE UNION. An unreadable listing used to
  * arrive as an EMPTY map, which is a reading — "nothing on this host claims that
  * pid" — and every consumer that took it as one was reading a failure as
- * evidence. The two answers owe opposite behaviour: an empty table is what
+ * evidence. The two answers owe opposite behavior: an empty table is what
  * clears a rootless verdict, and an unreadable one is what must refuse it.
  *
  * The optional budget is what is LEFT of the caller's own deadline, and it is

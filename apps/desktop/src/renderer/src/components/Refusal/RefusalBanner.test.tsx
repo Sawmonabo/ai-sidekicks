@@ -20,7 +20,7 @@ const ROOM_WIDE_REFUSAL = refuse(
 );
 
 describe("a banner is dismissable only when the caller can dismiss it", () => {
-  it("renders a labelled dismiss control that calls back", () => {
+  it("renders a labeled dismiss control that calls back", () => {
     const onDismiss = vi.fn();
     const { container } = render(<RefusalBanner {...ROOM_WIDE_REFUSAL} onDismiss={onDismiss} />);
     const dismiss = container.querySelector(".meridian-refusal__dismiss");

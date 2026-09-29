@@ -69,7 +69,7 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
   );
 
   // Fail-closed projection: a step outside the wheel is not clamped into someone
-  // else's colour, because that would attribute a row to the wrong user.
+  // else's color, because that would attribute a row to the wrong user.
   // The edge falls back to the neutral control boundary and the row says, in its
   // class, that it carries no attribution.
   const isAttributed =

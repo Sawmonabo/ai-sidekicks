@@ -4,7 +4,7 @@
 // window: three other panes were fine and the person loses them. So the frame nests
 // boundaries — one around the frame itself as a last resort, one around each region —
 // and a failed region renders its failure card in its own footprint while its
-// neighbours keep working.
+// neighbors keep working.
 //
 // This is a class because React's error-boundary contract has no hook form:
 // `getDerivedStateFromError` and `componentDidCatch` exist only on classes.

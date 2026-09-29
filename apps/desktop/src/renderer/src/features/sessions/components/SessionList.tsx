@@ -39,7 +39,7 @@ export interface SessionListProps {
 /** The list of sessions, pinned rows first. */
 export function SessionList(props: SessionListProps): React.JSX.Element {
   const { rows, pinned } = props;
-  // Under `useMemo` so a list re-rendered by a neighbour's attention change does not
+  // Under `useMemo` so a list re-rendered by a neighbor's attention change does not
   // sort again.
   const ordered = useMemo(() => orderSessionRows(rows, pinned), [rows, pinned]);
   return (

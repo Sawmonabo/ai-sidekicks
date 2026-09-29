@@ -287,7 +287,7 @@ export function formatClockTime(iso: string, locale?: string): string {
  * scannable at one width while the ORDER and the separators remain the locale's
  * own. Seconds are absent because the instants this answers for — an expiry, a
  * deadline — are not read to the second, and the same 24-hour clock as its
- * neighbour so two figures on one surface do not disagree about the format.
+ * neighbor so two figures on one surface do not disagree about the format.
  */
 export function formatDateTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);

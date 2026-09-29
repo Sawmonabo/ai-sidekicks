@@ -23,7 +23,7 @@ import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
  * A local number rather than the console's own `REFRESH_DEBOUNCE_MS`: what is under
  * test is the round, not the interval, and pinning the shipped constant in a suite
  * that does not measure it is the restated-threshold `apps/desktop/AGENTS.md`
- * rejects. Any positive value serves, and this one is the neighbouring suite's.
+ * rejects. Any positive value serves, and this one is the neighboring suite's.
  */
 const TEST_DEBOUNCE_MS = 120;
 

@@ -74,7 +74,7 @@ describe("diff file list — a change that lives only in the extended headers", 
     const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
     expect(changeNoteFor(container, renamed.to)).toBe(`renamed from ${renamed.from}`);
     // The counts stay: they are true, and a suppressed pair would make this the
-    // one row a reader cannot compare with its neighbours.
+    // one row a reader cannot compare with its neighbors.
     expect(entryFor(container, renamed.to).textContent).toContain("+0");
   });
 

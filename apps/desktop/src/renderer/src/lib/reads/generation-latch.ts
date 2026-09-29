@@ -195,7 +195,7 @@ export class GenerationLatch {
    *
    * For the holder whose SUBJECT moved out from under a call: the projection the
    * reply was read against has been replaced, or the session it was asked of has.
-   * Nothing is cancelled — the reply simply installs nowhere — so releasing the key
+   * Nothing is canceled — the reply simply installs nowhere — so releasing the key
    * here cannot let an older answer overwrite a newer settlement.
    */
   public supersede(subject: object, key: string): void {
@@ -212,7 +212,7 @@ export class GenerationLatch {
    *
    * The unmount and teardown path. Replacing the register rather than emptying it is
    * what makes the abandoned generation unreachable instead of merely cleared: a
-   * settlement still travelling holds a serial, and serials are never reissued, so it
+   * settlement still traveling holds a serial, and serials are never reissued, so it
    * finds no key naming it however the caller re-claims afterwards.
    */
   public supersedeAll(): void {

@@ -59,7 +59,7 @@ interface FeedParentProps {
    * Moved to make the parent render, and read by nothing.
    *
    * A pane above this feed re-renders for its own reasons — a tab change, a
-   * neighbouring dock, a resize — and every one of them hands the feed a fresh props
+   * neighboring dock, a resize — and every one of them hands the feed a fresh props
    * object while the three values inside it stay the same.
    */
   readonly renderNudge: number;

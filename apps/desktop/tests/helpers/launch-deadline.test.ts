@@ -127,7 +127,7 @@ describe("launch deadline — one clock, drawn from", () => {
     // reported in the raw phase's words instead of the readiness budget's.
     //
     // A STOPPED clock is that skew made deterministic. The deadline's OWN expiry is
-    // recognised by identity here, so it can never be vetoed by a reading that says
+    // recognized by identity here, so it can never be vetoed by a reading that says
     // there is time left.
     const frozen = stoppedClock(1_000);
     const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS, frozen.now);

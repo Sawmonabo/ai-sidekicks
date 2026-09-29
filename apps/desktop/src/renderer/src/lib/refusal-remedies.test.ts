@@ -1,5 +1,5 @@
 // The remedy table: what it says about each code it answers for, and that an unlisted
-// code answers `undefined` rather than a nearest neighbour, which would tell a person
+// code answers `undefined` rather than a nearest neighbor, which would tell a person
 // to do something about a refusal the console does not understand.
 
 import { describe, expect, it } from "vitest";

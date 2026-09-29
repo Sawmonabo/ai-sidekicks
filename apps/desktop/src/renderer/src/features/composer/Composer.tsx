@@ -61,7 +61,7 @@ function openEnumeration(): ProviderCommandEnumeration {
  *
  * It drops the open key, supersedes whatever read was outstanding, and publishes the
  * unchecked reading — after which `open()` reads again exactly as it did before. So
- * there is no closed state to recognise and none to supply: a `{ dispose, isClosed }`
+ * there is no closed state to recognize and none to supply: a `{ dispose, isClosed }`
  * here would claim a lifetime that ends, and the reading beside it would have to be a
  * constant `false`, which is a claim written down twice and true in neither place.
  *

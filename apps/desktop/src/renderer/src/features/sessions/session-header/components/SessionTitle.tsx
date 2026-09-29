@@ -4,7 +4,7 @@
 // rendered by its identifier and never by an invented title, and this is where that
 // rule is obeyed rather than a fragment of the header's arrangement.
 //
-// WHY THE TITLE IS LABELLED AS METADATA. No registered session shape carries a
+// WHY THE TITLE IS LABELED AS METADATA. No registered session shape carries a
 // first-class name field — `SessionSnapshot` is `id`, `state`, `config`, `metadata`,
 // and two timestamps, and `session.created`'s payload is `.strict()` with no title
 // member at all. A display title is therefore metadata a session happens to carry,
@@ -34,7 +34,7 @@ export interface SessionHeaderSessionTitleProps {
 export function SessionTitle(props: SessionHeaderSessionTitleProps): React.JSX.Element | null {
   const { title } = props;
   return title === undefined ? null : (
-    // Labelled as metadata on the element itself, because that is what it IS: no
+    // Labeled as metadata on the element itself, because that is what it IS: no
     // registered session shape has a name field, and a reader who wonders where the
     // name came from gets the honest answer from the title attribute.
     <span className="meridian-session-header__session-title" title="Session metadata title">

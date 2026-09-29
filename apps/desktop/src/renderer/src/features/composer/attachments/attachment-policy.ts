@@ -78,7 +78,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
  * Named here as strings because `packages/contracts` registers NEITHER — there is no
  * artifact error namespace in `error.ts` at all. They are the daemon's codes, matched
  * against whatever a refusal carries, and they are not method names, event types, or
- * wire fields: a code the console does not recognise takes the retry-in-place arm,
+ * wire fields: a code the console does not recognize takes the retry-in-place arm,
  * which is the contract's own default rather than a guess.
  */
 export const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
@@ -105,7 +105,7 @@ export const INGEST_DISPOSITION_COPY: Readonly<Record<IngestRefusalDisposition, 
     "This stream is over and cannot be resumed. Retrying begins the upload again from the first byte.",
 };
 
-/** What cancelling actually does, said exactly rather than as "cancelled". */
+/** What canceling actually does, said exactly rather than as "canceled". */
 export const INGEST_ABANDON_COPY =
   "Sending stops now. The bytes already spooled are cleaned up shortly by the background service rather than instantly, and no artifact is minted.";
 

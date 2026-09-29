@@ -148,7 +148,7 @@ export function useAttentionProjection(
  * together still costs one read rather than two.
  *
  * Released in the order they were taken, and every one of them: a partial teardown
- * would leave the surviving half signalling into a read that has been disposed.
+ * would leave the surviving half signaling into a read that has been disposed.
  */
 function subscribeToAttentionChanges(
   subscribeToAttention: AttentionSubscribeCall,

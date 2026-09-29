@@ -1,7 +1,7 @@
 // Where this window is in its own read: still filling, catching up, or neither.
 //
 // WHAT WAS MISSING. The store has carried both facts since it was written —
-// `initialised` is false until a read response lands, and `degradedCause` is sticky
+// `initialized` is false until a read response lands, and `degradedCause` is sticky
 // while the projection is known-incomplete and cleared only by a completed re-pull —
 // and neither reached the pane. So a session whose first read was in flight rendered
 // exactly like a session that had never had anything happen in it, and a window that
@@ -10,7 +10,7 @@
 // TWO ARMS AND NEVER BOTH, AND THE STANDING CAUSE LEADS. The shells used to win, on
 // the reading that a window which has not been read yet has nothing to be behind ON —
 // and that reading is false for the one cause a first read can raise. `read-failed` is
-// marked when the read is refused or rejects, which leaves the store uninitialised and
+// marked when the read is refused or rejects, which leaves the store uninitialized and
 // the cause standing, so the pane drew `aria-busy` loading shells for as long as the
 // failure lasted and never said the read had already ended. The cause decides at any
 // point in the read: while one stands this names it, and only a window with no cause

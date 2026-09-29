@@ -1,4 +1,4 @@
-// A code block is legible before it is coloured — and a volatile one is never coloured.
+// A code block is legible before it is colored — and a volatile one is never colored.
 
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ describe("a settled code block", () => {
     expect(container.textContent).toContain("const a = 1;");
   });
 
-  it("swaps in spans whose colour is a family reference", async () => {
+  it("swaps in spans whose color is a family reference", async () => {
     const { container } = render(
       <CodeBlock source="const a = 1;" infoString="ts" isSettled scheduler={ownScheduler()} />,
     );
@@ -44,7 +44,7 @@ describe("a settled code block", () => {
 
   it("negative control: a volatile block is never highlighted", () => {
     // Its text changes every frame, so each pass would be a cache miss whose tokens are
-    // evicted before they are read again — and the colours would ripple as the grammar's
+    // evicted before they are read again — and the colors would ripple as the grammar's
     // reading of an unfinished line changed under the reader.
     const { container } = render(
       <CodeBlock

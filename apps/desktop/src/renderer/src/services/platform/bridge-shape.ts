@@ -56,7 +56,7 @@ export const DESKTOP_BRIDGE_NAMESPACES: readonly DesktopBridgeNamespace[] = Obje
 export type BridgeShape = ReadonlyMap<string, readonly string[]>;
 
 /** A shape and what to call it in a difference report. */
-export interface LabelledBridgeShape {
+export interface LabeledBridgeShape {
   readonly label: string;
   readonly shape: BridgeShape;
 }
@@ -106,8 +106,8 @@ export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
  * nothing about which namespace or which member moved.
  */
 export function diffBridgeShapes(
-  left: LabelledBridgeShape,
-  right: LabelledBridgeShape,
+  left: LabeledBridgeShape,
+  right: LabeledBridgeShape,
 ): readonly string[] {
   const differences: string[] = [];
   const namespaces = [...new Set([...left.shape.keys(), ...right.shape.keys()])].sort();

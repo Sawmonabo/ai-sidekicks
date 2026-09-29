@@ -4,7 +4,7 @@
 // is a reason rather than a preference: happy-dom returns zeroes from every
 // `getBoundingClientRect`, resolves no custom property through the cascade, and
 // lays nothing out. Under it, "the rail is 56 px wide", "the attribution edge is
-// 2 px", and "the ledger row's hue resolves to the user's colour" all pass
+// 2 px", and "the ledger row's hue resolves to the user's color" all pass
 // while measuring nothing at all. Those live here, in real Chromium, where the
 // numbers come from a layout engine.
 //
@@ -72,7 +72,7 @@ describe("browser — the token sheet reaches the cascade", () => {
     expect(document.querySelectorAll(`#${MERIDIAN_STYLE_ELEMENT_ID}`)).toHaveLength(1);
   });
 
-  it("resolves a colour token through the cascade rather than to an empty string", () => {
+  it("resolves a color token through the cascade rather than to an empty string", () => {
     // The unit tier reads the TypeScript record; only a real cascade proves the
     // record reached the document. An unresolved custom property is the empty
     // string, which paints as "inherit" and is invisible.

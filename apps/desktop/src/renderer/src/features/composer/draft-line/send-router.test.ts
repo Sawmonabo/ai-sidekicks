@@ -60,7 +60,7 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
 
 describe("ComposerSendRouter — the slash prefix", () => {
   it("resolves a slash line at a running turn as it does on an idle line", () => {
-    // A recognised console word is intercepted and a published provider name is named
+    // A recognized console word is intercepted and a published provider name is named
     // in a refusal, on both targets: the running turn adds no rule of its own.
     const router = routerWith(vi.fn(), ["compact"], ["review"]);
     for (const line of ["/compact now", "/review"]) {

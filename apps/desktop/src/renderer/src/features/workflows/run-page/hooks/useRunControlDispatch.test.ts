@@ -76,6 +76,6 @@ describe("a served answer settles the control", () => {
       throw new Error("the cancel control settled on the wrong arm");
     }
     // The wire word verbatim, so the settlement and the run agree on one string.
-    expect(outcome.runState).toBe("cancelled");
+    expect(outcome.runState).toBe("canceled");
   });
 });

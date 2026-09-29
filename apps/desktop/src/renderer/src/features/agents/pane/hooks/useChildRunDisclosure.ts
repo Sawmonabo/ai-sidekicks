@@ -19,7 +19,7 @@ import {
  * TERMINAL RATHER THAN RELEASING: the object holds one read line per child run, and a
  * line that was let go of is not a line the next render may open a round on.
  * `isAbandoned` is what makes React's double-mount survivable — the disposed object is
- * recognised and a fresh one minted, rather than every later press being born over.
+ * recognized and a fresh one minted, rather than every later press being born over.
  */
 const CHILD_RUN_EXPANSION_DISPOSAL: SubjectScopedDisposal<ChildRunExpansionState> = {
   dispose: (expansions: ChildRunExpansionState): void => {

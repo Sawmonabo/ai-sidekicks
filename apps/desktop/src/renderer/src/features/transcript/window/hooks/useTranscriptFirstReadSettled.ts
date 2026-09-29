@@ -1,6 +1,6 @@
 // Whether this window's first read has landed.
 //
-// ONE SUBSCRIPTION, TWO READERS, AND THAT IS WHY IT IS A MODULE. `initialised` is the
+// ONE SUBSCRIPTION, TWO READERS, AND THAT IS WHY IT IS A MODULE. `initialized` is the
 // store's own word for "a read response has established this window's base state", and
 // two surfaces turn on it: the skeleton next door draws shells until it is true, and
 // the viewport's empty window must not speak until it is. Written twice, the two would
@@ -25,10 +25,10 @@ import { type SessionStoreState } from "@renderer/store/session/session-state.js
  * it, and is the distinction every caller of this hook exists to draw.
  */
 export function useTranscriptFirstReadSettled(sessionStore: SessionStore): boolean {
-  return useSessionStore(sessionStore, readInitialised);
+  return useSessionStore(sessionStore, readInitialized);
 }
 
 /** Whether a read response has established this window's base state. */
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
+function readInitialized(state: SessionStoreState): boolean {
+  return state.initialized;
 }

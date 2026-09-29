@@ -28,7 +28,7 @@
 
 /*
  * The identity block and the version block share one description-list shape, because
- * they are the same kind of thing — a labelled wire value — and two layouts for one
+ * they are the same kind of thing — a labeled wire value — and two layouts for one
  * shape is how a surface starts looking like two surfaces.
  */
 .meridian-definition-detail__facts {

@@ -158,7 +158,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     return this.#round;
   }
 
-  /** Whether this reading has ended. How the resource seam recognises a corpse. */
+  /** Whether this reading has ended. How the resource seam recognizes a corpse. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }

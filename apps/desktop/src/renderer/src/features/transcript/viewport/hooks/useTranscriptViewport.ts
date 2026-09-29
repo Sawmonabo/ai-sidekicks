@@ -94,7 +94,7 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
   /**
    * The clock every timer in this frame is minted through. Fixed for the mount:
    * a viewport that swapped clocks mid-life would have work armed on one and
-   * cancelled on another.
+   * canceled on another.
    */
   readonly clock: Clock;
 }

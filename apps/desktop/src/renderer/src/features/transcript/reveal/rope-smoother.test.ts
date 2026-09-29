@@ -67,7 +67,7 @@ describe("the rope smoother", () => {
     expect(smoother.lookahead(100)).toBe("three four");
   });
 
-  it("recognises a candidate that extends it, and one that does not", () => {
+  it("recognizes a candidate that extends it, and one that does not", () => {
     const smoother = fedWith(["The run ", "started"]);
     expect(smoother.isPrefixOf("The run started at noon")).toBe(true);
     expect(smoother.isPrefixOf("The run started")).toBe(true);

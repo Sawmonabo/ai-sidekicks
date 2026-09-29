@@ -141,7 +141,7 @@ export class ObservedTreeTerminator {
    *
    * `0` for "nothing was asked" rather than `undefined`, which is the same
    * convention `AbandonedPair` uses and for the same reason: `reap` refuses it,
-   * so an unrecorded pid can never be signalled — and on POSIX `0` addresses
+   * so an unrecorded pid can never be signaled — and on POSIX `0` addresses
    * the CALLER's own process group.
    */
   get firstRequestedPid(): number {

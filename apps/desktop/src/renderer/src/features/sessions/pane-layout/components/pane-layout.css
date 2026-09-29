@@ -63,7 +63,7 @@
 
 /*
  * The focused pane is marked on its own edge rather than by dimming its
- * neighbours: a deck where the unfocused panes fade reads as a deck where they
+ * neighbors: a deck where the unfocused panes fade reads as a deck where they
  * have stopped working.
  */
 .meridian-pane-layout__pane--focused {

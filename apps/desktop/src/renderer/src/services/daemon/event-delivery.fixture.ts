@@ -55,7 +55,7 @@ export interface ScenarioSubscribeOptions {
   /**
    * Deliver the already-delivered prefix on attach, then tail.
    *
-   * The registered behaviour of the whole-session stream and of nothing else. A
+   * The registered behavior of the whole-session stream and of nothing else. A
    * narrowed run stream and the relay are live streams: replaying a projection into
    * one would hand a runs surface transitions it is not opening a subscription for.
    */
@@ -64,7 +64,7 @@ export interface ScenarioSubscribeOptions {
 
 export class ScenarioDelivery {
   // The subscribe / emit / unsubscribe idiom is `core/emitter.ts`'s. Two of its
-  // behaviours matter here specifically: delivery iterates a SNAPSHOT, so a pane
+  // behaviors matter here specifically: delivery iterates a SNAPSHOT, so a pane
   // that unsubscribes during a beat cannot make a sibling pane miss the beat it was
   // still subscribed for; and a throwing sink does not silence the others, so one
   // broken surface does not stop a scenario delivering to the rest.

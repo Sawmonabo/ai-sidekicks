@@ -3,7 +3,7 @@
 // WHAT THIS FILE MEASURES, AND WHY IT IS THE ONLY THING IN THIS TIER THAT DOES NOT
 // LAUNCH ELECTRON
 //
-// Its two neighbours hold a real window open and read the renderer's heap. This one
+// Its two neighbors hold a real window open and read the renderer's heap. This one
 // measures the ledger's own FOLD — `deriveTranscriptWindow`, which turns a session's
 // event log into rows, chapters, seams and a superseded index — over a
 // generated session of ten thousand rows.
@@ -237,7 +237,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     // the session's opening beats, whose arm structurally carries no run. Stated that
     // way rather than as a count, so the claim does not encode how many beats the
     // generator happens to spend opening a session — and it still fails the day the
-    // chapter index stops recognising a run's terminal at scale, because those rows
+    // chapter index stops recognizing a run's terminal at scale, because those rows
     // would join the uncollapsed set carrying a run.
     expect(ledgerWindow.hasActiveTurn).toBe(false);
     const uncollapsedRowKinds = new Set(
@@ -256,7 +256,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTimeline(ENDURANCE_ROW_COUNT));
     const costRatio = longFoldMilliseconds / shortFoldMilliseconds;
 
-    // Reported before the assertion, on the reasoning both neighbours state: a gate
+    // Reported before the assertion, on the reasoning both neighbors state: a gate
     // that speaks only when it fails gives a reviewer no way to watch a margin
     // shrink over months until the day it crosses.
     process.stdout.write(

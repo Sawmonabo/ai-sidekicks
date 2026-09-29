@@ -211,7 +211,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     // The gap this closes: nothing in the console called `requestRefresh` on an
     // open, so even a registry with a working read never performed one — every
     // bound session buffered its stream against a store that was never
-    // initialised. The control is the count itself: it is zero without the
+    // initialized. The control is the count itself: it is zero without the
     // request, and the timeline stays empty however many beats arrive.
     const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const engine = bridge.scenarioEngine;
@@ -238,7 +238,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
 
     expect(reasonsSeen).toEqual(["subscribe"]);
     expect(registry.refreshCountFor(SESSION_ID)).toBe(1);
-    expect(registry.peek(SESSION_ID)?.snapshot().initialised).toBe(true);
+    expect(registry.peek(SESSION_ID)?.snapshot().initialized).toBe(true);
 
     engine.advance(PAST_EVERY_BEAT_MS);
     engine.advance(APPLY_COALESCE_MS + 1);

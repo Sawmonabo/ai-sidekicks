@@ -20,7 +20,7 @@
  * Fifteen, chosen as what a session about this repository actually contains. A fence in
  * any other language renders as plain mono text, which is the honest degrade: it is
  * still the code, set in the figure face, and nothing about it is wrong except that it
- * is not coloured.
+ * is not colored.
  */
 export const HIGHLIGHTABLE_LANGUAGES = [
   "bash",

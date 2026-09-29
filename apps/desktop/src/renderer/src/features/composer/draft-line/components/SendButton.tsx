@@ -47,13 +47,13 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   // executor leaves such a line as typed. The map is stable so the zone's latest-ref is
   // not rewritten on every render.
   const commandLineHandlers = useMemo(noComposerCommandLineHandlers, []);
-  // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
+  // BOTH HALVES OR NEITHER. The router will not intercept a name its recognizer does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
   const commandZone = useCommandHandling({
     route: props.route,
     commandEnumeration: props.commandEnumeration,
-    // The same address the send path acts on, so the name this zone recognises as
+    // The same address the send path acts on, so the name this zone recognizes as
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,

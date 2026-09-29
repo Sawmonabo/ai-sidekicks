@@ -34,7 +34,7 @@
 // DOM.
 //
 // WHAT THIS MODULE PUBLISHES IS WHAT THE SHEET SPENDS, AND NOTHING ELSE. The scale
-// and the easing both left `palette.ts`, which answers "what colour is this?" and
+// and the easing both left `palette.ts`, which answers "what color is this?" and
 // had been answering "how long does this take?" beside it. What did NOT come with
 // them is a reduced-motion allowance vocabulary and a View Transitions wrapper that
 // this branch shipped with no caller: nothing in the console starts a view
@@ -47,8 +47,8 @@
  * Motion durations, in milliseconds. Rule 5: settles, never bounces — 120-180 ms
  * for chrome, 240 ms for an attribution thread drawing itself.
  *
- * Here rather than in `palette.ts`, which answers "what colour is this?": a
- * duration is not a colour, and a motion scale living one file away from the
+ * Here rather than in `palette.ts`, which answers "what color is this?": a
+ * duration is not a color, and a motion scale living one file away from the
  * easing that shapes it left this module's own first line false.
  */
 export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {

@@ -18,7 +18,7 @@ import type { SequenceGap } from "./sequence-reconciler.js";
 export interface SessionStoreState {
   readonly sessionId: string;
   /** `false` until `initialize()` supplies a read response. */
-  readonly initialised: boolean;
+  readonly initialized: boolean;
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
   /**
@@ -101,7 +101,7 @@ export interface SessionSnapshot {
 }
 
 /**
- * Whether an initialised store takes a read response answering at this cursor.
+ * Whether an initialized store takes a read response answering at this cursor.
  *
  * Ahead of the cursor is new state and always admitted. AT the cursor is admitted
  * only while the store is degraded, which is the repair case — and every cause
@@ -153,7 +153,7 @@ export function uninitializedState(input: {
 }): SessionStoreState {
   return {
     sessionId: input.sessionId,
-    initialised: false,
+    initialized: false,
     partitions: emptyPartitions(),
     timeline: [],
     cursor: UNINITIALIZED_CURSOR,
@@ -189,7 +189,7 @@ export function establishedState(input: {
   }
   return {
     sessionId: input.sessionId,
-    initialised: true,
+    initialized: true,
     partitions,
     timeline: capTimeline(input.orderedTimeline, input.timelineCap, "newest"),
     cursor: input.snapshot.cursor,

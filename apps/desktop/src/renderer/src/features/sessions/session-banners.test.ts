@@ -59,7 +59,7 @@ describe("the workspace banner stack", () => {
     expect(raiseAll(SAVE_FAILED, otherDetail, otherCode, otherOrigin)).toHaveLength(4);
   });
 
-  it("leaves a standing banner in place when a repeat arrives, and its neighbours untouched", () => {
+  it("leaves a standing banner in place when a repeat arrives, and its neighbors untouched", () => {
     // The render keys on the identity, so a repeat that re-ordered the stack would
     // move a dismiss control out from under the pointer reaching for it.
     const raised = raiseAll(SAVE_FAILED, STORE_FULL);
@@ -69,7 +69,7 @@ describe("the workspace banner stack", () => {
       "layout-save-failed",
       "quota-exceeded",
     ]);
-    // The neighbour is the same entry, not a rebuilt one carrying the same fields.
+    // The neighbor is the same entry, not a rebuilt one carrying the same fields.
     expect(afterRepeat[1]).toBe(raised[1]);
   });
 

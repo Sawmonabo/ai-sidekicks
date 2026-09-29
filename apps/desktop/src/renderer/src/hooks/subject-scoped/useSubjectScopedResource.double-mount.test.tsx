@@ -96,7 +96,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
   });
 
   it("negative control: without the reading the same script installs the corpse", () => {
-    // The behaviour every caller had, and still has where a `close` releases rather
+    // The behavior every caller had, and still has where a `close` releases rather
     // than ends. Without it the case above would be satisfied by a fixture that never
     // reached the double-mount teardown at all, and by a hook that had stopped closing.
     const ledger = new ResourceOpenCloseLog();

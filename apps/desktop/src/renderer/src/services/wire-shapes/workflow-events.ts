@@ -33,10 +33,10 @@
 /**
  * `workflow_lifecycle` — the run's own arc, seven types.
  *
- * `workflow.cancelled` is the newest and is the reason the taxonomy reads 21 rather
+ * `workflow.canceled` is the newest and is the reason the taxonomy reads 21 rather
  * than 20: a cancel appends it in the same unit of work as the status write, so a
  * projection rebuild cannot replay the last suspension and resurrect a run somebody
- * cancelled.
+ * canceled.
  */
 const WORKFLOW_LIFECYCLE_EVENT_TYPES = [
   "workflow.created",
@@ -45,7 +45,7 @@ const WORKFLOW_LIFECYCLE_EVENT_TYPES = [
   "workflow.failed",
   "workflow.completed",
   "workflow.resumed",
-  "workflow.cancelled",
+  "workflow.canceled",
 ] as const;
 
 /**
@@ -60,7 +60,7 @@ const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = [
   "workflow.phase_waiting_on_pool",
   "workflow.phase_started",
   "workflow.phase_progressed",
-  "workflow.phase_cancelling",
+  "workflow.phase_canceling",
   "workflow.phase_failed",
   "workflow.phase_retried",
   "workflow.phase_suspended",

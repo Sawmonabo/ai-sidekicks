@@ -315,7 +315,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   it("negative control: a replacement clock already past the deadline arms nothing", () => {
     // The other direction, so the claim is about reading the replacement rather than
     // about arming on every clock change — and the timer on the clock the consumer
-    // left is cancelled rather than carried.
+    // left is canceled rather than carried.
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const laterClock = new CountingManualClock(LATER_START);
     const wake = renderDeadlineWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);

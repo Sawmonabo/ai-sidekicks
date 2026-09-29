@@ -39,7 +39,7 @@ afterEach(() => {
   }
 });
 
-/** A store the trigger set will read transitions off — initialised, as it requires. */
+/** A store the trigger set will read transitions off — initialized, as it requires. */
 function initializedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: 0, entities: [] });
@@ -104,7 +104,7 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
     const reading = openReading(clock, sessionStore);
 
     const oneOfEachCategory = [
-      "workflow.cancelled",
+      "workflow.canceled",
       "workflow.phase_resumed",
       "workflow.parallel_join_cancellation",
       "workflow.gate_resolved",
@@ -191,7 +191,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
     sessionStore.applyBatch([
       frameForRun("workflow.phase_progressed", 1, RUN_ELSEWHERE),
       frameForRun("workflow.phase_completed", 2, RUN_ELSEWHERE),
-      frameForRun("workflow.cancelled", 3, RUN_ELSEWHERE),
+      frameForRun("workflow.canceled", 3, RUN_ELSEWHERE),
     ]);
     await settle(clock);
 
@@ -209,7 +209,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
     sessionStore.applyBatch([
       frameForRun("workflow.phase_progressed", 1, RUN_ELSEWHERE),
       frameForRun("workflow.phase_completed", 2, RUN_ELSEWHERE),
-      frameForRun("workflow.cancelled", 3, RUN_ELSEWHERE),
+      frameForRun("workflow.canceled", 3, RUN_ELSEWHERE),
     ]);
     await settle(clock);
 

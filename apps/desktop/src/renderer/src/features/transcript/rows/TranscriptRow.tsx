@@ -3,7 +3,7 @@
 //
 // NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over
 // `TranscriptRowProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
-// three list decisions the seat carries, and nothing else. Modelling the timeline's own
+// three list decisions the seat carries, and nothing else. Modeling the timeline's own
 // entry vocabulary here would author a second body beside the real one.
 //
 // IT HOLDS NO STATE OF ITS OWN. A disclosure press writes the row's density to the list's

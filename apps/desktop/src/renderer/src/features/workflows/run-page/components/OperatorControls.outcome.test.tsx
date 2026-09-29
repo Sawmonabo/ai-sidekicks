@@ -86,15 +86,15 @@ describe("a control is offered, and a refusal stands beside it rather than inste
         {...RUN_A_ADDRESS}
         cancel={{
           cancel: vi.fn(),
-          outcome: { kind: "settled", runState: "cancelled", detail: "This run is cancelled." },
+          outcome: { kind: "settled", runState: "canceled", detail: "This run is canceled." },
         }}
         resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     // The wire word and not a paraphrase of it, so an operator who then reads
-    // `cancelled` on the run sees the same string the settlement showed them.
-    expect(screen.getByText("cancelled")).toBeDefined();
-    expect(screen.getByText("This run is cancelled.")).toBeDefined();
+    // `canceled` on the run sees the same string the settlement showed them.
+    expect(screen.getByText("canceled")).toBeDefined();
+    expect(screen.getByText("This run is canceled.")).toBeDefined();
   });
 });
 
@@ -132,7 +132,7 @@ describe("each control carries only the answer to its own press", () => {
     });
     await settle();
 
-    expect(outcomeLineOf(/cancel this run/iu)?.textContent).toContain("cancelled");
+    expect(outcomeLineOf(/cancel this run/iu)?.textContent).toContain("canceled");
     expect(outcomeLineOf(/resume this run/iu)).toBeNull();
   });
 

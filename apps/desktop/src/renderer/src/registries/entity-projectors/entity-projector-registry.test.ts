@@ -5,7 +5,7 @@
 // import order — and a snapshot a store can hold for a session's whole life without
 // the table moving underneath it.
 //
-// The seam's behaviour through a real window is `frame/session-lifecycle`'s to
+// The seam's behavior through a real window is `frame/session-lifecycle`'s to
 // prove; what is here is the registry's own, driven directly so a conflict is a
 // value rather than a failure inside a render.
 

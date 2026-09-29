@@ -113,7 +113,7 @@ function attachmentLabel(reading: AttachmentReading): string {
 /**
  * The in-flight arm: the declaration, the ingest entry's progress, and the two controls.
  *
- * The declaration is rendered as a wire string and labelled as declared, so a
+ * The declaration is rendered as a wire string and labeled as declared, so a
  * user reading a name here knows it is theirs and not the server's finding. It
  * is replaced wholesale by the resolved arm rather than annotated in place.
  */
@@ -136,8 +136,8 @@ function renderIngesting(
         )}
         {/* EITHER READING EARNS THE CHIP, and where the two disagree both are shown
             with the derived one leading. `attachment-provenance.ts` owns the rule; this
-            renders it. Labelled by provenance rather than by tone alone, because a
-            colour cannot say whose claim a media type is. */}
+            renders it. Labeled by provenance rather than by tone alone, because a
+            color cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
           <Fragment key={mediaTypeReading.provenance}>
             {mediaTypeReading.provenance === "declared" ? (

@@ -47,7 +47,7 @@ import type { SettlementIdentities } from "./useSettlementIdentities.js";
 
 /** What the composer reads about the acts at one address, and what may write it. */
 export interface ComposerActState {
-  /** What the bar renders while a send is travelling from THIS address. */
+  /** What the bar renders while a send is traveling from THIS address. */
   readonly status: SendControllerStatus;
   /** The one refusal the bar renders, or `undefined`. */
   readonly refusal: Refusal | undefined;

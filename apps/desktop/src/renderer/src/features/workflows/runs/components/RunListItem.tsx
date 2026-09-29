@@ -90,7 +90,7 @@ interface RunReasonReading {
  * out of band" was presented as a breach, which is the opposite of what happened.
  *
  * TOTAL over the status set rather than a switch with a default, and that totality is
- * the point: a default arm is how a seventh status inherits a colour nobody chose for
+ * the point: a default arm is how a seventh status inherits a color nobody chose for
  * it, and a default of `failure` would inherit the wrong one. Placed here, a seventh
  * status is a compile error at this table until somebody says what its reason is
  * called.
@@ -104,7 +104,7 @@ const RUN_REASON_READINGS = {
   suspended: { tone: "neutral", label: "Reason" },
   completed: { tone: "neutral", label: "Reason" },
   failed: { tone: "failure", label: undefined },
-  cancelled: { tone: "neutral", label: "Cancellation reason" },
+  canceled: { tone: "neutral", label: "Cancellation reason" },
 } as const satisfies Readonly<Record<WorkflowRunState, RunReasonReading>>;
 
 /**
@@ -135,7 +135,7 @@ interface RunListItemProps {
  * One run's row.
  *
  * Memoized because a run list re-renders whenever any run in it moves, and a park
- * badge that re-rendered on every neighbour's transition would be paying for
+ * badge that re-rendered on every neighbor's transition would be paying for
  * everyone else's changes. The projection hands out frozen row values, so the
  * default shallow comparison is exactly the right one: a row object is replaced when
  * and only when something in that run changed.
@@ -176,7 +176,7 @@ export const RunListItem: React.MemoExoticComponent<
           The status is the daemon's own word for this run, so it wears the mono
           provenance signature rather than being title-cased into prose. Its tone is
           the status itself and not a reading of the parks: a run whose phases are
-          parked shows that on its park badges, and colouring the status chip for it
+          parked shows that on its park badges, and coloring the status chip for it
           too would spend amber twice on one fact.
         */}
         <Chip tone={run.state === "failed" ? "failure" : "neutral"} mono label={run.state} />

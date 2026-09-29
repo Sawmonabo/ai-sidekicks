@@ -79,7 +79,7 @@ describe("clippingAncestorsOf — the ancestors that clip", () => {
 
   it("negative control: the union is closed over exactly the tuple", () => {
     // A type-level foil, and it is the control on the declaration rather than on the
-    // behaviour: adding a sixth value to the tuple without adding it here fails to
+    // behavior: adding a sixth value to the tuple without adding it here fails to
     // compile, and so does naming one here that the tuple does not hold. Without it the
     // cases above would pass over a tuple that had quietly grown a member no reader knew
     // about.

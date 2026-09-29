@@ -72,7 +72,7 @@ describe("RUN_STATE_ADMITS_STEER — total over the contract's own union", () =>
 describe("stateAdmitsSteer — the store's string, read through the registered schema", () => {
   it("refuses a state outside the union rather than reading it as live", () => {
     expect(stateAdmitsSteer("running")).toBe(true);
-    expect(stateAdmitsSteer("cancelled")).toBe(false);
+    expect(stateAdmitsSteer("canceled")).toBe(false);
     expect(stateAdmitsSteer(undefined)).toBe(false);
   });
 });

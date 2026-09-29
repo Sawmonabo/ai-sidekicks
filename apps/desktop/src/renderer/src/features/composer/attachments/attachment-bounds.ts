@@ -18,7 +18,7 @@ import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
  */
 export interface StagedAttachmentsFill {
   readonly attached: number;
-  /** The shipped default count bound. Operator-tunable, so it is labelled as a default. */
+  /** The shipped default count bound. Operator-tunable, so it is labeled as a default. */
   readonly allowance: number;
 }
 

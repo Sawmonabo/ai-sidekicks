@@ -2,7 +2,7 @@
 //
 // The interception arm is the one send path that reaches no wire, so nothing about
 // it is observable from the call stub the send bar's own cases use. These drive
-// the real hook over the real `DraftStore` and assert the settlements a recognised
+// the real hook over the real `DraftStore` and assert the settlements a recognized
 // command can have: it ran, it was refused, nothing here could run it, or it reads
 // its arguments off the line and had no handler.
 
@@ -134,7 +134,7 @@ describe("useSendController — an intercepted command awaits its executor", () 
   it("refuses under a named code when nothing is wired to run the command", async () => {
     // The negative control for both cases above, and the defect this closes: before
     // the executor existed the controller cleared the line here and reported
-    // nothing, so a recognised command looked like it had succeeded.
+    // nothing, so a recognized command looked like it had succeeded.
     const driven = driveController(undefined);
 
     act(() => {

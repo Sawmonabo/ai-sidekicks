@@ -89,7 +89,7 @@ describe("the composer command zone reads the committed render's handlers", () =
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  /** Put the root on the surface the recogniser reads, as the prefill seat does. */
+  /** Put the root on the surface the recognizer reads, as the prefill seat does. */
   function registerWorkflowRoot(): void {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,

@@ -4,7 +4,7 @@
 // three read answers: the store's own cases prove `readOutcome` reports `failed` where
 // `read` reported nothing, and the deck's restore-order cases prove a failed read does
 // not file a fallback over the record it could not reach. Written once because both
-// need the same misbehaviour, and it is a SUBCLASS rather than a hand-written double
+// need the same misbehavior, and it is a SUBCLASS rather than a hand-written double
 // for `ui-state-store.adapter-failure.test.ts`'s reason: the record map, the write
 // path, the trim and the gauge stay the real adapter's, so exactly one operation
 // misbehaves.

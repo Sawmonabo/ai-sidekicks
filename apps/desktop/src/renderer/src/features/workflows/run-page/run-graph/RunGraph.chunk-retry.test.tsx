@@ -21,7 +21,7 @@ import type { RunGraphNode } from "./phase-topology.js";
  * The answers this case has scripted for the chunk, in order, and how many were asked.
  *
  * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialised when the factory runs.
+ * lifted above the imports, so a plain binding is not initialized when the factory runs.
  * The queue is read at CALL time, which is what lets one substitution serve a case whose
  * first ask fails and whose second succeeds.
  */

@@ -74,22 +74,22 @@ describe("the reason a run carries", () => {
   it("says a cancellation is one, in prose rather than in the failure treatment", () => {
     const root = renderRow(
       run({
-        state: "cancelled",
-        failureReason: "Cancelled: the incident was resolved out of band.",
+        state: "canceled",
+        failureReason: "Canceled: the incident was resolved out of band.",
       }),
     );
 
     expect(reasonOf(root, "meridian-run-row__reason")).toBe(
-      "Cancellation reason Cancelled: the incident was resolved out of band.",
+      "Cancellation reason Canceled: the incident was resolved out of band.",
     );
     // The daemon's sentence verbatim, with only the name in front of it added.
     expect(root.querySelector(".meridian-run-row__reason")?.textContent).toContain(
-      "Cancelled: the incident was resolved out of band.",
+      "Canceled: the incident was resolved out of band.",
     );
     expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
   });
 
-  it("keeps the failure treatment, unlabelled, for a run that failed", () => {
+  it("keeps the failure treatment, unlabeled, for a run that failed", () => {
     // Negative control for the case above: it would pass over a row that had dropped
     // the failure arm entirely and called every reason a cancellation.
     const root = renderRow(
@@ -113,10 +113,10 @@ describe("the reason a run carries", () => {
   });
 
   it("spends the status chip's tone on the status and the treatment on the reason", () => {
-    // A cancelled run is settled rather than broken, so neither the chip nor the
+    // A canceled run is settled rather than broken, so neither the chip nor the
     // reason wears the failure hue — the two facts are told apart by words here.
     const root = renderRow(
-      run({ state: "cancelled", failureReason: "Cancelled: superseded by a newer run." }),
+      run({ state: "canceled", failureReason: "Canceled: superseded by a newer run." }),
     );
 
     expect(root.querySelector(".meridian-chip--failure")).toBeNull();

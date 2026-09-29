@@ -80,7 +80,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
   });
 
   it("refuses an unusable sequence before it is buffered, on a store with no base state", () => {
-    // The pre-initialisation buffer exists to hold events until a base state can
+    // The pre-initialization buffer exists to hold events until a base state can
     // make them applicable. No base state makes `NaN` applicable, so buffering it
     // would only defer the same refusal behind a drain.
     const store = new SessionStore({ sessionId: "session-1" });
@@ -89,7 +89,7 @@ describe("failure matrix — a delivered sequence the store cannot reconcile", (
 
     expect(outcome.refusedDivergedSequence).toBe(1);
     expect(outcome.buffered).toBe(1);
-    expect(store.pendingPreInitialisationCount).toBe(1);
+    expect(store.pendingPreInitializationCount).toBe(1);
   });
 
   it("bounds the total loss it will carry, not merely one jump", () => {

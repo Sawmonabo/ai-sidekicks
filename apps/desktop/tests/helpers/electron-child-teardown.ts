@@ -69,7 +69,7 @@ export class OrderedChildTeardown {
     this.#settled = true;
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
       // The FIRST disposal is unconditional, even against a child whose `close`
-      // has already been delivered, because signalling is not all it does: it
+      // has already been delivered, because signaling is not all it does: it
       // also releases an armed escalation timer, and a pending timer is a claim
       // on a worker that is being torn down.
       this.#managed.dispose();

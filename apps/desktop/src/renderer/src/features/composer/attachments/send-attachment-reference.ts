@@ -41,7 +41,7 @@ export function composeSendAttachmentReference(
     const artifactId = entry.derived?.artifactId;
     if (artifactId === undefined) {
       // `abandoned` is deliberately counted here with `declared`, `ingesting`, and
-      // `refused`: a person who cancelled has still left a chip on the staged list, and a
+      // `refused`: a person who canceled has still left a chip on the staged list, and a
       // count that excluded it would disagree with what is on screen.
       unsettledCount += 1;
       continue;

@@ -98,7 +98,7 @@ export class ForwardingClock implements Clock {
    * Mint this seam's own handle for work the underlying clock arms.
    *
    * The entry is dropped BEFORE the caller's callback runs, so a callback that arms
-   * more work cannot be cancelled through the handle of the work that scheduled it,
+   * more work cannot be canceled through the handle of the work that scheduled it,
    * and a fired handle leaves nothing behind to grow the map.
    */
   #arm(

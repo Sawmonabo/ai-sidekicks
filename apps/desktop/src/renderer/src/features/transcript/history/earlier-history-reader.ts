@@ -133,7 +133,7 @@ export class EarlierHistoryReader {
    *
    * The walk's own fields are left exactly as they stand. A holder that hands this
    * reader back — React's double-mount does — is handed a corpse its `isClosed`
-   * reading recognises, and a fresh reader is minted rather than this one revived.
+   * reading recognizes, and a fresh reader is minted rather than this one revived.
    */
   public abandonReads(): void {
     this.#readLine.abandon();

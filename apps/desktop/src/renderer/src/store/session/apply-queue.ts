@@ -21,7 +21,7 @@
 // It is terminal on `dispose()`. A pane that unmounts mid-stream must not be able
 // to re-arm a timer from a late event — "a timer that outlives its pane" is one of
 // the failure modes this substrate exists to make unrepresentable, and a `dispose`
-// that merely cancelled the current arm would leave the next `enqueue` to start it
+// that merely canceled the current arm would leave the next `enqueue` to start it
 // again.
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";

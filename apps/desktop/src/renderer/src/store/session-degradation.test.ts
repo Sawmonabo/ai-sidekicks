@@ -21,7 +21,7 @@ import {
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "./session/session-store.js";
 
-/** An initialised store with nothing wrong with it. */
+/** An initialized store with nothing wrong with it. */
 function healthyStore(): SessionStore {
   const store = new SessionStore({ sessionId: "session-1" });
   store.initialize({ cursor: 0, entities: [] });

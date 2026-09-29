@@ -60,7 +60,7 @@ export type ComposerSendOutcome =
  * A PORT rather than a registry handle: the composer seat is handed a session
  * store, a bridge, a draft store, a route, and a focused pane, and no command
  * registry — so the router takes the one predicate it needs. The default answers
- * `false` for every name, which means an unrecognised `/word` refuses loudly and
+ * `false` for every name, which means an unrecognized `/word` refuses loudly and
  * names the escape, and no text is ever silently sent as prose.
  */
 export type ClientCommandPredicate = (commandName: string) => boolean;

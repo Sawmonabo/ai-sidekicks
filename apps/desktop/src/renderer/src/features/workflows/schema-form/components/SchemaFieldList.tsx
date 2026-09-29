@@ -1,7 +1,7 @@
 // An array of one repeated control.
 //
 // THE ENTRIES ARE POSITIONS AND THE POSITION IS THE NAME. An array member has no key of
-// its own, so each entry is labelled by where it sits, and removing one renumbers the
+// its own, so each entry is labeled by where it sits, and removing one renumbers the
 // rest — which is what the answer does too, because the list is rebuilt rather than
 // holed. Anything else would leave the third entry called "3" while the answer carried
 // it second.
@@ -11,7 +11,7 @@
 // the draft mints an id when the entry is ADDED and the row keys on that
 // (`schema-draft.ts`). Keyed by index, a row holding control state the draft now carries
 // for it — an unreadable figure — was reused or unmounted under the wrong entry the
-// moment an earlier entry was removed, so the invalid text moved to a neighbour or
+// moment an earlier entry was removed, so the invalid text moved to a neighbor or
 // disappeared. The position is still what the entry is CALLED, because an array member
 // has no name of its own; it is no longer what React thinks the entry is.
 //
@@ -71,7 +71,7 @@ export interface SchemaFieldListProps {
    *
    * A function rather than an array aligned with `items`, so there is no second length to
    * keep true: an array one entry short would render a control's verdict under its
-   * neighbour, which is worse than the silence this replaces.
+   * neighbor, which is worse than the silence this replaces.
    */
   readonly issuesForEntry: (index: number) => readonly string[];
   /** Whether somebody is answering this collection. A required one always is. */

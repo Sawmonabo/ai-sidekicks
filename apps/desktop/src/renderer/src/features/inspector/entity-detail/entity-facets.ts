@@ -50,7 +50,7 @@ export interface EntityDetailProps {
   /** The session store the record is read from. Details that compose read from it. */
   readonly sessionStore: SessionStore;
   /** `false` until the store's first read has answered. */
-  readonly isInitialised: boolean;
+  readonly isInitialized: boolean;
   /** Set while the projection is known-incomplete; `undefined` while it is whole. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
@@ -78,7 +78,7 @@ export type EntityFacetValue =
   | { readonly form: "derived"; readonly text: string }
   | { readonly form: "unrecorded"; readonly detail: string };
 
-/** One labelled row of an entity's record. */
+/** One labeled row of an entity's record. */
 export interface EntityFacet {
   /** The member's name in the console's own words, not the body key. */
   readonly label: string;

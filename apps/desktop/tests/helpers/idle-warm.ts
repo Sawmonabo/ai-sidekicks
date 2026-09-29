@@ -22,7 +22,7 @@ export class ManualIdleWarmScheduler implements IdleWarmScheduler {
   readonly #stepsByHandle = new Map<number, () => void>();
   #nextHandle = 1;
   /** Every handle `cancel` was called with, in order. */
-  public readonly cancelledHandles: number[] = [];
+  public readonly canceledHandles: number[] = [];
 
   public readonly schedule = (step: () => void): number => {
     const handle = this.#nextHandle;
@@ -32,7 +32,7 @@ export class ManualIdleWarmScheduler implements IdleWarmScheduler {
   };
 
   public readonly cancel = (handle: number): void => {
-    this.cancelledHandles.push(handle);
+    this.canceledHandles.push(handle);
     this.#stepsByHandle.delete(handle);
   };
 

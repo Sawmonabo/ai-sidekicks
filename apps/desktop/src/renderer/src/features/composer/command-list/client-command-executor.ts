@@ -1,4 +1,4 @@
-// Running one recognised command, and waiting for it before the line is cleared.
+// Running one recognized command, and waiting for it before the line is cleared.
 //
 // THE WHOLE POINT IS THE AWAIT. The send controller clears the input on an
 // interception because "the act happened, and nothing was sent". That sentence is
@@ -15,7 +15,7 @@
 // registry no longer holds; `hidden-in-context` is a command that exists and does not
 // apply where this composer is — two different remedies, so two different codes. A
 // rejected `completion` is a third: the command ran and failed, and the honest report
-// is the command's own failure rather than a claim that it was never recognised.
+// is the command's own failure rather than a claim that it was never recognized.
 //
 // AND THE DIRECTIVE-LINE HANDLER IS INSIDE THAT GUARANTEE RATHER THAN BESIDE IT. The
 // seam's own contract is that an executor returns a settlement and never throws to
@@ -63,7 +63,7 @@ export function createClientCommandExecutor(options: {
       return { status: "refused", refusal: recognition.refusal };
     }
     // Preferred over the registry's argument-free `invoke`, and only after the
-    // recogniser has claimed the name: an argument-reading command performed through
+    // recognizer has claimed the name: an argument-reading command performed through
     // `invoke` would run with the line thrown away.
     const handler = options.readCommandLineHandlers().get(recognition.commandId);
     if (handler !== undefined) {

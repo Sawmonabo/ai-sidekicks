@@ -82,7 +82,7 @@ export async function dispatchIntervention(
  * intervention state transitions are what decide each one: `requested` and `accepted`
  * are admissions the daemon will act on, `applied` is the provider confirming the
  * effect, and `degraded` is the orchestration layer having fallen back — the message
- * travelled on all four. Only `rejected` (refused before dispatch) and `expired` (the
+ * traveled on all four. Only `rejected` (refused before dispatch) and `expired` (the
  * version guard, or the run moving between accept and apply) leave the user's
  * words unsent, and those are the two that keep the draft.
  */

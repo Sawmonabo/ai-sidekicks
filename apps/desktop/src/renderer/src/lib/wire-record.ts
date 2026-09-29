@@ -33,7 +33,7 @@
 // some numbers. A NULL-PROTOTYPE object IS one: a value that crossed a structured
 // clone or arrived from another realm has no prototype chain left and still carries
 // exactly the keys its producer put on it, which is the same judgement
-// `core/refusal.ts` makes about a refusal that travelled.
+// `core/refusal.ts` makes about a refusal that traveled.
 
 /**
  * One wire-supplied value as a record with readable keys, or not.

@@ -14,7 +14,7 @@
 // own sheet. So this component takes `className` and `style` and imposes neither, and
 // there is no list-level wrapper above it: read together, the two consumers share the
 // ROW and nothing else, and a wrapper over one shared member would be an abstraction
-// with two callers and no behaviour in common.
+// with two callers and no behavior in common.
 //
 // THE ELEMENT IS THE CALLER'S TOO, and it matters. A `<li>` inside a real `<ul>` is a
 // list item in the accessibility tree even when it is absolutely placed; a `<div>`
@@ -33,9 +33,9 @@
 // A role outside the set is a compile error rather than a silently dropped pair.
 //
 // FAIL-CLOSED ON AN INDEX THAT IS NOT A POSITION, ON EVERY MEMBER THAT CARRIES ONE.
-// A row index outside the enumeration cannot be clamped into a neighbour's position
+// A row index outside the enumeration cannot be clamped into a neighbor's position
 // — that would attribute the row to a place in the list it does not hold, which is
-// the same error as clamping a user hue into someone else's colour. The row
+// the same error as clamping a user hue into someone else's color. The row
 // instead declares the set size UNKNOWN, which `aria-setsize="-1"` means exactly,
 // and claims no position at all. A reader is told less rather than told something
 // false.

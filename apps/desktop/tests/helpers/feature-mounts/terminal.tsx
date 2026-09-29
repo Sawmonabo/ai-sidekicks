@@ -15,7 +15,7 @@ import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapsh
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../app-harness.js";
-import { type MountedView, paneTrailName, requireLabelledRegion } from "./mount-queries.js";
+import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
 import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 
@@ -69,7 +69,7 @@ export async function mountTerminalPane(): Promise<MountedView> {
       })}
     />,
   );
-  const region = requireLabelledRegion(
+  const region = requireLabeledRegion(
     container,
     paneTrailName(TERMINAL_LEASE_SCENARIO.sessionId, "Terminal"),
   );

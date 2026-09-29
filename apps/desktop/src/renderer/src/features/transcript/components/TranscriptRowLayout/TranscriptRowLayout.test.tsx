@@ -66,7 +66,7 @@ function basicRow(
 }
 
 describe("TranscriptRowLayout — the row is a work-log line, named by its author", () => {
-  it("renders an article labelled by the actor element", () => {
+  it("renders an article labeled by the actor element", () => {
     const row = basicRow();
     expect(row.tagName).toBe("ARTICLE");
 

@@ -22,7 +22,7 @@ describe("attachment policy — the two named codes and the shipped allow-list",
     expect(ingestRefusalDisposition(INGEST_CAPACITY_EXHAUSTED_CODE)).toBe("wait-and-retry");
   });
 
-  it("negative control: an unrecognised code takes the retry-safe default, not a restart", () => {
+  it("negative control: an unrecognized code takes the retry-safe default, not a restart", () => {
     // Collapsing these would tell a user to re-upload a hundred megabytes
     // because a response was lost, which is the mistake the distinction exists to stop.
     expect(ingestRefusalDisposition("artifact.not_found")).toBe("retry-in-place");

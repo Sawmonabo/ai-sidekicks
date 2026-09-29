@@ -11,9 +11,9 @@
 // composes that model out of the repos family's own readings, so the chip and the card
 // cannot describe one upload differently.
 //
-// CANCEL SAYS WHAT CANCELLING DOES. There is no cancel call in the ingest trio, so
+// CANCEL SAYS WHAT CANCELING DOES. There is no cancel call in the ingest trio, so
 // stopping is client-side abandonment and the daemon's reaper claims the spool — the
-// control's own title carries that sentence verbatim rather than a softer "cancelled",
+// control's own title carries that sentence verbatim rather than a softer "canceled",
 // which would promise an instant reclaim nothing performs.
 
 import {

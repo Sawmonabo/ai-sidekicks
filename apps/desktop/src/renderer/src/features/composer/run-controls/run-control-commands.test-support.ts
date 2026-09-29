@@ -69,7 +69,7 @@ export function recordingRunControlDispatch(): {
     };
   const dispatcher = {
     // The comparand is the dispatcher's own reconciliation; the stub answers with
-    // the reading it was handed so an assertion can see WHICH version travelled.
+    // the reading it was handed so an assertion can see WHICH version traveled.
     comparandFor: (_runId: string, streamReading: number) => streamReading,
     pause: record("pause"),
     resume: record("resume"),

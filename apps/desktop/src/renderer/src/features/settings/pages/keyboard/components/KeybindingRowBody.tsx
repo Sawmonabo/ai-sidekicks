@@ -92,7 +92,7 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           onBlur={() => {
             if (recording) {
               setHeldModifiers([]);
-              props.onRecorded({ outcome: "cancelled" });
+              props.onRecorded({ outcome: "canceled" });
             }
           }}
           onKeyDown={(event) => {

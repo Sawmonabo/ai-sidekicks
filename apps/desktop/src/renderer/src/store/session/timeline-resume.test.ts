@@ -120,7 +120,7 @@ describe("the refused arm — the one refusal left", () => {
 });
 
 describe("isUnresolvableCursorRejection — reading the daemon's answer", () => {
-  it("recognises the registered wire code on a plain envelope and on an Error", () => {
+  it("recognizes the registered wire code on a plain envelope and on an Error", () => {
     class WireError extends Error {
       public readonly code = EVENT_CURSOR_UNRESOLVABLE_CODE;
     }

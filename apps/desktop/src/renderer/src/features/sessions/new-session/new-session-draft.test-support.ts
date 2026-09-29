@@ -133,7 +133,7 @@ function scenario(options: ScriptedLegs): Scenario {
 /**
  * A reply to `session.create` the registered response schema refuses.
  *
- * Short of `state`, which `SessionCreateResponseSchema` requires — so the call FULFILS and
+ * Short of `state`, which `SessionCreateResponseSchema` requires — so the call FULFILLS and
  * the call door answers `reply-unreadable`. That distinction is the whole subject of the
  * ambiguous arm: the daemon was reached, ran, and answered, and only this build's reading
  * of what it said failed.

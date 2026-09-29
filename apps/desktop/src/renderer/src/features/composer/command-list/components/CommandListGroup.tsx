@@ -1,4 +1,4 @@
-// One labelled group of the discovery list: a heading, and the rows under it.
+// One labeled group of the discovery list: a heading, and the rows under it.
 //
 // WHY THE LIST IS GROUPED AT ALL. The two halves are not two kinds of the same thing.
 // A console entry is an act this window performs; a provider entry is a name the

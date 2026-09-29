@@ -322,7 +322,7 @@ export function diagnoseMissingProbe(result: SpawnResult): string {
       "being shared with another Electron."
     );
   }
-  return "the process exited without emitting the probe line and without a recognised failure marker.";
+  return "the process exited without emitting the probe line and without a recognized failure marker.";
 }
 
 // The single renderer for "no probe line arrived". Both the assertion path and

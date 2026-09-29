@@ -92,7 +92,7 @@ export const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Pre-spawn validation did not report authenticated, including `indeterminate`.
   "provideraccount.not_authenticated": { section: "providers", remedyKind: "sign_in" },
   // A brokered sign-in is already running; the act is on the flow, which lives on the
-  // same page, and the daemon's own sentence names cancelling it.
+  // same page, and the daemon's own sentence names canceling it.
   "provideraccount.signin_in_flight": { section: "providers", remedyKind: "sign_in" },
   // Brokered sign-in is not available for this provider, and the remedy the daemon's
   // own sentence names is the out-of-band sign-in the readiness handoff discloses —

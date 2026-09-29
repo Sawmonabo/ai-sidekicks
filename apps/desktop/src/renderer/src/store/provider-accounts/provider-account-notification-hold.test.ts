@@ -74,7 +74,7 @@ describe("ProviderAccountNotificationHold", () => {
 
   it("a read begun while another is still holding inherits its frames", () => {
     // The superseded-attempt sequence, which nothing releases: a `window-focus`
-    // trigger begins a second read while the opening one is still travelling, and the
+    // trigger begins a second read while the opening one is still traveling, and the
     // opening one's reply is then discarded by its ordinal. Clearing here dropped
     // every frame it held — silently, by the method whose purpose is that none is.
     const hold = new ProviderAccountNotificationHold();
