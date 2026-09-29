@@ -79,12 +79,14 @@ const CONTROL_COPY: Readonly<
   },
 };
 
+/** What the Runtime page is handed. */
 export interface RuntimePageProps {
   readonly context: SettingsPageContext;
   /** What sits under the supervisor's facts: the blocks that call the daemon. */
   readonly children?: ReactNode;
 }
 
+/** What the blocks that call the daemon are handed. */
 export interface DaemonOperationsBlocksProps {
   readonly context: SettingsPageContext;
   /** Held stable by the caller: a new object restarts the status read. */

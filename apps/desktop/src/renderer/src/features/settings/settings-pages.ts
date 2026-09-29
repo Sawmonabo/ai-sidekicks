@@ -29,6 +29,7 @@ import {
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
 
+/** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
   readonly section: SettingsSectionId;
   /** Who registered the page. Only the same owner may replace it. */
@@ -85,6 +86,11 @@ export interface SettingsPageMatch {
   readonly score: number;
 }
 
+/**
+ * The pages one mount of the Settings screen holds, keyed by section.
+ *
+ * A second claim on a section by a different owner throws rather than replacing it.
+ */
 export class SettingsPageRegistry {
   // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
   // the owner's module and must replace, while two owners on one section is a

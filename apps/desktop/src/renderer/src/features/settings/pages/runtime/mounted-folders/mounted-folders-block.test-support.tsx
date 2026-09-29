@@ -92,13 +92,13 @@ export function contextReading(options: {
   };
 }
 
-/** The page's own element, so a case never reads the announcer's regions by accident. */
+/** The block's own element, so a case never reads the announcer's regions by accident. */
 export function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
-  const page = root.querySelector<HTMLElement>(".meridian-settings-page");
-  if (page === null) {
-    throw new Error("the mounts page did not render");
+  const block = root.querySelector<HTMLElement>('section[aria-label="Mounted repositories"]');
+  if (block === null) {
+    throw new Error("the mounted-folders block did not render");
   }
-  return page;
+  return block;
 }
 
 /**
