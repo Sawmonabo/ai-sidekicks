@@ -11,10 +11,13 @@
 //
 // Anything re-exported here is a stable cross-package contract.
 export * from "./account.js";
+export * from "./agent-definition.js";
 export * from "./agent-provider-binding.js";
+export * from "./agent.js";
 export * from "./artifacts/index.js";
 export * from "./attention.js";
 export * from "./browser.js";
+export * from "./callback-tool.js";
 export * from "./channel.js";
 export * from "./daemon-methods.js";
 export * from "./device.js";
@@ -31,6 +34,7 @@ export * from "./mcp-governance.js";
 export * from "./mcp.js";
 export * from "./method-descriptor.js";
 export * from "./node-id.js";
+export * from "./orchestration.js";
 export * from "./presence.js";
 export * from "./preview-page-host.js";
 export * from "./preview-port.js";
