@@ -32,7 +32,7 @@
 // provider ask or an intervention, and an `approval` row's state vocabulary is a
 // renderer-local projection contract that no wire schema registers — so a request
 // raised below the window's head is not merely absent, it is UNREADABLE from here.
-// {@link OutstandingAskLedger.isWindowHeadUnread} is that fact, and a surface that
+// {@link WaitingOnPersonRecords.isWindowHeadUnread} is that fact, and a surface that
 // printed an all-clear line over it would be reporting something it never read.
 
 import type { ConsoleEntity, ConsoleSessionEvent } from "../entities/entities.js";

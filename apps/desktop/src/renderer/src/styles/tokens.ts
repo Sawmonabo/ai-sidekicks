@@ -145,7 +145,7 @@ export function actorHueTokenName(step: number): string {
 
 /**
  * The twelve user hues, resolved and scheme-independent. Index is the
- * wheel step; `ActorHueAllocator` is the only thing that decides WHICH
+ * wheel step; `AgentHueAllocator` is the only thing that decides WHICH
  * step a user gets.
  */
 export const HUE_WHEEL: readonly OklchColor[] = Array.from(

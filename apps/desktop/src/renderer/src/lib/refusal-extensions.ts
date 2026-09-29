@@ -20,7 +20,7 @@
 //
 // THE SET IS CLOSED AND IT IS CLOSED HERE, not at each producer, and the two halves
 // are held together by {@link REFUSAL_EXTENSION_READERS}: its type is a mapped type
-// over {@link ConsoleRefusalExtensions}, so a member added to the interface without a
+// over {@link RefusalExtensions}, so a member added to the interface without a
 // reader fails to compile and a reader for a member the interface does not declare
 // fails the same way. An arbitrary key a producer invented reaches no reader and so
 // reaches no rebuilt refusal — which is the property that makes carrying members
@@ -93,7 +93,7 @@ export type ExtendedConsoleRefusal = ConsoleRefusal & RefusalExtensions;
  *
  * Not an extension READER: it takes the wire's own spelling off an envelope that is
  * not a refusal at all, which is why the registry below does not hold it and the two
- * wire arms call it directly. It answers the same `ConsoleRefusalExtensions` shape
+ * wire arms call it directly. It answers the same `RefusalExtensions` shape
  * they do, so a bound the wire did not send is an ABSENT member rather than a present
  * `undefined` one — the distinction a renderer asking "does it carry a retry" reads.
  */
@@ -178,7 +178,7 @@ function identifierListOf(source: unknown): readonly string[] | undefined {
 /**
  * One reader per registered member, and the reason the set cannot drift.
  *
- * The mapped type over `Required<ConsoleRefusalExtensions>` is the mechanism: the
+ * The mapped type over `Required<RefusalExtensions>` is the mechanism: the
  * compiler demands an entry for every member the interface declares and refuses one
  * for a member it does not, so the registry and the type it registers are the same
  * set by construction rather than by review.

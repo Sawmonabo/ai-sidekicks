@@ -70,7 +70,7 @@ function usedPercentFor(fold: ProviderQuotaFold, limitId: string): number {
   return found.usedPercent;
 }
 
-describe("quotaMergeDispositionFor — consumption does not fall inside one window", () => {
+describe("decideUsageWindowMerge — consumption does not fall inside one window", () => {
   it("drops a lower reading in the same window however new its observation is", () => {
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER });

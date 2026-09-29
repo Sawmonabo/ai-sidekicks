@@ -13,7 +13,7 @@
 // therefore cannot hold the face map. It does not need to: what every family
 // above needs from the glyph set is the closed NAME, and a surface that names a
 // glyph should not be pulling a React component tree in to do it. The split is
-// also what keeps the set closed — `GLYPH_FACES` is a `Record<GlyphName, …>`, so
+// also what keeps the set closed — `GLYPH_ICONS` is a `Record<GlyphName, …>`, so
 // the compiler reports a name added here with no face beside it.
 //
 // Three rules hold the family together, and they are why a face is compiled

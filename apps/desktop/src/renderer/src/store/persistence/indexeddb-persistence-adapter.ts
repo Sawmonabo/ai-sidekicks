@@ -5,7 +5,7 @@
 // not a `get`/`set` façade over them.
 //
 // Opening is the interesting part. Every one of these is reachable in a shipped
-// Electron app and each needs a DIFFERENT answer, which is why `openConsoleDatabase`
+// Electron app and each needs a DIFFERENT answer, which is why `openUiStateDatabase`
 // returns a discriminated reason rather than a boolean:
 //
 //   • no `indexedDB` global — the renderer scheme was not registered `standard`;
@@ -46,7 +46,7 @@ export const UI_STATE_STORE_NAME = "ui-state";
 /** How long the console will wait for a database before rendering without one. */
 export const DATABASE_OPEN_TIMEOUT_MS = 3000;
 
-/** What `openConsoleDatabase` returns: a usable adapter, or the reason there is none. */
+/** What `openUiStateDatabase` returns: a usable adapter, or the reason there is none. */
 export type DatabaseOpenOutcome =
   | { readonly outcome: "opened"; readonly adapter: IndexedDbPersistenceAdapter }
   | {
@@ -343,7 +343,7 @@ interface ConsoleDatabaseSchema extends DBSchema {
  * The factory this open is gated on, distinguishing an OMITTED option from one
  * explicitly supplied as `undefined`.
  *
- * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
+ * See `OpenUiStateDatabaseOptions.indexedDbFactory` for why the distinction is the
  * contract rather than a nicety.
  */
 function resolveIndexedDbFactory(options: OpenUiStateDatabaseOptions): IDBFactory | undefined {

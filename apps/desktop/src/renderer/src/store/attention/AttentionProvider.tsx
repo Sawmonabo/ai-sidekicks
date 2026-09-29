@@ -14,7 +14,8 @@
 //
 // THE DIRECTORY COMES WITH IT, read once and provided beside the reading, so the
 // destination takes both from the same place.
-//// THE CALLS AND THE WINDOW'S HANDLES ARE THE COMPOSITION'S. This module holds only how
+//
+// THE CALLS AND THE WINDOW'S HANDLES ARE THE COMPOSITION'S. This module holds only how
 // the answers are kept and provided; the calls that list the node's sessions and read
 // the projection, the attention subscription, the reconnect signal, the clock and the
 // session store registry are handed in, so nothing here reaches a wire or a service.
@@ -23,7 +24,7 @@
 // session projections underneath it move, through the console's one push-driven read
 // discipline; this component draws no markup and returns the subtree it was handed.
 // The directory re-reads on the window's own focus trigger and on a settled act's
-// explicit ask, which are the two moments `store/read/read-triggers.ts` already names
+// explicit ask, which are the two moments `store/reads/read-triggers.ts` already names
 // for a node-scoped reading.
 
 import { useCallback, useMemo, type ReactNode } from "react";
@@ -33,31 +34,15 @@ import type { TransportReconnectObservable } from "@renderer/lib/transport-recon
 import {
   requestSessionDirectoryRead,
   type SessionDirectoryReadCall,
-  type SessionDirectoryState,
 } from "../session-directory/session-directory.js";
 import { useSessionDirectory } from "../session-directory/useSessionDirectory.js";
 import { type SessionStoreRegistry } from "../session/session-store-registry.js";
-import { type AttentionReading } from "./attention-summary.js";
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
   type AttentionSubscribeCall,
 } from "./hooks/useAttentionProjection.js";
-import { SessionAttentionContext } from "./hooks/useAttention.js";
-
-/**
- * What this window holds about the sessions it can name, read once.
- *
- * The members are what the consumers between them need, and no more: the destination
- * renders the reading and can ask for the directory again.
- */
-export interface WindowAttention {
-  /** The node's own session list, as the read settled it. */
-  readonly directory: SessionDirectoryState;
-  readonly reading: AttentionReading;
-  /** Declare the node's directory stale, so it is read again. */
-  readonly recheckDirectory: () => void;
-}
+import { WindowAttentionContext, type WindowAttention } from "./hooks/useAttention.js";
 
 /** The subtree it provides for, and the calls and window handles it keeps answers from. */
 export interface AttentionProviderProps {
@@ -102,8 +87,6 @@ export function AttentionProvider(props: AttentionProviderProps): React.JSX.Elem
     [directory, reading, recheckDirectory],
   );
   return (
-    <SessionAttentionContext.Provider value={held}>
-      {props.children}
-    </SessionAttentionContext.Provider>
+    <WindowAttentionContext.Provider value={held}>{props.children}</WindowAttentionContext.Provider>
   );
 }

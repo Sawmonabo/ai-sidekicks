@@ -31,7 +31,7 @@ function readAsk(row: ReturnType<typeof sampleRunRow>): DriverAskReading {
   return reading;
 }
 
-describe("readDriverAsk", () => {
+describe("readQuestion", () => {
   it("reads the ask's own members wire-verbatim", () => {
     const ask = readQuestion(
       askRow("driver_ask.requested", {

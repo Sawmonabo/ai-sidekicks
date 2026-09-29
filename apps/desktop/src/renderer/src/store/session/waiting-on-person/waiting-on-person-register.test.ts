@@ -99,7 +99,7 @@ describe("the vocabulary this register keys on — wire truth", () => {
   });
 });
 
-describe("OutstandingAskJournal — what a base state establishes", () => {
+describe("WaitingOnPersonRegister — what a base state establishes", () => {
   it("seeds a blocked run off the entity the read carried", () => {
     // The one ask class a base state answers authoritatively: a run's `state` is a
     // registered `RunState`, so a run blocked below the window's head says so here
@@ -159,7 +159,7 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
   });
 });
 
-describe("OutstandingAskJournal — rows in any order", () => {
+describe("WaitingOnPersonRegister — rows in any order", () => {
   it("does not re-open a request whose terminal arrived first", () => {
     // THE BACKWARD-PAGE CASE. A page read from behind the window's head delivers a
     // request's opening row AFTER its terminal, and a register that deleted a key on a

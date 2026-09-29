@@ -1,6 +1,6 @@
 // What the two detour probes share: the key both visits are addressed at, and the
-// props each probe takes. The probes themselves are `ValueDetourProbe.test-support.tsx`
-// and `ResourceDetourProbe.test-support.tsx` — one component per module, the
+// props each probe takes. The probes themselves are `DiscardedRenderValueProbe.test-support.tsx`
+// and `DiscardedRenderResourceProbe.test-support.tsx` — one component per module, the
 // `apps/desktop` AGENTS.md rule the one-component gate enforces on support modules too.
 //
 // `subject-scoped-dropped-pass.test.tsx` and `subject-scoped-abandoned-pass.test.tsx`

@@ -26,7 +26,7 @@ function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string
 /** The sessions the fan-out asked about. The rail counts the answer, not the ask. */
 const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
-describe("railAttentionCountOf", () => {
+describe("attentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
     const plane = new AttentionPlane([
       attentionItem({ id: "1", sessionId: "session-a" }),

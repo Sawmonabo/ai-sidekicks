@@ -23,7 +23,7 @@ describe("describeShellConnection", () => {
   });
 });
 
-describe("shellReportsAreEqual", () => {
+describe("mainProcessReportsAreEqual", () => {
   const base: ShellState = {
     connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
     negotiation: undefined,

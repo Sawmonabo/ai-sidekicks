@@ -1,10 +1,25 @@
 import { createContext, useContext, type Context } from "react";
 
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
-import type { WindowAttention } from "../AttentionProvider.js";
+import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
+import type { AttentionReading } from "../attention-summary.js";
+
+/**
+ * What this window holds about the sessions it can name, read once.
+ *
+ * The members are what the consumers between them need, and no more: the destination
+ * renders the reading and can ask for the directory again.
+ */
+export interface WindowAttention {
+  /** The node's own session list, as the read settled it. */
+  readonly directory: SessionDirectoryState;
+  readonly reading: AttentionReading;
+  /** Declare the node's directory stale, so it is read again. */
+  readonly recheckDirectory: () => void;
+}
 
 /** What the attention provider holds; `undefined` outside it, which the hook refuses. */
-export const SessionAttentionContext: Context<WindowAttention | undefined> = createContext<
+export const WindowAttentionContext: Context<WindowAttention | undefined> = createContext<
   WindowAttention | undefined
 >(undefined);
 
@@ -21,7 +36,7 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
  * prevent. It is the rule `useConsoleBridge` already follows one layer down.
  */
 export function useAttention(): WindowAttention {
-  const held = useContext(SessionAttentionContext);
+  const held = useContext(WindowAttentionContext);
   if (held === undefined) {
     throw new ConsoleRefusalError(
       refuse(

@@ -142,7 +142,7 @@ describe("the I-am-blind marker", () => {
     // NO forwarder, deliberately. The case above installs one so the auto-flush at the
     // batch bound cannot spend a refusal on the capture's own forward seam; this is the
     // case that drives exactly that. `record` flushes at every batch boundary, a flush
-    // with no forwarder marks `DIAGNOSTIC_BAND_FORWARD_PROBE` blind, and once the set is
+    // with no forwarder marks `DIAGNOSTIC_FORWARD_PROBE` blind, and once the set is
     // full that marking is itself refused — so a count that included it would report how
     // often the capture flushed rather than how many probes went blind past the bound.
     const capture = new DiagnosticCapture();

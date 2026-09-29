@@ -4,7 +4,7 @@
 // module owns the answer to "what is this name drawn by". It sits in
 // `primitives/` rather than beside the names because a face is a React component
 // and `tokens/` is below `primitives/` on the console DAG — and because the
-// split is what makes the set's closedness checkable: {@link GLYPH_FACES} is a
+// split is what makes the set's closedness checkable: {@link GLYPH_ICONS} is a
 // `Record<GlyphName, …>`, so a name added to `GLYPH_NAMES` with no row here
 // fails the typecheck rather than rendering nothing at runtime.
 //
@@ -110,7 +110,7 @@ export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
  * The face every glyph name is drawn by.
  *
  * TOTAL BY TYPE, which is the whole reason the record is written out rather than
- * derived from a directory listing: `Record<GlyphName, GlyphFace>` makes a name
+ * derived from a directory listing: `Record<GlyphName, GlyphIcon>` makes a name
  * without a face a compile error, and a face without a name an unused import the
  * lint gate reports. A directory scan would answer both questions at runtime, in
  * a bundle, too late for either.

@@ -137,7 +137,7 @@ export class UiStateStore {
    *
    * Synchronous by design — it returns the store, not a promise of one, so the
    * composition root can create it during its first render and hand the same
-   * object to every surface. `openConsoleDatabase` is documented never to throw,
+   * object to every surface. `openUiStateDatabase` is documented never to throw,
    * which is what lets the pending adapter be a promise that cannot reject.
    */
   public static opening(options: OpenUiStateDatabaseOptions = {}): UiStateStore {

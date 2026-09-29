@@ -97,7 +97,7 @@ export interface DriverAskReading {
 /**
  * Where the answer this surface last dispatched has got to.
  *
- * A DIFFERENT FACT FROM `DriverAskState`, AND THE CARD MAY NEVER CONFUSE THE TWO. That
+ * A DIFFERENT FACT FROM `QuestionState`, AND THE CARD MAY NEVER CONFUSE THE TWO. That
  * state is read from the row's own event type and says what the DAEMON has recorded;
  * this says what the console did with a press and what came back off the wire. So
  * `accepted` means the answer reached the driver and the surface is waiting for the

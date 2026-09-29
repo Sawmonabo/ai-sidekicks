@@ -236,7 +236,7 @@ class RecordingIndexedDbFactory {
   }
 
   /**
-   * The same object, typed as what `openConsoleDatabase` gates on.
+   * The same object, typed as what `openUiStateDatabase` gates on.
    *
    * A cast rather than a full `IDBFactory`: `open` is the only member either the
    * gate or `idb` reaches, and stubbing `cmp` / `databases` / `deleteDatabase`

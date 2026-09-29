@@ -272,7 +272,7 @@ export class DiagnosticCapture {
   /**
    * Blind probes refused because the blind set was already full. Never silent.
    *
-   * A count rather than a wider set, on `PerfMeterRegistry.refusedSeriesCount`'
+   * A count rather than a wider set, on `PerformanceMeterRegistry.refusedSeriesCount`'
    * reasoning: the number IS the finding, and it says the console went blind in more
    * places than a bounded set can name. Places OTHER THAN THIS MODULE'S OWN FORWARD
    * SEAM, which `markBlind` excludes for the reason stated there.

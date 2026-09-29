@@ -6,7 +6,7 @@
 // throughout. This file drives the set itself, because that set arrives in two moves
 // and the emitter used to assume it arrived in one.
 //
-// THE DEFECT. `SessionAttentionBinding` fans the read out over the node's directory
+// THE DEFECT. `AttentionProvider` fans the read out over the node's directory
 // merged with this window's own open sessions. A window opened directly on a session
 // knows that half at mount and reads the directory's half afterwards, so its first
 // settled read covers exactly one session — and a baseline held once for the whole

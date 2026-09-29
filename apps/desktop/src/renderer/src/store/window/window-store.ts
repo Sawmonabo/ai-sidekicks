@@ -136,7 +136,7 @@ export class FrameStore {
    * register and the cell it derives are two halves of one fact, and a caller able to
    * supply a second register could publish into a cell no surface's claim reached.
    */
-  readonly #modalSurfaceClaims: ModalDialogClaims;
+  readonly #modalDialogClaims: ModalDialogClaims;
 
   public constructor(options: WindowStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
@@ -154,7 +154,7 @@ export class FrameStore {
       isWindowFocused: documentReportsWindowFocus(),
       mainProcessState: UNREPORTED_SHELL_STATE,
     }));
-    this.#modalSurfaceClaims = new ModalDialogClaims((isAnyHeld) => {
+    this.#modalDialogClaims = new ModalDialogClaims((isAnyHeld) => {
       this.#setModalSurfaceOpen(isAnyHeld);
     });
   }
@@ -211,7 +211,7 @@ export class FrameStore {
    * add and remove only the caller's own id and offers no clear-all.
    */
   public get modalDialogClaims(): ModalDialogClaims {
-    return this.#modalSurfaceClaims;
+    return this.#modalDialogClaims;
   }
 
   /**
