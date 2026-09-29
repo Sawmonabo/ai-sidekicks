@@ -12,10 +12,7 @@ import type {
   DaemonResult,
 } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
-import type {
-  AttentionSubscribe,
-  PlatformBridge,
-} from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
 import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
@@ -43,21 +40,4 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): PlatformBri
         handler(delivered as DaemonEventPayload<EventName>);
       }),
   };
-}
-
-/**
- * Attention moving under the fixture. The attention plane moves with playback, so a delivered
- * beat is the moment it may have changed.
- *
- * Tail-only, deliberately: a subscriber attaches to re-read a whole projection, and replaying
- * the delivered prefix would cost one read per beat already folded into the answer it is about
- * to take.
- */
-export function createFixtureAttentionSubscribe(
-  scenarioEngine: ScenarioEngine,
-): AttentionSubscribe {
-  return (onAttentionChange) =>
-    scenarioEngine.subscribe(() => {
-      onAttentionChange();
-    });
 }

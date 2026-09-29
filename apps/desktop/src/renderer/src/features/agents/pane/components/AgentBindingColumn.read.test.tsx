@@ -52,11 +52,11 @@ function currentRetryControl(container: HTMLElement): HTMLButtonElement | null {
 describe("agent binding column — a refused roster read", () => {
   it("offers a way back, and taking it reaches the wire again", async () => {
     const scriptedDaemon = new RefusingRosterDaemon(1);
-    const bridge = bridgeCalling(scriptedDaemon);
+    const fixture = bridgeCalling(scriptedDaemon);
     const { container } = render(
-      <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
+      <AgentBindingColumn models={modelsOver(fixture, scriptedDaemon)} agentId={undefined} />,
     );
-    await settleReads(bridge);
+    await settleReads(fixture.scenarioEngine);
     expect(container.textContent ?? "").toContain("read-failed");
     const retry = currentRetryControl(container);
     expect(retry?.textContent).toBe("Try again");
@@ -65,7 +65,7 @@ describe("agent binding column — a refused roster read", () => {
     await act(async () => {
       fireEvent.click(retry as HTMLButtonElement);
     });
-    await settleReads(bridge);
+    await settleReads(fixture.scenarioEngine);
 
     expect(scriptedDaemon.listCallCount).toBeGreaterThan(callsBeforeRetry);
     expect(currentRetryControl(container)).toBeNull();
@@ -76,11 +76,11 @@ describe("agent binding column — a refused roster read", () => {
     // on every arm — a retry beside a roster that is already current, which reads as a
     // refresh this surface does not have.
     const scriptedDaemon = new RefusingRosterDaemon(0);
-    const bridge = bridgeCalling(scriptedDaemon);
+    const fixture = bridgeCalling(scriptedDaemon);
     const { container } = render(
-      <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
+      <AgentBindingColumn models={modelsOver(fixture, scriptedDaemon)} agentId={undefined} />,
     );
-    await settleReads(bridge);
+    await settleReads(fixture.scenarioEngine);
 
     expect(currentRetryControl(container)).toBeNull();
   });

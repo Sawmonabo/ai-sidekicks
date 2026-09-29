@@ -15,9 +15,9 @@ import type {
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
@@ -171,7 +171,7 @@ export function mountAccountsPage(options: {
   readonly registry: AccountListReading;
   readonly operations?: Partial<AccountOperations>;
 }): MountedAccountsPage {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
   const operations: AccountOperations = {
     login: () => NEVER_SETTLES,
     cancelLogin: () => NEVER_SETTLES,
@@ -180,7 +180,7 @@ export function mountAccountsPage(options: {
   };
   const requestRegistryRead = vi.fn<() => void>();
   const tree = (registry: AccountListReading): React.JSX.Element => (
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <AccountsFixtureBody
           registry={registry}
@@ -188,7 +188,7 @@ export function mountAccountsPage(options: {
           operations={operations}
         />
       </LiveAnnouncerProvider>
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
   const { container, rerender } = render(tree(options.registry));
   return {

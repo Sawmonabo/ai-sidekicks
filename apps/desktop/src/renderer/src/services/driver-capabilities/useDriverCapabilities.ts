@@ -4,6 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import type { DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+import { useBridgeClock } from "../platform/hooks/useClock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";
 
@@ -20,7 +21,8 @@ import { driverCapabilityReads } from "./driver-capability-read.js";
  * `useDriverCapabilityRepairRead`.
  */
 export function useDriverCapabilities(bridge: PlatformBridge): DriverCapabilityReadout | undefined {
-  const reading = driverCapabilityReads.reading(bridge);
+  const clock = useBridgeClock();
+  const reading = driverCapabilityReads.reading(bridge, clock);
   const subscribe = useCallback(
     (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),
     [reading],

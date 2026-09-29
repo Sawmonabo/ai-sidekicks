@@ -13,12 +13,12 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
@@ -67,7 +67,8 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
  */
 class CapabilitiesUnderTest {
   #capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
-  readonly bridge: PlatformBridge = bridgeOnClock("repos");
+  /** The bridge the dialog is handed, the engine playing it, and its window's clock. */
+  readonly fixture: BridgeOnClock = bridgeOnClock("repos");
   readonly operations: RepoOperations;
 
   public constructor(capabilities: WorkspaceExecutionModeCapabilitiesReadResponse) {
@@ -138,7 +139,7 @@ async function openDialog(
   const { container } = render(
     <LiveAnnouncerProvider>
       <BindWorkspaceDialog
-        bridge={served.bridge}
+        bridge={served.fixture.bridge}
         operations={served.operations}
         repoMountId={MOUNT_ID}
         canonicalRoot={MOUNT_ROOT}
@@ -146,9 +147,10 @@ async function openDialog(
         onBound={() => undefined}
       />
     </LiveAnnouncerProvider>,
+    { wrapper: bridgeWrapper(served.fixture.bridge, served.fixture.clock) },
   );
   pressTrigger(container);
-  await advanceScenarioUntil(served.bridge, () => {
+  await advanceScenarioUntil(served.fixture.scenarioEngine, () => {
     expect(modeRadios().length).toBeGreaterThan(0);
   });
   return { capabilities: served, sessionStore, container };
@@ -169,7 +171,7 @@ async function refreshCapabilitiesTo(
 ): Promise<void> {
   open.capabilities.serve(capabilities);
   open.sessionStore.applyBatch([eventOfKind(SESSION_ID, REPO_FRAME_KIND, sequence)]);
-  await advanceScenarioUntil(open.capabilities.bridge, () => {
+  await advanceScenarioUntil(open.capabilities.fixture.scenarioEngine, () => {
     expect(radioFor(withdrawnMode).disabled).toBe(true);
   });
 }

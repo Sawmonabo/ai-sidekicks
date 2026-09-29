@@ -33,18 +33,10 @@ import type {
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
-import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */
 export type PlatformBridgeSource = "live" | "fixture";
-
-/**
- * Subscribe to attention moving. Returns the disposer the caller owes: the shape
- * `store/session/open-session-signal.ts` publishes for the open stores, so a consumer holds
- * both halves in one vocabulary.
- */
-export type AttentionSubscribe = (onAttentionChange: () => void) => Unsubscribe;
 
 /**
  * The bridge a window holds. The host capabilities — the daemon's JSON-RPC, the control
@@ -96,18 +88,6 @@ export interface PlatformBridge {
   };
 
   /**
-   * Attention moving, as one opaque change signal over every session this bridge can name.
-   *
-   * It sits beside the session stores rather than replacing them: the open-session signal
-   * (`store/session/open-session-signal.ts`) watches only the stores this window has open,
-   * so a session nobody here opened would never reach the badge or the banner. The
-   * projection read is fanned out over every session the window can name, and this is the
-   * signal on the same set. Opaque, because the only consumer re-reads the whole projection.
-   * Every bridge answers it; one that publishes no attention hands back a disposer and
-   * signals nothing.
-   */
-  readonly attentionSubscribe: AttentionSubscribe;
-  /**
    * The window's one transport-reconnect signal. Not a host capability: the preload
    * exposes no connection state. Both halves are published, because the observers that
    * report into it sit above and below this seam; readings take the subscribe-only
@@ -115,6 +95,4 @@ export interface PlatformBridge {
    */
   readonly transportReconnect: TransportReconnectSignal;
   readonly source: PlatformBridgeSource;
-  /** Present only under the fixture, so a surface can drive playback. */
-  readonly scenarioEngine: ScenarioEngine | undefined;
 }

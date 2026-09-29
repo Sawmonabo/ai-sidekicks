@@ -20,6 +20,7 @@ import type { ArtifactOperations } from "@renderer/features/inspector/artifacts/
 import { ArtifactPayloadSection } from "@renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { SESSION_ID } from "./artifact-list-readers.js";
 import { useArtifactList } from "@renderer/features/inspector/artifacts/hooks/useArtifactList.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 
 /** The artifact the hosted pane opens on. */
 export const HOSTED_ARTIFACT_ID = "artifact-diff-01";
@@ -27,8 +28,8 @@ export const HOSTED_ARTIFACT_ID = "artifact-diff-01";
 export const OTHER_HOSTED_ARTIFACT_ID = "artifact-attachment-02";
 
 /**
- * What a host is mounted over: the bridge whose clock the reader runs on, the session
- * store, the calls, and that clock.
+ * What a host is mounted over: the bridge, the session store, the calls, and the clock the
+ * window runs on, which the reader schedules against.
  *
  * ONE OBJECT PER CASE, and the same object across a case's re-renders: the bridge and
  * the calls are the binding's identity, so a second `hostSubject` call would remount the
@@ -49,19 +50,26 @@ export function hostSubject(
 ): PayloadHostSubject {
   const clock = new ManualClock();
   return {
-    bridge: bridgeOnClock("repos", clock),
+    bridge: bridgeOnClock("repos", clock).bridge,
     sessionStore: reached.sessionStore ?? new SessionStore({ sessionId: SESSION_ID }),
     operations,
     clock,
   };
 }
 
-/** The host as an element a case can re-render at another artifact. */
+/**
+ * The host as an element a case can re-render at another artifact, under a provider that
+ * carries the subject's bridge and clock.
+ */
 export function hostTree(
   subject: PayloadHostSubject,
   artifactId: string = HOSTED_ARTIFACT_ID,
 ): ReactElement {
-  return createElement(PayloadHost, { subject, artifactId });
+  return createElement(PlatformBridgeProvider, {
+    bridge: subject.bridge,
+    clock: subject.clock,
+    children: createElement(PayloadHost, { subject, artifactId }),
+  });
 }
 
 /** Mount the host. */

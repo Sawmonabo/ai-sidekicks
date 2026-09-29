@@ -1,9 +1,8 @@
 // What the console says about an attention read — on screen and out loud, from one
 // place so the two cannot drift.
 //
-// The notification center draws the all-clear, a coverage gap, and a dropped-member
-// count; the settlement announcement speaks the same read to someone who cannot see
-// any of it. Written twice they would eventually disagree about one number, and the
+// The notification center draws a coverage gap and a dropped-member count; the
+// settlement announcement speaks the same read to someone who cannot see any of it. Written twice they would eventually disagree about one number, and the
 // disagreement would be invisible to whichever half its author was looking at —
 // which is the `agents/definitions/definition-rows.ts` precedent (`NO_SAVED_DEFINITIONS`, held as
 // one constant "so the page and its announcement agree").
@@ -22,9 +21,6 @@ import {
   type AnsweredAttentionReading,
 } from "@renderer/store/attention/attention-summary.js";
 
-/** The all-clear, so the panel and its announcement say one thing. */
-export const NOTHING_NEEDS_YOU = "Nothing needs you.";
-
 /** What the console says about sessions the fan-out never got an answer for. */
 export function uncheckedSessionsSentence(refusedCount: number): string {
   return refusedCount === 1
@@ -32,9 +28,17 @@ export function uncheckedSessionsSentence(refusedCount: number): string {
     : `${formatCount(refusedCount)} sessions could not be checked.`;
 }
 
-/** One settled attention read, in one sentence for the polite lane. */
-export function describeAttentionSettlement(reading: AnsweredAttentionReading): string {
-  const clauses = [needsYouClause(reading)];
+/**
+ * One settled attention read, in one sentence for the polite lane, or `undefined` when
+ * nothing waits and the read covered every session: that read says nothing, the way the
+ * panel draws nothing under its heading.
+ */
+export function describeAttentionSettlement(reading: AnsweredAttentionReading): string | undefined {
+  const needsYou = needsYouClause(reading);
+  if (needsYou === undefined) {
+    return undefined;
+  }
+  const clauses = [needsYou];
   if (reading.refusedSessions.length > 0) {
     clauses.push(uncheckedSessionsSentence(reading.refusedSessions.length));
   }
@@ -71,12 +75,11 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
  * The first clause: what the read found.
  *
  * Zero is worded from what else the read carried, because "nothing" means different
- * things depending on it. With full coverage and nothing dropped it is the all-clear.
- * With either of those missing it is NOT an all-clear, and a clause that said so
- * would be contradicted by the very next clause — so the zero case narrows itself to
- * the part of the read it can actually speak for.
+ * things depending on it. With full coverage and nothing dropped there is nothing to
+ * say. With either of those missing the zero case narrows itself to the part of the
+ * read it can actually speak for.
  */
-function needsYouClause(reading: AnsweredAttentionReading): string {
+function needsYouClause(reading: AnsweredAttentionReading): string | undefined {
   const liveCount = reading.plane.liveItems.length;
   if (liveCount === 1) {
     return "One item needs you.";
@@ -85,5 +88,5 @@ function needsYouClause(reading: AnsweredAttentionReading): string {
     return `${formatCount(liveCount)} items need you.`;
   }
   const coversTheWholeRead = reading.refusedSessions.length === 0 && reading.droppedCount === 0;
-  return coversTheWholeRead ? NOTHING_NEEDS_YOU : "Nothing was found in what this read covered.";
+  return coversTheWholeRead ? undefined : "Nothing was found in what this read covered.";
 }

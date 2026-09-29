@@ -3,8 +3,8 @@
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
@@ -42,9 +42,9 @@ function slotProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
  */
 function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {props.children}
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
 }
 

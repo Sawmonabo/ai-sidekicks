@@ -54,7 +54,7 @@ function terminalSessionStore(): SessionStore {
  * after the mount would be looking at the not-loaded absence rather than at the grid.
  */
 export async function mountTerminalPane(): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const TerminalPaneBody: FunctionComponent<PaneContext> = await resolvedPaneBody(
     "terminal",
     registerTerminalPane,

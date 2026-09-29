@@ -15,7 +15,7 @@ import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
@@ -46,10 +46,9 @@ export interface RepoMountsBinding {
  * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
  * holds state beside a component.
  *
- * THE CLOCK COMES FROM THE BRIDGE: `resolveBridgeClock` is the one answer to which clock a
- * window runs on, so a reader stamping its reading off a clock of its own would put two
- * time bases on one screen. Memoized because the real arm mints a fresh `RealClock` per
- * call, and a new object every render would re-mint the reader.
+ * THE CLOCK IS THE WINDOW'S: `useBridgeClock` is the one answer to which clock a window
+ * runs on, so a reader stamping its reading off a clock of its own would put two time
+ * bases on one screen.
  *
  * A NEW `operations` OBJECT RE-MINTS THE READER, because the subject is the bridge together
  * with the calls and the reader reads through the ones it was built with. A caller
@@ -60,7 +59,7 @@ export function useRepoMounts(
   sessionStore: SessionStore,
   operations: RepoOperations,
 ): RepoMountsBinding {
-  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  const clock = useBridgeClock();
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
   const { value: reader, settle } = useSubjectScopedResource(
     subject,

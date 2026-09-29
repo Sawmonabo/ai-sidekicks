@@ -60,7 +60,7 @@ export function composeWindow(): ComposedWindow {
     paneRegistry,
     context: {
       route: committedRoute,
-      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }).bridge,
       frameStore,
       sessionStore: undefined,
       paneRegistry,
@@ -79,7 +79,7 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
     paneRegistry: composed.paneRegistry,
     context: {
       ...composed.context,
-      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }).bridge,
     } as unknown as ScreenContext,
   };
 }

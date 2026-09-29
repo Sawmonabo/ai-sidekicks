@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { ArtifactListReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
@@ -57,8 +57,7 @@ export function useArtifactList(
   subjectArtifactId: string,
   operations: ArtifactOperations,
 ): ArtifactListBinding {
-  // The window's own clock, resolved once per bridge.
-  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  const clock = useBridgeClock();
   // The reader reads the session's whole list, so the artifact id is not passed to it: the
   // key only decides whose subject-scoped state this reader holds.
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);

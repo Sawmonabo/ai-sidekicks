@@ -14,6 +14,7 @@ import type { PaneOpener } from "@renderer/console/seats/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { RepoSection } from "./RepoSection.js";
 import { SESSION_ID } from "./repo-mounts.test-support.js";
 
@@ -39,7 +40,7 @@ export function renderSection(
   operations: RepoOperations,
   openPane: PaneOpener = () => {},
 ): SectionUnderTest {
-  const bridge = bridgeOnClock("repos");
+  const { bridge, scenarioEngine, clock } = bridgeOnClock("repos");
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       <RepoSection
@@ -50,11 +51,12 @@ export function renderSection(
         openPane={openPane}
       />
     </LiveAnnouncerProvider>,
+    { wrapper: bridgeWrapper(bridge, clock) },
   );
   return {
     container,
     advanceUntil: async (assert: () => void) => {
-      await advanceScenarioUntil(bridge, assert);
+      await advanceScenarioUntil(scenarioEngine, assert);
     },
   };
 }

@@ -11,9 +11,7 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { RefusalError } from "@renderer/lib/refusal.js";
@@ -33,15 +31,6 @@ import {
   lastObservation,
   type Observation,
 } from "./session-store-hooks.test-support.js";
-
-/** The running engine, or a failure that names what was missing rather than `undefined`. */
-function scenarioEngineOf(bridge: PlatformBridge): ScenarioEngine {
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge exposed no scenario engine");
-  }
-  return engine;
-}
 
 /** One wire event, shaped as the apply chokepoint consumes it. */
 function deliveredEvent(sessionId: string, sequence: number): ProjectedSessionEvent {
@@ -75,7 +64,7 @@ describe("useSessionStoreRegistry — the clock the window's stores run on", () 
     // `setTimeout` while the beats around it moved on frozen time — so a
     // screenshot or an endurance step taken straight after `advance()` saw either
     // side of the drain depending on how fast the runner was.
-    const { bridge, wrapper } = fixtureBridgeHarness();
+    const { scenarioEngine, wrapper } = fixtureBridgeHarness();
     const sessionId = CONCURRENT_STREAMING_SCENARIO.sessionId;
     const observed: Observation[] = [];
     render(
@@ -97,7 +86,7 @@ describe("useSessionStoreRegistry — the clock the window's stores run on", () 
     expect(registry.applyDrainCountFor(sessionId)).toBe(drainsBefore);
 
     act(() => {
-      scenarioEngineOf(bridge).advance(APPLY_COALESCE_MS);
+      scenarioEngine.advance(APPLY_COALESCE_MS);
     });
 
     expect(registry.applyDrainCountFor(sessionId)).toBeGreaterThan(drainsBefore);

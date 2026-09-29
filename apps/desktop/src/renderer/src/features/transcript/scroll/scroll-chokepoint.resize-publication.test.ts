@@ -10,7 +10,7 @@
 // box the virtualizer ranges against, and re-measure clamped rows. Only the second may be
 // late. `ManualClock.advance` excludes frames deliberately — `runFrame` is a separate
 // control so a frozen clock never reports a paint its holder did not release — and
-// `bridge/console-bridge.ts`' `resolveBridgeClock` hands a fixture build exactly that clock,
+// a fixture build's window runs on exactly that clock, carried by the bridge resolution,
 // so the deferred publication was not late but indefinite: measured on the endurance tier,
 // the transcript published geometry once, from `attach`, and spent two hundred churn cycles
 // ranging a 149 px viewport against the 32 px box it had at mount.

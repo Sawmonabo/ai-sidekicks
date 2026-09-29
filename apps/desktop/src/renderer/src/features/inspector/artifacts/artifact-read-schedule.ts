@@ -88,8 +88,8 @@ export interface ArtifactReadScheduleOptions {
   /**
    * The clock this schedule and every stamp the reader publishes run on.
    *
-   * Required, and the binding reads it off the bridge with `resolveBridgeClock`, the one
-   * answer to which clock a window runs on.
+   * Required, and the binding reads it with `useBridgeClock`, the one answer to which
+   * clock a window runs on.
    */
   readonly clock: Clock;
 }

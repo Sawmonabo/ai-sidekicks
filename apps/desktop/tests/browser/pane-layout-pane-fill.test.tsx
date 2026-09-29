@@ -63,7 +63,7 @@ interface MountedPane {
 
 async function mountPaneInPaneLayout(): Promise<MountedPane> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     <div className="meridian-pane-layout" style={{ height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
       <div className="meridian-pane-layout__group" style={RESIZABLE_GROUP_LAYOUT}>
@@ -84,7 +84,7 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
 /** The same pane under the arrangement that always worked, for the control below. */
 async function mountPaneInGridSlot(): Promise<MountedPane> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     <div style={{ display: "grid", height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />
@@ -128,7 +128,7 @@ describe("browser — a pane fills the slot the pane layout gives it", () => {
     // content. This is also the shape the defect wore — the pane layout's slot did have a
     // height, and the pane was reading it as though it did not.
     installMeridianTokens(document);
-    const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+    const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
     const { container } = await renderSettled(
       <div style={{ display: "flex", flexDirection: "column" }}>
         <TerminalPane {...terminalPaneContext(undefined, bridge)} />

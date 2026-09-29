@@ -40,8 +40,11 @@ import type { ReactElement } from "react";
 
 import { renderSettled } from "../app-harness.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "../app-frame-fixtures.js";
 import { settleScheduledRead } from "../scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -112,11 +115,13 @@ function composerSessionStore(throughKind: string): SessionStore {
  * is why the constant it advances by is not imported here any more.
  */
 async function mountSurfaceSettled(
-  bridge: PlatformBridge,
+  fixture: FixtureBridge,
   element: ReactElement,
 ): Promise<HTMLElement> {
-  const { container } = await renderSettled(element);
-  await settleScheduledRead(bridge);
+  const { container } = await renderSettled(
+    <FixtureBridgeProvider fixture={fixture}>{element}</FixtureBridgeProvider>,
+  );
+  await settleScheduledRead(fixture.scenarioEngine.clock);
   requireNoReadInFlight(container);
   return container;
 }
@@ -150,9 +155,10 @@ async function mountComposerAt(options: {
   readonly throughKind: string;
   readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
+  const fixture = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
+  const { bridge } = fixture;
   const container = await mountSurfaceSettled(
-    bridge,
+    fixture,
     <MessageComposer
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}

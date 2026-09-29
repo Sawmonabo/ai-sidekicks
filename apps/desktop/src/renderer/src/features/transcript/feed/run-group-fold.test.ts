@@ -9,7 +9,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { createElement, useCallback, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
@@ -223,11 +223,11 @@ describe("the run group disclosure follows the session the pane is a log of", ()
   function mountDisclosureOver(
     useDisclosure: (sessionId: string) => RunGroupDisclosure,
   ): ReturnType<typeof renderHook<RunGroupDisclosure, { readonly sessionId: string }>> {
-    const bridge = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
+    const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     return renderHook((props: { readonly sessionId: string }) => useDisclosure(props.sessionId), {
       initialProps: { sessionId: SESSION_ID },
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-        createElement(PlatformBridgeProvider, { bridge, children }),
+        createElement(FixtureBridgeProvider, { fixture, children }),
     });
   }
 

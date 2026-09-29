@@ -50,9 +50,9 @@ import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../app-harness.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
+import { FixtureBridgeProvider } from "../app-frame-fixtures.js";
 import {
   PARKED_RUN,
   PROBE_SESSION_ID,
@@ -230,14 +230,15 @@ function screenContext(bridge: PlatformBridge): ScreenContext {
  * a region created at the moment something spoke.
  */
 export async function mountWorkflowsDestination(): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
+  const { bridge } = fixture;
   const WorkflowsDestinationBody = await screenBodyComponent();
   const { container } = await renderSettled(
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <WorkflowsDestinationBody context={screenContext(bridge)} />
       </LiveAnnouncerProvider>
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -248,10 +249,11 @@ export async function mountWorkflowsDestination(): Promise<MountedView> {
 
 /** The run pane addressed at a run, drawing the frame it has without a run read. */
 export async function mountWorkflowRunPane(): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
+  const { bridge } = fixture;
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <WorkflowRunPaneBody
         context={paneContext(
           {
@@ -262,7 +264,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow run"), bridge };
 }
@@ -289,10 +291,11 @@ export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
  * pane puts no read on any arm, so there is nothing in flight to settle.
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
+  const { bridge } = fixture;
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <WorkflowBuilderPaneBody
         context={paneContext(
           {
@@ -303,7 +306,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

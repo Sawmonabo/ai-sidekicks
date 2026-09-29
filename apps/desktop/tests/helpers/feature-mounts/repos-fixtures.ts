@@ -9,6 +9,8 @@
 // wants a different composition states a new mount rather than reaching in and mutating
 // one of these.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
+import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
 import type { DiffModel } from "@renderer/features/repos/diff/diff-model.js";
@@ -18,16 +20,21 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 
 /**
- * A bridge on a frozen clock and a store over the family's session, opened with the fold
- * a window composes.
+ * A bridge, the engine playing it, the frozen clock its window runs on, and a store over the
+ * family's session, opened with the fold a window composes.
  *
  * The fold is not optional. A store built without projectors folds every event into no
  * entity, so a partition a surface reads answers the empty map an empty session answers,
  * and a mount cannot tell the two apart.
  */
-export function scenarioBridgeAndStore(): { bridge: PlatformBridge; sessionStore: SessionStore } {
+export function scenarioBridgeAndStore(): {
+  bridge: PlatformBridge;
+  scenarioEngine: ScenarioEngine;
+  clock: Clock;
+  sessionStore: SessionStore;
+} {
   return {
-    bridge: bridgeOnClock("repos"),
+    ...bridgeOnClock("repos"),
     sessionStore: new SessionStore({
       sessionId: SESSION_ID,
       projectors: COMPOSED_ENTITY_PROJECTORS,

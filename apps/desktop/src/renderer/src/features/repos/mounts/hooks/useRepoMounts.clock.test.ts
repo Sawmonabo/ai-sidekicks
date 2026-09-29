@@ -2,9 +2,9 @@
 //
 // THE READING CARRIES AN INSTANT AND THE CARDS SPEND IT. `readAtMilliseconds` is what
 // every age on a mount card is measured against, so the clock the hook hands its reader
-// decides what those figures SAY. `resolveBridgeClock` is the one answer to which clock a
-// window runs on; a reader stamping off a `RealClock` of its own would put two time
-// bases on one screen and make every age move with the day it was rendered.
+// decides what those figures SAY. The bridge resolution carries the one clock a window
+// runs on; a reader stamping off a `RealClock` of its own would put two time bases on one
+// screen and make every age move with the day it was rendered.
 //
 // The negative control drives the shape that would be wrong, so the claim is about the
 // clock and not about the dates in the rows.
@@ -17,6 +17,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { useRepoMounts } from "./useRepoMounts.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import {
@@ -38,10 +39,12 @@ const WINDOW_START_MILLISECONDS = 1_000;
 describe("useRepoMounts — the reading is stamped on the window's own clock", () => {
   it("stamps the reading with the window's instant and not the wall clock", async () => {
     const clock = new ManualClock(WINDOW_START_MILLISECONDS);
-    const bridge = bridgeOnClock("repos", clock);
+    const { bridge } = bridgeOnClock("repos", clock);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const operations = sessionOperations();
-    const { result } = renderHook(() => useRepoMounts(bridge, sessionStore, operations));
+    const { result } = renderHook(() => useRepoMounts(bridge, sessionStore, operations), {
+      wrapper: bridgeWrapper(bridge, clock),
+    });
 
     await crossMacrotaskBoundary();
     act(() => {

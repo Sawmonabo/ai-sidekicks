@@ -16,7 +16,7 @@
 // built AND started, which is the pair the seam is being asked about.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { StrictMode } from "react";
+import { StrictMode, createElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -25,6 +25,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { useRepoMounts, type RepoMountsBinding } from "./useRepoMounts.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
@@ -41,7 +42,7 @@ interface BindingUnderTest {
 
 function renderBinding(options: { readonly strict: boolean }): BindingUnderTest {
   const clock = new ManualClock();
-  const bridge = bridgeOnClock("repos", clock);
+  const { bridge } = bridgeOnClock("repos", clock);
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   const base = sessionOperations();
   let listReads = 0;
@@ -52,9 +53,15 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
       return base.listWorkspaces(sessionId, signal);
     },
   };
+  const BridgeHost = bridgeWrapper(bridge, clock);
   const { result, rerender, unmount } = renderHook(
     () => useRepoMounts(bridge, sessionStore, operations),
-    { ...(options.strict ? { wrapper: StrictMode } : {}) },
+    {
+      wrapper: options.strict
+        ? ({ children }: { readonly children: ReactNode }) =>
+            createElement(StrictMode, null, createElement(BridgeHost, { children }))
+        : BridgeHost,
+    },
   );
   return {
     binding: () => result.current,
@@ -140,7 +147,7 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
 describe("useRepoMounts — the calls are part of what the reader is keyed on", () => {
   it("reads through the new calls when the section is handed a different set", async () => {
     const clock = new ManualClock();
-    const bridge = bridgeOnClock("repos", clock);
+    const { bridge } = bridgeOnClock("repos", clock);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const listReads = { first: 0, second: 0 };
     const countingOperations = (which: "first" | "second"): RepoOperations => {
@@ -157,7 +164,7 @@ describe("useRepoMounts — the calls are part of what the reader is keyed on", 
     const second = countingOperations("second");
     const { result, rerender } = renderHook(
       ({ operations }) => useRepoMounts(bridge, sessionStore, operations),
-      { initialProps: { operations: first } },
+      { initialProps: { operations: first }, wrapper: bridgeWrapper(bridge, clock) },
     );
     await crossMacrotaskBoundary();
     act(() => {

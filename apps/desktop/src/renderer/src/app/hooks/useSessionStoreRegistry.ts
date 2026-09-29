@@ -57,7 +57,8 @@
 // plumbing that has already disposed itself.
 
 import { useEffect } from "react";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridgeComposition.js";
@@ -103,6 +104,7 @@ export function useSessionStoreRegistry(
   // has to thread one through. The bridge is provided, never reached for, which is the
   // same rule one layer down.
   const bridge = usePlatformBridge();
+  const clock = useBridgeClock();
   // The bridge alone is the subject, and the projector registry and the read call
   // deliberately are not: the plumbing takes a SNAPSHOT of that table at construction,
   // exactly so a later registration cannot make one open store fold two events of one
@@ -111,7 +113,7 @@ export function useSessionStoreRegistry(
   const { value: plumbing } = useSubjectScopedResource<WindowSessionPlumbing>(
     bridge,
     undefined,
-    () => createWindowSessionPlumbing(bridge, projectorRegistry, readSession),
+    () => createWindowSessionPlumbing(bridge, clock, projectorRegistry, readSession),
     WINDOW_SESSION_PLUMBING_DISPOSAL,
   );
   // THE SUBSCRIPTION, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else in this
@@ -155,12 +157,13 @@ interface WindowSessionPlumbing {
  */
 function createWindowSessionPlumbing(
   bridge: PlatformBridge,
+  clock: Clock,
   projectorRegistry: EntityProjectorRegistry,
   readSession: SessionSnapshotReader,
 ): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({
     read: readSession,
-    clock: resolveBridgeClock(bridge),
+    clock,
     // THE PROJECTORS ARE PART OF THE PLUMBING, not an optional extra. The registry
     // has taken them since it was written and this root registered none, so every
     // store it opened admitted its events into the timeline and projected them

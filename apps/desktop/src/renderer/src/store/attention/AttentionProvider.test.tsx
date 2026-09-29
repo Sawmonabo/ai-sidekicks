@@ -19,10 +19,7 @@ import type { SessionDirectoryReadCall } from "../session-directory/session-dire
 import type { SessionStore } from "../session/session-store.js";
 import type { SessionStoreRegistry } from "../session/session-store-registry.js";
 import { AttentionProvider } from "./AttentionProvider.js";
-import type {
-  AttentionProjectionReadCall,
-  AttentionSubscribeCall,
-} from "./hooks/useAttentionProjection.js";
+import type { AttentionProjectionReadCall } from "./hooks/useAttentionProjection.js";
 import { useAttention } from "./hooks/useAttention.js";
 
 /** A registry holding no store, which is all these reads ask of it. */
@@ -70,12 +67,10 @@ describe("the window's attention provider — the reading outlives a destination
       return Promise.resolve([{ sessionId: "session-a", state: "active" }]);
     };
     const clock = new RealClock();
-    const subscribeToAttention: AttentionSubscribeCall = () => () => undefined;
     const providerOver = (label: string): React.JSX.Element => (
       <AttentionProvider
         readAttention={readAttention}
         readDirectory={readDirectory}
-        subscribeToAttention={subscribeToAttention}
         transportReconnect={NO_TRANSPORT_RECONNECT}
         sessionStoreRegistry={EMPTY_REGISTRY}
         clock={clock}

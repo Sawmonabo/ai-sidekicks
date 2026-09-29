@@ -97,7 +97,7 @@ export function bridgeFor(options: { readonly scriptsCreate: boolean }): Platfor
     beats: [],
     replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],
   };
-  return createFixtureBridge({ scenario });
+  return createFixtureBridge({ scenario }).bridge;
 }
 
 /**

@@ -1,9 +1,9 @@
 // Binds one set of staged attachments to one component's lifetime.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -42,11 +42,7 @@ export function useStagedAttachments(
   sessionId: SessionId,
   port: AttachmentIngestPort,
 ): StagedAttachmentsBinding {
-  // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
-  // shape, for its reason: `resolveBridgeClock` mints a fresh `RealClock` per call on a
-  // live bridge, so reading it in a render body would hand a re-minted staged list a
-  // different instance from the one the first staged list was opened on.
-  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  const clock = useBridgeClock();
   const { value: stagedAttachments } = useSubjectScopedResource(
     bridge,
     sessionId,

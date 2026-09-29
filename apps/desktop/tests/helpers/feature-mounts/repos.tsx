@@ -40,6 +40,7 @@ import {
   sessionOperations,
 } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { renderSettled } from "../app-harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
 import { requireElement, requireLabeledRegion, type MountedView } from "./mount-queries.js";
@@ -53,8 +54,10 @@ import { requireElement, requireLabeledRegion, type MountedView } from "./mount-
  * because the first to land is not the last.
  */
 export async function mountRepoSection(): Promise<MountedView> {
-  const { bridge, sessionStore } = scenarioBridgeAndStore();
+  const { bridge, scenarioEngine, clock, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
+    // The provider carries the scenario's frozen clock, which the section's reads schedule on.
+    //
     // The announcer is the section's environment: an act announces its own settlement,
     // and `useAnnounce` throws outside the provider on purpose.
     //
@@ -62,18 +65,20 @@ export async function mountRepoSection(): Promise<MountedView> {
     // announcer's hold deadline is the one timer the primitive arms, and on a real
     // clock it lands a state update after the surface has settled — which a tier
     // records as whichever side of the clear the runner happened to reach.
-    <LiveAnnouncerProvider clock={new ManualClock()}>
-      <RepoSection
-        bridge={bridge}
-        sessionStore={sessionStore}
-        operations={sessionOperations()}
-        isOpen
-        openPane={() => undefined}
-      />
-    </LiveAnnouncerProvider>,
+    <PlatformBridgeProvider bridge={bridge} clock={clock}>
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <RepoSection
+          bridge={bridge}
+          sessionStore={sessionStore}
+          operations={sessionOperations()}
+          isOpen
+          openPane={() => undefined}
+        />
+      </LiveAnnouncerProvider>
+    </PlatformBridgeProvider>,
   );
   const region = requireElement(container, ".meridian-repo-section");
-  await advanceScenarioUntil(bridge, () => {
+  await advanceScenarioUntil(scenarioEngine, () => {
     const drawn = region.querySelectorAll(".meridian-mount-card").length;
     if (drawn < MOUNTS.length) {
       throw new Error(`${drawn} of ${MOUNTS.length} mount cards have rendered`);

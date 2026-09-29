@@ -9,8 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -190,19 +189,8 @@ describe("members the boundary refused", () => {
         }}
       />,
     );
-    const text = container.textContent ?? "";
-    expect(text).not.toContain("Nothing needs you.");
-    expect(text).toContain("2 deliveries could not be read");
+    expect(container.textContent ?? "").toContain("2 deliveries could not be read");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("negative control: a read that answered nothing AND dropped nothing is the all-clear", () => {
-    // Without this, the case above would pass over a center that had simply lost
-    // its empty state, which is a different defect wearing the same green tick.
-    const { container } = render(<NotificationsList reading={readingOf([])} />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Nothing needs you.");
-    expect(text).not.toContain("in that read");
   });
 });
 
@@ -216,19 +204,18 @@ describe("a read that did not cover every session", () => {
     const { container } = render(
       <NotificationsList reading={readingOf([], [refusedSession("session-b")])} />,
     );
-    const text = container.textContent ?? "";
-    expect(text).not.toContain("Nothing needs you.");
-    expect(text).toContain("One session could not be checked.");
+    expect(container.textContent ?? "").toContain("One session could not be checked.");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
-  it("negative control: the same empty read with every session answered IS the all-clear", () => {
-    // Without this, the case above would pass over a center that had simply lost its
-    // empty state, which is a different defect wearing the same warning.
+  it("negative control: the same empty read with every session answered draws only the heading", () => {
+    // Nothing waiting is shown by absence, so the list keeps its heading and draws
+    // nothing under it. Without this, the not-checked cases here would pass over a
+    // center that drew its warning for every empty read.
     const { container } = render(<NotificationsList reading={readingOf([])} />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Nothing needs you.");
-    expect(text).not.toContain("could not be checked");
+    expect(container.querySelector(".meridian-attention__title")?.textContent).toBe("Needs you");
+    expect(container.querySelector(".meridian-nothing")).toBeNull();
+    expect(container.querySelector(".meridian-attention__groups")).toBeNull();
   });
 
   it("keeps the dropped-member line beside the coverage warning", () => {
@@ -300,34 +287,6 @@ describe("what makes the attention read run again", () => {
   // The read goes through the console's one refresh scheduler, so time is frozen and a
   // case releases a coalesced read by moving the clock past its window.
 
-  /** A bridge whose attention signal a case can fire, and whose listeners it can count. */
-  function bridgeOn(clock: ManualClock): {
-    readonly bridge: PlatformBridge;
-    readonly wake: () => void;
-    readonly listenerCount: () => number;
-  } {
-    const listeners = new Set<() => void>();
-    const bridge = {
-      source: "fixture",
-      scenarioEngine: { clock },
-      attentionSubscribe: (onSignal: () => void) => {
-        listeners.add(onSignal);
-        return () => {
-          listeners.delete(onSignal);
-        };
-      },
-    } as unknown as PlatformBridge;
-    return {
-      bridge,
-      wake: () => {
-        for (const listener of [...listeners]) {
-          listener();
-        }
-      },
-      listenerCount: () => listeners.size,
-    };
-  }
-
   function registryOn(clock: ManualClock): SessionStoreRegistry {
     return new SessionStoreRegistry({ read: () => Promise.resolve(undefined), clock });
   }
@@ -356,27 +315,19 @@ describe("what makes the attention read run again", () => {
     readonly read: AttentionProjectionReadCall;
     readonly registry: SessionStoreRegistry;
   }): React.JSX.Element {
-    const bridge = usePlatformBridge();
     const clock = useClock();
     return (
-      <NotificationsList
-        reading={useAttentionProjection(
-          props.read,
-          props.registry,
-          clock,
-          bridge.attentionSubscribe,
-        )}
-      />
+      <NotificationsList reading={useAttentionProjection(props.read, props.registry, clock)} />
     );
   }
 
   function mount(
-    bridge: PlatformBridge,
+    clock: ManualClock,
     read: AttentionProjectionReadCall,
     registry: SessionStoreRegistry,
   ): ReturnType<typeof render> {
     return render(
-      <PlatformBridgeProvider bridge={bridge}>
+      <PlatformBridgeProvider bridge={bridgeOnClock("attention", clock).bridge} clock={clock}>
         <ReadThroughCenter read={read} registry={registry} />
       </PlatformBridgeProvider>,
     );
@@ -403,15 +354,14 @@ describe("what makes the attention read run again", () => {
 
   it("re-reads and renders the new answer when an open session's store moves", async () => {
     const clock = new ManualClock(0);
-    const { bridge } = bridgeOn(clock);
     const registry = registryOn(clock);
     const sessionId = openInitializedSession(registry);
     const served = { items: [] as readonly AttentionItem[] };
     const read = callServing(served);
-    const { container } = mount(bridge, read, registry);
+    const { container } = mount(clock, read, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
-    expect(container.textContent ?? "").toContain("Nothing needs you.");
+    expect(container.textContent ?? "").not.toContain("An approval is waiting.");
 
     served.items = [item()];
     act(() => {
@@ -423,64 +373,21 @@ describe("what makes the attention read run again", () => {
     expect(container.textContent ?? "").toContain("An approval is waiting.");
   });
 
-  it("re-reads when the bridge is swapped and the call did not move", async () => {
+  it("releases its subscription and reads no more once the surface has gone", async () => {
     const clock = new ManualClock(0);
     const registry = registryOn(clock);
     const read = callServing({ items: [] });
-    const view = mount(bridgeOn(clock).bridge, read, registry);
+    const view = mount(clock, read, registry);
     await releaseCoalescedRead(clock);
-    expect(read).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      view.rerender(
-        <PlatformBridgeProvider bridge={bridgeOn(clock).bridge}>
-          <ReadThroughCenter read={read} registry={registry} />
-        </PlatformBridgeProvider>,
-      );
-    });
-    await releaseCoalescedRead(clock);
-
-    expect(read).toHaveBeenCalledTimes(2);
-  });
-
-  it("re-reads when the bridge signals attention moved, for a session with no store", async () => {
-    const clock = new ManualClock(0);
-    const { bridge, wake } = bridgeOn(clock);
-    const served = { items: [] as readonly AttentionItem[] };
-    const read = callServing(served);
-    const { container } = mount(bridge, read, registryOn(clock));
-    await releaseCoalescedRead(clock);
-    expect(read).toHaveBeenCalledTimes(1);
-
-    served.items = [item({ sessionId: "session-never-opened" })];
-    act(() => {
-      wake();
-    });
-    await releaseCoalescedRead(clock);
-
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(container.textContent ?? "").toContain("An approval is waiting.");
-  });
-
-  it("releases both subscriptions and reads no more once the surface has gone", async () => {
-    const clock = new ManualClock(0);
-    const { bridge, wake, listenerCount } = bridgeOn(clock);
-    const registry = registryOn(clock);
-    const read = callServing({ items: [] });
-    const view = mount(bridge, read, registry);
-    await releaseCoalescedRead(clock);
-    expect(listenerCount()).toBe(1);
     expect(registry.listenerCount).toBe(1);
     view.unmount();
 
     act(() => {
-      wake();
       registry.open("session-b");
     });
     await releaseCoalescedRead(clock);
 
     expect(read).toHaveBeenCalledTimes(1);
-    expect(listenerCount()).toBe(0);
     expect(registry.listenerCount).toBe(0);
     expect(clock.pendingCount).toBe(0);
   });

@@ -85,11 +85,9 @@ interface OutageHarness {
  * request rather than a debounce interval away.
  */
 function createOutageHarness(refusalCount: number): OutageHarness {
-  const base = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
-  const engine = base.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
+  const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
+    scenario: CONCURRENT_STREAMING_SCENARIO,
+  });
   const outage = new ScriptedStreamOutage(refusalCount);
   const bridge = withDaemonSubscribe(base, (passThrough) => outage.openStream(passThrough));
   const reasonsSeen: string[] = [];

@@ -48,7 +48,7 @@ function operationsAnsweringTheCall(): RepoOperations {
 function renderControl(operations: RepoOperations): ReturnType<typeof render> {
   return render(
     <ReattachControl
-      bridge={bridgeOnClock("repos")}
+      bridge={bridgeOnClock("repos").bridge}
       operations={operations}
       sessionId={SESSION_ID}
       localPath={LOCAL_PATH}

@@ -2,6 +2,7 @@
 
 import { createContext, type Context } from "react";
 
+import type { Clock } from "@renderer/lib/clock.js";
 import type { SessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 
@@ -11,10 +12,28 @@ export interface BridgeUnavailable {
   readonly detail: string;
 }
 
-/** The resolved bridge, or why there is none. */
+/**
+ * The resolved bridge and the clock its window runs on, or why there is none. The clock
+ * is the resolution's, not the bridge's: it is not a host capability.
+ */
 export type BridgeResolution =
-  | { readonly status: "ready"; readonly bridge: PlatformBridge }
+  | { readonly status: "ready"; readonly bridge: PlatformBridge; readonly clock: Clock }
   | { readonly status: "unavailable"; readonly unavailable: BridgeUnavailable };
+
+/** The end of what a composition built: the provider disposes it once, and reads whether it ran. */
+export interface BridgeDisposal {
+  dispose(): void;
+  readonly isDisposed: boolean;
+}
+
+/** A bridge a composition built, the clock its window runs on, and what ends them. */
+export interface ComposedBridge {
+  readonly bridge: PlatformBridge;
+  readonly clock: Clock;
+  readonly disposal: BridgeDisposal;
+  /** Put what a driver reads about this bridge on the page, and return the removal. */
+  installHandles(): () => void;
+}
 
 /**
  * How a window that was handed no bridge builds one, and what it puts on the page for a
@@ -26,10 +45,8 @@ export type BridgeResolution =
  * what it put up.
  */
 export interface BridgeComposition {
-  /** Build the bridge. The provider disposes the scenario engine of a bridge built here. */
-  createBridge(): PlatformBridge;
-  /** Put what a driver reads about this bridge on the page. */
-  installBridgeHandles(bridge: PlatformBridge): () => void;
+  /** Build the bridge. The provider disposes what it builds here. */
+  createBridge(): ComposedBridge;
   /** Put what a driver reads about this window's session subscriptions on the page. */
   installSessionDiagnostics(diagnostics: SessionDiagnostics): () => void;
 }

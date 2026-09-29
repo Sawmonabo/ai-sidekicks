@@ -32,11 +32,13 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";
@@ -72,20 +74,19 @@ async function mountProbe(strict: boolean): Promise<{
       stores.push(store);
     }
   };
-  // The hook resolves its clock from the bridge, so the probe renders inside a
-  // provider — a SUPPLIED fixture bridge, which the provider never disposes and
+  // The hook reads its clock from the bridge resolution, so the probe renders inside
+  // a provider — a SUPPLIED fixture bridge, which the provider never disposes and
   // never re-resolves, so the double mount below stays the probe's alone.
   //
   // `StrictMode` wraps the provider rather than sitting under it, because React
   // simulates the extra unmount-and-remount for the tree it is the ROOT of: with
   // the provider outside it the probe rendered twice and its effect ran once, and
   // the double mount this file exists to drive never happened.
+  const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const tree = (
-    <PlatformBridgeProvider
-      bridge={createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO })}
-    >
+    <FixtureBridgeProvider fixture={fixture}>
       <StoreProbe onStore={record} />
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
   let mounted: ReturnType<typeof render> | undefined;
   await act(async () => {
@@ -196,28 +197,28 @@ function PairProbe(props: { readonly onObserve: (observation: StoreObservation) 
  * changed `bridge` prop does, and a simulated remount on top of it would make every
  * case here ambiguous about which arm re-opened the store.
  */
-function mountSwappable(bridge: PlatformBridge): {
+function mountSwappable(fixture: FixtureBridge): {
   readonly observed: readonly StoreObservation[];
   readonly stores: () => readonly UiStateStore[];
-  readonly renderAgainst: (next: PlatformBridge) => Promise<void>;
+  readonly renderAgainst: (next: FixtureBridge) => Promise<void>;
   readonly unmount: () => void;
 } {
   const observed: StoreObservation[] = [];
   const record = (observation: StoreObservation): void => {
     observed.push(observation);
   };
-  const hostFor = (against: PlatformBridge): React.JSX.Element => (
-    <PlatformBridgeProvider bridge={against}>
+  const hostFor = (against: FixtureBridge): React.JSX.Element => (
+    <FixtureBridgeProvider fixture={against}>
       <PairProbe onObserve={record} />
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
-  const mounted = render(hostFor(bridge));
+  const mounted = render(hostFor(fixture));
   return {
     observed,
     stores: (): readonly UiStateStore[] => [
       ...new Set(observed.map((observation) => observation.store)),
     ],
-    renderAgainst: async (next: PlatformBridge): Promise<void> => {
+    renderAgainst: async (next: FixtureBridge): Promise<void> => {
       await act(async () => {
         mounted.rerender(hostFor(next));
         await crossMacrotaskBoundary();
@@ -255,7 +256,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     const flagship = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
 
-    expect(resolveBridgeClock(flagship).now()).not.toBe(resolveBridgeClock(firstRun).now());
+    expect(flagship.scenarioEngine.clock.now()).not.toBe(firstRun.scenarioEngine.clock.now());
   });
 
   it("commits no frame that writes through a store built on another bridge's clock", async () => {
@@ -287,7 +288,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     if (retired === undefined) {
       return;
     }
-    await expect(stampWrittenThrough(retired)).resolves.toBe(resolveBridgeClock(flagship).now());
+    await expect(stampWrittenThrough(retired)).resolves.toBe(flagship.scenarioEngine.clock.now());
 
     await probe.renderAgainst(firstRun);
 
@@ -299,7 +300,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
       return;
     }
     // Bound to the NEW bridge: the clock this store stamps from is that bridge's.
-    await expect(stampWrittenThrough(current)).resolves.toBe(resolveBridgeClock(firstRun).now());
+    await expect(stampWrittenThrough(current)).resolves.toBe(firstRun.scenarioEngine.clock.now());
     // And the retired connection is closed rather than merely dropped, which is the
     // whole reason this hook owns a lifetime: an open connection blocks the next
     // version upgrade whether or not anything is still reading through it.
@@ -358,7 +359,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
       return;
     }
     expect(third.isClosed).toBe(false);
-    await expect(stampWrittenThrough(third)).resolves.toBe(resolveBridgeClock(flagship).now());
+    await expect(stampWrittenThrough(third)).resolves.toBe(flagship.scenarioEngine.clock.now());
     expect(stores.slice(0, 2).every((store) => store.isClosed)).toBe(true);
 
     probe.unmount();

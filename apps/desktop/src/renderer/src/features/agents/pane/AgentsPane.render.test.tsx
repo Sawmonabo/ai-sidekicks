@@ -8,9 +8,12 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { AgentsPaneCalls } from "../agent-reads.js";
 import { AgentsPane } from "./AgentsPane.js";
@@ -25,24 +28,26 @@ const EMPTY_CALLS: AgentsPaneCalls = {
   readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
 };
 
-function fixtureBridge(): PlatformBridge {
+function fixtureBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("agents-pane-body") });
 }
 
 /** Mount the body over a real store and let its scheduled reads land. */
 async function renderBody(agentId: string | undefined): Promise<HTMLElement> {
-  const bridge = fixtureBridge();
+  const fixture = fixtureBridge();
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: 0, entities: [] });
   const { container } = render(
-    <AgentsPane
-      agentId={agentId}
-      bridge={bridge}
-      sessionStore={sessionStore}
-      calls={EMPTY_CALLS}
-    />,
+    <FixtureBridgeProvider fixture={fixture}>
+      <AgentsPane
+        agentId={agentId}
+        bridge={fixture.bridge}
+        sessionStore={sessionStore}
+        calls={EMPTY_CALLS}
+      />
+    </FixtureBridgeProvider>,
   );
-  await settleReads(bridge);
+  await settleReads(fixture.scenarioEngine);
   return container;
 }
 
@@ -70,8 +75,11 @@ describe("Agents pane — the body draws no head of its own", () => {
 
 describe("Agents pane — a mount with no session", () => {
   it("says nothing was asked when the mount resolved no session store", () => {
+    const fixture = fixtureBridge();
     const { container } = render(
-      <AgentsPane agentId="agent-scout" bridge={fixtureBridge()} calls={EMPTY_CALLS} />,
+      <FixtureBridgeProvider fixture={fixture}>
+        <AgentsPane agentId="agent-scout" bridge={fixture.bridge} calls={EMPTY_CALLS} />
+      </FixtureBridgeProvider>,
     );
 
     expect(container.textContent ?? "").toContain("not handed a session");

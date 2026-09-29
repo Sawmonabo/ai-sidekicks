@@ -51,7 +51,7 @@ export class HeldLeaseCalls {
   readonly #heldResolvers: (() => void)[] = [];
   public readonly bridge: PlatformBridge = createFixtureBridge({
     scenario: TERMINAL_LEASE_SCENARIO,
-  });
+  }).bridge;
   public readonly calls: TerminalLeaseCalls;
 
   public constructor() {

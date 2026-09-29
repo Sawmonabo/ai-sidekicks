@@ -3,15 +3,20 @@
 // opening read and a choice, and between keys.
 
 import { describe, expect, it, vi } from "vitest";
+import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { MachineSettingsStore, type MachineSettingsFile } from "./machine-settings-store.js";
 import { effectivePreference } from "./machine-settings-snapshot.js";
 
-/** The bridge the store takes its clock from; nothing is scripted and nothing needs to be. */
-function fixtureBridge(): ReturnType<typeof createFixtureBridge> {
-  return createFixtureBridge({ scenario: unscriptedScenario("machine-settings-test") });
+/**
+ * The window's clock the store schedules its reads on: the frozen one of a scenario that
+ * scripts nothing, since nothing needs to be.
+ */
+function windowClock(): Clock {
+  return createFixtureBridge({ scenario: unscriptedScenario("machine-settings-test") })
+    .scenarioEngine.clock;
 }
 
 /** A settings file holding `values`, whose write is accepted. */
@@ -24,37 +29,37 @@ function settingsFileHolding(
 
 describe("machine settings — a settings file that answers", () => {
   it("prefers the settings file's stored value over the default", async () => {
-    const bridge = fixtureBridge();
+    const clock = windowClock();
     const store = new MachineSettingsStore(
-      bridge,
+      clock,
       settingsFileHolding({ "diagnostics.crashReports": false }),
     );
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(effectivePreference(store.snapshot(), "diagnostics.crashReports")).toBe(false);
   });
 
   it("applies an accepted write into the settings file's own record", async () => {
     const write = vi.fn(async () => await Promise.resolve(undefined));
-    const bridge = fixtureBridge();
-    const store = new MachineSettingsStore(bridge, settingsFileHolding({}, write));
+    const clock = windowClock();
+    const store = new MachineSettingsStore(clock, settingsFileHolding({}, write));
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     await store.choose("notifications.osToastsMuted", true);
     expect(write).toHaveBeenCalledWith({ key: "notifications.osToastsMuted", enabled: true });
     expect(effectivePreference(store.snapshot(), "notifications.osToastsMuted")).toBe(true);
   });
 
   it("negative control: a rejected write leaves the stored value and stops pending", async () => {
-    const bridge = fixtureBridge();
+    const clock = windowClock();
     const store = new MachineSettingsStore(
-      bridge,
+      clock,
       settingsFileHolding({ "updates.automatic": true }, () =>
         Promise.reject(new Error("read-only")),
       ),
     );
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     await expect(store.choose("updates.automatic", false)).rejects.toThrow("read-only");
     expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(true);
     expect(store.snapshot().pendingKeys.size).toBe(0);
@@ -91,13 +96,13 @@ describe("machine settings — the opening read never lands on a newer choice", 
     // read's continuation then replaced the whole record with the snapshot from
     // before the choice — so the switch reverted moments after it was saved.
     const opening = heldRead();
-    const bridge = fixtureBridge();
-    const store = new MachineSettingsStore(bridge, {
+    const clock = windowClock();
+    const store = new MachineSettingsStore(clock, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
 
     await store.choose("updates.automatic", false);
     opening.serve({ "updates.automatic": true });
@@ -109,13 +114,13 @@ describe("machine settings — the opening read never lands on a newer choice", 
 
   it("installs a read that settled with no choice against it", async () => {
     const opening = heldRead();
-    const bridge = fixtureBridge();
-    const store = new MachineSettingsStore(bridge, {
+    const clock = windowClock();
+    const store = new MachineSettingsStore(clock, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
 
     opening.serve({ "updates.automatic": false });
     await Promise.resolve();
@@ -130,13 +135,13 @@ describe("machine settings — the opening read never lands on a newer choice", 
     // read — including one that settled before anybody chose — which would make the
     // settings file's record unreachable rather than merely superseded.
     const opening = heldRead();
-    const bridge = fixtureBridge();
-    const store = new MachineSettingsStore(bridge, {
+    const clock = windowClock();
+    const store = new MachineSettingsStore(clock, {
       read: opening.answer,
       write: async () => await Promise.resolve(undefined),
     });
     store.start();
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
 
     opening.serve({ "diagnostics.crashReports": false });
     await Promise.resolve();
@@ -190,7 +195,7 @@ describe("machine settings — one key's write never discards another's", () => 
     // this store reads once and never refreshes, so the window showed A's old value
     // for the rest of its life.
     const write = heldWrite();
-    const store = new MachineSettingsStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(windowClock(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -212,7 +217,7 @@ describe("machine settings — one key's write never discards another's", () => 
 
   it("clears only the settled key's spinner, not every key writing", async () => {
     const write = heldWrite();
-    const store = new MachineSettingsStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(windowClock(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -234,7 +239,7 @@ describe("machine settings — one key's write never discards another's", () => 
     // superseding at all — which would let a stale reply for one key land over the
     // value a person chose for it a moment later.
     const write = heldWrite();
-    const store = new MachineSettingsStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(windowClock(), {
       read: async () => await Promise.resolve({}),
       write: write.answer,
     });
@@ -254,7 +259,7 @@ describe("machine settings — one key's write never discards another's", () => 
     // The two writes are answered newest first, so the older continuation runs AFTER the
     // newer one has settled and would put its own value over the one chosen later.
     const answers: (() => void)[] = [];
-    const store = new MachineSettingsStore(fixtureBridge(), {
+    const store = new MachineSettingsStore(windowClock(), {
       read: async () => await Promise.resolve({}),
       write: async () =>
         await new Promise<void>((resolve) => {

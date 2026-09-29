@@ -37,7 +37,7 @@ import type {
   DriverCapabilityReadout,
 } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
-import { resolveBridgeClock } from "../platform/hooks/useClock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. Frozen so no caller writes one in place. */
@@ -73,13 +73,12 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   readonly #listeners = new Set<() => void>();
   #readout: DriverCapabilityReadout | undefined;
 
-  public constructor(bridge: PlatformBridge) {
+  public constructor(bridge: PlatformBridge, clock: Clock) {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
-      // The fixture's frozen clock wherever a scenario is playing and the real one
-      // otherwise, resolved once per bridge — the frozen clock is the only clock the
-      // renderer reads in fixture mode.
-      clock: resolveBridgeClock(bridge),
+      // The window's clock: the fixture's frozen clock wherever a scenario is playing, the
+      // only clock the renderer reads in fixture mode.
+      clock,
       perform: async (_reasons, round) => {
         await this.#read(round);
       },
@@ -185,12 +184,12 @@ function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
 class DriverCapabilityReadCache {
   readonly #readingByBridge = new WeakMap<PlatformBridge, BridgeCapabilityRead>();
 
-  public reading(bridge: PlatformBridge): BridgeCapabilityRead {
+  public reading(bridge: PlatformBridge, clock: Clock): BridgeCapabilityRead {
     const held = this.#readingByBridge.get(bridge);
     if (held !== undefined) {
       return held;
     }
-    const created = new BridgeCapabilityRead(bridge);
+    const created = new BridgeCapabilityRead(bridge, clock);
     this.#readingByBridge.set(bridge, created);
     return created;
   }

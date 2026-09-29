@@ -17,8 +17,8 @@
 //
 // THE CALLS AND THE WINDOW'S HANDLES ARE THE COMPOSITION'S. This module holds only how
 // the answers are kept and provided; the calls that list the node's sessions and read
-// the projection, the attention subscription, the reconnect signal, the clock and the
-// session store registry are handed in, so nothing here reaches a wire or a service.
+// the projection, the reconnect signal, the clock and the session store registry are
+// handed in, so nothing here reaches a wire or a service.
 //
 // NOTHING HERE POLLS AND NOTHING HERE RENDERS. The attention read re-runs when the
 // session projections underneath it move, through the console's one push-driven read
@@ -40,7 +40,6 @@ import { type SessionStoreRegistry } from "../session/session-store-registry.js"
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
-  type AttentionSubscribeCall,
 } from "./hooks/useAttentionProjection.js";
 import { WindowAttentionContext, type WindowAttention } from "./hooks/useAttention.js";
 
@@ -51,8 +50,6 @@ export interface AttentionProviderProps {
   readonly readDirectory: SessionDirectoryReadCall;
   /** The call that reads the attention projection. */
   readonly readAttention: AttentionProjectionReadCall;
-  /** The bridge's signal that the attention projection moved. */
-  readonly subscribeToAttention: AttentionSubscribeCall;
   /** The bridge's reconnect signal, which re-reads the directory. */
   readonly transportReconnect: TransportReconnectObservable;
   readonly sessionStoreRegistry: SessionStoreRegistry;
@@ -72,7 +69,6 @@ export function AttentionProvider(props: AttentionProviderProps): React.JSX.Elem
     props.readAttention,
     props.sessionStoreRegistry,
     props.clock,
-    props.subscribeToAttention,
   );
   const { readDirectory } = props;
   const recheckDirectory = useCallback(() => {

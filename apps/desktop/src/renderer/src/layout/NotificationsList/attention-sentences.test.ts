@@ -1,9 +1,9 @@
 // One settled read, one sentence — and the wordings that must not blur together.
 //
 // Every case here is really the same assertion from a different side: a person who
-// hears this sentence and cannot see the panel must be able to tell an all-clear
-// from a read that covered less than it was asked to. The two shapes that would
-// break that are a zero worded as freedom when coverage was incomplete, and a
+// hears this sentence and cannot see the panel must be able to tell a read that found
+// nothing from a read that covered less than it was asked to. The two shapes that
+// would break that are a zero left silent when coverage was incomplete, and a
 // coverage gap left out of a sentence that reported a count.
 
 import { describe, expect, it } from "vitest";
@@ -69,11 +69,11 @@ describe("what one settled attention read says", () => {
     ).toBe("2 items need you.");
   });
 
-  it("says the all-clear only for a read that covered everything", () => {
+  it("stays silent only for a read that found nothing and covered everything", () => {
     // The whole point of the zero wording. A read that answered for every session
-    // and dropped nothing is freedom; anything less is not, and the sentence has to
-    // carry that difference on its own because nobody hearing it can see the panel.
-    expect(describeAttentionSettlement(answered({}))).toBe("Nothing needs you.");
+    // and dropped nothing has nothing to say; anything less does, and the sentence has
+    // to carry that difference on its own because nobody hearing it can see the panel.
+    expect(describeAttentionSettlement(answered({}))).toBeUndefined();
     expect(
       describeAttentionSettlement(answered({ refusedSessions: [refusedSession("s-1")] })),
     ).toBe("Nothing was found in what this read covered. One session could not be checked.");

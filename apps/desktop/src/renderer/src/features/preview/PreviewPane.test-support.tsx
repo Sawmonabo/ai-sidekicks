@@ -9,16 +9,24 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { ManualClock } from "@renderer/lib/clock.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { RecordingViewHost } from "./geometry/geometry-publisher.test-support.js";
 import type { AttachedPaneViewHost } from "./geometry/view-host.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { PreviewPaneContent, type BrowserChromeActs } from "./components/PreviewPaneContent.js";
+
+/** The context the pane is handed, and the fixture whose window it is mounted in. */
+export interface PreviewPaneSubject {
+  readonly context: PaneContextOf<"browser">;
+  readonly fixture: FixtureBridge;
+}
 
 /**
  * The refusal banner the pane raises — a plain group, since the frame's announcer
@@ -44,12 +52,13 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
 }
 
 /**
- * The bridge a fixture or end-to-end run hands this pane.
+ * The fixture bridge a fixture or end-to-end run hands this pane, with the engine whose
+ * frozen clock its window runs on.
  *
  * Named rather than inlined at each mount, so suites that mount the same pane share one
  * window.
  */
-export function fixtureBrowserBridge(): PlatformBridge {
+export function fixtureBrowserBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
 }
 
@@ -61,22 +70,22 @@ export function fixtureBrowserBridge(): PlatformBridge {
  * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
  * not want it.
  *
- * The bridge is handed BACK beside the context because a default argument the caller
- * did not pass is a bridge it cannot otherwise name.
+ * The fixture is handed BACK beside the context because a default argument the caller
+ * did not pass is a fixture it cannot otherwise name.
  *
  * The address arm carries no `entity` member: `browser` is session-scoped, so the
  * union's arm has none and the seat refuses one at this call site.
  */
 export function previewPaneContext(
-  bridge: PlatformBridge = fixtureBrowserBridge(),
+  fixture: FixtureBridge = fixtureBrowserBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
-): {
-  readonly context: PaneContextOf<"browser">;
-  readonly bridge: PlatformBridge;
-} {
+): PreviewPaneSubject {
   return {
-    bridge,
-    context: paneContext({ kind: "browser" }, { bridge, sessionStore: undefined, paneId }),
+    fixture,
+    context: paneContext(
+      { kind: "browser" },
+      { bridge: fixture.bridge, sessionStore: undefined, paneId },
+    ),
   };
 }
 
@@ -97,20 +106,25 @@ export function recordingActs(navigations: string[] = []): BrowserChromeActs {
   };
 }
 
-/** The chrome over no reported location, no pages, the given acts and the given host. */
+/**
+ * The chrome over no reported location, no pages, the given acts and the given host, in
+ * the subject's window.
+ */
 export function chromeFor(
-  context: PaneContextOf<"browser">,
+  subject: PreviewPaneSubject,
   acts: BrowserChromeActs,
   viewHost: AttachedPaneViewHost,
 ): React.JSX.Element {
   return (
-    <PreviewPaneContent
-      {...context}
-      navigation={{ kind: "reading" }}
-      pages={{ kind: "reading" }}
-      acts={acts}
-      viewHost={viewHost}
-    />
+    <FixtureBridgeProvider fixture={subject.fixture}>
+      <PreviewPaneContent
+        {...subject.context}
+        navigation={{ kind: "reading" }}
+        pages={{ kind: "reading" }}
+        acts={acts}
+        viewHost={viewHost}
+      />
+    </FixtureBridgeProvider>
   );
 }
 
@@ -135,12 +149,12 @@ export interface PreviewPaneSubjectMount {
  * a fresh tree could not reach that case at all.
  */
 export async function mountPreviewPaneForSubject(
-  bridge: PlatformBridge,
+  fixture: FixtureBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<PreviewPaneSubjectMount> {
-  const built = previewPaneContext(bridge, paneId);
+  const built = previewPaneContext(fixture, paneId);
   // One host for the whole mount: a new one per render would re-mint the publisher.
   const viewHost = new RecordingViewHost();
   let mounted: RenderResult | undefined;
@@ -148,9 +162,9 @@ export async function mountPreviewPaneForSubject(
   // skips re-rendering a child whose element is referentially identical, so a probe
   // passed as a node would mount once and then observe none of the commits it exists
   // to observe. Instantiated here, each render hands it a fresh element.
-  const tree = (subject: { readonly context: PaneContextOf<"browser"> }): React.JSX.Element => (
+  const tree = (subject: PreviewPaneSubject): React.JSX.Element => (
     <>
-      {chromeFor(subject.context, acts, viewHost)}
+      {chromeFor(subject, acts, viewHost)}
       {ProbeComponent === undefined ? null : <ProbeComponent />}
     </>
   );
@@ -162,7 +176,7 @@ export async function mountPreviewPaneForSubject(
     throw new Error("the browser pane did not mount");
   }
   const rebindTo = async (nextPaneId: string): Promise<void> => {
-    const rebound = previewPaneContext(bridge, nextPaneId);
+    const rebound = previewPaneContext(fixture, nextPaneId);
     await act(async () => {
       rendered.rerender(tree(rebound));
     });
@@ -196,41 +210,34 @@ export function previewPaneRegion(): HTMLElement {
  * Mount the pane's chrome and let its first effects settle.
  */
 export async function renderPreviewPane(
-  bridge?: PlatformBridge,
+  fixture?: FixtureBridge,
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<{
   readonly region: HTMLElement;
-  readonly bridge: PlatformBridge;
+  readonly fixture: FixtureBridge;
 }> {
-  const built = previewPaneContext(bridge);
+  const built = previewPaneContext(fixture);
   await act(async () => {
-    render(chromeFor(built.context, acts, new RecordingViewHost()));
+    render(chromeFor(built, acts, new RecordingViewHost()));
   });
-  return { region: previewPaneRegion(), bridge: built.bridge };
+  return { region: previewPaneRegion(), fixture: built.fixture };
 }
 
 /**
- * Run the frames this window's clock is holding, and let the commit they cause land.
+ * Run the frames this fixture's window clock is holding, and let the commit they cause land.
  *
  * THE PANE'S GEOMETRY PUBLISHER READS ON INVALIDATION AND WRITES ON THE NEXT FRAME,
  * and that frame is armed on the window's own clock — which under the fixture is the
  * scenario's frozen one. So a publish is reached by a state change and never by
  * elapsed wall time, which is the whole point of a frozen clock and the reason this
- * has to be said out loud: while the publisher minted a private `RealClock`, every
- * caller below got its publish for free from whichever animation frame happened to
- * fire first, and whether it had happened yet was decided by how fast the runner was.
+ * has to be said out loud: a publisher on a private `RealClock` would get its publish
+ * for free from whichever animation frame happened to fire first, and whether it had
+ * happened yet would be decided by how fast the runner was.
  *
  * Inside `act` because the publish records an outcome the pane is subscribed to.
- *
- * Under a live bridge the clock is real and the browser fires its own frames, so the
- * narrowing is the whole condition rather than a guard around one: there is nothing
- * here to do.
  */
-export async function releaseQueuedPaneFrames(bridge: PlatformBridge): Promise<void> {
-  const clock = resolveBridgeClock(bridge);
-  if (!(clock instanceof ManualClock)) {
-    return;
-  }
+export async function releaseQueuedPaneFrames(fixture: FixtureBridge): Promise<void> {
+  const clock = frozenClockOf(fixture.scenarioEngine.clock);
   await act(async () => {
     clock.runFrame();
     await crossMacrotaskBoundary();

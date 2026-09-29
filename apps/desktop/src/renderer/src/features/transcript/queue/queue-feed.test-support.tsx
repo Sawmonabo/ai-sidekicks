@@ -8,8 +8,10 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
 import type { QueueCalls, QueueFeed } from "./queue-reading.js";
@@ -48,14 +50,16 @@ export const QUEUED_ROW: QueueItemSummary = queueRow(
 );
 
 /**
- * The shipped fixture bridge, which supplies the frozen clock and the reconnect signal,
- * and stub queue calls that record what they were asked.
+ * The shipped fixture bridge, which supplies the reconnect signal, its engine's frozen
+ * clock that a case hands to the provider beside the bridge, and stub queue calls that
+ * record what they were asked.
  *
  * The record is live: every case destructures at the top and asserts at the bottom, so
  * each member is an array the calls append to rather than a copy taken up front.
  */
 export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   bridge: PlatformBridge;
+  clock: Clock;
   queueCalls: QueueCalls;
   deliver: (item: QueueItemSummary) => void;
   tailedSessionIds: readonly string[];
@@ -66,8 +70,10 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   const listedSessionIds: string[] = [];
   const canceledItemIds: string[] = [];
   const tails = new Set<(item: QueueItemSummary) => void>();
+  const { bridge, engine } = createFixture();
   return {
-    bridge: createFixture().bridge,
+    bridge,
+    clock: engine.clock,
     queueCalls: {
       list: async (sessionId) => {
         listedSessionIds.push(sessionId);
@@ -115,7 +121,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
   deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
 }> {
-  const { bridge, queueCalls, deliver } = queueFeedBridge(snapshot);
+  const { bridge, clock, queueCalls, deliver } = queueFeedBridge(snapshot);
   let held: QueueFeed | undefined;
   render(
     <QueueFeedProbe
@@ -124,8 +130,9 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
       queueCalls={queueCalls}
       onFeed={(feed) => (held = feed)}
     />,
+    { wrapper: bridgeWrapper(bridge, clock) },
   );
-  await settleScheduledRead(bridge);
+  await settleScheduledRead(clock);
   return {
     deliver: (item) => {
       act(() => {

@@ -49,7 +49,7 @@ export function renderRuntimePage(options: {
   readonly holdsControls?: boolean;
 }): MountedRuntimePage {
   const ledger: ControlLedger = { calls: [], statusReads: [] };
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
+  const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
   const holdOpen = async (): Promise<void> => {
     if (options.holdsControls === true) {
       await NEVER_SETTLES;

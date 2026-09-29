@@ -39,13 +39,13 @@ describe("Preview pane geometry — the publisher's binding", () => {
     const viewHost = new RecordingViewHost();
     const built = previewPaneContext();
     await act(async () => {
-      render(<StrictMode>{chromeFor(built.context, recordingActs(), viewHost)}</StrictMode>);
+      render(<StrictMode>{chromeFor(built, recordingActs(), viewHost)}</StrictMode>);
     });
 
     // The frame the attach queued, which is where a publish lands. A binding that had
     // committed the corpse arms nothing on the second mount, so this releases nothing
     // and the log below stays empty.
-    await releaseQueuedPaneFrames(built.bridge);
+    await releaseQueuedPaneFrames(built.fixture);
 
     expect(viewHost.samples.length).toBeGreaterThan(0);
   });
@@ -54,12 +54,12 @@ describe("Preview pane geometry — the publisher's binding", () => {
     const firstHost = new RecordingViewHost();
     const secondHost = new RecordingViewHost();
     const built = previewPaneContext();
-    const rendered = render(chromeFor(built.context, recordingActs(), firstHost));
-    await releaseQueuedPaneFrames(built.bridge);
+    const rendered = render(chromeFor(built, recordingActs(), firstHost));
+    await releaseQueuedPaneFrames(built.fixture);
     expect(firstHost.samples.length).toBeGreaterThan(0);
 
-    rendered.rerender(chromeFor(built.context, recordingActs(), secondHost));
-    await releaseQueuedPaneFrames(built.bridge);
+    rendered.rerender(chromeFor(built, recordingActs(), secondHost));
+    await releaseQueuedPaneFrames(built.fixture);
 
     expect(secondHost.samples.length).toBeGreaterThan(0);
   });

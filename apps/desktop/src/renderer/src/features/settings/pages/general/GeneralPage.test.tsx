@@ -22,10 +22,10 @@ const SCENARIO = unscriptedScenario("application-page-test");
  * bridge said rather than a constant of its own.
  */
 function contextFor(): SettingsPageContext {
-  const fixture = createFixtureBridge({ scenario: SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: SCENARIO });
   return {
     bridge: {
-      ...fixture,
+      ...bridge,
       app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
     },
     openPage: () => undefined,

@@ -31,7 +31,7 @@ export const DELAYED_RESULT: { readonly agents: readonly unknown[] } = { agents:
 export const PROBE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
 export interface FixtureUnderTest {
-  readonly bridge: ReturnType<typeof createFixtureBridge>;
+  readonly bridge: PlatformBridge;
   readonly engine: ScenarioEngine;
 }
 
@@ -85,12 +85,8 @@ export function lastScriptedBeatMs(scenario: Scenario): number {
 export function createFixture(
   scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
 ): FixtureUnderTest {
-  const bridge = createFixtureBridge({ scenario });
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
-  return { bridge, engine };
+  const { bridge, scenarioEngine } = createFixtureBridge({ scenario });
+  return { bridge, engine: scenarioEngine };
 }
 
 /**
@@ -219,6 +215,12 @@ export function withDaemonSubscribe(
   };
 }
 
+/** A bridge whose call arm answers as the suite says, and the engine playing its scenario. */
+export interface AnsweringBridge extends BridgeUnderTest {
+  /** Its frozen clock is the one the window runs on. */
+  readonly engine: ScenarioEngine;
+}
+
 /**
  * The shipped fixture with that call arm on it, over the concurrent-streaming scenario or over a
  * scenario the suite names.
@@ -230,8 +232,9 @@ export function withDaemonSubscribe(
 export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
   scenario?: Scenario,
-): BridgeUnderTest {
-  return withDaemonCall(createFixture(scenario).bridge, answer);
+): AnsweringBridge {
+  const { bridge, engine } = createFixture(scenario);
+  return { ...withDaemonCall(bridge, answer), engine };
 }
 
 /**
@@ -258,17 +261,23 @@ export function unscriptedScenario(id: string): Scenario {
   };
 }
 
+/** A bridge over a scenario that scripts nothing, the engine playing it, and its window's clock. */
+export interface BridgeOnClock {
+  readonly bridge: PlatformBridge;
+  readonly scenarioEngine: ScenarioEngine;
+  /** The clock the window runs on: the one the case handed in, or the engine's frozen one. */
+  readonly clock: Clock;
+}
+
 /**
  * A bridge over a scenario that scripts nothing, whose window runs on this clock.
  *
- * `resolveBridgeClock` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
- * clock, so the engine member is replaced by hand. The scenario id is the caller's for the
- * reason `unscriptedScenario` gives.
+ * The clock is handed to the provider beside the bridge, the way a window resolves one. The
+ * scenario id is the caller's for the reason `unscriptedScenario` gives.
  */
-export function bridgeOnClock(scenarioId: string, clock?: Clock): PlatformBridge {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario(scenarioId) });
-  if (clock === undefined) {
-    return bridge;
-  }
-  return { ...bridge, scenarioEngine: { clock } } as PlatformBridge;
+export function bridgeOnClock(scenarioId: string, clock?: Clock): BridgeOnClock {
+  const { bridge, scenarioEngine } = createFixtureBridge({
+    scenario: unscriptedScenario(scenarioId),
+  });
+  return { bridge, scenarioEngine, clock: clock ?? scenarioEngine.clock };
 }

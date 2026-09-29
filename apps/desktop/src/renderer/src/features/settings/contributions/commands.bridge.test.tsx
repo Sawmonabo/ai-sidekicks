@@ -10,7 +10,7 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -20,7 +20,7 @@ import { useBridgeCommands } from "../hooks/useBridgeCommands.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
 
 function fixtureBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+  return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO }).bridge;
 }
 
 function commandById(commands: readonly CommandDefinition[], commandId: string): CommandDefinition {
@@ -126,9 +126,9 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
 
     await act(async () => {
       render(
-        <PlatformBridgeProvider bridge={fixtureBridge()}>
+        <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
           <CommandProbe />
-        </PlatformBridgeProvider>,
+        </FixtureBridgeProvider>,
       );
     });
 

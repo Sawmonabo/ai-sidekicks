@@ -112,9 +112,9 @@ export function artifactOperations(script: Partial<ArtifactOperations> = {}): Ar
  * Let the scheduler's coalescing window elapse, then let the read's awaits run.
  *
  * One wait for two clocks. A reader a case constructs is handed a `ManualClock`, so the
- * window is advanced on that; a reader the pane composes runs on whatever
- * `resolveBridgeClock` answers for its bridge, which for a hand-built bridge is the host's
- * clock the mounted suites fake.
+ * window is advanced on that; a reader the pane composes runs on the window's clock, which
+ * for a bridge handed to the provider without one is a real clock over the host timers the
+ * mounted suites fake.
  *
  * `crossMacrotaskBoundary` never resolves while the host timers are faked, and `act`
  * needs a rendering environment a reader-only case does not have; `vi.isFakeTimers()`

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 
 import { readBindControlAvailability } from "../mount-health.js";
@@ -29,19 +30,21 @@ function renderRow(
   row: RepoWorkspaceRow,
   overrides: Partial<React.ComponentProps<typeof WorkspaceCard>> = {},
 ): ReturnType<typeof render> {
+  const { bridge, clock } = bridgeOnClock("repos");
   return render(
     <WorkspaceCard
       workspace={row}
       capabilities={undefined}
       pendingMode={undefined}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
-      bridge={bridgeOnClock("repos")}
+      bridge={bridge}
       operations={scriptedRepoOperations()}
       sessionStore={new SessionStore({ sessionId: "session-repos" })}
       onSelectExecutionMode={() => undefined}
       onRequestRead={() => undefined}
       {...overrides}
     />,
+    { wrapper: bridgeWrapper(bridge, clock) },
   );
 }
 

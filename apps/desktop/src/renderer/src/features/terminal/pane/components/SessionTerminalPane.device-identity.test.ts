@@ -17,7 +17,7 @@ import {
 } from "../../lease/hooks/useTerminalDeviceIdentity.js";
 
 function freshBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("terminal-device-identity") });
+  return createFixtureBridge({ scenario: unscriptedScenario("terminal-device-identity") }).bridge;
 }
 
 /** A read the case answers by hand, keyed by the order the reads were made in. */

@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
@@ -33,6 +34,7 @@ const WORKSPACE: RepoWorkspaceRow = workspaceRow();
 function renderCard(
   overrides: Partial<React.ComponentProps<typeof MountCard>> = {},
 ): ReturnType<typeof render> {
+  const { bridge, clock } = bridgeOnClock("repos");
   return render(
     // The announcer is the card's environment rather than its dependency: an act on the
     // card announces its settlement, and `useAnnounce` throws outside the provider on
@@ -44,7 +46,7 @@ function renderCard(
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
         pendingModeByWorkspaceId={{}}
-        bridge={bridgeOnClock("repos")}
+        bridge={bridge}
         operations={scriptedRepoOperations()}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
@@ -54,6 +56,7 @@ function renderCard(
         {...overrides}
       />
     </LiveAnnouncerProvider>,
+    { wrapper: bridgeWrapper(bridge, clock) },
   );
 }
 

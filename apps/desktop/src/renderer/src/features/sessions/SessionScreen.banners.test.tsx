@@ -96,13 +96,13 @@ function renderRoutableSession(store: UiStateStore): {
   readonly container: HTMLElement;
   readonly routeTo: (session: SessionWithStore) => void;
 } {
-  const bridge = createFixtureBridge({ scenario: SCENARIO });
+  const fixture = createFixtureBridge({ scenario: SCENARIO });
   const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
-  const { container, rerender } = render(workspaceFor(first, store, false, bridge));
+  const { container, rerender } = render(workspaceFor(first, store, false, fixture));
   return {
     container,
     routeTo: (session) => {
-      rerender(workspaceFor(session, store, false, bridge));
+      rerender(workspaceFor(session, store, false, fixture));
     },
   };
 }

@@ -5,6 +5,7 @@
 // scope here, because an auxiliary window is its own renderer process and no channel
 // joins two windows' module graphs.
 
+import type { Clock } from "@renderer/lib/clock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore, type MachineSettingsFile } from "./machine-settings-store.js";
 
@@ -43,15 +44,20 @@ class MachineSettingsStoreHolder {
   }
 
   /**
-   * The store for this bridge, minting one over `settingsFile` on first ask and on a bridge
-   * change. A store already held for the bridge keeps the settings file it was minted with.
+   * The store for this bridge, minting one over `settingsFile` on the window's `clock` on first
+   * ask and on a bridge change. A store already held for the bridge keeps the settings file
+   * it was minted with.
    *
    * MUTATES, so it is reached from an effect or from an event handler and never
    * from a render body. Idempotent for one bridge, which is what lets strict mode
    * invoke the acquiring effect twice without the second invocation superseding
    * what the first one minted.
    */
-  public acquire(bridge: PlatformBridge, settingsFile: MachineSettingsFile): MachineSettingsStore {
+  public acquire(
+    bridge: PlatformBridge,
+    clock: Clock,
+    settingsFile: MachineSettingsFile,
+  ): MachineSettingsStore {
     const held = this.storeIfCurrent(bridge);
     if (held !== undefined) {
       return held;
@@ -59,7 +65,7 @@ class MachineSettingsStoreHolder {
     // The only disposal there is: the store a DIFFERENT bridge supersedes. A page
     // unmounting disposes nothing, because this store's lifetime is the window's.
     this.#store?.dispose();
-    const minted = new MachineSettingsStore(bridge, settingsFile);
+    const minted = new MachineSettingsStore(clock, settingsFile);
     this.#bridge = bridge;
     this.#store = minted;
     return minted;

@@ -18,7 +18,7 @@ export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
 /** The fixture bridge every suite starts from. */
 export function paneBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+  return createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO }).bridge;
 }
 
 const LEASE_EVENT_KIND = "pty.control_changed";

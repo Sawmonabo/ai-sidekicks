@@ -5,12 +5,14 @@
 import { AgentsPaneModels } from "../agents-pane-models.js";
 import type { AgentsPaneCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import {
   type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -27,17 +29,21 @@ export interface ScriptedDaemon {
 }
 
 /**
- * The real fixture bridge, answering this suite's scripted daemon through the call door.
+ * The real fixture bridge, answering this suite's scripted daemon through the call door,
+ * and the engine whose frozen clock its window runs on.
  *
  * The calls reach the bridge's own call arm through the shared `withDaemonCall`, which is
  * where the reach lives; this file holds no copy of the bridge's namespace shape.
  */
-export function bridgeCalling(scriptedDaemon: ScriptedDaemon): PlatformBridge {
+export function bridgeCalling(scriptedDaemon: ScriptedDaemon): FixtureBridge {
   const base = createFixtureBridge({ scenario: unscriptedScenario("agent-binding-column") });
-  return withDaemonCall(
-    base,
-    async ({ method, params }) => await scriptedDaemon.answer(method, params),
-  ).bridge;
+  return {
+    bridge: withDaemonCall(
+      base.bridge,
+      async ({ method, params }) => await scriptedDaemon.answer(method, params),
+    ).bridge,
+    scenarioEngine: base.scenarioEngine,
+  };
 }
 
 /**
@@ -88,14 +94,18 @@ export function disposeOpenedModels(): void {
   }
 }
 
-/** The real models over that bridge and daemon, disposed after the test that opened them. */
+/**
+ * The real models over that bridge and daemon, on its frozen clock, disposed after the
+ * test that opened them.
+ */
 export function modelsOver(
-  bridge: PlatformBridge,
+  fixture: FixtureBridge,
   scriptedDaemon: ScriptedDaemon,
   sessionId = "session-9",
 ): AgentsPaneModels {
   const models = new AgentsPaneModels(
-    bridge,
+    fixture.bridge,
+    fixture.scenarioEngine.clock,
     new SessionStore({ sessionId }),
     callsAnswering(scriptedDaemon),
   );

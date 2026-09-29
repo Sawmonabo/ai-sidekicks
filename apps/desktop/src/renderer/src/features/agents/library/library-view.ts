@@ -16,8 +16,7 @@
 // A REJECTED CALL IS NOT CAUGHT HERE. It reaches whoever pressed or mounted; the delete
 // gives its lock back on the way out so the page does not stay disabled.
 
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
@@ -125,10 +124,10 @@ export class AgentLibraryView implements ReadTriggerTarget {
   readonly #reads = new GenerationLatch();
   readonly #scheduler: RefreshScheduler;
 
-  public constructor(bridge: PlatformBridge, calls: AgentRegistryCalls) {
+  public constructor(clock: Clock, calls: AgentRegistryCalls) {
     this.#calls = calls;
     this.#scheduler = new RefreshScheduler({
-      clock: resolveBridgeClock(bridge),
+      clock,
       perform: async () => {
         await this.#read();
       },

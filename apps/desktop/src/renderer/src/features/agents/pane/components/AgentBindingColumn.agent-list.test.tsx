@@ -31,11 +31,11 @@ function ceilingCountIn(container: HTMLElement): number {
 
 async function columnOver(roster: readonly unknown[]): Promise<HTMLElement> {
   const scriptedDaemon = new AgentListDaemon(roster);
-  const bridge = bridgeCalling(scriptedDaemon);
+  const fixture = bridgeCalling(scriptedDaemon);
   const { container } = render(
-    <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
+    <AgentBindingColumn models={modelsOver(fixture, scriptedDaemon)} agentId={undefined} />,
   );
-  await settleReads(bridge);
+  await settleReads(fixture.scenarioEngine);
   return container;
 }
 

@@ -5,13 +5,21 @@
 // the page is a tier that measures nothing and passes. Each case therefore reads the page
 // the way a driver does, and the launch cases each carry the control that fails without it.
 
+import { render } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import type { ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import type { Clock } from "@renderer/lib/clock.js";
+import { parseInstant } from "@renderer/lib/instant.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
+import { createStubBridge } from "@shared/preload-api.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../fixtures/scenarios/first-run.js";
 import {
   CONCURRENT_STREAMING_SCENARIO_ID,
@@ -39,8 +47,29 @@ const NO_DIAGNOSTICS: SessionDiagnostics = {
 
 afterEach(() => {
   delete page[FIXTURE_LAUNCH_GLOBAL];
+  delete page["desktopBridge"];
   window.location.hash = "";
 });
+
+/** Mount a window the way `App` does, and hand back the clock its surfaces read. */
+function windowClock(launched: ReturnType<typeof composeFixtureLaunch>): Clock {
+  const seen: Clock[] = [];
+  function ClockProbe(): null {
+    seen.push(useClock());
+    return null;
+  }
+  render(
+    createElement(PlatformBridgeProvider, {
+      children: createElement(ClockProbe),
+      ...(launched === undefined ? {} : { composition: launched }),
+    }),
+  );
+  const clock = seen.at(-1);
+  if (clock === undefined) {
+    throw new Error("the window rendered no surface to read its clock");
+  }
+  return clock;
+}
 
 describe("composeFixtureLaunch — the launch the preload exposed", () => {
   it("composes nothing for a window started without a launch", () => {
@@ -53,11 +82,10 @@ describe("composeFixtureLaunch — the launch the preload exposed", () => {
       sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     };
 
-    const composition = composeFixtureLaunch();
+    const remove = composeFixtureLaunch()?.createBridge().installHandles();
 
-    expect(composition?.createBridge().scenarioEngine?.scenario.id).toBe(
-      CONCURRENT_STREAMING_SCENARIO_ID,
-    );
+    expect(scenarioControlOnPage()?.scenarioId).toBe(CONCURRENT_STREAMING_SCENARIO_ID);
+    remove?.();
     expect(window.location.hash).toBe(
       formatRoute({ kind: "session", sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId }),
     );
@@ -66,25 +94,27 @@ describe("composeFixtureLaunch — the launch the preload exposed", () => {
   it("leaves the address alone for a launch that names no session", () => {
     page[FIXTURE_LAUNCH_GLOBAL] = { scenarioId: FIRST_RUN_SCENARIO_ID };
 
-    const composition = composeFixtureLaunch();
+    const remove = composeFixtureLaunch()?.createBridge().installHandles();
 
-    expect(composition?.createBridge().scenarioEngine?.scenario.id).toBe(FIRST_RUN_SCENARIO_ID);
+    expect(scenarioControlOnPage()?.scenarioId).toBe(FIRST_RUN_SCENARIO_ID);
+    remove?.();
     expect(window.location.hash).toBe("");
   });
 });
 
 describe("createFixtureComposition — the handles a driver reads", () => {
   it("hangs the running scenario's control and the tripwire registry, and takes both down", () => {
-    const composition = createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID);
-    const bridge = composition.createBridge();
+    const composed = createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID).createBridge();
 
-    const remove = composition.installBridgeHandles(bridge);
+    const remove = composed.installHandles();
 
     const control = scenarioControlOnPage();
     expect(control?.scenarioId).toBe(CONCURRENT_STREAMING_SCENARIO_ID);
-    // The control drives THIS bridge's engine, not one of its own.
+    // The control drives THIS bridge's engine, not one of its own: the window's clock moves.
+    const before = composed.clock.now();
     control?.advance(1);
-    expect(bridge.scenarioEngine?.progress.deliveredBeatCount).toBeGreaterThan(0);
+    expect(control?.deliveredBeatCount()).toBeGreaterThan(0);
+    expect(composed.clock.now()).toBe(before + 1);
     expect(page[TRIPWIRE_FIXTURE_GLOBAL]).toBe(windowTripwires);
 
     remove();
@@ -97,8 +127,8 @@ describe("createFixtureComposition — the handles a driver reads", () => {
     // delete on the first one's teardown would strip what the second had just put up.
     const first = createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const second = createFixtureComposition(FIRST_RUN_SCENARIO_ID);
-    const removeFirst = first.installBridgeHandles(first.createBridge());
-    const removeSecond = second.installBridgeHandles(second.createBridge());
+    const removeFirst = first.createBridge().installHandles();
+    const removeSecond = second.createBridge().installHandles();
     const removeFirstDiagnostics = first.installSessionDiagnostics(NO_DIAGNOSTICS);
     const liveDiagnostics: SessionDiagnostics = { ...NO_DIAGNOSTICS };
     const removeSecondDiagnostics = second.installSessionDiagnostics(liveDiagnostics);
@@ -113,5 +143,29 @@ describe("createFixtureComposition — the handles a driver reads", () => {
     removeSecondDiagnostics();
     expect(scenarioControlOnPage()).toBeUndefined();
     expect(page[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL]).toBeUndefined();
+  });
+});
+
+describe("the clock a window runs on", () => {
+  it("runs a fixture-launched window on the scenario's frozen clock", () => {
+    page[FIXTURE_LAUNCH_GLOBAL] = { scenarioId: CONCURRENT_STREAMING_SCENARIO_ID };
+
+    const clock = windowClock(composeFixtureLaunch());
+    const scenarioStart = parseInstant(
+      CONCURRENT_STREAMING_SCENARIO.startedAtIso,
+    ).epochMilliseconds;
+
+    expect(clock.now()).toBe(scenarioStart);
+    // Frozen: only the scenario moves it, through the control on the page.
+    scenarioControlOnPage()?.advance(250);
+    expect(clock.now()).toBe((scenarioStart ?? 0) + 250);
+  });
+
+  it("runs a window started without a launch on real time", () => {
+    page["desktopBridge"] = createStubBridge(FIXTURE_APP_META);
+
+    const clock = windowClock(composeFixtureLaunch());
+
+    expect(Math.abs(clock.now() - Date.now())).toBeLessThan(1_000);
   });
 });

@@ -1,8 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
@@ -31,9 +31,7 @@ export function useBindController(
   sessionStore: SessionStore,
   operations: BindControllerOptions["operations"],
 ): BindBinding {
-  // One window, one time base, memoized so a fresh clock per render does not re-mint
-  // the controller beneath it.
-  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  const clock = useBridgeClock();
   const { controller, reading } = useSessionScopedActController(
     bridge,
     repoMountId,
