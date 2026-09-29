@@ -280,6 +280,10 @@ export default {
     // assert the boundary between them.
     exclude: { path: "\\.(test|bench)\\.(ts|tsx)$" },
     tsPreCompilationDeps: true,
+    // A workspace package resolves to its path under `node_modules/` rather than to the
+    // real path its pnpm link points at, so the contracts edge from `src/shared/` reads the
+    // same whether or not the package has been built, and `doNotFollow` above holds for it.
+    preserveSymlinks: true,
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],
     },

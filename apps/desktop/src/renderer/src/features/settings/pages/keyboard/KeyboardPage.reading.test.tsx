@@ -13,6 +13,12 @@ import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAn
 import { KeyboardPage } from "./KeyboardPage.js";
 import { composeSettingsPages } from "../../settings-pages.js";
 import { TEST_COMMAND_IDS, renderKeyboardPage, rowOf } from "./keyboard-page.test-support.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
+
+// The rail's shipped chords, contributed the way the window's composition contributes them,
+// so the page reads the same shipped table a window has.
+registerNavigationKeybindings(commandContributionRegistry);
 
 describe("keyboard page — what it reads", () => {
   it("prints each command's id and the chord that runs it", () => {

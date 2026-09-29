@@ -19,6 +19,12 @@ import {
   renderKeyboardPage,
   rowOf,
 } from "./keyboard-page.test-support.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
+
+// The rail's shipped chords, contributed the way the window's composition contributes them,
+// so the page reads the same shipped table a window has.
+registerNavigationKeybindings(commandContributionRegistry);
 
 describe("keyboard page — what it changes", () => {
   it("records a chord onto the frame's own seam and prints it back", async () => {
