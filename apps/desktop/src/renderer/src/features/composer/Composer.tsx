@@ -49,7 +49,6 @@ import { CommandList } from "./command-list/components/CommandList.js";
 import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
-import "./run-interventions.css";
 
 /** Declared rather than an arrow, so the resource holder is handed a stable pair. */
 function openEnumeration(): ProviderCommandEnumeration {

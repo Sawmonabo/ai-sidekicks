@@ -49,6 +49,8 @@ import type {
 } from "../../run-controls/services/run-control-dispatch.js";
 import type { RunControlDispatchState } from "../../run-controls/hooks/useRunControlDispatch.js";
 
+import "./SteerBox.css";
+
 /** What the steer form is given: the run it addresses and the surface it dispatches through. */
 export interface SteerBoxProps {
   /**

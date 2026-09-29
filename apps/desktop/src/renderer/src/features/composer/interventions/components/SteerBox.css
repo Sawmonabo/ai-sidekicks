@@ -1,5 +1,4 @@
-/* The box a steer is written in: the classes `SteerBox` draws. The composer's top view,
-   `Composer.tsx`, imports it.
+/* The box a steer is written in: every rule `SteerBox` draws.
 
    Every value here is a Meridian token: no color literal, no font stack, and no
    spacing number. */

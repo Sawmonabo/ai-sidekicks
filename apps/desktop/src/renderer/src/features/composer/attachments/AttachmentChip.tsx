@@ -102,8 +102,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           {/* WHAT TO DO NEXT, AS TEXT, and not a control's `title`: a tooltip is never seen
               by a touch user, is reached by a keyboard user only with a pointer they are
               not using, and is announced reliably by no assistive technology. The remedy
-              is the one line on a refused row that names an act; it renders like the
-              run-interventions remedy does. */}
+              is the one line on a refused row that names an act. */}
           {chip.refusal.disposition === undefined ? null : (
             <p className="meridian-composer-attachment__remedy">{chip.refusal.disposition}</p>
           )}
