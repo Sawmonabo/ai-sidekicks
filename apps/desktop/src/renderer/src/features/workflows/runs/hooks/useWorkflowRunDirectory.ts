@@ -4,7 +4,7 @@
 // hook is that caller's read: the call that enumerates the runs is its argument, and a
 // rejected call is not caught here.
 //
-// THE READ IS SESSION-SCOPED, for `../definitions/definition-directory.ts`'s reason and one of its
+// THE READ IS SESSION-SCOPED, for `useWorkflowDefinitionDirectory.ts`'s reason and one of its
 // own: a run belongs to a session, so a caller with no session in scope has no
 // question to put rather than a narrower one. That is `unasked`, and rendering it as
 // an empty list would assert that this context holds no runs — a claim about the

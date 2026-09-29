@@ -7,7 +7,7 @@
 // rendered row, because a surface can show a stale figure for either reason.
 //
 // The lifetime half — who holds these reads and what disposes them — is
-// `agent-console-model.test.ts`.
+// `pane/agents-pane-models.test.ts`.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";

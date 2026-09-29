@@ -9,9 +9,7 @@
 //      hand over that fact, and a dropped key would read to the body exactly like a surface
 //      that never looked.
 //
-// This file sits beside the wrapper rather than inside the mounting directory, because the
-// wrapper does. The sibling cases for the single-consumer slots stay in
-// `pane/run/slots/slots.test.tsx`, where those slots live.
+// The cases for the other mount points in this folder are `run-mount-points.test.tsx`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

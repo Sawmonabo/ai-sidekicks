@@ -30,7 +30,7 @@
 //
 // THE STATE IS NOT HERE. Everything this page holds — the read, the delete in
 // flight, the view's refusal per row, and which record the editor is open on — lives in
-// `definition-registry-view.ts`, because a state machine over the registry calls and a
+// `library-view.ts`, because a state machine over the registry calls and a
 // body that renders what it settled on are two jobs. This file makes no call
 // and holds no `useState`: it reads one snapshot and hands presses back to the view.
 

@@ -1,11 +1,10 @@
 // The agent console's column, driven as the body it is.
 //
 // The body is mounted by the deck inside the shared pane chrome, so the cases here drive
-// the COMPONENT and nothing about the frame. Which frame it wears, and what it names
-// this surface, is `agent-console-mounts.test.tsx`.
+// the COMPONENT and nothing about the frame.
 //
 // What the body ASKS FOR, and how long a linkage read lives, is
-// `run-console/agent-console-model.test.ts` and `run-console/agent-console-reads.test.ts`.
+// `agents-pane-models.test.ts` and `../agent-reads.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

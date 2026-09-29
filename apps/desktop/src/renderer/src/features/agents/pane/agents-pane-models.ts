@@ -1,11 +1,10 @@
 // Who owns the agent console's reads, and for how long.
 //
 // LIFETIME, NOT REFRESH. Which method answers each read and what makes it ask again
-// is `agent-console-reads.ts`; this module owns how long a read lives, who is
-// holding it, and what disposes it. The two were one file and they change for
-// different reasons — a lease policy moves when a surface changes how it mounts,
-// and a refresh story moves when the wire grows a signal — so a reader chasing one
-// no longer has to read past the other.
+// is `../agent-reads.ts`; this module owns how long a read lives, who is
+// holding it, and what disposes it. The two change for different reasons — a lease
+// policy moves when a surface changes how it mounts, and a refresh story moves when
+// the wire grows a signal.
 //
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
 // links at a time, so both caches hold exactly one entry and switching disposes what

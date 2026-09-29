@@ -58,7 +58,7 @@ import { Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
 import { runGraphLoader } from "./run-graph-loader.js";
 import type { RunGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
 import { usePhaseSequenceLayout } from "./hooks/usePhaseSequenceLayout.js";
-import { useRunGraphModule, type PhaseGraphModuleState } from "./hooks/useRunGraphModule.js";
+import { useRunGraphModule, type RunGraphModuleState } from "./hooks/useRunGraphModule.js";
 
 export interface RunGraphProps {
   /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */
@@ -178,7 +178,7 @@ function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
  * exactly the arm that needs it.
  */
 function renderUnloadedCanvas(
-  graphModule: Exclude<PhaseGraphModuleState, { status: "loaded" }>,
+  graphModule: Exclude<RunGraphModuleState, { status: "loaded" }>,
   retryChunk: () => void,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (

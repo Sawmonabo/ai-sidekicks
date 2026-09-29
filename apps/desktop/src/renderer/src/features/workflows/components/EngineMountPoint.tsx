@@ -28,10 +28,10 @@ export interface EngineMountPointProps<TMount extends object> {
 export function EngineMountPoint<TMount extends object>(
   props: EngineMountPointProps<TMount>,
 ): React.JSX.Element {
-  const { body: SlotBody, mount } = props;
+  const { body: MountPointBody, mount } = props;
   return (
     <div className="meridian-workflow__slot">
-      {SlotBody === undefined || mount === undefined ? null : <SlotBody {...mount} />}
+      {MountPointBody === undefined || mount === undefined ? null : <MountPointBody {...mount} />}
     </div>
   );
 }

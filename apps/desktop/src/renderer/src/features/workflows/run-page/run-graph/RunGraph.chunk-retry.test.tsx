@@ -6,7 +6,7 @@
 // the claim is about what the second ask gets. A `vi.mock` is file-scoped, so the two
 // premises cannot reach each other.
 //
-// WHY THE ARM IS WORTH A SUITE. `phase-graph-loader.ts` drops its memo on a rejection
+// WHY THE ARM IS WORTH A SUITE. `run-graph-loader.ts` drops its memo on a rejection
 // precisely so a second `load()` re-fetches — the expected cause is a transient network
 // or disk failure — and the only caller latched the refusal under dependencies that
 // never move again. The hardening existed and nothing on screen could reach it.

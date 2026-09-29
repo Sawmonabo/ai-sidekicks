@@ -1,12 +1,10 @@
 /* The agents family's own styles: the agent card, and the control shape every surface
  * in the family wears.
  *
- * WHAT IS HERE AND WHAT IS NOT. Two sub-surfaces carry their own sheets beside their
- * components — `axis-field.css` and `definitions/agent-definitions-page.css` — and the
- * agent console has `agent-console/agent-console.css`, so a reader looking for one
- * surface's rules is not scrolling past the others'. What stays here is what is
- * genuinely the FAMILY's: the agent card, and the grouped rules that give the card and
- * the grant note one button, one label, and one focus ring.
+ * The axis field, the agent library and the pane's column each carry their own sheet
+ * (`axis-field.css`, `agent-library.css`, `agents-pane.css`). What stays here is the
+ * agent card, and the grouped rules that give the card and the allowlist note
+ * (`.meridian-agents__grant-note`) one button, one label, and one focus ring.
  *
  * Hand-authored composition over generated values, like every other console sheet —
  * no literal color below, and the only literal length is the hairline that separates

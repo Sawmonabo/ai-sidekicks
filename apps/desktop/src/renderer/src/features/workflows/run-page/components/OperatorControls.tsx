@@ -72,7 +72,7 @@
 // that never moved — so the state survives, the `<select>` matches no option and
 // displays blank, and the line beside it still quotes the id the submit would still
 // send. The held id is therefore RESOLVED against the chain on screen each render,
-// exactly as `human-form-selection.ts` resolves its held phase id against the mounts
+// exactly as `useHumanFormSelection.ts` resolves its held phase id against the mounts
 // the current snapshot carries.
 
 import "./OperatorControls.css";

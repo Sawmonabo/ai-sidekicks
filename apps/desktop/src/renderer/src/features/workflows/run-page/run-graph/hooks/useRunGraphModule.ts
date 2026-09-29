@@ -4,14 +4,14 @@ import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rej
 import type { RunGraphLoader, RunGraphModule } from "../run-graph-loader.js";
 
 /** Where the renderer's code is: still coming, here, or refused. */
-export type PhaseGraphModuleState =
+export type RunGraphModuleState =
   | { readonly status: "loading" }
   | { readonly status: "loaded"; readonly module: RunGraphModule }
   | { readonly status: "failed"; readonly refusal: WireRefusal };
 
 /** Where the chunk got to, and how a person asks for it again. */
-export interface PhaseGraphModuleFetch {
-  readonly state: PhaseGraphModuleState;
+export interface RunGraphModuleFetch {
+  readonly state: RunGraphModuleState;
   /**
    * Ask for the chunk again. Only the refused arm offers it to anybody.
    *
@@ -21,7 +21,7 @@ export interface PhaseGraphModuleFetch {
   readonly retry: () => void;
 }
 
-const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
+const LOADING_GRAPH_MODULE: RunGraphModuleState = { status: "loading" };
 
 /**
  * Fetch the renderer's chunk and say where it got to.
@@ -55,11 +55,8 @@ const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
  * clears that one, so the answer to "was this settlement still wanted" is the identity
  * of the run that asked rather than a second look at the state it would write into.
  */
-export function useRunGraphModule(
-  loader: RunGraphLoader,
-  isNeeded: boolean,
-): PhaseGraphModuleFetch {
-  const [graphModule, setGraphModule] = useState<PhaseGraphModuleState>(LOADING_GRAPH_MODULE);
+export function useRunGraphModule(loader: RunGraphLoader, isNeeded: boolean): RunGraphModuleFetch {
+  const [graphModule, setGraphModule] = useState<RunGraphModuleState>(LOADING_GRAPH_MODULE);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {

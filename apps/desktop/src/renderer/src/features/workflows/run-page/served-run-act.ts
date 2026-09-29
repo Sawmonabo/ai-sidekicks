@@ -8,7 +8,7 @@
 // its form until some other reason put the read again.
 //
 // THE MOUNT CONTRACT IS THE OWNER'S AND CANNOT CARRY THIS. `HumanFormMountPoint` renders its
-// body as `<Body {...mount} />` and the mount is `slots/human-form-mount.ts`'s — what
+// body as `<Body {...mount} />` and the mount is `human-form-mount.ts`'s — what
 // this pane owes the workflow plan's body and nothing else — so a console-local re-arm
 // member added to it would widen a contract this console does not own. A context is the
 // shape the corpus already uses at exactly this seam: `seats/pane/pane-controls.ts` is the

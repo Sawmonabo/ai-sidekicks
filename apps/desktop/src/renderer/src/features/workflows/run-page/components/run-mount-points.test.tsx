@@ -160,8 +160,8 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
    * render that calls no hook as a mount, so a wrapper with no hooks hides the
    * violation until it grows one — precisely the state these wrappers were in.
    */
-  function directCallHumanFormSlot(body: (mount: HumanFormPhase) => React.JSX.Element) {
-    return function DirectCallHumanFormSlot(props: {
+  function directCallHumanFormMountPoint(body: (mount: HumanFormPhase) => React.JSX.Element) {
+    return function DirectCallHumanFormMountPoint(props: {
       readonly phase: HumanFormPhase | undefined;
     }): React.JSX.Element {
       const openForm = props.phase === undefined ? null : body(props.phase);
@@ -181,12 +181,12 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     // long while a phase is open and one long when it clears — and React refuses the
     // shorter render rather than guessing which hook went missing.
     const recordTeardown = vi.fn();
-    const DirectCallSlot = directCallHumanFormSlot(statefulFormBody(recordTeardown));
-    const { rerender } = render(<DirectCallSlot phase={OPEN_PHASE} />);
+    const DirectCallMountPoint = directCallHumanFormMountPoint(statefulFormBody(recordTeardown));
+    const { rerender } = render(<DirectCallMountPoint phase={OPEN_PHASE} />);
     const reportedErrors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       expect(() => {
-        rerender(<DirectCallSlot phase={undefined} />);
+        rerender(<DirectCallMountPoint phase={undefined} />);
       }).toThrow(/hook/iu);
     } finally {
       reportedErrors.mockRestore();

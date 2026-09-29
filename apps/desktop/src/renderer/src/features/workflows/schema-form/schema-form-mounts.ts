@@ -7,7 +7,7 @@
 // run time: the two `import type` lines below are erased by the compiler, so the only
 // runtime edge into the chunk is the `import()` inside {@link SchemaFormChunk}.
 //
-// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE, on `phase-graph-loader.ts`'s reasoning and
+// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE, on `run-graph-loader.ts`'s reasoning and
 // for its reason: the promise has to be memoised so a run pane and a definition row
 // mounting in one frame start one fetch rather than two, and a module-level `let`
 // holding it is the state `apps/desktop/AGENTS.md` rejects — untestable, because there

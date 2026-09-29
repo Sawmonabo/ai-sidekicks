@@ -10,7 +10,7 @@
 //     render body can never open a subscription, and "never started" is only
 //     observable on the model itself.
 //
-// What REFRESHES each read is `agent-console-reads.test.ts`, beside the factories
+// What REFRESHES each read is `../agent-reads.test.ts`, beside the factories
 // that decide it.
 
 import { renderHook } from "@testing-library/react";

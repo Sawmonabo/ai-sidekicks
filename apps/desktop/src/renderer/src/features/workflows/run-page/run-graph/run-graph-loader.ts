@@ -9,11 +9,9 @@
 // operator waits for whether or not a run is ever drawn.
 //
 // So the door is reached through `import()` and through nothing else. That makes this
-// module the bundler's split point: everything only `phase-graph/index.js` reaches is
-// emitted as its own chunk and fetched the first time a graph mounts. The door rather
-// than the canvas directly, because the chunk owns two stylesheets and
-// `apps/desktop/AGENTS.md` admits those through a barrel and never through a
-// component — so the module this `import()` names is the module that imports them.
+// module the bundler's split point: everything only `run-graph/index.js` reaches is
+// emitted as its own chunk, with the two sheets `RunGraphCanvas.tsx` imports, and fetched
+// the first time a graph mounts.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoised: two
 // run panes mounting in one frame must not start two fetches, and a remount must not

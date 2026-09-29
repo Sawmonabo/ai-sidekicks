@@ -2,7 +2,7 @@
 //
 // One factory per read, and each one is a claim about a REFRESH STORY rather than
 // about a lifetime — which is the seam that separates this module from
-// `agent-console-model.ts`. That module owns how long a read lives, who holds it,
+// `pane/agents-pane-models.ts`. That module owns how long a read lives, who holds it,
 // and what disposes it; this one owns which method answers it and what makes it ask
 // again. The two change for different reasons: a lease policy moves when a surface
 // changes how it mounts, and a refresh story moves when the wire grows a signal.

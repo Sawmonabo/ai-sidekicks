@@ -1,4 +1,4 @@
-// The bridge and calls both run-console suites are driven with.
+// The bridge and calls both agents pane suites are driven with.
 //
 // THE BRIDGE SCRIPTS NOTHING AND THE CALLS REJECT, ON PURPOSE. Both suites are about WHEN
 // a read is performed and who owns it, never about what it answers, so every read settling

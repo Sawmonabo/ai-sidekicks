@@ -1,6 +1,6 @@
 // Every phase parked at the moment the run snapshot was built, as cards.
 //
-// One component per `.tsx`, for the reason `RunPhaseGraph.tsx` beside it states.
+// One component per `.tsx`, for the reason `RunGraphSection.tsx` beside it states.
 //
 // THE FORM ROUTE TRAVELS WITH THE CARDS. `formRoutePropsFor` has exactly one caller
 // and it is the component below; splitting the two apart would leave the rule that
