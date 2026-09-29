@@ -2,8 +2,8 @@
    revoke confirmation.
 
    Every color, space, and radius is a Meridian token. The revoke and cancel controls
-   share their treatment with other features' controls through the global rules in
-   `styles/action-buttons.css`. */
+   wear the shared action button class from `styles/action-buttons.css`; this sheet
+   adds only their size and face. */
 
 .meridian-remembered-rules__list {
   display: flex;
@@ -45,4 +45,13 @@
   margin: 0;
   color: var(--meridian-amber-text);
   font-size: var(--meridian-text-xs);
+}
+
+.meridian-remembered-rules__revoke,
+.meridian-remembered-rules__cancel {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  background: var(--meridian-surface);
+  border-color: var(--meridian-edge-strong);
 }

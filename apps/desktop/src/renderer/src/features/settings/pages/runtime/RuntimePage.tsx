@@ -152,7 +152,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
           <div className="meridian-settings-page__actions">
             <button
               type="button"
-              className="meridian-settings-page__action"
+              className="meridian-settings-page__action meridian-action-button"
               onClick={() => {
                 setConfirming("stop");
               }}
@@ -161,7 +161,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
             </button>
             <button
               type="button"
-              className="meridian-settings-page__action"
+              className="meridian-settings-page__action meridian-action-button"
               onClick={() => {
                 setConfirming("restart");
               }}
@@ -328,7 +328,7 @@ function renderControlConfirm(
       <div className="meridian-settings-page__actions">
         <button
           type="button"
-          className="meridian-settings-page__action meridian-settings-page__action--primary"
+          className="meridian-settings-page__action meridian-settings-page__action--primary meridian-action-button"
           disabled={isDispatched}
           title={dispatchedReason}
           onClick={onConfirm}
@@ -337,7 +337,7 @@ function renderControlConfirm(
         </button>
         <button
           type="button"
-          className="meridian-settings-page__action"
+          className="meridian-settings-page__action meridian-action-button"
           disabled={isDispatched}
           title={dispatchedReason}
           onClick={onCancel}

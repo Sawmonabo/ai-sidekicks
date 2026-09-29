@@ -219,7 +219,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       {props.children}
 
       <Collapsible.Root className="meridian-approval-card__disclosure">
-        <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
+        <Collapsible.Trigger className="meridian-disclosure-trigger">
           What was asked for
         </Collapsible.Trigger>
         <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
@@ -262,11 +262,11 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 }
 
 /**
- * The classes one action wears: the block, its own modifier, and — on the primary
- * action alone — the primitives' filled-accent face.
+ * The classes one action wears: the block, its own modifier, the shared action
+ * button, and — on the primary action alone — the primitives' filled-accent face.
  */
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`;
+  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action} meridian-action-button`;
   return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
 }
 

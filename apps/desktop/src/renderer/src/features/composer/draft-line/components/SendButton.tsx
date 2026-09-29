@@ -82,7 +82,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
       <div className="meridian-composer__send-row">
         <button
           type="button"
-          className="meridian-composer__primary"
+          className="meridian-composer__primary meridian-action-button"
           aria-busy={isSending}
           disabled={isSending}
           onClick={() => {

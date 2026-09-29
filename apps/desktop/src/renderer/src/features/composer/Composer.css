@@ -81,23 +81,16 @@
    primitives' filled treatment, `meridian-accent-fill`, clears that floor and a card's
    primary action wears it, but boundary-and-ink measures higher on this label (6.38:1
    light, 11.49:1 dark) and the accent boundary clears the 3:1 non-text floor against
-   the send box's background (4.17:1 light, 7.77:1 dark). */
+   the send box's background (4.17:1 light, 7.77:1 dark). It wears the shared action
+   button class from `styles/action-buttons.css`; these rules add its size and face. */
 .meridian-composer__primary {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);
-  font: inherit;
   background: var(--meridian-surface);
-  border: 1px solid var(--meridian-accent);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
+  border-color: var(--meridian-accent);
 }
 
 .meridian-composer__primary[disabled] {
   cursor: progress;
   opacity: 0.6;
-}
-
-.meridian-composer__primary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
 }

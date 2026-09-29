@@ -1,4 +1,5 @@
-/* The box a steer is written in: every rule `SteerBox` draws.
+/* The box a steer is written in: every rule `SteerBox` draws beyond the shared action
+   button.
 
    Every value here is a Meridian token: no color literal, no font stack, and no
    spacing number. */
@@ -44,4 +45,23 @@
   display: flex;
   gap: var(--meridian-space-2);
   align-items: center;
+}
+
+/* Send and Cancel wear the shared action button class from `styles/action-buttons.css`;
+   these rules add their size, face and hover. */
+.meridian-run-composer__confirm,
+.meridian-run-composer__dismiss {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-color: var(--meridian-edge);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__confirm:hover,
+.meridian-run-composer__dismiss:hover {
+  border-color: var(--meridian-edge-strong);
 }

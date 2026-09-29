@@ -59,7 +59,7 @@ export function CallbackToolRows(props: {
             <span className="meridian-callback-tools__description">{row.tool.description}</span>
           </div>
           <Collapsible.Root className="meridian-callback-tools__schema">
-            <Collapsible.Trigger className="meridian-callback-tools__schema-trigger">
+            <Collapsible.Trigger className="meridian-disclosure-trigger">
               Input schema
             </Collapsible.Trigger>
             <Collapsible.Panel className="meridian-callback-tools__schema-panel">

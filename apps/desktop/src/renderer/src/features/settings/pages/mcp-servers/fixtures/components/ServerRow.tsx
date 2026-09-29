@@ -101,7 +101,7 @@ export function ServerRow(props: {
       <div className="meridian-mcp__row-actions">
         <button
           type="button"
-          className="meridian-settings-page__action"
+          className="meridian-settings-page__action meridian-action-button"
           disabled={pending}
           onClick={() => {
             onSetEnabled(binding, entry.enabled !== true);
@@ -117,7 +117,7 @@ export function ServerRow(props: {
         ) : (
           <button
             type="button"
-            className="meridian-settings-page__action"
+            className="meridian-settings-page__action meridian-action-button"
             disabled={pending}
             onClick={() => {
               onSetTrust(binding, !entry.trusted);

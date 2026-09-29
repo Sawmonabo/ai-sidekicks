@@ -217,13 +217,17 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       <div className="meridian-run-composer__actions">
         <button
           type="submit"
-          className="meridian-run-composer__confirm"
+          className="meridian-run-composer__confirm meridian-action-button"
           disabled={isConfirmLatched}
           aria-busy={isSending}
         >
           Send steer
         </button>
-        <button type="button" className="meridian-run-composer__dismiss" onClick={onDismiss}>
+        <button
+          type="button"
+          className="meridian-run-composer__dismiss meridian-action-button"
+          onClick={onDismiss}
+        >
           Cancel
         </button>
       </div>

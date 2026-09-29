@@ -1,16 +1,44 @@
 /*
- * The action buttons several features share: one treatment, declared once, for the
- * controls whose selector lists name classes of more than one feature. A copy per
- * feature would be two copies of one treatment that drift apart.
+ * Two button treatments several features share, each declared once as a class a
+ * control wears beside its own.
+ *
+ * `meridian-action-button` is a button that does something: approve and reject, a
+ * scope choice, revoke and cancel, a queue item's cancel, a steer's send and cancel, a
+ * settings page's actions and the composer's send. It holds only what every one of
+ * those controls has in common: the inherited font, a one-pixel solid edge, the small
+ * corner, the pointer and the focus ring. Size, face, edge color and hover differ from
+ * control to control, so each control's own class carries them.
+ *
+ * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the
+ * content beside it: a details toggle, a schema toggle, a message's Copy. It holds
+ * the whole treatment, so a control that wears it needs no rules of its own.
+ *
+ * The action button's base sits inside `:where()`, which gives it no specificity. A
+ * control's own class then wins over it whichever sheet loads first, so a control's
+ * `font-size` is never reset by the base's `font` shorthand. The focus ring keeps
+ * its specificity, above a control's own class, which declares no focus rule.
  *
  * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
  */
 
-/* --- quiet text controls (disclosure triggers, a message's Copy) --------------- */
+/* --- the action button ------------------------------------------------------- */
 
-.meridian-approval-card__disclosure-trigger,
-.meridian-callback-tools__schema-trigger,
-.meridian-copy-button {
+:where(.meridian-action-button) {
+  font: inherit;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-action-button:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- the disclosure trigger -------------------------------------------------- */
+
+.meridian-disclosure-trigger {
   padding: var(--meridian-space-1) 0;
   color: var(--meridian-text-muted);
   font: inherit;
@@ -21,79 +49,11 @@
   cursor: pointer;
 }
 
-.meridian-approval-card__disclosure-trigger:hover,
-.meridian-callback-tools__schema-trigger:hover,
-.meridian-copy-button:hover {
+.meridian-disclosure-trigger:hover {
   color: var(--meridian-text);
 }
 
-/* --- the approval card's and the remembered rules' controls -------------------- */
-
-/* Every one of these controls shares its METRICS. The face splits two ways below,
-   because a view's one filled control is a difference in face and not
-   in size: the approve action carries `meridian-accent-fill`, and every other
-   control here is quiet chrome. */
-.meridian-approval-card__scope-trigger,
-.meridian-approval-card__action,
-.meridian-remembered-rules__revoke,
-.meridian-remembered-rules__cancel {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  font: inherit;
-  font-size: var(--meridian-text-sm);
-}
-
-/* The quiet controls, named one by one rather than as `__action` with the primary
-   overriding it: an override would restate the accent pairing here, which is the
-   one thing `meridian-accent-fill` exists to keep in a single place. */
-.meridian-approval-card__scope-trigger,
-.meridian-approval-card__action--reject,
-.meridian-remembered-rules__revoke,
-.meridian-remembered-rules__cancel {
-  color: var(--meridian-text);
-  background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
-}
-
-.meridian-approval-card__action:focus-visible,
-.meridian-remembered-rules__revoke:focus-visible,
-.meridian-remembered-rules__cancel:focus-visible,
-.meridian-approval-card__disclosure-trigger:focus-visible,
-.meridian-approval-card__scope-trigger:focus-visible,
-.meridian-callback-tools__schema-trigger:focus-visible,
-.meridian-copy-button:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
-/* --- the queue's cancel and the steer box's confirm and dismiss ---------------- */
-
-.meridian-queue__cancel,
-.meridian-run-composer__confirm,
-.meridian-run-composer__dismiss {
-  display: inline-flex;
-  gap: var(--meridian-space-1);
-  align-items: center;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  font: inherit;
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
-}
-
-.meridian-queue__cancel:hover:enabled,
-.meridian-run-composer__confirm:hover,
-.meridian-run-composer__dismiss:hover {
-  border-color: var(--meridian-edge-strong);
-}
-
-.meridian-queue__cancel:focus-visible,
-.meridian-run-composer__confirm:focus-visible,
-.meridian-run-composer__dismiss:focus-visible {
+.meridian-disclosure-trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }

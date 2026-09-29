@@ -18,7 +18,7 @@ export interface CopyButtonProps {
 export function CopyButton(props: CopyButtonProps): React.JSX.Element {
   const { status, copy } = useClipboardCopy(props.text);
   return (
-    <button type="button" className="meridian-copy-button" onClick={copy}>
+    <button type="button" className="meridian-disclosure-trigger" onClick={copy}>
       {COPY_LABELS[status]}
     </button>
   );

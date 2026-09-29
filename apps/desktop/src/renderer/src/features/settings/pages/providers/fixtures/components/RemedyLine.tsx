@@ -64,7 +64,7 @@ export function RemedyLine(props: {
       </p>
       <button
         type="button"
-        className="meridian-settings-page__action meridian-settings-page__action--primary"
+        className="meridian-settings-page__action meridian-settings-page__action--primary meridian-action-button"
         disabled={startBlockedReason !== undefined}
         onClick={() => {
           onStartSignIn(remedy.accountId);

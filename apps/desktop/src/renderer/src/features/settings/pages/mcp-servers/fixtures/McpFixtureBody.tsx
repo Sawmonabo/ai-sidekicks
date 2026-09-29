@@ -160,7 +160,7 @@ export function McpFixtureBody(props: {
         action={
           <button
             type="button"
-            className="meridian-settings-page__action"
+            className="meridian-settings-page__action meridian-action-button"
             onClick={() => {
               setOpeningOrdinal((held) => held + 1);
             }}

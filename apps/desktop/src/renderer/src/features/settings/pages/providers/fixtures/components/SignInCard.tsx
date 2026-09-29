@@ -67,7 +67,7 @@ export function SignInCard(props: {
       </p>
       <button
         type="button"
-        className="meridian-settings-page__action"
+        className="meridian-settings-page__action meridian-action-button"
         disabled={flow.kind === "canceling"}
         onClick={onCancel}
       >
