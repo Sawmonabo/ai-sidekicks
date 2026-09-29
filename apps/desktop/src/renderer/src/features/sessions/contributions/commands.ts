@@ -34,74 +34,13 @@
 // what this file adds: the same five acts, discoverable by name, reachable from
 // anywhere in the session, and refusing out loud when there is no deck to act on.
 
-import { useEffect } from "react";
-
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   raiseConsoleActRefusal,
   type ConsoleCommand,
   type ConsoleCommandSurface,
-} from "../../../palette/index.js";
-import type {
-  DeckActName,
-  DeckActs,
-} from "@renderer/features/sessions/pane-layout/pane-layout-acts.js";
-
-/**
- * What an act says when no deck is mounted in this window.
- *
- * One value rather than one per act: a person pressing a deck row from the settings
- * page needs to know the deck is not here, and naming which of the five they reached
- * for would answer a question they did not ask.
- */
-export const DECK_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
-  "workspace",
-  "workspace.no_mounted_deck",
-  "No deck of panes is open in this window. Open a session and try again.",
-);
-
-/** What asking the seat to perform an act produced. */
-export type DeckActOutcome =
-  | { readonly status: "performed"; readonly act: DeckActName }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * The mounted decks, in mount order.
- *
- * A class rather than a module-level array, and release is by IDENTITY rather than by
- * position: a StrictMode double mount and a route change must not leave the seat
- * holding a deck that is gone. The newest mount is the one a command acts on.
- */
-export class MountedDeckSeat {
-  readonly #mounted: DeckActs[] = [];
-
-  public adopt(acts: DeckActs): () => void {
-    this.#mounted.push(acts);
-    return () => {
-      const position = this.#mounted.lastIndexOf(acts);
-      if (position >= 0) {
-        this.#mounted.splice(position, 1);
-      }
-    };
-  }
-
-  public perform(act: DeckActName): DeckActOutcome {
-    const newest = this.#mounted.at(-1);
-    if (newest === undefined) {
-      return { status: "refused", refusal: DECK_NOT_MOUNTED_REFUSAL };
-    }
-    newest[act]();
-    return { status: "performed", act };
-  }
-}
-
-/** This window's seat. Module scope is window scope. */
-export const mountedDeck: MountedDeckSeat = new MountedDeckSeat();
-
-/** Adopt the seat for as long as this deck is mounted. */
-export function useMountedDeck(acts: DeckActs, seat: MountedDeckSeat = mountedDeck): void {
-  useEffect(() => seat.adopt(acts), [acts, seat]);
-}
+} from "@renderer/console/palette/index.js";
+import type { DeckActName, DeckActs } from "../pane-layout/pane-layout-acts.js";
+import { mountedDeck, type MountedDeckSeat } from "../pane-layout/mounted-pane-layouts.js";
 
 /**
  * The palette group these rows sit under.

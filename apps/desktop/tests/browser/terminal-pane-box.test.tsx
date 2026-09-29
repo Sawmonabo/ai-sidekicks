@@ -29,7 +29,7 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 // The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
 // family's stylesheet behind its own barrel and nowhere else, and this tier is about
 // what that stylesheet computes to.
-import "@renderer/console/terminal/index.js";
+import "@renderer/features/terminal/contributions/panes.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
 

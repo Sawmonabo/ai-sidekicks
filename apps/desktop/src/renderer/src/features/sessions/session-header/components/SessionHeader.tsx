@@ -15,6 +15,8 @@
 // than a string operation: truncating in JavaScript would put a wire-derived string
 // through a transformation the figure rules forbid.
 
+import "./SessionHeader.css";
+
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { SessionHeaderIdentity } from "./SessionHeaderIdentity.js";
 import { SessionHeaderSkeleton } from "./SessionHeaderSkeleton.js";

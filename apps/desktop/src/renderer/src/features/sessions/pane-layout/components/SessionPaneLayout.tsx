@@ -46,6 +46,8 @@
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
+import "./pane-layout.css";
+
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
@@ -61,27 +63,21 @@ import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
 } from "@renderer/console/seats/index.js";
-import {
-  useDeckLayoutState,
-  type DeckLayout,
-} from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { useDeckLayoutState } from "../hooks/usePaneLayoutState.js";
+import { type DeckLayout } from "../pane-layout-store.js";
 import { deckActsOn } from "../pane-layout-acts.js";
-import { useMountedDeck } from "@renderer/console/workspace/deck/commands/deck-command-seat.js";
+import { useMountedDeck } from "../hooks/useMountedPaneLayout.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "../pane-layout.js";
 import { type DeckDensity } from "../pane-layout-measures.js";
 import { minimumPaneWidthPx } from "../pane-layout-density.js";
-import {
-  useDeckDragCoordinator,
-  useDeckDragMonitor,
-  useDeckDropIndicator,
-} from "@renderer/console/workspace/deck/pane-drag.js";
+import { useDeckDragCoordinator } from "../hooks/usePaneLayoutDragCoordinator.js";
+import { useDeckDragMonitor } from "../hooks/usePaneLayoutDragMonitor.js";
+import { useDeckDropIndicator } from "../hooks/usePaneLayoutDropIndicator.js";
 import { DeckPaneSlot } from "./SessionPaneSlot.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
-import {
-  usePaneRectSources,
-  usePaneRectTracker,
-} from "@renderer/console/workspace/deck/rect/rect-discipline.js";
-import { useSeparatorValueBoundsCorrection } from "@renderer/console/workspace/deck/separator-aria.js";
+import { usePaneRectSources } from "../hooks/usePaneRectSources.js";
+import { usePaneRectTracker } from "../hooks/usePaneRectTracker.js";
+import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBoundsCorrection.js";
 
 /** What the deck needs: its layout store, where bodies come from, and how each is addressed. */
 export interface DeckProps {

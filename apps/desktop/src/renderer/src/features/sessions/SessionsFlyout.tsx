@@ -5,6 +5,8 @@
 // binding that would read them, and a surface that reached for that binding would throw
 // on the default route.
 
+import "./sessions.css";
+
 /** The all-sessions destination: its frame, with no list until a read can fill one. */
 export function SessionsSurface(): React.JSX.Element {
   return (

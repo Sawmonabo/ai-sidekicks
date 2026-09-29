@@ -1,0 +1,46 @@
+import { useEffect, useRef, useState } from "react";
+
+import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
+import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { PaneRectTracker } from "../pane-rect-tracker.js";
+import { type TrackedRect } from "../pane-rect-geometry.js";
+
+/**
+ * Hold one tracker for the lifetime of the surface that owns the panes.
+ *
+ * The sink is held in a ref and updated in an effect rather than captured at
+ * construction, so a caller passing an inline lambda does not rebuild the tracker
+ * every render — which would reset its dedupe memory and turn every frame into a
+ * write, the exact opposite of what it is for.
+ */
+export function usePaneRectTracker(options: {
+  readonly clock: ConsoleClock;
+  readonly onRects?: (rects: readonly TrackedRect[]) => void;
+}): PaneRectTracker {
+  const sink = useRef(options.onRects);
+  useEffect(() => {
+    sink.current = options.onRects;
+  }, [options.onRects]);
+
+  const [tracker] = useState(
+    () =>
+      new PaneRectTracker({
+        clock: options.clock,
+        onFlush: (rects) => sink.current?.(rects),
+        // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
+        // reading of the same rule: the overlays register on the registry their own
+        // element's document holds, so a deck handed one by a caller would be tracking
+        // an airspace nothing claims — which is what four prop hops of an `airspace`
+        // nobody ever passed had this family doing.
+        airspace: airspaceRegistryFor(document),
+      }),
+  );
+
+  useEffect(
+    () => () => {
+      tracker.dispose();
+    },
+    [tracker],
+  );
+  return tracker;
+}

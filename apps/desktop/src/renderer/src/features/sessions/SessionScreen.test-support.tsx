@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { DECK_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
@@ -22,9 +22,9 @@ import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-per
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
-import { Workspace } from "@renderer/console/workspace/Workspace.js";
+import { DeckLayout } from "./pane-layout/pane-layout-store.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
+import { Workspace } from "./SessionScreen.js";
 
 export const SESSION_ID = "session-workspace";
 

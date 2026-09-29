@@ -93,6 +93,8 @@
 // reader's position survive the press — and it narrows the window to the frame between
 // the click and the render, which is why the revision is the guard and not the field.
 
+import "./NewSessionControl.css";
+
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import type { NewSessionControlProps } from "@renderer/console/seats/index.js";
 import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
@@ -108,6 +110,11 @@ import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
 const SENDING_FIRST_TURN_REASON =
   "This draft is being sent, so its first message cannot be edited until the send settles.";
 
+/**
+ * The new-session draft and the send that starts a session from it.
+ *
+ * @consumedBy the all-sessions list, which mounts "+ New"
+ */
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
   const composition = useNewSessionComposition(props);
 

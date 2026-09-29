@@ -8,7 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { DECK_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
@@ -17,9 +17,9 @@ import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/firs
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";
 import { Deck } from "./SessionPaneLayout.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DeckLayout } from "../pane-layout-store.js";
 import type { DeckPane } from "../pane-layout.js";
-import { separatorValueBoundsAreOrdered } from "@renderer/console/workspace/deck/separator-aria.js";
+import { separatorValueBoundsAreOrdered } from "../separator-value-bounds.js";
 
 function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });

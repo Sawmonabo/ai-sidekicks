@@ -104,6 +104,9 @@ export type DeckRestoreRefusalCode = (typeof DECK_RESTORE_REFUSAL_CODES)[number]
 /** The subsystem name every refusal this module raises carries. */
 export const DECK_LAYOUT_REFUSAL_ORIGIN = "deck-layout";
 
+/** The subsystem name every refusal the session screen itself raises carries. */
+export const WORKSPACE_REFUSAL_ORIGIN = "workspace";
+
 /** A typed restore refusal — `core`'s one refusal shape, narrowed on `code`. */
 export type DeckRestoreRefusal = NarrowedRefusal<DeckRestoreRefusalCode>;
 

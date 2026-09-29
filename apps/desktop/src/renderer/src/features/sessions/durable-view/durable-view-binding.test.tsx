@@ -18,15 +18,9 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { openStoreOver } from "../sessions.test-support.js";
-import {
-  DurableViewBindingHolder,
-  type DurableViewBinding,
-} from "@renderer/console/sessions/durable-view/durable-view-binding.js";
-import {
-  SESSION_PIN_TIERS_KEY,
-  useSessionPins,
-  type SessionPinMap,
-} from "@renderer/console/sessions/rows/session-pins.js";
+import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
+import { SESSION_PIN_TIERS_KEY, type SessionPinMap } from "../rows/session-pins.js";
+import { useSessionPins } from "../hooks/useSessionPins.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */

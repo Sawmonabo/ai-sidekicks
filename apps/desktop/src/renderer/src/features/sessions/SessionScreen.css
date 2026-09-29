@@ -1,0 +1,41 @@
+/* The session screen: its own element, its banners and its composer slot.
+ *
+ * Every color is a Meridian custom property and every space a step on the scale,
+ * so the family follows the scheme attribute with no conditional in JSX and its
+ * rhythm is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The session shell -------------------------------------------------- */
+
+/*
+ * Three rows: the session header, the deck, and the composer's seat. The deck is the
+ * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
+ * the things that scroll rather than pushing the composer off the bottom.
+ */
+.meridian-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+}
+
+/*
+ * A banner and the count of the raises it stands for, on one line.
+ *
+ * The row exists so the count can sit beside the banner without the banner having to
+ * take a slot for it: a repeat count is the console's own reading, and the refusal
+ * shape's two fields are the daemon's.
+ */
+.meridian-workspace__banner {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workspace__composer {
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+}

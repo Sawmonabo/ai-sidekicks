@@ -7,9 +7,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { DECK_RESTORED_PANE_CAP } from "./pane-layout-store.js";
 import type { Announce } from "@renderer/console/primitives/index.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DeckLayout } from "./pane-layout-store.js";
 import { NO_FOCUSED_PANE_SENTENCE, deckActsOn } from "./pane-layout-acts.js";
 
 /** A layout holding a timeline, a runs list, and an approvals pane, in that order. */

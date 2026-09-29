@@ -25,7 +25,7 @@ import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
 } from "../lease/lease-transition.js";
-import { registerTerminalPanes } from "@renderer/console/terminal/index.js";
+import { registerTerminalPanes } from "./panes.js";
 
 function leaseTransitionReasons(): readonly unknown[] {
   return TERMINAL_SCENARIO.beats

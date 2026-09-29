@@ -24,12 +24,9 @@ import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type DeckPane } from "../pane-layout.js";
 import { type DeckDensity } from "../pane-layout-measures.js";
 import { minimumPaneWidthPx } from "../pane-layout-density.js";
-import {
-  usePaneDragSource,
-  usePaneDropTarget,
-  type DeckDragCoordinator,
-  type PaneDropIndicator,
-} from "@renderer/console/workspace/deck/pane-drag.js";
+import { usePaneDragSource } from "../hooks/usePaneDragSource.js";
+import { usePaneDropTarget } from "../hooks/usePaneDropTarget.js";
+import { type DeckDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
 
 export interface DeckPaneSlotProps {
   readonly pane: DeckPane;

@@ -20,8 +20,8 @@
 // respectively, because only one of them is a fact about the deck.
 
 import type { Announce } from "@renderer/console/primitives/index.js";
-import type { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { paneDropAnnouncement } from "@renderer/console/workspace/deck/pane-drag.js";
+import type { DeckLayout } from "./pane-layout-store.js";
+import { paneDropAnnouncement } from "./pane-drag.js";
 
 /**
  * The acts a mounted deck offers. One niladic call per act, so the name is the whole

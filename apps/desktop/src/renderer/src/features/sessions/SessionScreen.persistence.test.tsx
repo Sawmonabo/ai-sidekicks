@@ -16,7 +16,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,

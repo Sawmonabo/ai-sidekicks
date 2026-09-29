@@ -16,7 +16,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { DECK_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
 import { CoalescingLayoutWriter, type PersistedLayoutRecord } from "../coalescing-layout-writer.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {

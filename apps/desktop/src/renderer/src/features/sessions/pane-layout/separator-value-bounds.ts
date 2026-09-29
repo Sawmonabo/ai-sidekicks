@@ -24,8 +24,6 @@
 // belt-and-braces guard: a correction that has become a no-op still runs on every
 // commit, and the assertion below would then be passing for the wrong reason.
 
-import { useLayoutEffect } from "react";
-
 /** The attribute the panels library marks each of its separators with. */
 export const PANEL_SEPARATOR_SELECTOR = "[data-separator]";
 
@@ -92,24 +90,4 @@ export function correctSeparatorValueBounds(root: ParentNode): number {
     corrected += 1;
   }
   return corrected;
-}
-
-/**
- * Run the correction after every commit that could have re-rendered a separator.
- *
- * `layoutRevision` is the dependency rather than an empty list: the library
- * recomputes the range whenever the panel set or the widths change, and each
- * recompute reintroduces the swap. A `MutationObserver` would catch the same
- * changes and would also fire on its own writes, which is a loop this does not have.
- */
-export function useSeparatorValueBoundsCorrection(
-  container: React.RefObject<HTMLElement | null>,
-  layoutRevision: number,
-): void {
-  useLayoutEffect(() => {
-    const element = container.current;
-    if (element !== null) {
-      correctSeparatorValueBounds(element);
-    }
-  }, [container, layoutRevision]);
 }

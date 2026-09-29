@@ -9,11 +9,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { PERSISTENCE_GLOBAL_PARTITION } from "@renderer/store/persistence/persistence-adapter.js";
 import { openStore, openStoreOver } from "../sessions.test-support.js";
-import {
-  SESSION_PIN_TIERS_KEY,
-  SessionPinStore,
-  narrowSessionPinMap,
-} from "@renderer/console/sessions/rows/session-pins.js";
+import { SESSION_PIN_TIERS_KEY, SessionPinStore, narrowSessionPinMap } from "./session-pins.js";
 
 describe("pins in the durable store", () => {
   it("writes a pin through the chokepoint, under the global partition", async () => {

@@ -1,7 +1,4 @@
-/* The provider-import panel's styles. Its own sheet rather than more of `sessions.css`,
-   because the panel is a directory of its own and a sheet grows with what it styles; it
-   enters through the family door beside that one, which owns `acts/` — the directory
-   carries no door of its own. */
+/* The provider-import panel's styles. */
 
 .meridian-session-import__submit:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);

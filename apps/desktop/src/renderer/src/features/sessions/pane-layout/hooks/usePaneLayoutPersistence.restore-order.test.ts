@@ -17,8 +17,8 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
-import { type DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { type DeckLayout } from "../pane-layout-store.js";
+import { DECK_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
 import {
   RESTORE_SESSION,
   deckLayout,

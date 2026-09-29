@@ -32,12 +32,12 @@
 //     reads an empty one, and a bridge replacement — which retires every call the
 //     refusals describe — clears it too.
 
-import { useCallback, useMemo } from "react";
+import "./SessionScreen.css";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { useCallback } from "react";
+
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { consoleCommandSurface } from "../palette/index.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
@@ -45,39 +45,29 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
-import { SessionHeader } from "@renderer/features/sessions/session-header/components/SessionHeader.js";
-import { WorkspaceBannerRow } from "@renderer/features/sessions/components/SessionBannerRow.js";
-import { Deck } from "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
-import { useDeckLayout, useDeckLayoutState } from "./deck/model/deck-layout.js";
-import type { DeckPane } from "@renderer/features/sessions/pane-layout/pane-layout.js";
-import { useDeckPersistence } from "./layout/layout-persistence.js";
+import { SessionHeader } from "./session-header/components/SessionHeader.js";
+import { WorkspaceBannerRow } from "./components/SessionBannerRow.js";
+import { Deck } from "./pane-layout/components/SessionPaneLayout.js";
+import { DECK_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
+import { useDeckLayout } from "./pane-layout/hooks/usePaneLayoutStore.js";
+import { useDeckLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
+import type { DeckPane } from "./pane-layout/pane-layout.js";
+import { useDeckPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
+import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import {
   composerSeatRenderer,
   parseConsolePaneAddress,
   useSessionScopedState,
-  type ConsolePaneAddress,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
-} from "../seats/index.js";
+} from "@renderer/console/seats/index.js";
 import {
   NO_WORKSPACE_BANNERS,
   dismissWorkspaceBanner,
   raiseWorkspaceBanner,
   workspaceBannerKey,
   type WorkspaceBanner,
-} from "@renderer/features/sessions/session-banners.js";
-
-/**
- * The deck's five palette rows, contributed the moment this module is evaluated.
- *
- * Composition time: a family's commands are in the palette from the first frame rather
- * than arriving on the first navigation into a session. The rows claim no chord — the
- * deck binds its own five keystrokes on its own element, where the wide editable-target
- * guard is, and `deck/commands/deck-command-seat.ts` records why a window-table binding
- * on the same keystrokes would take a listbox's arrow keys.
- */
-registerDeckCommands(consoleCommandSurface);
+} from "./session-banners.js";
 
 /** What the workspace is handed: the stores it reads and the pane board it mounts. */
 export interface WorkspaceProps {
@@ -205,23 +195,4 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
       )}
     </div>
   );
-}
-
-/** The focused pane's address, for the composer's send router. */
-function useFocusedPaneAddress(
-  panes: readonly DeckPane[],
-  focusedPaneId: string | undefined,
-): ConsolePaneAddress | undefined {
-  return useMemo(() => {
-    const pane = panes.find((candidate) => candidate.paneId === focusedPaneId);
-    if (pane === undefined) {
-      return undefined;
-    }
-    // Parsed rather than composed, for `paneContextFor`'s reason: the pair is not an
-    // address until the seat says it is. A pane whose address the seat refuses routes
-    // nothing — which is the same answer as no focused pane, and is the honest one:
-    // the composer has no place to send to.
-    const address = parseConsolePaneAddress(pane.kind, pane.entity);
-    return "code" in address ? undefined : address;
-  }, [panes, focusedPaneId]);
 }

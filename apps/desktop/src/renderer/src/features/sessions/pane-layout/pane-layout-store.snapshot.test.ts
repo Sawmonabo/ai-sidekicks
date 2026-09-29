@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DECK_RESTORED_PANE_CAP, DeckLayout } from "./pane-layout-store.js";
 import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "./pane-layout-snapshot.js";
 
 function emptyLayout(): DeckLayout {
@@ -355,4 +355,3 @@ describe("DeckLayout — subscription", () => {
     unsubscribe();
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";

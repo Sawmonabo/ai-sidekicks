@@ -38,7 +38,7 @@ import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { registerTerminalPanes } from "../../../src/renderer/src/console/terminal/index.js";
+import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
 import {
   type ConsolePaneContext,
   type PaneKind,

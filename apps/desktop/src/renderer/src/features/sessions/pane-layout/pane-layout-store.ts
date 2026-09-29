@@ -23,14 +23,9 @@
 // both are pure. What is left here is the one thing that genuinely needs identity —
 // the mutable deck a session's panes live in.
 
-import { useCallback, useState, useSyncExternalStore } from "react";
-
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { isEphemeralPaneKind } from "../../../seats/index.js";
-import {
-  DEFAULT_DECK_DENSITY,
-  type DeckDensity,
-} from "@renderer/features/sessions/pane-layout/pane-layout-measures.js";
+import { isEphemeralPaneKind } from "@renderer/console/seats/index.js";
+import { DEFAULT_DECK_DENSITY, type DeckDensity } from "./pane-layout-measures.js";
 import {
   DECK_TOTAL_PERMILLE,
   addressesMatch,
@@ -46,13 +41,26 @@ import {
   type DeckPane,
   type DeckPaneAddress,
   type PaneSizePercentages,
-} from "@renderer/features/sessions/pane-layout/pane-layout.js";
+} from "./pane-layout.js";
 import {
   decodeDeckSnapshot,
   encodeDeckSnapshot,
   type DeckRestoreReport,
   type DeckSnapshotRecord,
-} from "@renderer/features/sessions/pane-layout/pane-layout-snapshot.js";
+} from "./pane-layout-snapshot.js";
+
+/**
+ * Panes one saved deck layout may restore.
+ *
+ * This family's own decision, like the third of the three restore rules
+ * `workspace/deck/model/deck-snapshot.ts` states — no committed document fixes the
+ * number, and the cap is about untrusted input rather than performance: a persisted
+ * record is a file on disk, and without a bound a corrupted or hand-edited one mounts
+ * panes until the window stops responding. Twelve is past any arrangement a person
+ * builds on a display the density presets are drawn for, so the cap binds a
+ * defect and never a session.
+ */
+export const DECK_RESTORED_PANE_CAP = 12;
 
 /** Construction inputs. */
 export interface DeckLayoutOptions {
@@ -61,6 +69,7 @@ export interface DeckLayoutOptions {
   readonly restoredPaneCap: number;
 }
 
+/** The live pane layout of one session screen; every mutation publishes one new state. */
 export class DeckLayout {
   readonly #changes = new Emitter<DeckLayoutState>("deck layout change");
   readonly #restoredPaneCap: number;
@@ -356,26 +365,4 @@ export class DeckLayout {
     this.#state = { ...this.#state, ...change, revision: this.#state.revision + 1 };
     this.#changes.emit(this.#state);
   }
-}
-
-/**
- * Hold one layout for the lifetime of the component that owns the deck.
- *
- * A hook rather than a construction in a render body: store construction stays out of
- * render, and a `new DeckLayout()` evaluated during a render React discards would
- * leave the deck subscribed to a layout nothing will ever mutate again.
- */
-export function useDeckLayout(options: DeckLayoutOptions): DeckLayout {
-  const [layout] = useState(() => new DeckLayout(options));
-  return layout;
-}
-
-/** Subscribe to a layout. The one read path; no component reaches `snapshot()`. */
-export function useDeckLayoutState(layout: DeckLayout): DeckLayoutState {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => layout.subscribe(onStoreChange),
-    [layout],
-  );
-  const read = useCallback(() => layout.snapshot(), [layout]);
-  return useSyncExternalStore(subscribe, read, read);
 }

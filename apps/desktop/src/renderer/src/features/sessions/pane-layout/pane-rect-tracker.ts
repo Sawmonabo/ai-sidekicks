@@ -36,21 +36,18 @@
 // is `rect-geometry.ts`, which holds no state and answers on demand. This module is
 // only the WHEN.
 
-import { useEffect, useRef, useState } from "react";
-
-import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { observeElementResize } from "../../../primitives/index.js";
-import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "@renderer/features/sessions/pane-layout/pane-layout-measures.js";
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "./pane-layout-measures.js";
 import {
   rectKey,
   visibleClipOf,
   type RectInvalidationSource,
   type TrackedRect,
-} from "@renderer/features/sessions/pane-layout/pane-rect-geometry.js";
+} from "./pane-rect-geometry.js";
 
+/** What a tracker is built from: its frame clock, its write sink and the window's airspace. */
 export interface PaneRectTrackerOptions {
   readonly clock: ConsoleClock;
   /** Where a deduped batch of rects is written. Called at most once per frame. */
@@ -66,6 +63,7 @@ export interface PaneRectTrackerOptions {
   readonly airspace: AirspaceRegistry;
 }
 
+/** Tracks each pane's visible rect and writes the changed ones at most once per frame. */
 export class PaneRectTracker {
   readonly #clock: ConsoleClock;
   readonly #onFlush: (rects: readonly TrackedRect[]) => void;
@@ -246,104 +244,4 @@ export class PaneRectTracker {
       this.flush();
     });
   }
-}
-
-/**
- * Hold one tracker for the lifetime of the surface that owns the panes.
- *
- * The sink is held in a ref and updated in an effect rather than captured at
- * construction, so a caller passing an inline lambda does not rebuild the tracker
- * every render — which would reset its dedupe memory and turn every frame into a
- * write, the exact opposite of what it is for.
- */
-export function usePaneRectTracker(options: {
-  readonly clock: ConsoleClock;
-  readonly onRects?: (rects: readonly TrackedRect[]) => void;
-}): PaneRectTracker {
-  const sink = useRef(options.onRects);
-  useEffect(() => {
-    sink.current = options.onRects;
-  }, [options.onRects]);
-
-  const [tracker] = useState(
-    () =>
-      new PaneRectTracker({
-        clock: options.clock,
-        onFlush: (rects) => sink.current?.(rects),
-        // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
-        // reading of the same rule: the overlays register on the registry their own
-        // element's document holds, so a deck handed one by a caller would be tracking
-        // an airspace nothing claims — which is what four prop hops of an `airspace`
-        // nobody ever passed had this family doing.
-        airspace: airspaceRegistryFor(document),
-      }),
-  );
-
-  useEffect(
-    () => () => {
-      tracker.dispose();
-    },
-    [tracker],
-  );
-  return tracker;
-}
-
-/**
- * Wire the four invalidation sources to a tracker, for as long as `container` is
- * mounted.
- *
- * All four in ONE effect, because they are one subscription to one question — "has
- * anything moved?" — and splitting them across effects would make the teardown
- * order decide whether a listener outlives the observer it was installed beside.
- *
- * Scroll is listened for in the CAPTURE phase on the document: a scroll inside any
- * ancestor of a pane moves that pane on screen, and scroll events do not bubble
- * from an element to the window, so a bubble-phase window listener would miss every
- * one that mattered.
- *
- * `layoutRevision` is the fourth source — the layout movers. Passing the layout's
- * own revision counter means a pane width change, a reorder, and a density change
- * all re-measure without this module having to know what any of them are.
- */
-export function usePaneRectSources(
-  tracker: PaneRectTracker,
-  container: React.RefObject<HTMLElement | null>,
-  layoutRevision: number,
-): void {
-  useEffect(() => {
-    const element = container.current;
-    if (element === null) {
-      return;
-    }
-    // Through the console's one size-observer site rather than a second construction:
-    // `primitives/element-resize.ts` owns the feature detection and the teardown, and
-    // its degrade is what makes the guard above an element test alone — a platform
-    // with no observer arms nothing THERE while the window and scroll sources below
-    // still fire, where the construction this replaced returned before arming any of
-    // the four and left a pane's rect answering from a measurement nothing refreshed.
-    const releaseHostSizeSource = observeElementResize(element, () => {
-      // A READ, queued. Mutating layout from inside this callback re-enters the
-      // observer, which is the loop this module's rule 1 forbids.
-      tracker.invalidate("host-resize");
-    });
-
-    const onWindowResize = (): void => {
-      tracker.invalidate("window-resize");
-    };
-    const onAncestorScroll = (): void => {
-      tracker.invalidate("ancestor-scroll");
-    };
-    window.addEventListener("resize", onWindowResize);
-    document.addEventListener("scroll", onAncestorScroll, { capture: true, passive: true });
-
-    return () => {
-      releaseHostSizeSource();
-      window.removeEventListener("resize", onWindowResize);
-      document.removeEventListener("scroll", onAncestorScroll, { capture: true });
-    };
-  }, [tracker, container]);
-
-  useEffect(() => {
-    tracker.invalidate("layout-mover");
-  }, [tracker, layoutRevision]);
 }

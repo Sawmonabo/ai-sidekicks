@@ -91,7 +91,7 @@ import { registerInspectorPane } from "@renderer/features/inspector/contribution
 import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { registerTerminalPanes } from "../terminal/index.js";
+import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
 import { registerWorkflowPanes } from "../workflows/index.js";
 
 /**

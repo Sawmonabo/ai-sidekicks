@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Announce, AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DECK_RESTORED_PANE_CAP, DeckLayout } from "./pane-layout-store.js";
 import {
   DECK_PANE_DRAG_KEY,
   DeckDragCoordinator,
@@ -27,7 +27,7 @@ import {
   dropEdgeFor,
   dropPosition,
   paneIdFromDragData,
-} from "@renderer/console/workspace/deck/pane-drag.js";
+} from "./pane-drag.js";
 
 /** An element that reports the given horizontal band, the one thing the edge test reads. */
 function elementSpanning(left: number, width: number): Element {
@@ -226,4 +226,3 @@ describe("what a settled drop says out loud", () => {
     ]);
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";

@@ -26,18 +26,10 @@
 // `useState` inside the deck it would be set from a library callback outside
 // React's knowledge, which is exactly the shape `useSyncExternalStore` exists for.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-
-import {
-  draggable,
-  dropTargetForElements,
-  monitorForElements,
-} from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
-
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type Announce, type AnnouncementPoliteness } from "../../primitives/index.js";
-import { type PaneKind } from "../../seats/index.js";
-import type { DeckLayout } from "./model/deck-layout.js";
+import { type Announce, type AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
+import { type PaneKind } from "@renderer/console/seats/index.js";
+import type { DeckLayout } from "./pane-layout-store.js";
 
 /**
  * The key a pane drag's payload is carried under.
@@ -253,123 +245,4 @@ export function commitPaneDrop(
     after.length,
   );
   announce(announcement.message, announcement.politeness);
-}
-
-/** Hold one coordinator for the lifetime of the deck that owns it. */
-export function useDeckDragCoordinator(): DeckDragCoordinator {
-  const [coordinator] = useState(() => new DeckDragCoordinator());
-  return coordinator;
-}
-
-/** Subscribe to the indicator. The one read path; no component reads `snapshot()`. */
-export function useDeckDropIndicator(
-  coordinator: DeckDragCoordinator,
-): PaneDropIndicator | undefined {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => coordinator.subscribe(onStoreChange),
-    [coordinator],
-  );
-  const read = useCallback(() => coordinator.snapshot(), [coordinator]);
-  return useSyncExternalStore(subscribe, read, read);
-}
-
-/**
- * Make one pane's header the handle that drags its pane.
- *
- * The header and not the whole pane: a pane body holds text a person selects and
- * controls they click, and a draggable ancestor turns every one of those into the
- * start of a drag. The header is the strip that means "this pane", which is what
- * makes it the handle in every deck a person has used.
- */
-export function usePaneDragSource(
-  coordinator: DeckDragCoordinator,
-  paneId: string,
-): (element: HTMLElement | null) => void {
-  const [handle, setHandle] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (handle === null) {
-      return;
-    }
-    return draggable({
-      element: handle,
-      getInitialData: () => ({ [DECK_PANE_DRAG_KEY]: paneId }),
-      onDragStart: () => {
-        coordinator.startDrag(paneId);
-      },
-    });
-  }, [coordinator, handle, paneId]);
-
-  return setHandle;
-}
-
-/**
- * Make one pane a place a dragged pane can land.
- *
- * The target is the pane's own root element rather than its header, so the whole
- * column is a target: a person dragging over a pane should not have to find a strip
- * to aim at, and the edge is decided by the pointer's position within the pane, not
- * by which part of it the pointer is over.
- */
-export function usePaneDropTarget(
-  coordinator: DeckDragCoordinator,
-  paneId: string,
-  element: HTMLElement | null,
-): void {
-  useEffect(() => {
-    if (element === null) {
-      return;
-    }
-    return dropTargetForElements({
-      element,
-      canDrop: ({ source }) => {
-        const draggedPaneId = paneIdFromDragData(source.data);
-        return draggedPaneId !== undefined && draggedPaneId !== paneId;
-      },
-      getData: () => ({ [DECK_PANE_DRAG_KEY]: paneId }),
-      onDrag: ({ location }) => {
-        coordinator.hover({
-          overPaneId: paneId,
-          edge: dropEdgeFor(element, location.current.input.clientX),
-        });
-      },
-      onDragLeave: () => {
-        coordinator.clear();
-      },
-    });
-  }, [coordinator, element, paneId]);
-}
-
-/**
- * Commit the drop, once, for the whole deck.
- *
- * ONE monitor rather than an `onDrop` per target, because the outcome depends on
- * the indicator the coordinator holds — which target the pointer settled on and
- * which edge — and a per-target handler would each have to re-derive it. The
- * monitor also runs for a drag that ends over nothing, which is the case that has
- * to clear the indicator and commit nothing; a per-target handler never fires there
- * at all. That case is also the one a person gets no feedback from unless it is
- * SAID — the deck looks the same as it did — so it reaches `commitPaneDrop` like
- * every other drop rather than returning early.
- *
- * @param announce The window's announcer, read from the context by the deck.
- */
-export function useDeckDragMonitor(
-  coordinator: DeckDragCoordinator,
-  layout: DeckLayout,
-  announce: Announce,
-): void {
-  useEffect(
-    () =>
-      monitorForElements({
-        canMonitor: ({ source }) => paneIdFromDragData(source.data) !== undefined,
-        onDrop: ({ source }) => {
-          const draggedPaneId = paneIdFromDragData(source.data);
-          const indicator = coordinator.snapshot();
-          coordinator.clear();
-          commitPaneDrop(layout, draggedPaneId, indicator, announce);
-        },
-      }),
-    [announce, coordinator, layout],
-  );
 }

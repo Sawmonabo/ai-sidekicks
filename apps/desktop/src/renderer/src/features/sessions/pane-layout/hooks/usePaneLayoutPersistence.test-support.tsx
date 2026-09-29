@@ -13,15 +13,13 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { DECK_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DeckLayout } from "../pane-layout-store.js";
 import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "../pane-layout-snapshot.js";
-import {
-  DECK_LAYOUT_RECORD_KEY,
-  useDeckPersistence,
-} from "@renderer/console/workspace/layout/layout-persistence.js";
+import { DECK_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
+import { useDeckPersistence } from "./usePaneLayoutPersistence.js";
 
 /** The one session every case here arranges, saves, and restores. */
 export const RESTORE_SESSION = "session-restore";

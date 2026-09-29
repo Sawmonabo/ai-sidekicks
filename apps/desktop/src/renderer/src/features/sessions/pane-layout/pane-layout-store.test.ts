@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { DECK_RESTORED_PANE_CAP } from "./pane-layout-store.js";
+import { DeckLayout } from "./pane-layout-store.js";
 import { DECK_TOTAL_PERMILLE } from "./pane-layout.js";
 
 function emptyLayout(): DeckLayout {
