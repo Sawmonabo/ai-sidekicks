@@ -19,7 +19,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import type { ArtifactPaneReading } from "./artifact-list-reading.js";
-import { ARTIFACT_TERMINAL_EVENT_KINDS } from "@renderer/features/repos/repo-lifecycle-events.js";
+import { ARTIFACT_TERMINAL_EVENT_KINDS } from "./artifact-read-schedule.js";
 import { ArtifactPaneReader } from "./artifact-list-reader.js";
 import {
   LISTED_ONE_ROW,

@@ -20,6 +20,8 @@
 //
 // A rejected list call is not caught here: with no `onError`, the scheduler re-throws it.
 
+import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
+
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import {
   GenerationLatch,
@@ -29,9 +31,38 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { ARTIFACT_TERMINAL_EVENT_KINDS } from "@renderer/features/repos/repo-lifecycle-events.js";
 import { settledReadReading, type ArtifactPaneReading } from "./artifact-list-reading.js";
 import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
+
+/** The namespace every frame about an artifact is registered under. */
+const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
+
+/**
+ * Every registered frame that names an artifact.
+ *
+ * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed: a hand-written list is
+ * a snapshot of a registry that grows, so a new `artifact.*` kind — a retention sweep, a
+ * re-publication — would reach this pane and be ignored, with the list on screen going
+ * stale and nothing anywhere saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the
+ * canonical type registry and its keys are the whole census, so a kind is watched the
+ * day it is registered and a kind renamed stops matching nothing silently rather than
+ * compiling and doing so.
+ *
+ * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
+ * is actually asking. Both of its reads are about artifacts, so any frame that names
+ * one changes what one of them would answer — while `artifact_publication`, the
+ * category the three live in, also holds `diff.created`, `pr.prepared`, and
+ * `pr.submitted`, which are publications of other entities and change neither read. It
+ * deliberately does not infer a category from the prefix either, which
+ * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
+ * to state, and this set never reads one.
+ *
+ * The annotation is explicit rather than inferred, because `isolatedDeclarations`
+ * requires one on every exported binding.
+ */
+export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
+  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
+].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));
 
 /**
  * The one key this pane's scheduled read is claimed under.
