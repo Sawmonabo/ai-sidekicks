@@ -9,7 +9,7 @@
 // module the family already keeps them in, so a capture cannot drift from what the
 // family's own suites are driven with.
 //
-// THE SESSION STORE OPENS WITH THE WINDOW'S OWN FOLD — {@link COMPOSED_CONSOLE_PROJECTORS}
+// THE SESSION STORE OPENS WITH THE WINDOW'S OWN FOLD — {@link COMPOSED_ENTITY_PROJECTORS}
 // and never a registrar this file picked — so a partition a column reads is the one a
 // window would have projected.
 //
@@ -40,7 +40,7 @@ import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
+import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
 
 /** The session the store is open on, so the roster read is asked rather than skipped. */
 const SESSION_ID = "session-agents";
@@ -98,14 +98,14 @@ function paneContext(
 function agentsSessionStore(): SessionStore {
   const store = new SessionStore({
     sessionId: SESSION_ID,
-    projectors: COMPOSED_CONSOLE_PROJECTORS,
+    projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   store.initialise({ cursor: 0, entities: [] });
   return store;
 }
 
 /** The pane mounted over the fixture roster, addressed at the agent on `claude`. */
-async function mountAgentsPane(): Promise<{
+async function renderAgentsPane(): Promise<{
   readonly container: HTMLElement;
   readonly bridge: ConsoleBridge;
 }> {
@@ -124,8 +124,8 @@ async function mountAgentsPane(): Promise<{
   return { container, bridge };
 }
 
-/** The whole agent console pane, chrome and column, over the fixture roster. */
-export async function mountAgentConsolePane(): Promise<HTMLElement> {
-  const { container } = await mountAgentsPane();
+/** The whole agents pane, chrome and column, over the fixture roster. */
+export async function mountAgentsPane(): Promise<HTMLElement> {
+  const { container } = await renderAgentsPane();
   return requireRendered(container, ".meridian-pane");
 }

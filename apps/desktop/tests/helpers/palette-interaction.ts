@@ -50,7 +50,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "vitest";
 
-import type { ConsoleApplication } from "./electron-harness.js";
+import type { AppUnderTest } from "./electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch-body.js";
 import { LaunchDeadline } from "./launch-deadline.js";
 
@@ -70,12 +70,12 @@ const PALETTE_OPEN_CHORD = "ControlOrMeta+Shift+KeyP";
 /**
  * What these helpers need of a launched console: the window, and the allowance.
  *
- * Narrowed rather than taking the whole `ConsoleApplication`, on
+ * Narrowed rather than taking the whole `AppUnderTest`, on
  * `withBoundedBody`'s precedent and for its reason: the pair is then reachable
  * from a case that owns no Electron, which is how the phase arithmetic below is
- * driven at all. A full `ConsoleApplication` satisfies it unchanged.
+ * driven at all. A full `AppUnderTest` satisfies it unchanged.
  */
-type PaletteConsole = Pick<ConsoleApplication, "window" | "bodyAllowance">;
+type PaletteConsole = Pick<AppUnderTest, "window" | "bodyAllowance">;
 
 /**
  * What one look at the palette input can find, named so a failure says which.

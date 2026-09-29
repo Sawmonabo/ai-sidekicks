@@ -144,7 +144,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
  * what lets a caller run this over every surface it reads rather than over the one it
  * knows draws a graph.
  */
-export function isPhaseGraphSettled(surface: HTMLElement): boolean {
+export function isRunGraphSettled(surface: HTMLElement): boolean {
   if (surface.querySelector(".meridian-phase-graph") === null) {
     return true;
   }
@@ -163,7 +163,7 @@ export function isPhaseGraphSettled(surface: HTMLElement): boolean {
  * fit has been computed" and "the fit is what the compositor last drew", and a frame
  * is the only clock that answers it.
  */
-export async function awaitPhaseGraphSettled(surface: HTMLElement): Promise<void> {
+export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> {
   if (surface.querySelector(".meridian-phase-graph") === null) {
     return;
   }

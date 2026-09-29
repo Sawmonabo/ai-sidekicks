@@ -85,7 +85,7 @@ import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entit
  * and refusing an unregistered pairing would refuse exactly the higher-MINOR
  * deliveries the tolerant layer exists to let through.
  */
-export function readConsoleSessionEvent(
+export function readProjectedSessionEvent(
   deliveredEnvelope: unknown,
 ): ConsoleSessionEvent | undefined {
   const parsed = EventEnvelopeSchema.safeParse(deliveredEnvelope);

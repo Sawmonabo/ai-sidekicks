@@ -41,12 +41,8 @@ import {
 } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
 import { renderSettled } from "../../../test/console/console-harness.js";
-import { extendedHeaderChangeSet, scenarioCollaborators } from "./repos-fixtures.js";
-import {
-  requireElement,
-  requireLabelledRegion,
-  type MountedFamilySurface,
-} from "./mount-queries.js";
+import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
+import { requireElement, requireLabelledRegion, type MountedView } from "./mount-queries.js";
 
 /**
  * The repos sidebar section, open, with its three mounts read.
@@ -56,8 +52,8 @@ import {
  * frame and then compare a later warm run against it. All three cards are waited for,
  * because the first to land is not the last.
  */
-export async function mountRepoSection(): Promise<MountedFamilySurface> {
-  const { bridge, sessionStore } = scenarioCollaborators();
+export async function mountRepoSection(): Promise<MountedView> {
+  const { bridge, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     // The announcer is the section's environment: an act announces its own settlement,
     // and `useAnnounce` throws outside the provider on purpose.
@@ -87,8 +83,8 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
 }
 
 /** The diff pane over a parsed change set: compared states, file list, rows. */
-export async function mountDiffPane(): Promise<MountedFamilySurface> {
-  const { bridge, sessionStore } = scenarioCollaborators();
+export async function mountDiffPane(): Promise<MountedView> {
+  const { bridge, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     <DiffPane
       context={paneContext({

@@ -22,7 +22,7 @@
 import { describe, expect, it } from "vitest";
 
 import { mountWorkflowRunPhaseGraph } from "../helpers/feature-mounts/workflows.js";
-import { awaitPhaseGraphSettled } from "../helpers/run-graph-settled.js";
+import { awaitRunGraphSettled } from "../helpers/run-graph-settled.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 
@@ -45,7 +45,7 @@ function requireElement(root: HTMLElement, selector: string): HTMLElement {
 async function mountWithPaintedGraph(): Promise<HTMLElement> {
   installMeridianTokens(document);
   const graph = await mountWorkflowRunPhaseGraph();
-  await awaitPhaseGraphSettled(graph);
+  await awaitRunGraphSettled(graph);
   return graph;
 }
 

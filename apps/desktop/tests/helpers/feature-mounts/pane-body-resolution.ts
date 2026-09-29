@@ -73,7 +73,7 @@ export async function resolvedPaneBody(
  * before anything is mounted, so a deferred surface's reserved region is the WHOLE
  * window rather than one pane inside a settled frame.
  */
-export async function resolvedSurfaceBody(
+export async function resolvedScreenBody(
   slot: ConsoleSurfaceSlot,
   registerSurface: (registry: ConsoleSurfaceRegistry) => void,
 ): Promise<(context: ConsoleSurfaceContext) => ReactNode> {

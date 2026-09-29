@@ -7,8 +7,8 @@
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
 
 import {
-  CONSOLE_DAEMON_METHODS,
-  CONSOLE_DAEMON_METHOD_BINDINGS,
+  REGISTERED_DAEMON_METHODS,
+  DAEMON_METHOD_BINDINGS,
   daemonMethodBindingFor,
 } from "./daemon-reply-registry.js";
 
@@ -16,7 +16,7 @@ describe("the console daemon-method registry", () => {
   it("has a set to check at all", () => {
     // Without this, every assertion below would pass over an empty table — the
     // vacuous-pass shape the console's other census tests guard the same way.
-    expect(CONSOLE_DAEMON_METHODS.length).toBeGreaterThan(10);
+    expect(REGISTERED_DAEMON_METHODS.length).toBeGreaterThan(10);
   });
 
   it("names methods in the wire's canonical format", () => {
@@ -28,7 +28,9 @@ describe("the console daemon-method registry", () => {
     // whose camelCase root the regex rejected while the architecture contract registered
     // the namespace — and the contradiction was settled in the regex's favour rather than
     // the namespace's, so every bound method now matches the real thing.
-    const malformed = CONSOLE_DAEMON_METHODS.filter((method) => !METHOD_NAME_FORMAT.test(method));
+    const malformed = REGISTERED_DAEMON_METHODS.filter(
+      (method) => !METHOD_NAME_FORMAT.test(method),
+    );
 
     expect(malformed).toStrictEqual([]);
   });
@@ -50,8 +52,8 @@ describe("the console daemon-method registry", () => {
     // request sendable, which is the failure this whole chokepoint exists to
     // prevent — and it would be invisible, because the served path would still
     // work. `undefined` is admitted by no registered request or response here.
-    const permissive = CONSOLE_DAEMON_METHODS.filter((method) => {
-      const binding = CONSOLE_DAEMON_METHOD_BINDINGS[method];
+    const permissive = REGISTERED_DAEMON_METHODS.filter((method) => {
+      const binding = DAEMON_METHOD_BINDINGS[method];
       return (
         binding.requestSchema.safeParse(undefined).success ||
         binding.responseSchema.safeParse(undefined).success
@@ -65,9 +67,9 @@ describe("the console daemon-method registry", () => {
     // A registry and not a builder. A module that could swap a schema at start-up
     // could change what the console sends on a method without touching the method's
     // own row or the contract that owns the shape.
-    expect(Object.isFrozen(CONSOLE_DAEMON_METHOD_BINDINGS)).toBe(true);
-    const unfrozen = CONSOLE_DAEMON_METHODS.filter(
-      (method) => !Object.isFrozen(CONSOLE_DAEMON_METHOD_BINDINGS[method]),
+    expect(Object.isFrozen(DAEMON_METHOD_BINDINGS)).toBe(true);
+    const unfrozen = REGISTERED_DAEMON_METHODS.filter(
+      (method) => !Object.isFrozen(DAEMON_METHOD_BINDINGS[method]),
     );
     expect(unfrozen).toStrictEqual([]);
   });
@@ -77,8 +79,8 @@ describe("the console daemon-method registry", () => {
     // call site, so this is the one lookup that admits an arbitrary string. Both
     // directions, because an over-eager one would make the fixture refuse scenarios
     // for operations the corpus has not registered.
-    for (const method of CONSOLE_DAEMON_METHODS) {
-      expect(daemonMethodBindingFor(method)).toBe(CONSOLE_DAEMON_METHOD_BINDINGS[method]);
+    for (const method of REGISTERED_DAEMON_METHODS) {
+      expect(daemonMethodBindingFor(method)).toBe(DAEMON_METHOD_BINDINGS[method]);
     }
     expect(daemonMethodBindingFor("gitflow.branchContextRead")).toBeUndefined();
     expect(daemonMethodBindingFor("toString")).toBeUndefined();

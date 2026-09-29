@@ -79,8 +79,9 @@ import {
   type ConsolePaneContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
-import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
+import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
+import { type MountedView } from "./mount-queries.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -135,15 +136,9 @@ function paneContext(
     // reads answers the empty map a session with no runs answers.
     sessionStore: new SessionStore({
       sessionId: PROBE_SESSION_ID,
-      projectors: COMPOSED_CONSOLE_PROJECTORS,
+      projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
   };
-}
-
-/** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
-  readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
 }
 
 /**
@@ -183,7 +178,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
 async function surfaceBodyComponent(): Promise<
   FunctionComponent<{ context: ConsoleSurfaceContext }>
 > {
-  const render = await resolvedSurfaceBody("workflows", registerWorkflowSurfaces);
+  const render = await resolvedScreenBody("workflows", registerWorkflowSurfaces);
   return ({ context }) => render(context);
 }
 
@@ -212,7 +207,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     // none would give a session this surface navigates into an unprojected store.
     sessionStoreRegistry: new SessionStoreRegistry({
       read: () => Promise.resolve(undefined),
-      projectors: COMPOSED_CONSOLE_PROJECTORS,
+      projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
     // This composition's own board, which is what the surface opens panes out of —
     // the same instance the pane helper above mounts bodies from, so a tier that
@@ -235,7 +230,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  * around it because `useAnnounce` throws outside its provider rather than falling back to
  * a region created at the moment something spoke.
  */
-export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
+export async function mountWorkflowsDestination(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
@@ -253,7 +248,7 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
 }
 
 /** The run pane addressed at a run, drawing the frame it has without a run read. */
-export async function mountWorkflowRunPane(): Promise<MountedFamilySurface> {
+export async function mountWorkflowRunPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
@@ -294,7 +289,7 @@ export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
  * this one composes the node-graph and drafts slots only this pane has. No wait: this
  * pane puts no read on any arm, so there is nothing in flight to settle.
  */
-export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
+export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(

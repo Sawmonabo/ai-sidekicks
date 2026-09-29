@@ -1,51 +1,26 @@
-// The screenshot tier's ledger arm: the console's signature surface, pinned.
+// The screenshot tier's transcript arm: the app's signature surface, captured.
 //
-// This tier captures the flagship frame at its frozen tick, and the ledger is what makes that sentence worth anything — the frame
-// beside it is chrome around an empty surface until a session is open in it. So
-// this file captures the whole console window with the FLAGSHIP session loaded, in
-// both schemes, and the ledger's own region for the one state no loaded session can
-// reach.
+// Two captures. The whole window with the concurrent-streaming session loaded, in both
+// schemes: its claim is a composition (the rail, the session header, the pane layout,
+// the chapters and the agent hues all true at once), which a shot cropped to the
+// transcript's box would miss. It is that scenario because it carries every signature
+// surface at one tick: several runs streaming in their own hues, an approval asked and
+// granted mid-stream, a run parked on a provider quota with its reset instant, a child
+// run threaded to the turn that spawned it, and the committed cost figure.
 //
-// WHY THE FLAGSHIP PAIR IS THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim
-// those two pin is a COMPOSITION: the rail, the session header, the deck, the chapters,
-// and the attribution hues all have to be true at once and in the right
-// relationship to each other. A shot cropped to the ledger's own box would still be
-// green the day the rail overlapped it.
+// And the empty-session transcript's own region: a session with a roster and an empty
+// log is the one kind of nothing a scripted stream can never reach, and its claim is
+// the copy and shape of an absence, a surface rather than a composition.
 //
-// AND WHY THE QUIET ARM IS THE LEDGER'S OWN REGION AND NOT THE FRAME. Its claim is
-// the opposite one: the copy and the shape of an absence, which is a claim about a
-// surface rather than about a composition. Captured whole, it would pin a frame with
-// an empty ledger in it rather than the absence. So the quiet arm captures the
-// element the session route mounts the ledger into.
+// Each capture is preceded by assertions, because a screenshot of an empty transcript
+// is a perfectly stable image. The loaded arm asserts the window plays the named
+// scenario, every beat reached it, and rows are on screen; the empty arm asserts no beat
+// reached it and the empty sentence is on screen, which a mount alone cannot show,
+// since a window whose first read has not landed draws loading shells.
 //
-// WHY THE FLAGSHIP AND NOT THE THREE-LANE LEDGER. The tier's sentence names the
-// FLAGSHIP frame, and this capture used to pin `ledger.ts` instead — a fine frame,
-// and not the one the sentence is about. `flagship.ts` is the composition that
-// carries every signature surface at one tick: four lanes streaming in four hues
-// inside their own chapters, a cast of six with live verbs, an approval asked and
-// granted mid-stream, a lane parked on a provider quota with the instant it resets
-// at, a helper run threaded to the turn that spawned it, and the accountant's own
-// committed figure on the bar. Pinning the smaller session left four of those out of
-// the one image the frame is judged by.
-//
-// WHY A SECOND SCENARIO. `ledger-quiet.ts` is a session with a roster and an empty
-// log, and it is here because rule 8's EMPTY is the one kind of nothing a scripted
-// stream can never reach: every beat a script plays puts a row on screen. An empty
-// state nobody can look at is an empty state nobody designed.
-//
-// WHY THE CAPTURE IS PRECEDED BY ASSERTIONS. A screenshot of an empty ledger is a
-// perfectly stable image, and a capture aid that photographs one says nothing about
-// whether the surface arrived. The three claims below the mount — the window is playing the
-// scenario this file names, every beat reached it, and rows are on screen — are
-// what stop this file pinning a picture of nothing. The quiet arm asserts the
-// mirror image, for the same reason in the other direction: no beat reached it, and
-// the sentence a session with nothing in it renders is on screen — which is the one
-// claim a mount alone cannot make, since a window whose first read has not landed
-// draws loading shells and says nothing at all.
-//
-// `settled-capture.ts` owns the mechanism this file rides: every capture is written
-// into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether each surface can be captured at all.
+// `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
+// `__screenshots__/` and compared against nothing, so this file gates on whether each
+// surface can be captured at all.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -65,11 +40,11 @@ import { formatRoute } from "@renderer/routing/routes.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 import {
   LEDGER_QUIET_SCENARIO,
-  LEDGER_QUIET_SCENARIO_ID,
+  EMPTY_SESSION_SCENARIO_ID,
 } from "../../fixtures/scenarios/empty-session.js";
 import {
   FLAGSHIP_SCENARIO,
-  FLAGSHIP_SCENARIO_ID,
+  CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { captureSettled } from "./settled-capture.js";
@@ -77,7 +52,7 @@ import { captureSettled } from "./settled-capture.js";
 /** What one opened fixture session hands back: the mount, and what to capture. */
 interface LedgerMount {
   readonly container: HTMLElement;
-  /** The whole console window — the composition the flagship pair pins. */
+  /** The whole window: the composition the concurrent-streaming pair captures. */
   readonly frame: Element;
   /**
    * The ledger's own region — what the quiet arm pins.
@@ -134,12 +109,12 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("screenshot — the console under the flagship scenario", () => {
+describe("screenshot — the app under the concurrent-streaming scenario", () => {
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async () => {
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
-        FLAGSHIP_SCENARIO_ID,
+        CONCURRENT_STREAMING_SCENARIO_ID,
         FLAGSHIP_SCENARIO.sessionId,
       );
 
@@ -160,7 +135,7 @@ describe("screenshot — the console under the flagship scenario", () => {
         "no ledger row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
-      await captureSettled(frame, `flagship-frame-${scheme}`);
+      await captureSettled(frame, `concurrent-streaming-frame-${scheme}`);
     });
   }
 });
@@ -173,7 +148,7 @@ describe("screenshot — the ledger's empty state", () => {
     // scheme decides.
     await emulateSystemScheme("light");
     const { ledgerBody } = await openLedgerSession(
-      LEDGER_QUIET_SCENARIO_ID,
+      EMPTY_SESSION_SCENARIO_ID,
       LEDGER_QUIET_SCENARIO.sessionId,
     );
 
@@ -204,7 +179,7 @@ describe("screenshot — the ledger's empty state", () => {
     expect(ledgerBody.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
     expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
 
-    await captureSettled(ledgerBody, "ledger-quiet-light");
+    await captureSettled(ledgerBody, "empty-session-light");
   });
 });
 

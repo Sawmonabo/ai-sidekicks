@@ -70,6 +70,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
@@ -111,27 +112,9 @@ export const GC_TEST_TIMEOUT_MS: number =
   TERMINATION_GRACE_MS +
   TEST_TIMEOUT_SLACK_MS;
 
-/** One reading emitted by the main process's GC probe branch. */
-interface GcProbe {
-  readonly ok: boolean;
-  readonly queryObjectsAvailable: boolean;
-  readonly globalGcAvailable: boolean;
-  readonly iterations: number;
-  readonly counts: readonly number[];
-  readonly min: number;
-  readonly max: number;
-  /** Windows open when the loop ended; the per-window delta's denominator. */
-  readonly windowsOpened: number;
-  /** The loop's last sample, taken with every window still open. */
-  readonly openCount: number;
-  /** One sample after every window closed, the close unwound, and a collection. */
-  readonly closedCount: number;
-  readonly allClosedFired: boolean;
-}
-
 /** What one spawn produced, reading or not, with the context to diagnose it. */
 interface GcProbeSpawnResult {
-  readonly probe: GcProbe | null;
+  readonly probe: GcProbeReading | null;
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
@@ -200,7 +183,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   // NOT fire ahead of the GC probe. This guards against a developer's
   // shell having SIDEKICKS_SMOKE_PROBE exported, or a future CI matrix
   // that runs both probes back-to-back.
-  const { SIDEKICKS_SMOKE_PROBE: _drop, ...envWithoutSmoke } = process.env;
+  const { SIDEKICKS_SMOKE_PROBE: _smokeProbeSwitch, ...envWithoutSmoke } = process.env;
 
   return new Promise<GcProbeSpawnResult>((resolve) => {
     // Through the shared owner, which is what makes this spawn survivable.
@@ -239,7 +222,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
 
     let stdout = "";
     let stderr = "";
-    let probe: GcProbe | null = null;
+    let probe: GcProbeReading | null = null;
     let pending = "";
 
     const spawnDeadline = setTimeout(() => {
@@ -269,7 +252,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         const payload = line.slice(probeTagIndex + GC_PROBE_TAG.length).trim();
         if (!payload.startsWith("{")) continue;
         try {
-          probe = JSON.parse(payload) as GcProbe;
+          probe = JSON.parse(payload) as GcProbeReading;
         } catch {
           // Tagged but malformed — keep scanning subsequent lines.
         }

@@ -38,37 +38,39 @@ import {
 } from "@test/helpers/fixture-bridge.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
+import { findScenarioContractDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
 } from "./session-event-streams.js";
 
-/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+/** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
 /** The tick the probe's rollback beat falls due at. */
 const ROLLBACK_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 60;
 
 /**
- * The flagship script plus one rollback row.
+ * The concurrent-streaming scenario script plus one rollback row.
  *
- * The flagship plays run transitions and no rollback, so the state stream's second
+ * The concurrent-streaming scenario plays run transitions and no rollback, so the state stream's second
  * arm would go untested. The added beat names a registered event type and carries the
  * members its registered PROJECTION names, so the probe is a script the daemon could
  * have produced.
  */
 function scenarioWithRollbackBeat(): ConsoleScenario {
-  const lastFlagshipBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
-  if (lastFlagshipBeat === undefined) {
-    throw new Error("the flagship scenario plays no beats, so there is nothing to extend");
+  const lastConcurrentStreamingBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
+  if (lastConcurrentStreamingBeat === undefined) {
+    throw new Error(
+      "the concurrent-streaming scenario plays no beats, so there is nothing to extend",
+    );
   }
-  const { sessionId } = lastFlagshipBeat.event;
-  const nextSequence = lastFlagshipBeat.event.sequence + 1;
+  const { sessionId } = lastConcurrentStreamingBeat.event;
+  const nextSequence = lastConcurrentStreamingBeat.event.sequence + 1;
   return {
     ...FLAGSHIP_SCENARIO,
-    id: "flagship-stream-routing-probe",
+    id: "concurrent-streaming-stream-routing-probe",
     beats: [
       ...FLAGSHIP_SCENARIO.beats,
       {
@@ -103,7 +105,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // Parsed, not spot-checked. `.strict()` means an envelope member surviving the
     // projection fails here, and a missing required member fails here too.
     const parsed = received.map((delivery) => RunStateChangeEventSchema.parse(delivery));
-    // The creation row is not a transition: the flagship plays `run.queued` for every
+    // The creation row is not a transition: the concurrent-streaming plays `run.queued` for every
     // run it starts, and no state precedes `queued` in the run state machine — so
     // however many runs the script carries, none of their creations reaches this
     // stream. Asserted as an absence rather than as a count, because a count would
@@ -325,6 +327,6 @@ describe("run streams — the probe is a script the daemon could have produced",
   it("plays only registered types carrying payloads the strict layer accepts", () => {
     // Held to the same predicate every shipped scenario is held to, so the cases
     // above are about a real wire rather than a plausible-looking invention.
-    expect(findScenarioWireTruthDefects([scenarioWithRollbackBeat()])).toStrictEqual([]);
+    expect(findScenarioContractDefects([scenarioWithRollbackBeat()])).toStrictEqual([]);
   });
 });

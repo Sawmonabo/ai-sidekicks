@@ -76,24 +76,14 @@
 //     arrive — never from the creation event.
 
 import {
-  scriptLedgerBeats,
-  type LedgerScriptEntry,
-  createLedgerLaneEntries,
+  composeScriptBeats,
+  type ScriptEntry,
+  createRunEntryBuilders,
 } from "../data/script-entries.js";
 import type { ConsoleScenario } from "../scenario.js";
-import { ledgerOpeningEntries } from "../data/opening-entries.js";
+import { type ScenarioAgent, composeOpeningEntries } from "../data/opening-entries.js";
 
 // The cast and its clock: every identifier in one place.
-
-/** One lane of the cast, as both the attach beat and the `agent.list` row carry it. */
-export interface FlagshipAgent {
-  readonly agentId: string;
-  readonly name: string;
-  readonly driverName: string;
-  readonly modelId: string;
-  /** Milliseconds after the scenario's own start instant. */
-  readonly attachedAtMs: number;
-}
 
 // Wire identifiers, spelled as the wire spells them. UUID v7 values, whose leading
 // bytes are the scenario's own start instant, so a reader scanning a rendered id
@@ -104,7 +94,7 @@ export const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
  * The stem this scenario's row ids are minted from — its own namespace, not its
  * session's.
  *
- * `scriptLedgerBeats` completes it with the beat's position. Distinct from
+ * `composeScriptBeats` completes it with the beat's position. Distinct from
  * `SESSION_ID` on purpose: an event id a caller could rebuild out of the session and
  * the sequence would let a projection that stopped carrying the real one keep
  * answering.
@@ -148,7 +138,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  * one provider cannot show a surface what a two-provider session looks like, and
  * that is the session this console is for.
  */
-export const FLAGSHIP_AGENTS: readonly FlagshipAgent[] = [
+export const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
@@ -198,7 +188,7 @@ export function costUpdateEntry(input: {
   readonly runId: string;
   readonly costCents: number;
   readonly causedBy: string;
-}): LedgerScriptEntry {
+}): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: "usage.cost_update",
@@ -241,7 +231,7 @@ export function approvalEntry(input: {
   readonly kind: string;
   readonly actorId?: string;
   readonly members: Readonly<Record<string, unknown>>;
-}): LedgerScriptEntry {
+}): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,
@@ -262,16 +252,16 @@ export function approvalEntry(input: {
 // What the four lanes do, beat by beat.
 
 /** The four entry builders, with this scenario's session bound in. */
-const lane = createLedgerLaneEntries(SESSION_ID);
+const lane = createRunEntryBuilders(SESSION_ID);
 
-export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
+export const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   // The opening, unchanged in shape: the room, the cast in join order, and the
   // implementer's run opened by the signed-in user. Every surface built against this
   // scenario reads these eight beats, so they stay first and stay as they were.
-  ...ledgerOpeningEntries({
+  ...composeOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: USER_YOU,
-    cast: FLAGSHIP_AGENTS,
+    cast: CONCURRENT_STREAMING_AGENTS,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 400,
@@ -596,7 +586,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   }),
 ];
 
-export const FLAGSHIP_SCENARIO_ID = "flagship";
+export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
 
 /**
  * How many lanes this session streams at once.
@@ -605,10 +595,10 @@ export const FLAGSHIP_SCENARIO_ID = "flagship";
  * own label, and the harness assertion all mean "one lane per agent", and a literal
  * in any of them would let the cast grow while the claim stayed at its old size.
  */
-export const FLAGSHIP_LANE_COUNT: number = FLAGSHIP_AGENTS.length;
+export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
 export const FLAGSHIP_SCENARIO: ConsoleScenario = {
-  id: FLAGSHIP_SCENARIO_ID,
+  id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:
     "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
@@ -621,11 +611,11 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // and the two facts coincide here only because this scenario chose to make them.
   callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
-  beats: scriptLedgerBeats({
+  beats: composeScriptBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
     startedAtMs,
-    entries: FLAGSHIP_SCRIPT,
+    entries: CONCURRENT_STREAMING_SCRIPT,
   }),
   replies: [
     {
@@ -646,7 +636,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
         },
-        timelineCursors: { latest: "flagship-cursor-45" },
+        timelineCursors: { latest: "concurrent-streaming-cursor-45" },
       },
     },
   ],

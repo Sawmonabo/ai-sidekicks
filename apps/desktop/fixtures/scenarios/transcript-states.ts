@@ -55,24 +55,19 @@
 //     the true state of that wire today.
 
 import {
-  scriptLedgerBeats,
-  createLedgerLaneEntries,
-  type LedgerScriptEntry,
+  composeScriptBeats,
+  createRunEntryBuilders,
+  type ScriptEntry,
 } from "../data/script-entries.js";
 import type { ConsoleScenario } from "../scenario.js";
-import { ledgerCastMember, ledgerOpeningEntries } from "../data/opening-entries.js";
+import {
+  type ScenarioAgent,
+  composeAttachedInstant,
+  composeOpeningEntries,
+  findScenarioMember,
+} from "../data/opening-entries.js";
 
 // The cast and its clock: every identifier in one place.
-
-/** One lane of the cast, as the attach beat carries it. */
-export interface LedgerCastAgent {
-  readonly agentId: string;
-  readonly name: string;
-  readonly driverName: string;
-  readonly modelId: string;
-  /** Milliseconds after the scenario's own start instant. */
-  readonly attachedAtMs: number;
-}
 
 // UUID v7 values whose leading bytes are this scenario's own start instant, so a
 // rendered identifier tells one fixture apart from another at a glance — and so an
@@ -83,7 +78,7 @@ export const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
  * The stem this scenario's row ids are minted from — its own namespace, not its
  * session's.
  *
- * `scriptLedgerBeats` completes it with the beat's position. Distinct from
+ * `composeScriptBeats` completes it with the beat's position. Distinct from
  * `SESSION_ID` on purpose: an event id a caller could rebuild out of the session and
  * the sequence would let a projection that stopped carrying the real one keep
  * answering.
@@ -141,7 +136,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  * fixture whose whole cast runs one provider cannot show a surface what a two-provider
  * session looks like.
  */
-export const LEDGER_AGENTS: readonly LedgerCastAgent[] = [
+export const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
@@ -164,11 +159,6 @@ export const LEDGER_AGENTS: readonly LedgerCastAgent[] = [
     attachedAtMs: 200,
   },
 ];
-
-/** The instant one agent was attached, as an ISO string. */
-export function attachedAtIso(attachedAtMs: number): string {
-  return new Date(startedAtMs + attachedAtMs).toISOString();
-}
 
 // What the three lanes do, beat by beat.
 //
@@ -202,16 +192,16 @@ const REVIEWER_TOOL_CALL_ID = "call-reviewer-1";
  * A subagent is keyed by `(runId, provider, subagentId)`, so this has to be the same
  * string the reviewer's own attach beat carries — and the cast is where it is stated.
  */
-const REVIEWER_PROVIDER = ledgerCastMember(LEDGER_AGENTS, AGENT_REVIEWER).driverName;
+const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER).driverName;
 
 /** The four entry builders, with this scenario's session bound in. */
-const lane = createLedgerLaneEntries(SESSION_ID);
+const lane = createRunEntryBuilders(SESSION_ID);
 
-export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
-  ...ledgerOpeningEntries({
+export const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
+  ...composeOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: USER_YOU,
-    cast: LEDGER_AGENTS,
+    cast: TRANSCRIPT_STATES_AGENTS,
   }),
   {
     atMs: 280,
@@ -520,14 +510,14 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
       // extended. Derived from the scenario's own base instant rather than written
       // as a literal, so the countdown and the beat can never disagree about when
       // the ask was raised.
-      expiresAt: attachedAtIso(3_140 + 600_000),
+      expiresAt: composeAttachedInstant(startedAtMs, 3_140 + 600_000),
     },
   },
 ];
 
-export const LEDGER_SCENARIO_ID = "ledger";
+export const LEDGER_SCENARIO_ID = "transcript-states";
 
-export const LEDGER_SCENARIO: ConsoleScenario = {
+export const TRANSCRIPT_STATES_SCENARIO: ConsoleScenario = {
   id: LEDGER_SCENARIO_ID,
   label: "Three lanes",
   purpose:
@@ -540,11 +530,11 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   // join order, which is whoever opened the session on whichever machine.
   callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
-  beats: scriptLedgerBeats({
+  beats: composeScriptBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
     startedAtMs,
-    entries: LEDGER_SCRIPT,
+    entries: TRANSCRIPT_STATES_SCRIPT,
   }),
   replies: [
     // The run-scoped reasoning surface, on its `available` arm with a bounded page.
@@ -563,12 +553,12 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
           {
             sequence: 12,
             content: "The two storage backends differ in who owns the row, not in what it holds.",
-            timestamp: attachedAtIso(2_500),
+            timestamp: composeAttachedInstant(startedAtMs, 2_500),
           },
           {
             sequence: 13,
             content: "A node-local answer is reversible; a control-plane answer is not.",
-            timestamp: attachedAtIso(2_520),
+            timestamp: composeAttachedInstant(startedAtMs, 2_520),
           },
         ],
       },
@@ -625,17 +615,13 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
       result: { entries: [], hasMore: false },
     },
   ],
-  // The REFUSED resume position, and this scenario is where it belongs: its job is to
-  // reach every state a surface renders, and `SessionResumeDegraded` has exactly one —
-  // a position this console submitted that the daemon could not resolve. It is a LEDGER
-  // surface, so a ledger-family scenario is where a reader looks for it, and the
-  // family's other two each rule themselves out by their own stated purpose:
-  // `ledger-quiet.ts` exists to hold the clean EMPTY state, and `ledger-endurance.ts`
-  // is not in the picker at all.
+  // The refused resume position belongs here: this scenario reaches every state the
+  // transcript renders, and `SessionResumeDegraded` has exactly one, a position the app
+  // submitted that the daemon could not resolve. The empty-session scenario holds the
+  // clean empty state instead, and the endurance generator is not in the picker.
   //
-  // It costs the committed captures nothing. The refusal needs a SECOND read — the
-  // first submits no position — and a settled render performs one only on a focus, a
-  // reconnect, or a named frame, none of which a screenshot pass raises. Reaching it
-  // in the console is a person leaving the window and coming back.
+  // The captures pay nothing for it: the refusal needs a second read (the first submits
+  // no position), and a settled render performs one only on a focus, a reconnect, or a
+  // named frame, none of which a screenshot pass raises.
   refusesSubmittedResumeCursor: true,
 };

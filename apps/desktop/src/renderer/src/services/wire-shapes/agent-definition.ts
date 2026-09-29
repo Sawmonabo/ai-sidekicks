@@ -32,14 +32,14 @@
  * properties of a live run's workspace, so storing them would freeze a path set that
  * outlives the workspace it described.
  */
-export const SIDEKICK_POSTURE_MODES = [
+export const AGENT_POSTURE_MODES = [
   "trusted",
   "workspace-sandboxed",
   "readonly-sandboxed",
 ] as const;
 
 /** One pinned execution posture. Derived, so the vocabulary has one home. */
-export type AgentPostureMode = (typeof SIDEKICK_POSTURE_MODES)[number];
+export type AgentPostureMode = (typeof AGENT_POSTURE_MODES)[number];
 
 /**
  * One saved definition, as the registry serves it.

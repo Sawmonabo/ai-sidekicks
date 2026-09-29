@@ -12,8 +12,8 @@
 // parsed correctly and had to be written a third time to do it. One table, keyed by
 // method name, is what makes the parse unskippable rather than merely available.
 //
-// THE SET IS CLOSED, AND IT IS CLOSED TWICE OVER. `ConsoleDaemonMethodContract`
-// enumerates the methods; `CONSOLE_DAEMON_METHOD_BINDINGS` is annotated as a total
+// THE SET IS CLOSED, AND IT IS CLOSED TWICE OVER. `RegisteredDaemonMethodContract`
+// enumerates the methods; `DAEMON_METHOD_BINDINGS` is annotated as a total
 // map over that enumeration's keys, so a method named in one and not the other does
 // not compile — a missing key is a missing-property error and a stray key is an
 // excess-property error on the object literal. That is deliberately a COMPILE-time
@@ -63,18 +63,18 @@ import {
 
 import type { ZodType } from "@ai-sidekicks/contracts";
 
-import type { ConsoleDaemonMethodContract } from "./daemon-method-contract.js";
+import type { RegisteredDaemonMethodContract } from "./daemon-method-contract.js";
 
 /** One registered daemon method the console calls. The console's whole call set. */
-export type ConsoleDaemonMethod = keyof ConsoleDaemonMethodContract;
+export type RegisteredDaemonMethod = keyof RegisteredDaemonMethodContract;
 
 /** What the console sends for one method. */
-export type DaemonRequestOf<MethodName extends ConsoleDaemonMethod> =
-  ConsoleDaemonMethodContract[MethodName]["request"];
+export type DaemonRequestOf<MethodName extends RegisteredDaemonMethod> =
+  RegisteredDaemonMethodContract[MethodName]["request"];
 
 /** What the corpus registers as that method's reply. */
-export type DaemonResponseOf<MethodName extends ConsoleDaemonMethod> =
-  ConsoleDaemonMethodContract[MethodName]["response"];
+export type DaemonResponseOf<MethodName extends RegisteredDaemonMethod> =
+  RegisteredDaemonMethodContract[MethodName]["response"];
 
 /**
  * The two schemas one method is bound to.
@@ -95,8 +95,8 @@ export interface DaemonMethodBinding<TRequest, TResponse> {
 }
 
 /** The registry's shape: one binding per method, no method without one. */
-export type ConsoleDaemonMethodBindings = {
-  readonly [MethodName in ConsoleDaemonMethod]: DaemonMethodBinding<
+export type DaemonMethodBindings = {
+  readonly [MethodName in RegisteredDaemonMethod]: DaemonMethodBinding<
     DaemonRequestOf<MethodName>,
     DaemonResponseOf<MethodName>
   >;
@@ -110,7 +110,7 @@ export type ConsoleDaemonMethodBindings = {
  * deliberately: the count moves with every method this console learns to call, and a
  * sentence carrying it goes stale on the diff that adds one. Frozen because this
  * is a registry and not a builder: a module that could re-point
- * `CONSOLE_DAEMON_METHOD_BINDINGS["session.create"].requestSchema` at start-up would be
+ * `DAEMON_METHOD_BINDINGS["session.create"].requestSchema` at start-up would be
  * able to change what the console will send on a method without touching either the
  * method's own row or the contract that owns the shape.
  */
@@ -125,12 +125,12 @@ function bindDaemonMethod<TRequest, TResponse>(
  * The method-to-schema table — the code-side mirror of the corpus's own registry.
  *
  * The annotation is what makes this exhaustive in BOTH directions: a method added
- * to `ConsoleDaemonMethodContract` is a missing-property error here until it is
+ * to `RegisteredDaemonMethodContract` is a missing-property error here until it is
  * bound, and a row for a method the contract does not name is an excess-property
  * error. Pairing the wrong schema with a method is a type error too, because the
  * annotation fixes each row's request and response types from the method key.
  */
-export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Object.freeze({
+export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = Object.freeze({
   "driver.interruptRun": bindDaemonMethod(InterruptRunParamsSchema, DriverAckResultSchema),
   "driver.compactContext": bindDaemonMethod(
     CompactContextRequestSchema,
@@ -162,10 +162,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
  *
  * `Object.keys` of the frozen table above rather than a second list, so the census
  * a test walks and the table a call resolves through cannot disagree. The narrowing
- * is sound because the table's keys ARE `ConsoleDaemonMethod` by annotation.
+ * is sound because the table's keys ARE `RegisteredDaemonMethod` by annotation.
  */
-export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.freeze(
-  Object.keys(CONSOLE_DAEMON_METHOD_BINDINGS) as ConsoleDaemonMethod[],
+export const REGISTERED_DAEMON_METHODS: readonly RegisteredDaemonMethod[] = Object.freeze(
+  Object.keys(DAEMON_METHOD_BINDINGS) as RegisteredDaemonMethod[],
 );
 
 /**
@@ -174,14 +174,14 @@ export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.fre
  * The one lookup that admits an arbitrary string, and it exists for exactly one
  * caller: the fixture bridge, which is handed a call name by a scenario rather than
  * by a typed call site and has to decide whether the corpus registers a shape for
- * it. Every other consumer reaches the table through `ConsoleDaemonMethod`, where
+ * it. Every other consumer reaches the table through `RegisteredDaemonMethod`, where
  * the lookup cannot miss.
  */
 export function daemonMethodBindingFor(
   method: string,
 ): DaemonMethodBinding<unknown, unknown> | undefined {
-  return Object.hasOwn(CONSOLE_DAEMON_METHOD_BINDINGS, method)
-    ? (CONSOLE_DAEMON_METHOD_BINDINGS[method as ConsoleDaemonMethod] as DaemonMethodBinding<
+  return Object.hasOwn(DAEMON_METHOD_BINDINGS, method)
+    ? (DAEMON_METHOD_BINDINGS[method as RegisteredDaemonMethod] as DaemonMethodBinding<
         unknown,
         unknown
       >)

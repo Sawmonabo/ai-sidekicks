@@ -115,7 +115,7 @@ export interface AwarenessSignalStream {
 }
 
 /** One registered subscription this console opens. */
-export type ConsoleSessionEventStream =
+export type SessionEventStream =
   | WholeSessionEventStream
   | NarrowedSessionEventStream
   | AwarenessSignalStream;
@@ -128,7 +128,7 @@ export type ConsoleSessionEventStream =
  * discipline, and this file exists because two spellings of one subscribe seam
  * had already drifted once.
  */
-export type ConsoleSessionEventStreamName =
+export type SessionEventStreamName =
   | typeof SESSION_EVENT_STREAM
   | typeof RUN_STATE_EVENT_STREAM
   | typeof RUN_QUEUE_EVENT_STREAM
@@ -143,30 +143,27 @@ export type ConsoleSessionEventStreamName =
  * name nothing registers, is a compile error rather than a silent hole in the
  * routing — which is precisely the shape the defect this table replaces took.
  */
-export const CONSOLE_SESSION_EVENT_STREAMS: Readonly<
-  Record<ConsoleSessionEventStreamName, ConsoleSessionEventStream>
-> = Object.freeze({
-  [SESSION_EVENT_STREAM]: Object.freeze({
-    scope: "whole-session",
-  } satisfies ConsoleSessionEventStream),
-  [RUN_STATE_EVENT_STREAM]: Object.freeze({
-    scope: "selected-kinds",
-    carriedKinds: RUN_STATE_STREAM_CARRIED_KINDS,
-  } satisfies ConsoleSessionEventStream),
-  [RUN_QUEUE_EVENT_STREAM]: Object.freeze({
-    scope: "selected-kinds",
-    carriedKinds: RUN_QUEUE_STREAM_CARRIED_KINDS,
-  } satisfies ConsoleSessionEventStream),
-  [PRESENCE_EVENT_STREAM]: Object.freeze({
-    scope: "awareness-signal",
-  } satisfies ConsoleSessionEventStream),
-});
+export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, SessionEventStream>> =
+  Object.freeze({
+    [SESSION_EVENT_STREAM]: Object.freeze({
+      scope: "whole-session",
+    } satisfies SessionEventStream),
+    [RUN_STATE_EVENT_STREAM]: Object.freeze({
+      scope: "selected-kinds",
+      carriedKinds: RUN_STATE_STREAM_CARRIED_KINDS,
+    } satisfies SessionEventStream),
+    [RUN_QUEUE_EVENT_STREAM]: Object.freeze({
+      scope: "selected-kinds",
+      carriedKinds: RUN_QUEUE_STREAM_CARRIED_KINDS,
+    } satisfies SessionEventStream),
+    [PRESENCE_EVENT_STREAM]: Object.freeze({
+      scope: "awareness-signal",
+    } satisfies SessionEventStream),
+  });
 
 /** The registered stream this subscription name is, or `undefined` if it is not one. */
-export function sessionEventStreamFor(
-  subscriptionName: string,
-): ConsoleSessionEventStream | undefined {
-  return readFrozenRecord(CONSOLE_SESSION_EVENT_STREAMS, subscriptionName);
+export function sessionEventStreamFor(subscriptionName: string): SessionEventStream | undefined {
+  return readFrozenRecord(SESSION_EVENT_STREAMS, subscriptionName);
 }
 
 /**

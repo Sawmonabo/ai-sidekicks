@@ -25,7 +25,7 @@
 
 import { expect } from "vitest";
 
-import type { ConsoleApplication } from "../helpers/electron-harness.js";
+import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { advanceScenario, readAppliedEventCount } from "./endurance-workload.js";
 import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
@@ -68,9 +68,7 @@ interface MountedTerminalReadings {
   readonly canvasCount: number;
 }
 
-function readMountedTerminals(
-  consoleApplication: ConsoleApplication,
-): Promise<MountedTerminalReadings> {
+function readMountedTerminals(consoleApplication: AppUnderTest): Promise<MountedTerminalReadings> {
   return consoleApplication.window.evaluate((hostSelector: string) => {
     const hosts = [...document.querySelectorAll(hostSelector)];
     return {
@@ -99,7 +97,7 @@ function readMountedTerminals(
  * exactly the too-narrow subject that sent this row back to `n/a`.
  */
 export async function openPaneAndAwaitWebglReadiness(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   expectedInstanceCount: number,
 ): Promise<void> {
   await consoleApplication.window.getByRole("button", { name: OPEN_CONTROL_NAME }).click();
@@ -136,7 +134,7 @@ export async function openPaneAndAwaitWebglReadiness(
 
 /** Close every open pane and wait for the harness to report none mounted. */
 export async function closeEveryPane(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   openInstanceCount: number,
 ): Promise<void> {
   for (let closed = 0; closed < openInstanceCount; closed += 1) {
@@ -158,7 +156,7 @@ export async function closeEveryPane(
  * and those are part of what the row bounds.
  */
 export async function openHarnessOnDeliveredSession(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
 ): Promise<void> {
   await consoleApplication.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;

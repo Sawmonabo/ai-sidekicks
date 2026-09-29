@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  LEDGER_SCENARIO,
+  TRANSCRIPT_STATES_SCENARIO,
   RUN_ARCHITECT_CHILD,
   RUN_IMPLEMENTER,
   SUBAGENT_REVIEWER,
@@ -48,14 +48,16 @@ function finalRunStates(scenario: ConsoleScenario): ReadonlyMap<string, string> 
 
 describe("the transcript-states scenario", () => {
   it("names a caller who is actually in the roster", () => {
-    expect(LEDGER_SCENARIO.userIdsInJoinOrder).toContain(LEDGER_SCENARIO.callerUserId);
+    expect(TRANSCRIPT_STATES_SCENARIO.userIdsInJoinOrder).toContain(
+      TRANSCRIPT_STATES_SCENARIO.callerUserId,
+    );
   });
 
   it("scripts no reply for a call the method registry does not carry", () => {
     // `session.list` reads exactly like a real method: the registry carries
     // `session.read` and no list verb, so a scripted answer to it puts a call in front
     // of a surface that has nowhere to send it.
-    const calls = LEDGER_SCENARIO.replies.map((reply) => reply.call);
+    const calls = TRANSCRIPT_STATES_SCENARIO.replies.map((reply) => reply.call);
     expect(calls).not.toContain("session.list");
     expect(calls).toContain("session.read");
   });
@@ -63,7 +65,7 @@ describe("the transcript-states scenario", () => {
 
 /** Every row this scenario's whole script projects to, in log order. */
 function transcriptStatesRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
-  return projectFixtureShellRows(LEDGER_SCENARIO.beats.map((beat) => beat.event)).rows;
+  return projectFixtureShellRows(TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event)).rows;
 }
 
 describe("the three lanes", () => {
@@ -71,7 +73,7 @@ describe("the three lanes", () => {
     // The child run under the architect is a fourth run and not a fourth lane: the
     // transcript folds it into its parent's chapter as a summary rather than drawing it
     // beside the three, so it is subtracted here rather than counted as one of them.
-    const laneStates = [...finalRunStates(LEDGER_SCENARIO)]
+    const laneStates = [...finalRunStates(TRANSCRIPT_STATES_SCENARIO)]
       .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)
       .map(([, state]) => state)
       .sort();
@@ -79,7 +81,7 @@ describe("the three lanes", () => {
   });
 
   it("reaches the block state a seam renders, and returns through `run.running`", () => {
-    const kinds = LEDGER_SCENARIO.beats.map((beat) => beat.event.kind);
+    const kinds = TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.kind);
     expect(kinds).toContain("run.waiting_for_approval");
     expect(kinds.lastIndexOf("run.running")).toBeGreaterThan(
       kinds.indexOf("run.waiting_for_approval"),
@@ -87,20 +89,20 @@ describe("the three lanes", () => {
   });
 
   it("draws the compaction and rollback seams the log can actually carry", () => {
-    const kinds = LEDGER_SCENARIO.beats.map((beat) => beat.event.kind);
+    const kinds = TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.kind);
     expect(kinds).toContain("usage.context_compacted");
     expect(kinds).toContain("run.rolled_back");
     expect(kinds).toContain("run.paused");
   });
 
   it("puts rows of the rewound run after its boundary, which is what a band folds", () => {
-    const boundaryIndex = LEDGER_SCENARIO.beats.findIndex(
+    const boundaryIndex = TRANSCRIPT_STATES_SCENARIO.beats.findIndex(
       (beat) => beat.event.kind === "run.rolled_back",
     );
     expect(boundaryIndex).toBeGreaterThan(-1);
-    const boundary = LEDGER_SCENARIO.beats[boundaryIndex]!;
+    const boundary = TRANSCRIPT_STATES_SCENARIO.beats[boundaryIndex]!;
     const rewoundRunId = runIdOf(boundary);
-    const laterRowsOfThatRun = LEDGER_SCENARIO.beats
+    const laterRowsOfThatRun = TRANSCRIPT_STATES_SCENARIO.beats
       .slice(boundaryIndex + 1)
       .filter((beat) => runIdOf(beat) === rewoundRunId);
     expect(laterRowsOfThatRun.length).toBeGreaterThan(0);
@@ -110,11 +112,11 @@ describe("the three lanes", () => {
   });
 
   it("streams two agents' turns before either run reaches a terminal state", () => {
-    const firstTerminalIndex = LEDGER_SCENARIO.beats.findIndex(
+    const firstTerminalIndex = TRANSCRIPT_STATES_SCENARIO.beats.findIndex(
       (beat) => newStateOf(beat) === "completed",
     );
     const streamingRunsBefore = new Set(
-      LEDGER_SCENARIO.beats
+      TRANSCRIPT_STATES_SCENARIO.beats
         .slice(0, firstTerminalIndex)
         .filter((beat) => beat.event.kind.startsWith("assistant."))
         .map((beat) => runIdOf(beat)),
@@ -165,7 +167,7 @@ describe("the folded bodies", () => {
     // start: both rows carry the same `(runId, provider, subagentId)` triple. A pair
     // missing the provider or the id is two unrelated handoffs, which is what this
     // scenario used to script.
-    const subagentPayloads = LEDGER_SCENARIO.beats
+    const subagentPayloads = TRANSCRIPT_STATES_SCENARIO.beats
       .filter((beat) => beat.event.kind.startsWith("subagent."))
       .map((beat) => beat.event.payload);
 

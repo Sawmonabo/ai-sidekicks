@@ -30,19 +30,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  type ConsoleBudget,
-  type ConsoleBudgetDocument,
-  ConsoleBudgetRegistryError,
+  type Budget,
+  type BudgetDocument,
+  BudgetRegistryError,
   readBudgetDocument,
 } from "./budget-document.mts";
-
-export {
-  ConsoleBudgetRegistryError,
-  type ConsoleBudget,
-  type ConsoleBudgetDocument,
-} from "./budget-document.mts";
-export { evaluateBudget, type ConsoleBudgetVerdict } from "./budget-evaluation.mts";
-export { formatUnavailableBudgetReport } from "./budget-report.mts";
 
 const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,37 +48,37 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
   "budgets.json",
 );
 
-/** The parsed `budgets.json`. Construct with `ConsoleBudgetRegistry.load()`. */
-export class ConsoleBudgetRegistry {
+/** The parsed `budgets.json`. Construct with `BudgetRegistry.load()`. */
+export class BudgetRegistry {
   readonly budgetsFilePath: string;
   readonly schemaVersion: number;
   /**
    * Why the `harness` rows carry the figures they do, stated once for the set.
    *
    * `null` exactly when the document declares no `harness` row at all; see
-   * `ConsoleBudgetDocument` for why it is a document field rather than a
+   * `BudgetDocument` for why it is a document field rather than a
    * sentence per row.
    */
   readonly harnessBudgetDerivation: string | null;
-  readonly budgets: readonly ConsoleBudget[];
+  readonly budgets: readonly Budget[];
 
-  private constructor(budgetsFilePath: string, document: ConsoleBudgetDocument) {
+  private constructor(budgetsFilePath: string, document: BudgetDocument) {
     this.budgetsFilePath = budgetsFilePath;
     this.schemaVersion = document.schemaVersion;
     this.harnessBudgetDerivation = document.harnessBudgetDerivation;
     this.budgets = document.budgets;
   }
 
-  /** @throws {ConsoleBudgetRegistryError} on a missing, unreadable, or malformed registry. */
-  static load(budgetsFilePath: string = DEFAULT_BUDGETS_FILE_PATH): ConsoleBudgetRegistry {
-    return new ConsoleBudgetRegistry(budgetsFilePath, readBudgetDocument(budgetsFilePath));
+  /** @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry. */
+  static load(budgetsFilePath: string = DEFAULT_BUDGETS_FILE_PATH): BudgetRegistry {
+    return new BudgetRegistry(budgetsFilePath, readBudgetDocument(budgetsFilePath));
   }
 
-  /** @throws {ConsoleBudgetRegistryError} rather than returning a vacuous pass. */
-  requireBudget(budgetId: string): ConsoleBudget {
+  /** @throws {BudgetRegistryError} rather than returning a vacuous pass. */
+  requireBudget(budgetId: string): Budget {
     const budget = this.budgets.find((candidate) => candidate.id === budgetId);
     if (budget === undefined) {
-      throw new ConsoleBudgetRegistryError(
+      throw new BudgetRegistryError(
         `No budget \`${budgetId}\` in ${this.budgetsFilePath}. ` +
           `Known ids: ${this.budgets.map((candidate) => candidate.id).join(", ")}.`,
       );
@@ -95,12 +87,12 @@ export class ConsoleBudgetRegistry {
   }
 
   /** The console's own product budgets — the set that list closes. */
-  productBudgets(): readonly ConsoleBudget[] {
+  productBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.scope === "product");
   }
 
   /** The bounds the test scaffolding applies to itself. */
-  harnessBudgets(): readonly ConsoleBudget[] {
+  harnessBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.scope === "harness");
   }
 
@@ -111,17 +103,17 @@ export class ConsoleBudgetRegistry {
    * a timeout constant is one line derived from the registry instead of a
    * literal typed a second time beside it.
    *
-   * @throws {ConsoleBudgetRegistryError} on an unknown id, never a default.
+   * @throws {BudgetRegistryError} on an unknown id, never a default.
    */
   requireCanonicalValue(budgetId: string): number {
     return this.requireBudget(budgetId).limit.canonicalValue;
   }
 
-  enforcedBudgets(): readonly ConsoleBudget[] {
+  enforcedBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.status === "enforced");
   }
 
-  unavailableBudgets(): readonly ConsoleBudget[] {
+  unavailableBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.status === "n/a");
   }
 }

@@ -16,8 +16,8 @@
 // registry is the corpus's own — the daemon call set the console binds — so nothing
 // here is a second list.
 
-import { CONSOLE_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
-import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
+import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
+import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 // Wire names the CORPUS registers that this console binds no DAEMON shape for.
@@ -34,7 +34,7 @@ import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 /**
  * A daemon method the corpus registers that no console surface calls yet.
  *
- * That is exactly the state which keeps a method out of `ConsoleDaemonMethodContract`,
+ * That is exactly the state which keeps a method out of `RegisteredDaemonMethodContract`,
  * whose admission rule is a surface that calls it — so a scenario may script such a
  * call ahead of its surface. An entry moves to a binding row on the day a surface calls
  * it, because a bound method is validated in both directions and one listed here is
@@ -54,9 +54,9 @@ export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
  * is never reached at all and its `afterMs` is a property of a reply that cannot be
  * served. One defect per entry, naming the thing that has to change.
  */
-export function findReplyDefects(scenario: ConsoleScenario): readonly ScenarioWireTruthDefect[] {
+export function findReplyDefects(scenario: ConsoleScenario): readonly ScenarioContractDefect[] {
   const seenCalls = new Set<string>();
-  const defects: ScenarioWireTruthDefect[] = [];
+  const defects: ScenarioContractDefect[] = [];
   for (const reply of scenario.replies) {
     const subject = `reply "${reply.call}"`;
     if (seenCalls.has(reply.call)) {
@@ -131,14 +131,14 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
 /**
  * A call the corpus registers nowhere, or `undefined` when it registers one.
  *
- * The registry is read rather than restated. `CONSOLE_DAEMON_METHODS` is the keys of
+ * The registry is read rather than restated. `REGISTERED_DAEMON_METHODS` is the keys of
  * the frozen binding table, so a method added to the console's call set is scriptable
  * the same day. Only the corpus-registered-but-unbound list above is written by hand,
  * for the reason stated there, and it is unioned into the same admission.
  */
 function describeCallDefect(call: string): string | undefined {
   if (
-    (CONSOLE_DAEMON_METHODS as readonly string[]).includes(call) ||
+    (REGISTERED_DAEMON_METHODS as readonly string[]).includes(call) ||
     CORPUS_DAEMON_METHODS_NOT_YET_BOUND.includes(call)
   ) {
     return undefined;

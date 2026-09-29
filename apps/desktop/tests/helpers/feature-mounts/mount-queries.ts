@@ -7,7 +7,7 @@ import { within } from "@testing-library/react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
+export interface MountedView {
   readonly element: HTMLElement;
   readonly bridge: ConsoleBridge;
 }

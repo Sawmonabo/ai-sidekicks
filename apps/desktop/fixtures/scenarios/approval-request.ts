@@ -63,7 +63,7 @@ export const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
 export const DRIVER_ASK_ID = "ask-permission-force-push";
 
 export const APPROVALS_SCENARIO: ConsoleScenario = {
-  id: "approvals",
+  id: "approval-request",
   label: "A decision waiting",
   purpose:
     "Three requests waiting, one of them a provider permission ask, beside one that is " +

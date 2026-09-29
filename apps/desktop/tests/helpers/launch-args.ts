@@ -67,7 +67,7 @@ const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
  * rasterizer's backing store, so what changes there is that the context EXISTS and
  * not what the heap under it measures. The four enforced wall-time bounds are a
  * different matter: `console-launch-readiness` (30 000 ms) and
- * `console-launch-frame-witness` (15 000 ms) time a cold start and the first frame
+ * `console-launch-frame-paint-probe` (15 000 ms) time a cold start and the first frame
  * after it, and `console-launch-body` (70 000 ms) and `console-endurance-body`
  * (540 000 ms) bound the work between a settled launch and its cleanup. A renderer
  * put on a CPU rasterizer starts its GPU process differently and paints on a
@@ -77,7 +77,7 @@ const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
  * empty everywhere else.
  *
  * One of the four is UNMEASURED against the change rather than merely untightened.
- * `console-launch-frame-witness` fails on a frame that never arrives and not on a
+ * `console-launch-frame-paint-probe` fails on a frame that never arrives and not on a
  * late one — its own `budgets.json` row says so, and first-frame latency is bounded
  * by nothing at this revision (`frame-time-p95-four-lanes` is `n/a`) — so a paint
  * schedule this switch set slowed by any amount short of never would pass it

@@ -41,9 +41,12 @@
 // because a name is all this tier needs, and the installers live in families whose graphs
 // reach React and the DOM, which this Node-context project does not compile.
 
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
+import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mjs";
 import { FIXTURE_GLOBAL_NAMES } from "@renderer/console/core/fixture-globals.js";
 import {
   PERF_METER_KINDS,
@@ -89,7 +92,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
  * `satisfies` rather than a bare array of strings: the tuple is IMPORTED, so a renamed or
  * retired kind is a compile error here rather than a case that quietly matches nothing.
  * That import is a leaf whose only import is its own bounds table, so it reaches neither
- * the DOM nor a workspace package, and this tier's block in `vitest/console-projects.ts`
+ * the DOM nor a workspace package, and this tier's block in `vitest/tier-projects.ts`
  * names that property as the reason it substitutes the define.
  */
 const RELEASE_ABSENT_METER_KINDS = [
@@ -225,29 +228,25 @@ describe("release build — the fixture surface is absent, not merely unreachabl
     // must pass, driven through the same collection and the same predicate the check
     // above reads. A predicate that stopped matching one kind is reported here instead of
     // being read as a clean release build.
+    const plantedSources = [
+      "fixtures/scenarios/planted.ts",
+      "src/renderer/src/services/daemon/planted.fixture.ts",
+      "src/renderer/src/features/settings/pages/providers/fixtures/planted.ts",
+      "src/renderer/src/console/core/fixture-globals.ts",
+      "src/renderer/src/app/pane-harness/Planted.tsx",
+      "src/renderer/src/features/transcript/planted.test.ts",
+      "src/renderer/src/features/transcript/planted.test-support.ts",
+    ].map((modulePath) => join(DESKTOP_PACKAGE_ROOT, modulePath));
     const planted: readonly BuiltSourceMap[] = [
       {
         relativePath: "renderer/assets/clean.js.map",
-        sources: ["../../../src/renderer/src/console/frame/frame-commands.ts"],
+        sources: [join(DESKTOP_PACKAGE_ROOT, "src/renderer/src/app/App.tsx")],
       },
-      {
-        relativePath: "renderer/assets/planted.js.map",
-        sources: [
-          "../../../src/renderer/src/console/bridge/scenario/planted.ts",
-          "../../../src/renderer/src/console/frame/pane-harness/Planted.tsx",
-          "../../../src/renderer/src/console/core/fixture-globals.ts",
-          "../../../src/renderer/src/console/ledger/planted.test.ts",
-          "../../../src/renderer/src/console/ledger/planted.test-support.ts",
-        ],
-      },
+      { relativePath: "renderer/assets/planted.js.map", sources: plantedSources },
     ];
 
-    expect(fixtureOnlyModulesIn(planted)).toStrictEqual([
-      "renderer/assets/planted.js.map: ../../../src/renderer/src/console/bridge/scenario/planted.ts",
-      "renderer/assets/planted.js.map: ../../../src/renderer/src/console/frame/pane-harness/Planted.tsx",
-      "renderer/assets/planted.js.map: ../../../src/renderer/src/console/core/fixture-globals.ts",
-      "renderer/assets/planted.js.map: ../../../src/renderer/src/console/ledger/planted.test.ts",
-      "renderer/assets/planted.js.map: ../../../src/renderer/src/console/ledger/planted.test-support.ts",
-    ]);
+    expect(fixtureOnlyModulesIn(planted)).toStrictEqual(
+      plantedSources.map((source) => `renderer/assets/planted.js.map: ${source}`),
+    );
   });
 });

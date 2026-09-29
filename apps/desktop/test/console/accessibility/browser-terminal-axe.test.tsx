@@ -19,11 +19,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
-import {
-  mountBrowserPane,
-  mountTerminalPane,
-  type MountedFamilySurface,
-} from "../surfaces/browser-terminal.js";
+import { mountBrowserPane, mountTerminalPane } from "../surfaces/browser-terminal.js";
+import { type MountedView } from "../../../tests/helpers/feature-mounts/mount-queries.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -37,7 +34,7 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {
   readonly label: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
   { label: "the browser pane's chrome", mount: mountBrowserPane },
   { label: "the terminal pane on a degraded lease", mount: mountTerminalPane },

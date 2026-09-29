@@ -3,7 +3,7 @@
 // One claim, and the defect it catches renders as nothing at all rather than as
 // anything wrong — which is why a predicate has to hold every scenario to it.
 
-import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
+import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 /**
@@ -21,7 +21,7 @@ import type { ConsoleScenario } from "../../../fixtures/scenario.js";
  */
 export function describeCallerDefect(
   scenario: ConsoleScenario,
-): ScenarioWireTruthDefect | undefined {
+): ScenarioContractDefect | undefined {
   const { callerUserId } = scenario;
   if (callerUserId === undefined) {
     return undefined;

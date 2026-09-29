@@ -283,6 +283,31 @@ describe("assert-webprefs", () => {
       expect(run.stderr).toContain("walkthrough-host.ts");
     });
 
+    // The shipped layout: the factory in `windows/`, the scan rooted one level up, so
+    // a construction in a sibling folder such as `services/` is inside the scan.
+    it("fails when a construction sits in a folder beside the factory's", () => {
+      const mainDirectory = path.join(fixtureDirectory, "sibling-folder-main");
+      const lockedModulePath = path.join(mainDirectory, "windows", "window.ts");
+      const strayDirectory = path.join(mainDirectory, "services");
+      mkdirSync(path.dirname(lockedModulePath), { recursive: true });
+      mkdirSync(strayDirectory, { recursive: true });
+      writeFileSync(lockedModulePath, compliantSource(), "utf8");
+      writeFileSync(
+        path.join(strayDirectory, "helper-window.ts"),
+        [
+          'import { BrowserWindow } from "electron";',
+          "export const stray = new BrowserWindow({});",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const run = runAssertion(lockedModulePath, mainDirectory);
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("helper-window.ts");
+    });
+
     // A sibling that only TALKS about the construction is not one — the same
     // sanitization the per-file checks run applies to every scanned file.
     it("passes when a sibling only mentions the construction in a comment", () => {

@@ -1,6 +1,6 @@
-// What the ledger script builder guarantees, and what it refuses.
+// What the script builder guarantees, and what it refuses.
 //
-// Three ledger scenarios are built through this module, so a defect here is a
+// Three scenarios are built through this module, so a defect here is a
 // defect in all three at once — and two of the three guarantees are invisible in a
 // rendered frame. A sequence that skips is read by the store as a delivery gap and
 // renders as "catching up"; an `occurredAt` that disagrees with its own `atMs`
@@ -13,12 +13,9 @@
 
 import { describe, expect, it } from "vitest";
 
-// The cast AND the base instant the builder under test is driven with, imported rather
-// than restated: a value declared twice is two values the day one of them moves. The
-// instant is the one that would have moved silently — this file restated its own
-// `Date.UTC` and its own ISO derivation, so an epoch change in `ledger-cast.ts` would
-// have left the scenario's beats stamped from one instant and this file's expectations
-// derived from another, with every sequence assertion below still green.
+// The cast and the base instant the builder is driven with, imported rather than
+// restated: a restated instant would let an epoch change stamp the scenario's beats from
+// one instant and this file's expectations from another, every assertion still green.
 import {
   EVENT_ID_STEM,
   RUN_IMPLEMENTER,
@@ -28,20 +25,20 @@ import {
 import {
   assistantOutputEntry,
   runTransitionEntry,
-  scriptLedgerBeats,
+  composeScriptBeats,
   toolActivityEntry,
-  type LedgerScriptEntry,
+  type ScriptEntry,
 } from "./script-entries.js";
 
 /** A three-entry script whose `atMs` values are distinct and increasing. */
-const ORDERED_SCRIPT: readonly LedgerScriptEntry[] = [
+const ORDERED_SCRIPT: readonly ScriptEntry[] = [
   { atMs: 0, kind: "session.created", payload: { sessionId: SESSION_ID } },
   { atMs: 40, kind: "user.message", payload: { sessionId: SESSION_ID } },
   { atMs: 120, kind: "agent.attached", payload: { sessionId: SESSION_ID } },
 ];
 
-function buildOrderedBeats(): ReturnType<typeof scriptLedgerBeats> {
-  return scriptLedgerBeats({
+function buildOrderedBeats(): ReturnType<typeof composeScriptBeats> {
+  return composeScriptBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
     startedAtMs,
@@ -49,7 +46,7 @@ function buildOrderedBeats(): ReturnType<typeof scriptLedgerBeats> {
   });
 }
 
-describe("scriptLedgerBeats", () => {
+describe("composeScriptBeats", () => {
   it("positions every beat by its index, so a script can never carry a gap", () => {
     expect(buildOrderedBeats().map((beat) => beat.event.sequence)).toStrictEqual([1, 2, 3]);
   });
@@ -61,7 +58,7 @@ describe("scriptLedgerBeats", () => {
   });
 
   it("carries the entry's kind, actor, and payload through untouched", () => {
-    const [beat] = scriptLedgerBeats({
+    const [beat] = composeScriptBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtMs,
@@ -75,7 +72,7 @@ describe("scriptLedgerBeats", () => {
   });
 
   it("omits the actor entirely when the entry names none", () => {
-    const [beat] = scriptLedgerBeats({
+    const [beat] = composeScriptBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtMs,
@@ -86,7 +83,7 @@ describe("scriptLedgerBeats", () => {
 
   it("refuses a script that goes backwards in time", () => {
     expect(() =>
-      scriptLedgerBeats({
+      composeScriptBeats({
         sessionId: SESSION_ID,
         eventIdStem: EVENT_ID_STEM,
         startedAtMs,
@@ -103,7 +100,7 @@ describe("scriptLedgerBeats", () => {
     // that goes BACKWARDS and not merely on one that does not advance, because two
     // lanes emitting on one tick is exactly what this console is for.
     expect(() =>
-      scriptLedgerBeats({
+      composeScriptBeats({
         sessionId: SESSION_ID,
         eventIdStem: EVENT_ID_STEM,
         startedAtMs,

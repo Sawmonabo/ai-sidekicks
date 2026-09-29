@@ -14,21 +14,19 @@
 // through `tierTimeoutFor`, so a tier cannot carry a literal in the first place.
 //
 // The three things the deadline sits beside are their own subjects and their own
-// files: `frame-witness.test.ts` for the paint verdict, `bounded-cleanup.test.ts`
+// files: `frame-paint-probe.test.ts` for the paint verdict, `bounded-cleanup.test.ts`
 // for the close, and `launch-body.test.ts` for the allowance the caller's own
 // body runs inside.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ConsoleBudgetRegistry,
-  ConsoleBudgetRegistryError,
-} from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistryError } from "../../scripts/budget/budget-document.mjs";
 import {
   BODY_ALLOWANCE_MS,
   CLEANUP_BUDGET_MS,
   ENDURANCE_BODY_ALLOWANCE_MS,
-  FRAME_WITNESS_TIMEOUT_MS,
+  FRAME_PAINT_PROBE_TIMEOUT_MS,
   READINESS_BUDGET_MS,
 } from "./launch-budgets.js";
 import {
@@ -223,11 +221,11 @@ describe("launch budgets — the figures come from the registry, not from here",
   // in TypeScript, one directory away, gated by nothing. They are rows now, and
   // these cases are what makes that a fact rather than a convention — a literal
   // re-typed into `launch-budgets.ts` fails here rather than quietly winning.
-  const registry = ConsoleBudgetRegistry.load();
+  const registry = BudgetRegistry.load();
 
   it.each([
     ["console-launch-readiness", READINESS_BUDGET_MS],
-    ["console-launch-frame-witness", FRAME_WITNESS_TIMEOUT_MS],
+    ["console-launch-frame-paint-probe", FRAME_PAINT_PROBE_TIMEOUT_MS],
     ["console-launch-cleanup", CLEANUP_BUDGET_MS],
     ["console-launch-body", BODY_ALLOWANCE_MS],
     ["console-endurance-body", ENDURANCE_BODY_ALLOWANCE_MS],
@@ -241,8 +239,6 @@ describe("launch budgets — the figures come from the registry, not from here",
   });
 
   it("refuses a missing row rather than falling back to a literal", () => {
-    expect(() => registry.requireBudget("console-launch-nothing")).toThrow(
-      ConsoleBudgetRegistryError,
-    );
+    expect(() => registry.requireBudget("console-launch-nothing")).toThrow(BudgetRegistryError);
   });
 });

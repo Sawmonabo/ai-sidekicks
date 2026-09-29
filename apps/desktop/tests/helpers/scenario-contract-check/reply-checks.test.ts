@@ -1,27 +1,27 @@
 // The reply legs: one answer per call, and a latency the frozen clock can spend.
 //
 // Beside the aggregate entry with its sibling axis files, and every case drives
-// `findScenarioWireTruthDefects` rather than the leg module — the aggregate is the
+// `findScenarioContractDefects` rather than the leg module — the aggregate is the
 // only surface a family's scenario is ever measured through.
 //
-// EVERY CASE IS BUILT FROM THE SHIPPED SEAT BOARD. The flagship's own replies are
+// EVERY CASE IS BUILT FROM THE SHIPPED SEAT BOARD. The concurrent-streaming scenario's own replies are
 // the base, so what a case varies is the one property it is about; its beats are
 // the beats every other leg already accepts, which is what keeps a reported defect
 // attributable to the reply and not to the script around it.
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
+import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
 import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
-import { findScenarioWireTruthDefects } from "./contract-check.js";
+import { findScenarioContractDefects } from "./contract-check.js";
 import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
-/** A call the flagship scripts no answer for, so a case adds one rather than shadowing one. */
+/** A call the concurrent-streaming scripts no answer for, so a case adds one rather than shadowing one. */
 const PROBE_CALL = "presence.read";
 
-/** The flagship, with one extra reply carrying the latency under test. */
+/** The concurrent-streaming scenario, with one extra reply carrying the latency under test. */
 function scenarioWithProbeReply(scenarioId: string, afterMs: number): ConsoleScenario {
   const probeReply: ScenarioReply = { call: PROBE_CALL, afterMs, result: {} };
   return {
@@ -32,7 +32,7 @@ function scenarioWithProbeReply(scenarioId: string, afterMs: number): ConsoleSce
 }
 
 describe("scenario wire truth — a call the corpus registers nowhere", () => {
-  /** The flagship, with one extra reply answering `call`. */
+  /** The concurrent-streaming scenario, with one extra reply answering `call`. */
   const scenarioAnswering = (call: string): ConsoleScenario => ({
     ...FLAGSHIP_SCENARIO,
     id: "answers-a-call",
@@ -43,7 +43,7 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     // The defect this leg was written for, and it is not hypothetical: a scenario
     // answering `workflow.runList` renders a surface that looks served, ships a
     // reference image of it, and reaches nothing on the day the fixture define flips.
-    const defects = findScenarioWireTruthDefects([scenarioAnswering("workflow.runList")]);
+    const defects = findScenarioContractDefects([scenarioAnswering("workflow.runList")]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.subject).toBe('reply "workflow.runList"');
@@ -51,14 +51,14 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
   });
 
   it("passes a registered daemon method", () => {
-    expect(findScenarioWireTruthDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
+    expect(findScenarioContractDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
   });
 
   it("negative control: the shipped seat board answers only registered calls", () => {
     // The real tree, which is where a family's invented name would land. Every call it
     // scripts is admitted by a derived registry rather than by a transcription: the
     // daemon binding table.
-    expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
   });
 
   it("negative control: a bound method is clean through the table, not the transient list", () => {
@@ -67,8 +67,8 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     // `presence.read` is clean because the console binds it, and the assertion beside
     // the case is what says the transcription had no part in that.
     expect(CORPUS_DAEMON_METHODS_NOT_YET_BOUND).toStrictEqual([]);
-    expect(CONSOLE_DAEMON_METHODS as readonly string[]).toContain("presence.read");
-    expect(findScenarioWireTruthDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
+    expect(REGISTERED_DAEMON_METHODS as readonly string[]).toContain("presence.read");
+    expect(findScenarioContractDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
   });
 });
 
@@ -78,7 +78,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
     // an advance reaches that tick. No advance reaches this one, so the reply is
     // settled only by teardown — as abandoned — and the surface awaiting it renders
     // its loading state for the life of the window.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioWithProbeReply("parks-forever", Number.POSITIVE_INFINITY),
     ]);
 
@@ -92,7 +92,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
     // The opposite failure with the same symptom on the gate: the fixture spends a
     // latency only above zero, and `NaN` is not, so the reply settles on the calling
     // turn and the loading state the scenario claims to exercise is unreachable.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       scenarioWithProbeReply("never-parks", Number.NaN),
     ]);
 
@@ -103,7 +103,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
   });
 
   it("reports a negative latency, which settles on the calling turn just as NaN does", () => {
-    const defects = findScenarioWireTruthDefects([scenarioWithProbeReply("negative", -1)]);
+    const defects = findScenarioContractDefects([scenarioWithProbeReply("negative", -1)]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.reason).toContain("-1");
@@ -114,16 +114,16 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
     // Without this the three cases above would hold over a leg that reported every
     // scripted latency — and zero is not a defect at all: it is the honest way to
     // script no latency, and it settles exactly as an absent `afterMs` does.
-    expect(findScenarioWireTruthDefects([scenarioWithProbeReply("no-latency", 0)])).toStrictEqual(
+    expect(findScenarioContractDefects([scenarioWithProbeReply("no-latency", 0)])).toStrictEqual(
       [],
     );
     expect(
-      findScenarioWireTruthDefects([scenarioWithProbeReply("ordinary-latency", 120)]),
+      findScenarioContractDefects([scenarioWithProbeReply("ordinary-latency", 120)]),
     ).toStrictEqual([]);
   });
 
   it("negative control: the shipped seat board's own replies stay clean", () => {
-    expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
   });
 });
 
@@ -137,7 +137,7 @@ describe("scenario wire truth — one scripted answer per call", () => {
       replies: [...FLAGSHIP_SCENARIO.replies, { call: "session.read", result: {} }],
     };
 
-    const defects = findScenarioWireTruthDefects([shadowed]);
+    const defects = findScenarioContractDefects([shadowed]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.subject).toBe('reply "session.read"');
@@ -157,7 +157,7 @@ describe("scenario wire truth — one scripted answer per call", () => {
       ],
     };
 
-    const defects = findScenarioWireTruthDefects([shadowedWithBadLatency]);
+    const defects = findScenarioContractDefects([shadowedWithBadLatency]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.reason).toContain("unreachable");

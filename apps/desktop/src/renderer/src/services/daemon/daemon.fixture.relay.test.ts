@@ -25,7 +25,7 @@ import {
 } from "@test/helpers/fixture-bridge.js";
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
-/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+/** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
 /** A session the branded id type accepts that no scenario on the seat board plays. */

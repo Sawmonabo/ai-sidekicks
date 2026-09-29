@@ -25,7 +25,7 @@ import { expect } from "vitest";
 
 import type { CDPSession } from "@playwright/test";
 
-import type { ConsoleApplication } from "../helpers/electron-harness.js";
+import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { SETTLE_ROUNDS } from "./heap-sampling.js";
 import {
   captureHeapSnapshot,
@@ -315,7 +315,7 @@ const HEAP_INSTRUMENT_UNAVAILABLE =
  * figure the proof exists to make trustworthy.
  */
 export async function expectPreciseHeapInstrument(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   heapProbe: RendererHeapProbe,
 ): Promise<void> {
   const observedBytesPerWindow: number[] = [];
@@ -396,7 +396,7 @@ export async function expectPreciseHeapInstrument(
  * {@link expectPreciseHeapInstrument} is what proves the flag arrived rather than
  * trusting that it did.
  */
-async function readSettledHeapBytes(consoleApplication: ConsoleApplication): Promise<number> {
+async function readSettledHeapBytes(consoleApplication: AppUnderTest): Promise<number> {
   const samples: number[] = [];
   for (let sampleIndex = 0; sampleIndex < SETTLING_SAMPLE_COUNT; sampleIndex += 1) {
     const sample = await consoleApplication.window.evaluate(async () => {
@@ -445,15 +445,15 @@ async function readSettledHeapBytes(consoleApplication: ConsoleApplication): Pro
  * `HeapProfiler.collectGarbage` is the same collection the flag would expose.
  */
 export class RendererHeapProbe {
-  readonly #consoleApplication: ConsoleApplication;
+  readonly #consoleApplication: AppUnderTest;
   readonly #cdpSession: CDPSession;
 
-  private constructor(consoleApplication: ConsoleApplication, cdpSession: CDPSession) {
+  private constructor(consoleApplication: AppUnderTest, cdpSession: CDPSession) {
     this.#consoleApplication = consoleApplication;
     this.#cdpSession = cdpSession;
   }
 
-  public static async attachTo(consoleApplication: ConsoleApplication): Promise<RendererHeapProbe> {
+  public static async attachTo(consoleApplication: AppUnderTest): Promise<RendererHeapProbe> {
     const cdpSession = await consoleApplication.application
       .context()
       .newCDPSession(consoleApplication.window);

@@ -3,7 +3,7 @@
 // One half of what `budget-registry.mts` used to be. This module answers "is this
 // file a budget document, and what does it say?" and nothing else: it reads the
 // bytes, parses the JSON, checks every field a row must carry and every rule the
-// envelope must satisfy, and refuses with `ConsoleBudgetRegistryError` rather
+// envelope must satisfy, and refuses with `BudgetRegistryError` rather
 // than producing a partial document — because a budget that silently vanishes is
 // a gate nobody notices is off.
 //
@@ -29,11 +29,11 @@ import { readFileSync } from "node:fs";
 const SUPPORTED_SCHEMA_VERSION = 3;
 
 /** Every budget is a ceiling. A floor would need a different verdict shape. */
-type ConsoleBudgetComparison = "<=";
+type BudgetComparison = "<=";
 
-type ConsoleBudgetStatus = "enforced" | "n/a";
+type BudgetStatus = "enforced" | "n/a";
 
-const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enforced", "n/a"]);
+const BUDGET_STATUS_VALUES: readonly BudgetStatus[] = Object.freeze(["enforced", "n/a"]);
 
 /**
  * Where a budget's figure comes from, and what it is therefore a claim about.
@@ -49,12 +49,12 @@ const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enf
  * rather than merged so the completeness claim over the product list stays
  * checkable by counting, which is the property a ninth `product` id would cost.
  */
-type ConsoleBudgetScope = "product" | "harness";
+type BudgetScope = "product" | "harness";
 
-const BUDGET_SCOPE_VALUES: readonly ConsoleBudgetScope[] = Object.freeze(["product", "harness"]);
+const BUDGET_SCOPE_VALUES: readonly BudgetScope[] = Object.freeze(["product", "harness"]);
 
-interface ConsoleBudgetLimit {
-  readonly comparison: ConsoleBudgetComparison;
+interface BudgetLimit {
+  readonly comparison: BudgetComparison;
   /** The figure as the spec writes it, in `unit`. */
   readonly value: number;
   readonly unit: string;
@@ -63,26 +63,23 @@ interface ConsoleBudgetLimit {
   readonly canonicalUnit: string;
 }
 
-export interface ConsoleBudget {
+export interface Budget {
   readonly id: string;
   readonly label: string;
   readonly subject: string;
   /** The figure as its own source writes it: the product figure for a `product` row, the derivation for a `harness` one. */
   readonly specTarget: string;
-  readonly limit: ConsoleBudgetLimit;
-  readonly scope: ConsoleBudgetScope;
-  readonly status: ConsoleBudgetStatus;
+  readonly limit: BudgetLimit;
+  readonly scope: BudgetScope;
+  readonly status: BudgetStatus;
   /** Repo-relative harness path; `null` exactly when `status` is `"n/a"`. */
   readonly measuredBy: string | null;
   /**
    * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`.
    *
-   * `existsSync` over `measuredBy` passed for two rows that named a file which
-   * never touches their subject — the frame-witness and cleanup bounds both
-   * pointed at `test/helpers/launch-deadline.test.ts`, which compares registry
-   * figures with imported constants and drives neither `FrameWitness` nor
-   * `BoundedCleanup`. A path is not evidence; the symbol the harness has to hold
-   * is, so this parser refuses an `enforced` row that names none. Whether the named
+   * A path is not evidence: a file can exist and never touch the row's subject.
+   * The symbol the harness has to hold is, so this parser refuses an `enforced` row
+   * that names none. Whether the named
    * symbol is the one that suite actually drives is a reviewer's read.
    */
   readonly subjectSymbol: string | null;
@@ -106,7 +103,7 @@ export interface ConsoleBudget {
 }
 
 /** A validated `budgets.json`, before anything is asked of it. */
-export interface ConsoleBudgetDocument {
+export interface BudgetDocument {
   readonly schemaVersion: number;
   /**
    * Why the `harness` rows carry the figures they do, stated once for the set.
@@ -119,18 +116,18 @@ export interface ConsoleBudgetDocument {
    * declares no `harness` row at all.
    */
   readonly harnessBudgetDerivation: string | null;
-  readonly budgets: readonly ConsoleBudget[];
+  readonly budgets: readonly Budget[];
 }
 
-export class ConsoleBudgetRegistryError extends Error {
+export class BudgetRegistryError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ConsoleBudgetRegistryError";
+    this.name = "BudgetRegistryError";
   }
 }
 
 function refuse(message: string): never {
-  throw new ConsoleBudgetRegistryError(message);
+  throw new BudgetRegistryError(message);
 }
 
 function requireObject(candidate: unknown, where: string): Record<string, unknown> {
@@ -177,18 +174,18 @@ function requireNumber(owner: Record<string, unknown>, field: string, where: str
   return value;
 }
 
-function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
+function parseBudget(rawEntry: unknown, entryIndex: number): Budget {
   const entry = requireObject(rawEntry, `budgets[${entryIndex}]`);
   const id = requireString(entry, "id", `budgets[${entryIndex}]`);
   const where = `budgets[${entryIndex}] (${id})`;
 
   const status = requireString(entry, "status", where);
-  if (!BUDGET_STATUS_VALUES.includes(status as ConsoleBudgetStatus)) {
+  if (!BUDGET_STATUS_VALUES.includes(status as BudgetStatus)) {
     refuse(`${where}: \`status\` must be one of ${BUDGET_STATUS_VALUES.join(", ")}.`);
   }
 
   const scope = requireString(entry, "scope", where);
-  if (!BUDGET_SCOPE_VALUES.includes(scope as ConsoleBudgetScope)) {
+  if (!BUDGET_SCOPE_VALUES.includes(scope as BudgetScope)) {
     refuse(`${where}: \`scope\` must be one of ${BUDGET_SCOPE_VALUES.join(", ")}.`);
   }
 
@@ -233,8 +230,8 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
       canonicalValue: requireNumber(rawLimit, "canonicalValue", `${where}.limit`),
       canonicalUnit: requireString(rawLimit, "canonicalUnit", `${where}.limit`),
     }),
-    scope: scope as ConsoleBudgetScope,
-    status: status as ConsoleBudgetStatus,
+    scope: scope as BudgetScope,
+    status: status as BudgetStatus,
     measuredBy,
     subjectSymbol,
     notMeasurableReason,
@@ -253,9 +250,9 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
 /**
  * Read and validate the document at `budgetsFilePath`.
  *
- * @throws {ConsoleBudgetRegistryError} on a missing, unreadable, or malformed registry.
+ * @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry.
  */
-export function readBudgetDocument(budgetsFilePath: string): ConsoleBudgetDocument {
+export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
   let text: string;
   try {
     text = readFileSync(budgetsFilePath, "utf8");

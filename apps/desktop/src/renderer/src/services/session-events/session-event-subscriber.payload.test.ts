@@ -39,7 +39,7 @@ beforeEach(() => {
 describe("SessionEventBinder — the payload boundary", () => {
   it("refuses a delivered payload that is not a session event, and counts it", () => {
     const { registry, binder, engine } = createHarness(
-      scenarioDelivering("flagship-malformed-payload-probe", { sequence: 1 }),
+      scenarioDelivering("concurrent-streaming-malformed-payload-probe", { sequence: 1 }),
     );
     binder.attach();
     registry.open(SESSION_ID);
@@ -62,7 +62,7 @@ describe("SessionEventBinder — the payload boundary", () => {
     // ever open — and the alternative fix, composing an id from the members that
     // ARE present, would look identical from every other assertion in this file.
     const { registry, binder, engine } = createHarness(
-      scenarioDelivering("flagship-idless-payload-probe", {
+      scenarioDelivering("concurrent-streaming-idless-payload-probe", {
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "run.starting",
@@ -82,7 +82,7 @@ describe("SessionEventBinder — the payload boundary", () => {
 
   it("negative control: the same delivery carrying an id is admitted", () => {
     const { registry, binder, engine } = createHarness(
-      scenarioDelivering("flagship-idful-payload-probe", {
+      scenarioDelivering("concurrent-streaming-idful-payload-probe", {
         id: "019b79ee-0280-7ea1-8110-e5e0d1150901",
         sessionId: SESSION_ID,
         sequence: 1,

@@ -37,14 +37,14 @@ describe("every scenario on the board names a frozen tick", () => {
   });
 
   it("negative control: a row for a scenario the board dropped fails it too", () => {
-    const boardMissingTheFlagship = CONSOLE_SCENARIOS.filter(
-      (scenario) => scenario.id !== "flagship",
+    const catalogWithoutConcurrentStreaming = CONSOLE_SCENARIOS.filter(
+      (scenario) => scenario.id !== "concurrent-streaming",
     );
 
-    const defects = findFrozenTickRegistryDefects(boardMissingTheFlagship);
+    const defects = findFrozenTickRegistryDefects(catalogWithoutConcurrentStreaming);
 
     expect(defects).toHaveLength(1);
-    expect(defects[0]?.scenarioId).toBe("flagship");
+    expect(defects[0]?.scenarioId).toBe("concurrent-streaming");
     expect(defects[0]?.reason).toContain("no longer carries");
   });
 });

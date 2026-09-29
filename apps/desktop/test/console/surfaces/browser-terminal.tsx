@@ -31,7 +31,6 @@ import { TERMINAL_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -44,7 +43,8 @@ import {
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody } from "@test/helpers/feature-mounts/pane-body-resolution.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "@test/helpers/feature-mounts/projector-composition.js";
+import { COMPOSED_ENTITY_PROJECTORS } from "@test/helpers/feature-mounts/projector-composition.js";
+import { type MountedView } from "../../../tests/helpers/feature-mounts/mount-queries.js";
 
 /**
  * The browser or terminal pane body the deck holds for a kind, loaded.
@@ -104,7 +104,7 @@ function paneBinding(
 function terminalSessionStore(): SessionStore {
   const store = new SessionStore({
     sessionId: TERMINAL_SCENARIO.sessionId,
-    projectors: COMPOSED_CONSOLE_PROJECTORS,
+    projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   // The scenario's own base state, which is what the composition root initializes a
   // store from. An empty one is not a cheaper version of it: the beats below carry
@@ -126,12 +126,6 @@ function terminalSessionStore(): SessionStore {
  * red on machine load rather than on the console.
  */
 const EMULATOR_CHUNK_TIMEOUT_MS = 20_000;
-
-/** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
-  readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
-}
 
 /**
  * Find the one element a surface renders itself as.
@@ -165,7 +159,7 @@ function paneTrailName(sessionId: string | undefined, paneWord: string): string 
 }
 
 /** The browser pane, mounted and settled. */
-export async function mountBrowserPane(): Promise<MountedFamilySurface> {
+export async function mountBrowserPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("browser-surface") });
   const BrowserPaneBody = await paneBodyComponent("browser");
   const { container } = await renderSettled(
@@ -188,7 +182,7 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
  * mount would be looking at the `not-loaded` absence rather than at the grid, and
  * would compare it against a baseline of the grid on the next run that was warm.
  */
-export async function mountTerminalPane(): Promise<MountedFamilySurface> {
+export async function mountTerminalPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
   const TerminalPaneBody = await paneBodyComponent("terminal");
   const { container } = await renderSettled(

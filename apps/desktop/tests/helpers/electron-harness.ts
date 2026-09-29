@@ -71,7 +71,7 @@ import {
   readinessFailure,
 } from "./launch-deadline.js";
 import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
-import { awaitPaintingConsoleWindow } from "./launch-readiness.js";
+import { awaitPaintingAppWindow } from "./launch-readiness.js";
 import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 
 /**
@@ -86,7 +86,7 @@ import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
 
 /** What a settled launch produces, before the body's own allowance is minted. */
-interface LaunchedConsole {
+interface LaunchedApp {
   readonly application: ElectronApplication;
   readonly window: Page;
   /**
@@ -104,7 +104,7 @@ interface LaunchedConsole {
   readonly close: () => Promise<void>;
 }
 
-export interface ConsoleApplication extends LaunchedConsole {
+export interface AppUnderTest extends LaunchedApp {
   /**
    * What is LEFT of the body's own allowance — hand it to a poll's `timeout`.
    *
@@ -118,7 +118,7 @@ export interface ConsoleApplication extends LaunchedConsole {
   readonly bodyAllowance: BodyAllowance;
 }
 
-export interface LaunchConsoleOptions {
+export interface LaunchAppOptions {
   /**
    * Extra environment for the Electron process.
    *
@@ -177,7 +177,7 @@ export interface LaunchConsoleOptions {
  * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
  * `launch-deadline.ts` for why a timeout per phase could not be.
  */
-async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedConsole> {
+async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
   // Minted before the first phase, including the profile directory: everything
   // this function waits on is inside the budget, or the budget is not the
   // launch's. It carries the WHOLE allowance — readiness, the witness, and
@@ -274,7 +274,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
   };
 
   try {
-    const window = await awaitPaintingConsoleWindow(application, deadline);
+    const window = await awaitPaintingAppWindow(application, deadline);
     return { application, window, close };
   } catch (error: unknown) {
     // `close()` rejects on abnormal cleanup, and here that rejection must NOT
@@ -299,7 +299,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
  * vitest's own timeout kill included.
  *
  * THE REFUSAL IS THE CASE THIS FUNCTION EXISTS FOR. `onTestFinished` throws
- * outside a running test, which is what `withLaunchedConsole` called from a
+ * outside a running test, which is what `withLaunchedApp` called from a
  * `beforeAll` reaches — and by then Electron is up, its private profile is on
  * disk, and the only handle on either is about to be discarded with the caller's
  * stack frame, so the caller got a clear diagnostic beside a leaked browser and a
@@ -360,9 +360,9 @@ export async function registerSettleTimeClose(
  * Electron; this adds the launch, so no tier can reach the launched application
  * without also getting the rule.
  */
-export async function withLaunchedConsole<TResult>(
-  options: LaunchConsoleOptions,
-  body: (consoleApplication: ConsoleApplication) => Promise<TResult>,
+export async function withLaunchedApp<TResult>(
+  options: LaunchAppOptions,
+  body: (consoleApplication: AppUnderTest) => Promise<TResult>,
 ): Promise<TResult> {
   const launched = await launchConsole(options);
   // The body's own settlement closes this launch, and that is the path that
@@ -383,6 +383,6 @@ export async function withLaunchedConsole<TResult>(
   // whole arithmetic the tier timeout is derived from — launch, then body, then
   // the cleanup the launch budget already reserves.
   const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
-  const consoleApplication: ConsoleApplication = { ...launched, bodyAllowance };
+  const consoleApplication: AppUnderTest = { ...launched, bodyAllowance };
   return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));
 }

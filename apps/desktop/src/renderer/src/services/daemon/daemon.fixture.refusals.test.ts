@@ -53,11 +53,11 @@ const SCRIPTED_REFUSAL: WireErrorEnvelope = {
 };
 
 describe("fixture bridge — a scenario can script a call that refuses", () => {
-  /** The flagship script, re-scripted so one call refuses and one still answers. */
+  /** The concurrent-streaming scenario script, re-scripted so one call refuses and one still answers. */
   function scenarioWithRefusal(afterMs?: number): ConsoleScenario {
     return {
       ...FLAGSHIP_SCENARIO,
-      id: "flagship-refusal-probe",
+      id: "concurrent-streaming-refusal-probe",
       replies: [
         {
           call: REFUSED_CALL,

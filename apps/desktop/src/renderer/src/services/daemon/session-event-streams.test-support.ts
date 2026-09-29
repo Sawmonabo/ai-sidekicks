@@ -20,10 +20,7 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekicks/contracts";
 
-import {
-  sessionEventStreamFor,
-  type ConsoleSessionEventStreamName,
-} from "./session-event-streams.js";
+import { sessionEventStreamFor, type SessionEventStreamName } from "./session-event-streams.js";
 
 /** The registered forward, non-state rollback row — the state stream's second arm. */
 export const ROLLED_BACK_KIND = "run.rolled_back";
@@ -53,7 +50,7 @@ export function registeredKindsIn(category: EventCategory): readonly string[] {
 }
 
 /** The kinds one stream that declares a kind list carries, as the table declares them. */
-export function carriedKindsOf(subscriptionName: ConsoleSessionEventStreamName): readonly string[] {
+export function carriedKindsOf(subscriptionName: SessionEventStreamName): readonly string[] {
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream === undefined || stream.scope !== "selected-kinds") {
     throw new Error(`${subscriptionName} declares no kind list, so it carries none`);

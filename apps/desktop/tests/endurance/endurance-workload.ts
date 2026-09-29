@@ -41,7 +41,7 @@
 import { expect } from "vitest";
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import type { ConsoleApplication, LaunchConsoleOptions } from "../helpers/electron-harness.js";
+import type { AppUnderTest, LaunchAppOptions } from "../helpers/electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../helpers/launch-budgets.js";
 import { closePalette, openPalette } from "../helpers/palette-interaction.js";
@@ -51,11 +51,11 @@ import {
   type ConsoleSessionDiagnostics,
   type ScenarioFixtureHandle,
 } from "../../test/console/fixture-handles.js";
-import { LEDGER_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
+import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
- * How every launch in this tier is asked for: the flagship script, and the
+ * How every launch in this tier is asked for: the concurrent-streaming script, and the
  * tier's OWN body allowance.
  *
  * Stated once rather than at each launch, because both halves are properties of
@@ -66,7 +66,7 @@ import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming
  * that same figure (`tierTimeoutFor`, `vitest.config.ts`). A launch that took the
  * default would be bounded nine times more tightly than the tier that runs it.
  */
-export function enduranceLaunchOptions(scenarioId: string): LaunchConsoleOptions {
+export function enduranceLaunchOptions(scenarioId: string): LaunchAppOptions {
   return {
     scenarioId,
     bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
@@ -77,13 +77,13 @@ export function enduranceLaunchOptions(scenarioId: string): LaunchConsoleOptions
   };
 }
 
-export const ENDURANCE_LAUNCH_OPTIONS: LaunchConsoleOptions = enduranceLaunchOptions(
+export const ENDURANCE_LAUNCH_OPTIONS: LaunchAppOptions = enduranceLaunchOptions(
   FLAGSHIP_SCENARIO.id,
 );
 
-export const FLAGSHIP_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
+export const CONCURRENT_STREAMING_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 
-export const FLAGSHIP_SESSION_ROUTE: string = `#/session/${encodeURIComponent(FLAGSHIP_SESSION_ID)}`;
+export const CONCURRENT_STREAMING_SESSION_ROUTE: string = `#/session/${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
 
 export const SETTINGS_ROUTE: string = "#/settings";
 
@@ -100,8 +100,7 @@ export const SETTINGS_ROUTE: string = "#/settings";
  * would no longer be route-exclusive against the workspace's. The rail is the one
  * piece of markup that exists if and only if this surface mounted.
  */
-export const SETTINGS_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-settings__rail";
+export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridian-settings__rail";
 
 /**
  * What the session workspace renders and the settings route does not.
@@ -118,8 +117,7 @@ export const SETTINGS_SURFACE_SELECTOR: string =
  * asking about. The pane is the element the ROUTE mounts, which is the claim this
  * constant is making.
  */
-export const WORKSPACE_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-pane--timeline";
+export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridian-pane--timeline";
 
 /**
  * One ledger row, anchored under the frame's surface.
@@ -129,7 +127,7 @@ export const WORKSPACE_SURFACE_SELECTOR: string =
  * two budget readings in this tier need the second claim and the churn loop needs
  * the first, so both selectors live here and neither tier spells one itself.
  */
-export const LEDGER_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-ledger-row";
+export const TRANSCRIPT_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-ledger-row";
 
 /**
  * Assign the hash and wait for the surface only that route mounts.
@@ -143,7 +141,7 @@ export const LEDGER_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-l
  * enclosing race replaces the selector's name with the generic overrun.
  */
 async function openRoute(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   hash: string,
   surfaceSelector: string,
 ): Promise<void> {
@@ -156,14 +154,14 @@ async function openRoute(
   });
 }
 
-export async function openSettingsRoute(consoleApplication: ConsoleApplication): Promise<void> {
-  await openRoute(consoleApplication, SETTINGS_ROUTE, SETTINGS_SURFACE_SELECTOR);
+export async function openSettingsRoute(consoleApplication: AppUnderTest): Promise<void> {
+  await openRoute(consoleApplication, SETTINGS_ROUTE, SETTINGS_SCREEN_SELECTOR);
 }
 
-export async function openFlagshipSessionRoute(
-  consoleApplication: ConsoleApplication,
+export async function openConcurrentStreamingSessionRoute(
+  consoleApplication: AppUnderTest,
 ): Promise<void> {
-  await openRoute(consoleApplication, FLAGSHIP_SESSION_ROUTE, WORKSPACE_SURFACE_SELECTOR);
+  await openRoute(consoleApplication, CONCURRENT_STREAMING_SESSION_ROUTE, SESSION_SCREEN_SELECTOR);
 }
 
 /**
@@ -175,7 +173,7 @@ export async function openFlagshipSessionRoute(
  * console, and reporting that as a pass is worse than not running.
  */
 export async function advanceScenario(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   milliseconds: number,
 ): Promise<number | null> {
   return consoleApplication.window.evaluate(
@@ -195,7 +193,7 @@ export async function advanceScenario(
 
 /** Which scenario the launched console is actually playing, or `null`. */
 export async function readPlayingScenarioId(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
 ): Promise<string | null> {
   return consoleApplication.window.evaluate((globalName: string) => {
     const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
@@ -214,7 +212,7 @@ export async function readPlayingScenarioId(
  * reached this window's stores at all.
  */
 export async function readAppliedEventCount(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   sessionId: string,
 ): Promise<number | null> {
   return consoleApplication.window.evaluate(
@@ -230,7 +228,7 @@ export async function readAppliedEventCount(
 
 /** Sessions this window holds a wire subscription for, or `null` with no handle. */
 export async function readBoundSessionIds(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
 ): Promise<readonly string[] | null> {
   return consoleApplication.window.evaluate((globalName: string) => {
     const sessions = (
@@ -275,7 +273,7 @@ export interface ChurnCycleReading {
  * that it progressed over a ledger, without paying for a second round trip.
  */
 export async function churnOnce(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   advanceMilliseconds: number,
 ): Promise<ChurnCycleReading> {
   const consoleWindow = consoleApplication.window;
@@ -293,15 +291,15 @@ export async function churnOnce(
   // the two routes is the scenario's own session, so the cycle also opens and
   // re-reads the store the beats are landing in.
   await openSettingsRoute(consoleApplication);
-  await openFlagshipSessionRoute(consoleApplication);
+  await openConcurrentStreamingSessionRoute(consoleApplication);
 
   const deliveredBeatCount = await advanceScenario(consoleApplication, advanceMilliseconds);
   // Counted AFTER the advance, so the cycle reports the ledger the beats it just
   // delivered landed in. A count and not a wait: the early cycles legitimately have
-  // no row — the flagship script is walked over the whole run — so a wait here would
+  // no row — the concurrent-streaming script is walked over the whole run — so a wait here would
   // spend the body's allowance on a state the run is expecting. What the caller does
   // with the sequence of counts is the claim; this only reports them.
-  const ledgerRowCount = await consoleWindow.locator(LEDGER_ROW_BOX_SELECTOR).count();
+  const ledgerRowCount = await consoleWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
   return { deliveredBeatCount, ledgerRowCount };
 }
 
@@ -317,14 +315,14 @@ export async function churnOnce(
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
 
-/** How the frozen clock is walked over the flagship script, and how far. */
+/** How the frozen clock is walked over the concurrent-streaming script, and how far. */
 export interface ScenarioDeliverySchedule {
   readonly stepMilliseconds: number;
   readonly stepCount: number;
 }
 
 /**
- * The walk that puts the whole flagship script in and leaves nothing queued.
+ * The walk that puts the whole concurrent-streaming script in and leaves nothing queued.
  *
  * One derivation rather than three: this tier walks the script from the driver
  * process and the two budget readings walk it from INSIDE the renderer, where a
@@ -338,7 +336,7 @@ export interface ScenarioDeliverySchedule {
  * stated anyway, because a shorter script would otherwise deliver beats no advance
  * in the loop ever released, and the failure would be a quiet one.
  */
-export function flagshipDeliverySchedule(): ScenarioDeliverySchedule {
+export function concurrentStreamingDeliverySchedule(): ScenarioDeliverySchedule {
   const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
   return {
     stepMilliseconds: Math.max(
@@ -350,16 +348,16 @@ export function flagshipDeliverySchedule(): ScenarioDeliverySchedule {
 }
 
 /**
- * Play the flagship script to its end and let the stores settle on it.
+ * Play the concurrent-streaming script to its end and let the stores settle on it.
  *
  * Returns the beats delivered, so a caller can assert the session it is about to
  * measure actually has content rather than being an empty store with a route
  * pointed at it.
  */
 export async function deliverWholeScenario(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
 ): Promise<number | null> {
-  const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
+  const { stepMilliseconds, stepCount } = concurrentStreamingDeliverySchedule();
   let deliveredBeatCount: number | null = null;
   for (let step = 0; step < stepCount; step += 1) {
     deliveredBeatCount = await advanceScenario(consoleApplication, stepMilliseconds);
@@ -368,17 +366,20 @@ export async function deliverWholeScenario(
 }
 
 /**
- * Assert this window's session store holds the flagship script's events.
+ * Assert this window's session store holds the concurrent-streaming script's events.
  *
  * Shared because both files need it for different reasons: the steady-state run
  * needs the workload to have been a workload, and the at-rest reading needs the
  * budget's subject — ONE SESSION OPEN, with content — to be what was on screen
  * when the heap was read.
  */
-export async function expectFlagshipSessionCarriesContent(
-  consoleApplication: ConsoleApplication,
+export async function expectConcurrentStreamingSessionCarriesContent(
+  consoleApplication: AppUnderTest,
 ): Promise<void> {
-  const appliedEventCount = await readAppliedEventCount(consoleApplication, FLAGSHIP_SESSION_ID);
+  const appliedEventCount = await readAppliedEventCount(
+    consoleApplication,
+    CONCURRENT_STREAMING_SESSION_ID,
+  );
   expect(
     appliedEventCount,
     `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
@@ -387,5 +388,5 @@ export async function expectFlagshipSessionCarriesContent(
     Number(appliedEventCount),
     "no event reached this window's session store, so the session on screen is empty",
   ).toBeGreaterThan(0);
-  expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
+  expect(await readBoundSessionIds(consoleApplication)).toContain(CONCURRENT_STREAMING_SESSION_ID);
 }

@@ -11,13 +11,13 @@ import { ScenarioFixtureControl } from "./selection.fixture.js";
 import { ScenarioEngine } from "./engine.fixture.js";
 import {
   FLAGSHIP_SCENARIO,
-  FLAGSHIP_SCENARIO_ID,
+  CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 describe("ScenarioFixtureControl — the handle a driver holds", () => {
   it("names the scenario its engine is playing", () => {
     const control = new ScenarioFixtureControl(new ScenarioEngine({ scenario: FLAGSHIP_SCENARIO }));
-    expect(control.scenarioId).toBe(FLAGSHIP_SCENARIO_ID);
+    expect(control.scenarioId).toBe(CONCURRENT_STREAMING_SCENARIO_ID);
   });
 
   it("delivers beats as it advances, and counts them", () => {

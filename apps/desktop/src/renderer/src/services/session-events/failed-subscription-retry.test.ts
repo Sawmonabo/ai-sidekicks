@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { UnboundSessionRetry } from "./failed-subscription-retry.js";
+import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 
 const FIRST_SESSION_ID = "session-first";
 const SECOND_SESSION_ID = "session-second";
@@ -20,9 +20,9 @@ function createRetry(
     isRetired?: () => boolean;
     isStillOpen?: (sessionId: string) => boolean;
   } = {},
-): { retry: UnboundSessionRetry; rebound: string[] } {
+): { retry: FailedSubscriptionRetry; rebound: string[] } {
   const rebound: string[] = [];
-  const retry = new UnboundSessionRetry({
+  const retry = new FailedSubscriptionRetry({
     isRetired: overrides.isRetired ?? ((): boolean => false),
     isStillOpen: overrides.isStillOpen ?? ((): boolean => true),
     rebind: (sessionId: string): void => {
@@ -41,9 +41,9 @@ function createRetry(
  */
 class ReentrantRebinder {
   public readonly rebound: string[] = [];
-  #retry: UnboundSessionRetry | undefined;
+  #retry: FailedSubscriptionRetry | undefined;
 
-  public attachTo(retry: UnboundSessionRetry): void {
+  public attachTo(retry: FailedSubscriptionRetry): void {
     this.#retry = retry;
   }
 
@@ -53,7 +53,7 @@ class ReentrantRebinder {
   }
 }
 
-describe("UnboundSessionRetry", () => {
+describe("FailedSubscriptionRetry", () => {
   it("re-attempts every retained session once, in the order they failed", () => {
     const { retry, rebound } = createRetry();
     retry.retain(FIRST_SESSION_ID);
@@ -135,7 +135,7 @@ describe("UnboundSessionRetry", () => {
     // entry, so the count stays a count of attempts the owner actually made.
     const rebound: string[] = [];
     let retired = false;
-    const retry = new UnboundSessionRetry({
+    const retry = new FailedSubscriptionRetry({
       isRetired: (): boolean => retired,
       isStillOpen: (): boolean => true,
       rebind: (sessionId: string): void => {
@@ -158,7 +158,7 @@ describe("UnboundSessionRetry", () => {
     // mid-walk. One pass is what an edge is worth, so the nested delivery is a
     // no-op rather than a second walk that re-attempts and double-counts.
     const rebinder = new ReentrantRebinder();
-    const retry = new UnboundSessionRetry({
+    const retry = new FailedSubscriptionRetry({
       isRetired: (): boolean => false,
       isStillOpen: (): boolean => true,
       rebind: (sessionId: string): void => {

@@ -17,7 +17,7 @@ import { FixtureBridgeError } from "./refusal.fixture.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { STAND_IN_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
+import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
 
 /**
  * The scenario every case below varies one member of.
@@ -72,7 +72,7 @@ const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
 function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
   return {
     id: repoMountId,
-    sessionId: STAND_IN_SESSION_ID,
+    sessionId: FIXTURE_SCENARIO_SESSION_ID,
     nodeId: "9f2c4a10-1111-4000-8000-000000000100",
     localPath: "/Users/probe/dev/ai-sidekicks",
     canonicalRoot: "/Users/probe/dev/ai-sidekicks",

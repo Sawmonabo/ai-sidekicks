@@ -121,7 +121,7 @@ export function schemaFormIsAwaitingCompiler(region: ParentNode): boolean {
 /**
  * Whether this form has stopped waiting for the thing that checks it.
  *
- * Exported beside the mount for the reason `isPhaseGraphSettled` is: a case that wants
+ * Exported beside the mount for the reason `isRunGraphSettled` is: a case that wants
  * to state the readiness it depends on before it measures anything can read it, and the
  * reading is one rule rather than one per tier. DERIVED from the two predicates above
  * rather than restating their selector — a third copy of the class name is a third thing

@@ -33,7 +33,7 @@ import { BoundedCleanup } from "./bounded-cleanup.js";
 import {
   BODY_ALLOWANCE_MS,
   CLEANUP_BUDGET_MS,
-  FRAME_WITNESS_TIMEOUT_MS,
+  FRAME_PAINT_PROBE_TIMEOUT_MS,
   READINESS_BUDGET_MS,
 } from "./launch-budgets.js";
 import {
@@ -134,7 +134,7 @@ describe("launch budget — the reserved cleanup slice covers every phase a clea
     // here let the ladder spend the termination phase's time before that phase
     // existed.
     expect(POST_READINESS_RESERVE_MS).toBeGreaterThanOrEqual(
-      FRAME_WITNESS_TIMEOUT_MS + CLEANUP_BUDGET_MS * CLEANUP_PHASES,
+      FRAME_PAINT_PROBE_TIMEOUT_MS + CLEANUP_BUDGET_MS * CLEANUP_PHASES,
     );
   });
 
@@ -147,7 +147,7 @@ describe("launch budget — the reserved cleanup slice covers every phase a clea
     // required 22 000.
     const afterEveryOtherPhase =
       tierTimeoutFor(BODY_ALLOWANCE_MS) -
-      (READINESS_BUDGET_MS + FRAME_WITNESS_TIMEOUT_MS + BODY_ALLOWANCE_MS);
+      (READINESS_BUDGET_MS + FRAME_PAINT_PROBE_TIMEOUT_MS + BODY_ALLOWANCE_MS);
     expect(afterEveryOtherPhase).toBeGreaterThanOrEqual(
       CLEANUP_BUDGET_MS * CLEANUP_PHASES + MINIMUM_SETTLEMENT_RESIDUAL_MS,
     );
@@ -161,7 +161,7 @@ describe("launch budget — the reserved cleanup slice covers every phase a clea
     expect(CLEANUP_SLICE_MS % CLEANUP_BUDGET_MS).toBe(0);
     expect(CLEANUP_SLICE_MS / CLEANUP_BUDGET_MS).toBe(CLEANUP_PHASES);
     expect(LAUNCH_BUDGET_MS).toBe(
-      READINESS_BUDGET_MS + FRAME_WITNESS_TIMEOUT_MS + CLEANUP_SLICE_MS,
+      READINESS_BUDGET_MS + FRAME_PAINT_PROBE_TIMEOUT_MS + CLEANUP_SLICE_MS,
     );
   });
 });

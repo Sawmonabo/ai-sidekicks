@@ -41,18 +41,18 @@
 
 import { describeBeatDefect } from "./beat-shape.js";
 import { findBeatOrderDefects } from "./beat-order.js";
-import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
+import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { describeCallerDefect } from "./caller-defects.js";
 import { findReplyDefects } from "./reply-checks.js";
 import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
-export type { ScenarioWireTruthDefect };
+export type { ScenarioContractDefect };
 
 /** Every wire-truth defect across the given scenarios. Empty is the passing state. */
-export function findScenarioWireTruthDefects(
+export function findScenarioContractDefects(
   scenarios: readonly ConsoleScenario[],
-): readonly ScenarioWireTruthDefect[] {
-  const defects: ScenarioWireTruthDefect[] = [];
+): readonly ScenarioContractDefect[] {
+  const defects: ScenarioContractDefect[] = [];
   for (const scenario of scenarios) {
     for (const [beatIndex, beat] of scenario.beats.entries()) {
       const reason = describeBeatDefect(beat);

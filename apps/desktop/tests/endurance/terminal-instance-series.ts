@@ -33,7 +33,7 @@
 // not among the candidates either sentence names — `openPaneAndAwaitWebglReadiness`
 // fails the run before any reading is taken unless every instance reports `webgl`.
 
-import type { ConsoleApplication } from "../helpers/electron-harness.js";
+import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { medianOfHeapReadings, type RendererHeapProbe } from "./heap-instrument.js";
 import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "./terminal-pane-harness.js";
 
@@ -199,7 +199,7 @@ async function readMedianSettledBytes(heapProbe: RendererHeapProbe): Promise<num
  * once for the page and a second sweep must not pay it again.
  */
 export async function measureTerminalInstanceSeries(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   heapProbe: RendererHeapProbe,
 ): Promise<TerminalInstanceSeries> {
   const baselineHeapBytes = await readMedianSettledBytes(heapProbe);

@@ -226,7 +226,7 @@ export function withDaemonSubscribe(
 }
 
 /**
- * The shipped fixture with that call arm on it, over the flagship scenario or over a
+ * The shipped fixture with that call arm on it, over the concurrent-streaming scenario or over a
  * scenario the suite names.
  *
  * The parameter is optional so the common case reads as it did, and present because a

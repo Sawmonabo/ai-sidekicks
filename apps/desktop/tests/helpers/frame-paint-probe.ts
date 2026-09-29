@@ -32,9 +32,9 @@
 // The class exists so that interval can be tested without an Electron process:
 // the frame source is a constructor argument, so a stub that resolves late and a
 // stub that never resolves are both one object literal
-// (`test/helpers/frame-witness.test.ts`).
+// (`tests/helpers/frame-paint-probe.test.ts`).
 
-import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
+import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch-budgets.js";
 
 /**
  * The renderer, reduced to the one question the witness asks it.
@@ -62,11 +62,11 @@ export interface RendererFrameSource {
  * argument with a default, so a caller that interpolated the module constant
  * into its sentence would be describing a bound the witness may never have
  * applied — wrong by a factor of 75 against the 200 ms every case in
- * `test/helpers/frame-witness.test.ts` injects. It is the same rule
+ * `tests/helpers/frame-paint-probe.test.ts` injects. It is the same rule
  * `CleanupOutcome.budgetMs` states for the close: there is one figure, produced
  * where the bound is computed.
  */
-interface FrameWitnessMeasurement {
+interface FramePaintMeasurement {
   /** Wall milliseconds the witness waited, measured on the driver side. */
   readonly waitedMs: number;
   /** The bound this witness was actually held to, in milliseconds. */
@@ -74,25 +74,25 @@ interface FrameWitnessMeasurement {
 }
 
 /** Frames arrived inside the budget. */
-export interface FramesWitnessed extends FrameWitnessMeasurement {
+export interface FramesPainted extends FramePaintMeasurement {
   readonly painting: true;
   /** Renderer-side milliseconds from the request to the second frame. */
   readonly frameIntervalMs: number;
 }
 
 /** No frame arrived inside the budget. */
-export interface FramesMissing extends FrameWitnessMeasurement {
+export interface FramesMissing extends FramePaintMeasurement {
   readonly painting: false;
 }
 
-export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
+export type FramePaintProbeOutcome = FramesPainted | FramesMissing;
 
 /**
  * The worst driver-side post-readiness figure measured locally, in
  * milliseconds — the slowest of the twenty launches described above.
  *
  * Exported rather than left in prose because a number in a comment is not a
- * gate: `test/helpers/frame-witness.test.ts` holds the budget against it, so
+ * gate: `tests/helpers/frame-paint-probe.test.ts` holds the budget against it, so
  * shrinking the bound back toward the measured cost fails a test that says why
  * rather than passing quietly and flaking a month later.
  *
@@ -115,16 +115,16 @@ export const MEASURED_WORST_LOCAL_MS = 47;
  * Playwright adapter is one implementation and a stub is another, and a
  * constructor argument is where a seam belongs.
  */
-export class FrameWitness {
+export class FramePaintProbe {
   readonly #frameSource: RendererFrameSource;
   readonly #budgetMs: number;
 
-  constructor(frameSource: RendererFrameSource, budgetMs: number = FRAME_WITNESS_TIMEOUT_MS) {
+  constructor(frameSource: RendererFrameSource, budgetMs: number = FRAME_PAINT_PROBE_TIMEOUT_MS) {
     this.#frameSource = frameSource;
     this.#budgetMs = budgetMs;
   }
 
-  async witness(): Promise<FrameWitnessOutcome> {
+  async probe(): Promise<FramePaintProbeOutcome> {
     const startedAt = Date.now();
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<null>((resolveExpiry) => {
@@ -143,7 +143,7 @@ export class FrameWitness {
     // for the rest of its life. A bare `framesDelivered.catch(() => undefined)`
     // used to sit here claiming to be the mechanism, and it was a second handler
     // on an already-handled promise — removing it changes nothing, which is how
-    // it was found. The claim lives in `test/helpers/frame-witness.test.ts`
+    // it was found. The claim lives in `tests/helpers/frame-paint-probe.test.ts`
     // instead, where an abandoned probe is rejected and the process is asserted
     // never to have been told: that case fails if this stops being a race.
     //

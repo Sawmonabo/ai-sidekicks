@@ -43,6 +43,24 @@ const PROBE_ALLOCATION_BYTES = 8 * 1024 * 1024;
 /** Settle time after each allocation, so a collection has a chance to run. */
 const PROBE_SETTLE_MS = 50;
 
+/** The summary line's payload: one probe run's samples and what they show. */
+export interface GcProbeReading {
+  readonly ok: boolean;
+  readonly queryObjectsAvailable: boolean;
+  readonly globalGcAvailable: boolean;
+  readonly iterations: number;
+  readonly counts: readonly number[];
+  readonly min: number;
+  readonly max: number;
+  /** Windows open when the loop ended; the per-window delta's denominator. */
+  readonly windowsOpened: number;
+  /** The loop's last sample, taken with every window still open. */
+  readonly openCount: number;
+  /** One sample after every window closed, the close unwound, and a collection. */
+  readonly closedCount: number;
+  readonly allClosedFired: boolean;
+}
+
 /**
  * One probe run and the one fact it observes about the app.
  *
@@ -120,21 +138,20 @@ export class GcProbe {
     await wait(PROBE_SETTLE_MS);
     const closedCount = queryObjects(BrowserWindow, { format: "count" });
 
-    console.log(
-      `${GC_PROBE_TAG} ${JSON.stringify({
-        ok: true,
-        queryObjectsAvailable,
-        globalGcAvailable,
-        iterations: PROBE_ITERATIONS,
-        counts,
-        min,
-        max,
-        windowsOpened,
-        openCount,
-        closedCount,
-        allClosedFired: allClosedFiredDuringLoop,
-      })}`,
-    );
+    const reading: GcProbeReading = {
+      ok: true,
+      queryObjectsAvailable,
+      globalGcAvailable,
+      iterations: PROBE_ITERATIONS,
+      counts,
+      min,
+      max,
+      windowsOpened,
+      openCount,
+      closedCount,
+      allClosedFired: allClosedFiredDuringLoop,
+    };
+    console.log(`${GC_PROBE_TAG} ${JSON.stringify(reading)}`);
     electronApp.exit(0);
   }
 }

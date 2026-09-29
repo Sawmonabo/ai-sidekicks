@@ -7,7 +7,7 @@
 // care is the whole of the module: which element actually is a row, how long to wait
 // for one, and what to do when the wait expires.
 
-import type { ConsoleApplication } from "../helpers/electron-harness.js";
+import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -18,7 +18,7 @@ import {
 /**
  * One ledger row BOX — the element the window mounts, not the card drawn inside it.
  *
- * A different set from `console-workload.ts`' `LEDGER_ROW_SELECTOR`, and the
+ * A different set from `console-workload.ts`' `TRANSCRIPT_ROW_SELECTOR`, and the
  * distinction is load-bearing here. `meridian-ledger-row` is
  * `primitives/figures/LedgerRow.tsx`, a presentation primitive the runs pane uses too and
  * that a row body may or may not reach for; `meridian-ledger-viewport__row` is the
@@ -27,7 +27,7 @@ import {
  * counts whichever bodies happened to draw with that primitive, which is a fact about
  * the card vocabulary rather than about the window.
  */
-export const LEDGER_ROW_BOX_SELECTOR: string =
+export const TRANSCRIPT_ROW_BOX_SELECTOR: string =
   ".meridian-frame__surface .meridian-ledger-viewport__row";
 
 /**
@@ -44,11 +44,11 @@ export const LEDGER_ROW_BOX_SELECTOR: string =
  * further one, that no viewport is registered at all. Only a timeout is absorbed;
  * anything else is a harness fault and is rethrown.
  */
-export async function readLedgerWindow(
-  consoleApplication: ConsoleApplication,
+export async function readTranscriptWindow(
+  consoleApplication: AppUnderTest,
   sessionId: string,
 ): Promise<LedgerWindowReading | null> {
-  const firstLedgerRow = consoleApplication.window.locator(LEDGER_ROW_BOX_SELECTOR).first();
+  const firstLedgerRow = consoleApplication.window.locator(TRANSCRIPT_ROW_BOX_SELECTOR).first();
   try {
     // The allowance is spelled INSIDE the wait's own arguments rather than bound to a
     // local first: a hoisted local charges the allowance correctly and still reads as

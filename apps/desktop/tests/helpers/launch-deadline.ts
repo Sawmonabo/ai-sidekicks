@@ -70,7 +70,7 @@
 
 import {
   CLEANUP_BUDGET_MS,
-  FRAME_WITNESS_TIMEOUT_MS,
+  FRAME_PAINT_PROBE_TIMEOUT_MS,
   READINESS_BUDGET_MS,
 } from "./launch-budgets.js";
 
@@ -122,7 +122,7 @@ export const CLEANUP_SLICE_MS: number = CLEANUP_BUDGET_MS * CLEANUP_PHASES;
  * safe to compare against a tier timeout.
  */
 export const LAUNCH_BUDGET_MS: number =
-  READINESS_BUDGET_MS + FRAME_WITNESS_TIMEOUT_MS + CLEANUP_SLICE_MS;
+  READINESS_BUDGET_MS + FRAME_PAINT_PROBE_TIMEOUT_MS + CLEANUP_SLICE_MS;
 
 /**
  * What every readiness wait holds back, in milliseconds.
@@ -131,7 +131,7 @@ export const LAUNCH_BUDGET_MS: number =
  * up at four call sites — a reserve that is right in three places and wrong in
  * the fourth is the shape of defect this whole module exists to remove.
  */
-export const POST_READINESS_RESERVE_MS: number = FRAME_WITNESS_TIMEOUT_MS + CLEANUP_SLICE_MS;
+export const POST_READINESS_RESERVE_MS: number = FRAME_PAINT_PROBE_TIMEOUT_MS + CLEANUP_SLICE_MS;
 
 /**
  * What a tier must still have after the last slice, in milliseconds.
@@ -295,7 +295,7 @@ export class LaunchDeadline {
    * would have diagnosed it.
    *
    * Rejects on expiry rather than returning a verdict, which is the difference
-   * between this and `FrameWitness`: a phase that did not settle is a launch
+   * between this and `FramePaintProbe`: a phase that did not settle is a launch
    * failure, while a renderer that did not paint is a finding the harness
    * words itself.
    */

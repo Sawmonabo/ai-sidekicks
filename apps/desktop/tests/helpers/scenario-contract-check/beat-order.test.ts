@@ -2,7 +2,7 @@
 // in the log position the store reconciles against.
 //
 // Beside the aggregate entry for the reason its sibling run-beat file is: the cases
-// drive `findScenarioWireTruthDefects`, which is the surface every scenario is
+// drive `findScenarioContractDefects`, which is the surface every scenario is
 // measured through. Both halves of the rule are here — the position a script OPENS
 // at, which needs a real multi-beat script to be shifted as a whole, and the tick and
 // contiguity claims over a beat and the one in front of it.
@@ -15,15 +15,17 @@ import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../../fixtures/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
-import { findScenarioWireTruthDefects } from "./contract-check.js";
+import { findScenarioContractDefects } from "./contract-check.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 describe("scenario wire truth — the log position a scenario opens at", () => {
-  /** The flagship's beats, every position shifted by the same amount. */
+  /** The concurrent-streaming scenario's beats, every position shifted by the same amount. */
   function scenarioOpeningAt(scenarioId: string, firstPosition: number): ConsoleScenario {
     const openingBeat = FLAGSHIP_SCENARIO.beats[0];
     if (openingBeat === undefined) {
-      throw new Error("the flagship scenario plays no beats, so there is nothing to shift");
+      throw new Error(
+        "the concurrent-streaming scenario plays no beats, so there is nothing to shift",
+      );
     }
     const shift = firstPosition - openingBeat.event.sequence;
     return {
@@ -44,7 +46,7 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
     if (openingBeat === undefined) {
       throw new Error("the first-run scenario plays no beats, so there is nothing to shift");
     }
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       {
         ...FIRST_RUN_SCENARIO,
         id: "opens-at-two-with-one-beat",
@@ -61,7 +63,7 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
     // Contiguous throughout, so every pair-wise check passes and the only thing
     // wrong is where the run begins — which is the subject the defect has to name,
     // because shifting the whole script is the fix and beat 1 is not the culprit.
-    const defects = findScenarioWireTruthDefects([scenarioOpeningAt("opens-at-three", 3)]);
+    const defects = findScenarioContractDefects([scenarioOpeningAt("opens-at-three", 3)]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.subject).toBe("beat 0 (session.created)");
@@ -72,13 +74,13 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
     // Without it both cases above would hold over a rule that reported every opening
     // beat, and no scenario could be scripted at all. The shift is a no-op here, so
     // what is measured is the position and nothing else about the beats.
-    expect(findScenarioWireTruthDefects([scenarioOpeningAt("opens-at-one", 1)])).toStrictEqual([]);
+    expect(findScenarioContractDefects([scenarioOpeningAt("opens-at-one", 1)])).toStrictEqual([]);
   });
 });
 
 describe("scenario wire truth — a beat and the beat in front of it", () => {
   /**
-   * The flagship's opening PAIR as a script of its own, each beat revised by index.
+   * The concurrent-streaming scenario's opening PAIR as a script of its own, each beat revised by index.
    *
    * Two beats is the smallest script the tick and contiguity claims are stated over —
    * both are about a beat and its predecessor — and taking the seat board's own first
@@ -92,7 +94,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     const openingPair = FLAGSHIP_SCENARIO.beats.slice(0, 2);
     if (openingPair.length < 2) {
       throw new Error(
-        "the flagship scenario plays fewer than two beats, so there is no pair to order",
+        "the concurrent-streaming scenario plays fewer than two beats, so there is no pair to order",
       );
     }
     return { ...FLAGSHIP_SCENARIO, id: scenarioId, beats: openingPair.map(revise) };
@@ -113,7 +115,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // has fallen due, so an entry written behind a later-due one is delivered later
     // than the tick it names — and the screenshot and endurance tiers pin frames by
     // advancing to an exact tick.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       openingPairScenario("is-due-out-of-order", (beat, beatIndex) =>
         dueAt(beat, beatIndex === 0 ? 200 : 20),
       ),
@@ -131,7 +133,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // that relaxed contiguity for equal ticks would let the gap below back in through
     // the door this case guards.
     expect(
-      findScenarioWireTruthDefects([
+      findScenarioContractDefects([
         openingPairScenario("shares-one-tick", (beat) => dueAt(beat, 40)),
       ]),
     ).toStrictEqual([]);
@@ -143,7 +145,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // from cursor zero, reads the jump as a real gap, and enters degradation and
     // repair — where it can drop later rows — over a script the author meant as an
     // ordinary session.
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       openingPairScenario("skips-a-position", (beat, beatIndex) =>
         beatIndex === 1 ? atLogPosition(beat, beat.event.sequence + 1) : beat,
       ),
@@ -165,9 +167,11 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // only thing wrong is the second beat's position.
     const openingPosition = FLAGSHIP_SCENARIO.beats[0]?.event.sequence;
     if (openingPosition === undefined) {
-      throw new Error("the flagship scenario plays no beats, so it opens at no position");
+      throw new Error(
+        "the concurrent-streaming scenario plays no beats, so it opens at no position",
+      );
     }
-    const defects = findScenarioWireTruthDefects([
+    const defects = findScenarioContractDefects([
       openingPairScenario("steps-backwards", (beat, beatIndex) =>
         beatIndex === 1 ? atLogPosition(beat, openingPosition) : beat,
       ),
@@ -182,7 +186,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
     // Without it every case above would hold over a rule that reported every pair, and
     // no scenario could be scripted at all.
     expect(
-      findScenarioWireTruthDefects([openingPairScenario("the-shipped-pair", (beat) => beat)]),
+      findScenarioContractDefects([openingPairScenario("the-shipped-pair", (beat) => beat)]),
     ).toStrictEqual([]);
   });
 });

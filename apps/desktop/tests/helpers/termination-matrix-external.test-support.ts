@@ -35,7 +35,7 @@ import {
 } from "./termination-matrix-tools.test-support.js";
 
 /** Every cell whose subject is `terminateExternalTree`. */
-export const EXTERNAL_ARM_CELLS: readonly TerminationCell[] = [
+export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
   {
     name: "the ordinary kill: the platform delivered, so nothing further is asked",
     axes: {

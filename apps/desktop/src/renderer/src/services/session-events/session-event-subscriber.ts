@@ -85,19 +85,19 @@ import { lossyStringify } from "@shared/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
+import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
 import {
   SessionDiagnosticsHandle,
   type ConsoleSessionDiagnostics,
 } from "./session-diagnostics-handle.js";
-import { UnboundSessionRetry } from "./failed-subscription-retry.js";
+import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
 
-export interface SessionEventBinderOptions {
+export interface SessionEventSubscriberOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: ConsoleBridge;
 }
@@ -108,7 +108,7 @@ export class SessionEventBinder {
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
-  readonly #retry: UnboundSessionRetry;
+  readonly #retry: FailedSubscriptionRetry;
   readonly #diagnosticsHandle = new SessionDiagnosticsHandle();
   #unsubscribeFromRegistry: Unsubscribe | undefined;
   #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
@@ -117,12 +117,12 @@ export class SessionEventBinder {
   #attached = false;
   #disposed = false;
 
-  public constructor(options: SessionEventBinderOptions) {
+  public constructor(options: SessionEventSubscriberOptions) {
     this.#registry = options.registry;
     this.#bridge = options.bridge;
     // The three questions a pass asks, answered from here so the retry can reach a
     // retained id and nothing else — not a subscription map, not a store, not a wire.
-    this.#retry = new UnboundSessionRetry({
+    this.#retry = new FailedSubscriptionRetry({
       isRetired: () => this.#disposed,
       isStillOpen: (sessionId) => this.#registry.has(sessionId),
       rebind: (sessionId) => {
@@ -334,7 +334,7 @@ export class SessionEventBinder {
    * session on it.
    */
   #deliver(sessionId: string, payload: unknown): void {
-    const event = readConsoleSessionEvent(payload);
+    const event = readProjectedSessionEvent(payload);
     if (event === undefined) {
       this.#unreadableDeliveryCount += 1;
       return;
@@ -377,7 +377,7 @@ export class SessionEventBinder {
  * a `never`-shaped brand and the payload resolves to `unknown` — both stubs until
  * the daemon's event union lands. The event name is pinned to `string` (the
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
- * tighter payload type here would be a fiction, and `readConsoleSessionEvent`
+ * tighter payload type here would be a fiction, and `readProjectedSessionEvent`
  * (`bridge/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
  * store may hold. Same posture as the two shipped renderer families that already
  * subscribe this way.

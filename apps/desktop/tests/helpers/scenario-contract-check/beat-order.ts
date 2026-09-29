@@ -1,7 +1,7 @@
 // Where a beat sits: in the tick order the clock reaches it in, and in the log
 // position the store reads it at.
 
-import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
+import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
@@ -64,10 +64,8 @@ const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
  * needs one adds it in the swap that needs it, as a declared per-scenario field this
  * walk reads — never as a silent pass.
  */
-export function findBeatOrderDefects(
-  scenario: ConsoleScenario,
-): readonly ScenarioWireTruthDefect[] {
-  const defects: ScenarioWireTruthDefect[] = [];
+export function findBeatOrderDefects(scenario: ConsoleScenario): readonly ScenarioContractDefect[] {
+  const defects: ScenarioContractDefect[] = [];
   for (const [beatIndex, beat] of scenario.beats.entries()) {
     const previousBeat = scenario.beats[beatIndex - 1];
     const subject = `beat ${String(beatIndex)} (${beat.event.kind})`;

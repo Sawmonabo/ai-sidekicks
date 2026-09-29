@@ -83,24 +83,28 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole, type ConsoleApplication } from "../helpers/electron-harness.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "../../test/console/fixture-handles.js";
-import { ENDURANCE_LAUNCH_OPTIONS, openFlagshipSessionRoute } from "./endurance-workload.js";
+import {
+  ENDURANCE_LAUNCH_OPTIONS,
+  openConcurrentStreamingSessionRoute,
+} from "./endurance-workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
-  FLAGSHIP_LANE_COUNT,
+  CONCURRENT_STREAMING_LANE_COUNT,
   FLAGSHIP_SCENARIO,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import { ConsoleBudgetRegistry, evaluateBudget } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The row this file measures. Named once; every figure below comes off it. */
 const FRAME_TIME_BUDGET_ID = "frame-time-p95-four-lanes";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FRAME_TIME_BUDGET_ID);
 
 /**
@@ -169,7 +173,7 @@ interface FrameTimingRun {
 }
 
 /**
- * Sample frame durations while the flagship script delivers into the open session.
+ * Sample frame durations while the concurrent-streaming script delivers into the open session.
  *
  * The whole loop runs inside the renderer. A driver round trip per frame would be
  * the largest thing in every duration it measured, which is the harness timing
@@ -184,7 +188,7 @@ interface FrameTimingRun {
  * with the wrong one's start.
  */
 async function sampleFrameTimings(
-  consoleApplication: ConsoleApplication,
+  consoleApplication: AppUnderTest,
   plantedStallMilliseconds: number,
 ): Promise<FrameTimingRun | null> {
   const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
@@ -257,10 +261,10 @@ async function sampleFrameTimings(
   );
 }
 
-/** One launch, opened on the flagship session and sampled. */
+/** One launch, opened on the concurrent-streaming session and sampled. */
 async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun> {
-  return await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-    await openFlagshipSessionRoute(consoleApplication);
+  return await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await openConcurrentStreamingSessionRoute(consoleApplication);
     const run = await sampleFrameTimings(consoleApplication, plantedStallMilliseconds);
     expect(
       run,
@@ -287,7 +291,7 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
 function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
     run.beatsAtWindowEnd,
-    "the flagship script had not finished delivering by the end of the sampled window, so the " +
+    "the concurrent-streaming script had not finished delivering by the end of the sampled window, so the " +
       "reading describes a console the session never fully reached",
   ).toBe(FLAGSHIP_SCENARIO.beats.length);
   expect(
@@ -303,7 +307,7 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
     ),
     "fewer than four agent lanes were mid-turn at any point inside the sampled window, so this " +
       "figure bounds a console that was not doing the work the budget row names",
-  ).toBe(FLAGSHIP_LANE_COUNT);
+  ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
 }
 
 describe("the four-lane frame-time budget row", () => {
@@ -317,71 +321,74 @@ describe("the four-lane frame-time budget row", () => {
   });
 });
 
-describe.skipIf(!bundleIsBuilt)("endurance — frame time with the flagship session open", () => {
-  it("holds the 95th-percentile frame duration under the budget's ceiling", async () => {
-    const perRunPercentiles: number[] = [];
-    const perRunMedians: number[] = [];
-    for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
-      const run = await runOnce(0);
-      expectFourLaneWorkloadInsideWindow(run);
-      perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
-      perRunMedians.push(medianOf(run.frameDurationsMs));
-    }
-    const measuredP95 = medianOf(perRunPercentiles);
-    const verdict = evaluateBudget(budget, measuredP95);
+describe.skipIf(!bundleIsBuilt)(
+  "endurance — frame time with the concurrent-streaming session open",
+  () => {
+    it("holds the 95th-percentile frame duration under the budget's ceiling", async () => {
+      const perRunPercentiles: number[] = [];
+      const perRunMedians: number[] = [];
+      for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
+        const run = await runOnce(0);
+        expectFourLaneWorkloadInsideWindow(run);
+        perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
+        perRunMedians.push(medianOf(run.frameDurationsMs));
+      }
+      const measuredP95 = medianOf(perRunPercentiles);
+      const verdict = evaluateBudget(budget, measuredP95);
 
-    // Reported before the assertion, and reported on every machine: the figure is
-    // the whole value of this run off the pinned class, and on it a reviewer still
-    // needs to see a margin shrink before the run that crosses.
-    //
-    // The p50 is beside the p95 because it is what tells the two possible readings
-    // apart. A typical frame's WORK is a small fraction of the frame; a p50 sitting
-    // at the surface's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
-    // instrument had gone back to reporting how often frames arrive.
-    process.stdout.write(
-      `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
-        `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
-        `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
-        `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
-        `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
-        `p50 ${medianOf(perRunMedians).toFixed(2)} ms ` +
-        `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}) — ` +
-        `${RUNNER_CLASS_DESCRIPTION}\n`,
-    );
+      // Reported before the assertion, and reported on every machine: the figure is
+      // the whole value of this run off the pinned class, and on it a reviewer still
+      // needs to see a margin shrink before the run that crosses.
+      //
+      // The p50 is beside the p95 because it is what tells the two possible readings
+      // apart. A typical frame's WORK is a small fraction of the frame; a p50 sitting
+      // at the surface's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
+      // instrument had gone back to reporting how often frames arrive.
+      process.stdout.write(
+        `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
+          `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
+          `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
+          `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
+          `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
+          `p50 ${medianOf(perRunMedians).toFixed(2)} ms ` +
+          `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}) — ` +
+          `${RUNNER_CLASS_DESCRIPTION}\n`,
+      );
 
-    if (!isPinnedRunnerClass) {
-      // Not a skip: the run happened, the instrument was exercised, and the figure
-      // is on the record. What is withheld is the COMPARISON, because the work a
-      // frame costs on an unpinned machine is a reading about that machine.
-      return;
-    }
-    expect(
-      verdict.withinBudget,
-      `${budget.label}: ${measuredP95.toFixed(2)} ms against a ` +
-        `${String(budget.limit.canonicalValue)} ms ceiling`,
-    ).toBe(true);
-  });
+      if (!isPinnedRunnerClass) {
+        // Not a skip: the run happened, the instrument was exercised, and the figure
+        // is on the record. What is withheld is the COMPARISON, because the work a
+        // frame costs on an unpinned machine is a reading about that machine.
+        return;
+      }
+      expect(
+        verdict.withinBudget,
+        `${budget.label}: ${measuredP95.toFixed(2)} ms against a ` +
+          `${String(budget.limit.canonicalValue)} ms ceiling`,
+      ).toBe(true);
+    });
 
-  it("negative control: a planted frame stall crosses the same ceiling", async () => {
-    // Without this the case above would pass over an instrument that reported a
-    // constant, sampled nothing, or divided by the wrong number — and off the pinned
-    // runner class it would pass over an instrument that had stopped measuring
-    // entirely, since nothing there asserts on the figure. The stall is real
-    // synchronous work inside each frame's own callback, driven through the SAME
-    // sampler, so what is shown is that this gate's own comparison fails on a
-    // renderer that misses its budget.
-    const run = await runOnce(PLANTED_FRAME_STALL_MS);
-    const stalledP95 = percentileByNearestRank(run.frameDurationsMs, 0.95);
-    process.stdout.write(
-      `[console-endurance] frame time p95 under a planted ${String(PLANTED_FRAME_STALL_MS)} ms ` +
-        `per-frame stall: ${stalledP95.toFixed(2)} ms\n`,
-    );
+    it("negative control: a planted frame stall crosses the same ceiling", async () => {
+      // Without this the case above would pass over an instrument that reported a
+      // constant, sampled nothing, or divided by the wrong number — and off the pinned
+      // runner class it would pass over an instrument that had stopped measuring
+      // entirely, since nothing there asserts on the figure. The stall is real
+      // synchronous work inside each frame's own callback, driven through the SAME
+      // sampler, so what is shown is that this gate's own comparison fails on a
+      // renderer that misses its budget.
+      const run = await runOnce(PLANTED_FRAME_STALL_MS);
+      const stalledP95 = percentileByNearestRank(run.frameDurationsMs, 0.95);
+      process.stdout.write(
+        `[console-endurance] frame time p95 under a planted ${String(PLANTED_FRAME_STALL_MS)} ms ` +
+          `per-frame stall: ${stalledP95.toFixed(2)} ms\n`,
+      );
 
-    expect(stalledP95).toBeGreaterThan(PLANTED_FRAME_STALL_MS);
-    expect(
-      evaluateBudget(budget, stalledP95).withinBudget,
-      "a renderer holding its main thread for twice the frame budget every frame passed this " +
-        "budget, so the gate would report green over the one failure it exists to catch",
-    ).toBe(false);
-  });
-});
+      expect(stalledP95).toBeGreaterThan(PLANTED_FRAME_STALL_MS);
+      expect(
+        evaluateBudget(budget, stalledP95).withinBudget,
+        "a renderer holding its main thread for twice the frame budget every frame passed this " +
+          "budget, so the gate would report green over the one failure it exists to catch",
+      ).toBe(false);
+    });
+  },
+);

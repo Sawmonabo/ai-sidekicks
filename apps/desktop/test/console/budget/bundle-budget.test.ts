@@ -19,12 +19,10 @@ import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  ConsoleBudgetRegistry,
-  evaluateBudget,
-  formatUnavailableBudgetReport,
-  type ConsoleBudget,
-} from "../../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../../scripts/budget/budget-evaluation.mjs";
+import { formatUnavailableBudgetReport } from "../../../scripts/budget/budget-report.mjs";
+import { type Budget } from "../../../scripts/budget/budget-document.mjs";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
   RENDERER_BUNDLE_BUDGET_ID,
@@ -39,7 +37,7 @@ import {
 } from "../../../scripts/budget/measure-bundle.mjs";
 import { TemporaryDirectoryTrail } from "@test/helpers/temporary-directory.js";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 
 /** An escape for measuring an out-of-tree build; NOT an escape from measuring. */
 const rendererOutputDirectory: string =
@@ -53,7 +51,7 @@ const rendererOutputDirectory: string =
 const COMPRESSION_ASSERTION_FLOOR_BYTES = 1024;
 
 /** The font row, read once — the ceiling the controls below drive and its own figures. */
-const fontsBudget: ConsoleBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
+const fontsBudget: Budget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
 
 /**
  * The size the `renderer-initial-fonts` ceiling was derived to refuse ONE MORE font
@@ -72,7 +70,7 @@ const fontsBudget: ConsoleBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_
 const smallestPublishedSplitBytes: number = refusalControlBytesOf(fontsBudget);
 
 /** @throws rather than planting a zero-byte control that every ceiling admits. */
-function refusalControlBytesOf(budget: ConsoleBudget): number {
+function refusalControlBytesOf(budget: Budget): number {
   if (budget.refusalControlBytes === null) {
     throw new Error(
       `\`${budget.id}\` states no \`refusalControlBytes\`, so the negative control below has ` +
@@ -134,7 +132,7 @@ const measurement: RendererBundleMeasurement = measureOrFailLoudly();
 
 describe("renderer initial-graph budgets", () => {
   const gateReadings = RENDERER_BUNDLE_GATES.map((gate) => {
-    const budget: ConsoleBudget = registry.requireBudget(gate.budgetId);
+    const budget: Budget = registry.requireBudget(gate.budgetId);
     return {
       budget,
       verdict: evaluateBudget(budget, gate.compare(measurement)),

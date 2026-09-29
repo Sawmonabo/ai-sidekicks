@@ -23,7 +23,7 @@
 //     composer scenario ends and the one state the design calls "steer".
 //
 // EVERY PARTITION IS THE REAL ONE, because every store here opens with the fold the
-// window composes — {@link COMPOSED_CONSOLE_PROJECTORS}, and never a registrar this
+// window composes — {@link COMPOSED_ENTITY_PROJECTORS}, and never a registrar this
 // file picked. A mount that named its own would be deciding which partitions its
 // surface can read.
 //
@@ -50,13 +50,8 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
-
-/** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
-  readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
-}
+import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
+import { type MountedView } from "./mount-queries.js";
 
 /**
  * The composer scenario's own agent, read out of the log rather than restated.
@@ -85,7 +80,7 @@ function composerAgentId(): string {
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
     sessionId: COMPOSER_SCENARIO.sessionId,
-    projectors: COMPOSED_CONSOLE_PROJECTORS,
+    projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   store.initialise({ cursor: 0, entities: [] });
   const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
@@ -152,7 +147,7 @@ function requireNoReadInFlight(container: HTMLElement): void {
 async function mountComposerAt(options: {
   readonly throughKind: string;
   readonly focusedPane: ConsolePaneAddress | undefined;
-}): Promise<MountedFamilySurface> {
+}): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
   const container = await mountSurfaceSettled(
     bridge,
@@ -169,12 +164,12 @@ async function mountComposerAt(options: {
 }
 
 /** The composer with focus outside the deck: addressed at the session. */
-export async function mountComposerSessionDefault(): Promise<MountedFamilySurface> {
+export async function mountComposerSessionDefault(): Promise<MountedView> {
   return mountComposerAt({ throughKind: "run.running", focusedPane: undefined });
 }
 
 /** The composer addressed at a working run: the new-turn path against a live agent. */
-export async function mountComposerProviderBoundRunning(): Promise<MountedFamilySurface> {
+export async function mountComposerProviderBoundRunning(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.running",
     focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
@@ -182,7 +177,7 @@ export async function mountComposerProviderBoundRunning(): Promise<MountedFamily
 }
 
 /** The composer addressed at a run waiting on a person: the steer path. */
-export async function mountComposerProviderBoundWaiting(): Promise<MountedFamilySurface> {
+export async function mountComposerProviderBoundWaiting(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.waiting_for_input",
     focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },

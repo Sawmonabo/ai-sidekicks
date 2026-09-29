@@ -72,7 +72,7 @@ export function peakConcurrentStreamingRuns(
  * One unbroken span of one run being `running`, and what it said inside it.
  *
  * Spans rather than a per-beat state map: a run can enter and leave `running`
- * several times in one script — the flagship's approval does exactly that — and the
+ * several times in one script — the concurrent-streaming scenario's approval does exactly that — and the
  * output beats of one span say nothing about whether the NEXT span is streaming.
  */
 interface RunningSpan {

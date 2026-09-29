@@ -40,7 +40,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 import { LEDGER_QUIET_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
-import { LEDGER_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
+import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
@@ -58,7 +58,7 @@ import { unregisterTimelineRowRenderer } from "@renderer/features/transcript/tra
 /**
  * The cursor a scenario's log is applied on top of.
  *
- * Zero rather than `-1`, because `scriptLedgerBeats` numbers a scenario's beats from
+ * Zero rather than `-1`, because `composeScriptBeats` numbers a scenario's beats from
  * one: a store rebased at `-1` would see its first beat as sequence one arriving
  * after sequence zero never did, record the gap, and render the never-received
  * absence and a degraded banner — a surface neither case here is about, and a difference
@@ -148,7 +148,7 @@ describe("accessibility — the ledger", () => {
       // case's reasoning: the scheme attribute has an owner, and a test that wrote
       // it would have both cases silently measured against one palette.
       await emulateSystemScheme(scheme);
-      const container = await mountLedger(LEDGER_SCENARIO);
+      const container = await mountLedger(TRANSCRIPT_STATES_SCENARIO);
 
       // The positive control for the whole case, and it is not a formality: axe over
       // a feed that mounted no rows returns the same empty violation list as axe over
@@ -181,7 +181,7 @@ describe("accessibility — the ledger", () => {
     // run scoped to the wrong root, given the wrong tags, or swallowing an exception
     // returns exactly the same nothing as a clean one, and planting within the
     // container proves the run reaches the subtree the cases above assert over.
-    const container = await mountLedger(LEDGER_SCENARIO);
+    const container = await mountLedger(TRANSCRIPT_STATES_SCENARIO);
     const planted = document.createElement("div");
     planted.innerHTML = '<img src="data:," />';
     container.append(planted);

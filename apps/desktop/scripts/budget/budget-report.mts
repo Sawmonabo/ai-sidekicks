@@ -5,16 +5,16 @@
 // which is the state a budget has to be talked out of, not into.
 //
 // It takes the un-measured rows through a structural port rather than importing
-// `ConsoleBudgetRegistry`, and that is load-bearing rather than fastidious: the
+// `BudgetRegistry`, and that is load-bearing rather than fastidious: the
 // registry re-exports this function, so importing the class here would close a
 // cycle that `structure:layering` fails. A caller still passes the registry —
 // the interface is the shape the registry already has.
 
-import { type ConsoleBudget } from "./budget-document.mts";
+import { type Budget } from "./budget-document.mts";
 
 /** The one question this report asks of whatever it is handed. */
 export interface UnavailableBudgetSource {
-  unavailableBudgets(): readonly ConsoleBudget[];
+  unavailableBudgets(): readonly Budget[];
 }
 
 /**

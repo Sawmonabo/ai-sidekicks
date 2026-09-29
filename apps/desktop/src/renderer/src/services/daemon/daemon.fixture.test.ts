@@ -41,11 +41,11 @@ import {
 import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
-/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+/** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
-/** How many beats of one kind the flagship plays, read off the script. */
-function flagshipBeatCountOfKind(kind: string): number {
+/** How many beats of one kind the concurrent-streaming plays, read off the script. */
+function concurrentStreamingBeatCountOfKind(kind: string): number {
   return FLAGSHIP_SCENARIO.beats.filter((beat) => beat.event.kind === kind).length;
 }
 
@@ -61,7 +61,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     // what an unfiltered fixture delivers into a `run.starting` handler. The count is
     // read off the script rather than written down, because the seat board plays as
     // many runs as it has lanes.
-    const startingBeatCount = flagshipBeatCountOfKind("run.starting");
+    const startingBeatCount = concurrentStreamingBeatCountOfKind("run.starting");
     expect(startingBeatCount).toBeGreaterThan(0);
     expect(received.map((envelope) => envelope.type)).toStrictEqual(
       Array.from({ length: startingBeatCount }, () => "run.starting"),
@@ -97,7 +97,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    const attachedBeatCount = flagshipBeatCountOfKind("agent.attached");
+    const attachedBeatCount = concurrentStreamingBeatCountOfKind("agent.attached");
     expect(attachedBeatCount).toBeGreaterThan(0);
     expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
     expect(attached.map((envelope) => envelope.type)).toStrictEqual(
@@ -107,7 +107,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 });
 
 describe("fixture bridge — the whole-session stream is replay-then-tail", () => {
-  /** Far enough in to have delivered part of the flagship script and not all of it. */
+  /** Far enough in to have delivered part of the concurrent-streaming script and not all of it. */
   const MID_SCRIPT_MS = 100;
 
   it("hands a subscriber attaching mid-script the beats it missed, then tails", () => {

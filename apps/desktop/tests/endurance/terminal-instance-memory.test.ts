@@ -77,7 +77,7 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { HeapSampler } from "./heap-sampling.js";
 import { enduranceLaunchOptions } from "./endurance-workload.js";
@@ -105,18 +105,16 @@ import {
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
 } from "@renderer/features/terminal/terminal-caps.js";
 import { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
-import {
-  ConsoleBudgetRegistry,
-  evaluateBudget,
-  type ConsoleBudget,
-} from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
+import { type Budget } from "../../scripts/budget/budget-document.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The row this file measures. Named once; every figure below comes off it. */
 const TERMINAL_INSTANCE_BUDGET_ID = "terminal-instance-memory";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(TERMINAL_INSTANCE_BUDGET_ID);
 
 /** This file's collector and settling loop, for the half measured in process. */
@@ -142,7 +140,7 @@ const PLANTED_SPLIT_SCROLLBACK_BYTES = Math.round(19.5 * 1024 * 1024);
  * `withinBudget: true` unconditionally would satisfy the assertion above it and
  * this gate would report green over any pane at all.
  */
-function budgetWithCeilingBelow(measuredCanonicalValue: number): ConsoleBudget {
+function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
   return {
     ...budget,
     limit: { ...budget.limit, canonicalValue: measuredCanonicalValue - 1 },
@@ -194,7 +192,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
       adapterWorkload.disposeEverything();
     }
 
-    await withLaunchedConsole(
+    await withLaunchedApp(
       enduranceLaunchOptions(TERMINAL_SCENARIO.id),
       async (consoleApplication) => {
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
@@ -322,7 +320,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           // Detached before the wrapper closes the window: detaching a DevTools
           // session from a closed application raises, and the raise would replace
           // whatever the body was failing on with a teardown error. The window
-          // itself is `withLaunchedConsole`'s to close.
+          // itself is `withLaunchedApp`'s to close.
           await heapProbe.detach();
         }
       },

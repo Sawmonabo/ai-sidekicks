@@ -22,18 +22,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleBudgetRegistry, DEFAULT_BUDGETS_FILE_PATH } from "./budget-registry.mjs";
+import { BudgetRegistry, DEFAULT_BUDGETS_FILE_PATH } from "./budget-registry.mjs";
 
 /** Every product budget, by registry id. */
 const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "frame-time-p95-four-lanes",
   "renderer-heap-at-rest",
-  "steady-heap-flagship-stream",
+  "steady-heap-concurrent-streaming",
   "idle-cpu",
   "streaming-cpu-one-lane",
   "terminal-instance-memory",
-  "time-to-first-ledger-row",
+  "time-to-first-transcript-row",
 ];
 
 /**
@@ -57,55 +57,26 @@ const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
 const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
   "renderer-initial-fonts",
   "console-launch-readiness",
-  "console-launch-frame-witness",
+  "console-launch-frame-paint-probe",
   "console-launch-cleanup",
   "console-launch-body",
   "console-endurance-body",
 ];
 
 /**
- * Budgets this revision actually measures. Every other row must be `"n/a"`.
+ * Budgets that are measured. Every other row must be `"n/a"`.
  *
- * `renderer-heap-at-rest` left this list on 2026-09-02 and returned the same
- * day, and the round trip is the point. It was gated against a Node process
- * holding a stand-in entity map — no Chromium, no renderer isolate, no React, no
- * DOM, no console store — so the gate could report green over a renderer well
- * past its ceiling; the row went `"n/a"` rather than being re-pointed at a
- * reading nothing could take. It is here again because the reading now exists:
- * the endurance tier launches the built console, opens a session the scenario
- * engine has delivered into, and reads that renderer's own heap. Re-listing this
- * id against any harness that holds no renderer restores the false green rather
- * than the gate, which `heap-budget.test.ts` refuses by name.
- *
- * `time-to-first-ledger-row` and `frame-time-p95-four-lanes` joined the list once
- * the ledger existed to paint a row and the flagship scenario existed to deliver
- * into it. Both are taken by the endurance tier for the reason the heap row is:
- * their subject is a running renderer, and no process without one holds it. The
- * second is the registry's first HARDWARE-DEPENDENT row to be measured at all —
- * it prints its figure on every runner and compares it only on the pinned class,
- * which `test/console/endurance/pinned-runner-class.ts` decides. That is a
- * different thing from `"n/a"`, and the distinction is the point: an `"n/a"` row
- * is one nothing measures, while this one is measured everywhere and adjudicated
- * where the reading is comparable.
- *
- * `terminal-instance-memory` made the same round trip on 2026-09-02 and came back
- * on 2026-09-04, on the condition its withdrawal named. Its wiring was never the
- * problem — the tier it names has always run — but the harness it pointed at built
- * an `XtermTerminalAdapter` directly under happy-dom and read the Node process's
- * own heap, so the WebGL renderer, the pane's React tree, its lease, and its store
- * state, all named in the row's own subject, could not move the number. A gate
- * whose subject is narrower than its row can report green over a pane well past
- * the ceiling, which is the one failure a budget exists to catch. What it waited
- * for was a way to open a registered pane in a running window, and the endurance
- * tier has one: it mounts the `terminal` body the deck's own registry resolves,
- * in the built console, on a live WebGL2 context, and FAILS rather than measures
- * when the renderer falls back. Re-listing either id against a harness that holds
- * less than its row's subject restores the false green rather than the gate.
+ * The heap, transcript-row, frame-time and terminal-memory rows are taken by the
+ * endurance tier because their subject is a running renderer, and no process without
+ * one holds it: a harness that held less than its row's subject would report green
+ * over a renderer past its ceiling. The frame-time row is hardware-dependent: it
+ * prints its figure on every runner and compares it only on the pinned class, which
+ * `tests/endurance/pinned-runner-class.ts` decides.
  */
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "renderer-heap-at-rest",
-  "time-to-first-ledger-row",
+  "time-to-first-transcript-row",
   "frame-time-p95-four-lanes",
   "terminal-instance-memory",
   ...EXPECTED_HARNESS_BUDGET_IDS,
@@ -120,7 +91,7 @@ const CANONICAL_UNIT_FACTORS: Readonly<Record<string, { factor: number; canonica
   percentOfOneCore: { factor: 1, canonical: "percentOfOneCore" },
 };
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 
 describe("console budget registry", () => {
   it("loads the one budgets file the harnesses read", () => {

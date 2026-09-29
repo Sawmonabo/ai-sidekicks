@@ -311,7 +311,7 @@ export const COMPOSER_REPLIES: readonly ScenarioReply[] = [
 ];
 
 export const COMPOSER_SCENARIO: ConsoleScenario = {
-  id: "composer",
+  id: "waiting-for-input",
   label: "Awaiting a reply",
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",

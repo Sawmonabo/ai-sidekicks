@@ -29,13 +29,13 @@
 // a cheaper synthetic row would be measuring a rendering path the product does not
 // have.
 
-import { ledgerOpeningEntries } from "../../fixtures/data/opening-entries.js";
+import { composeOpeningEntries } from "../../fixtures/data/opening-entries.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
-  scriptLedgerBeats,
+  composeScriptBeats,
   toolActivityEntry,
-  type LedgerScriptEntry,
+  type ScriptEntry,
 } from "../../fixtures/data/script-entries.js";
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 
@@ -48,7 +48,7 @@ const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
 
 /**
  * The stem this scenario's row ids are minted from — its own namespace, not its
- * session's. `scriptLedgerBeats` completes it with the beat's position.
+ * session's. `composeScriptBeats` completes it with the beat's position.
  */
 const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
 const USER_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
@@ -109,7 +109,7 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
 const ENDURANCE_BODY_CYCLE_LENGTH = 8;
 
 /** What the generator needs to know. */
-export interface LedgerEnduranceScenarioOptions {
+export interface TranscriptEnduranceFixtureOptions {
   /** Exactly how many beats the generated scenario plays. */
   readonly rowCount: number;
   /** How many run chapters those beats are spread across. Defaults to 24. */
@@ -127,8 +127,8 @@ const DEFAULT_ENDURANCE_RUN_COUNT = 24;
  * produced "about ten thousand" would have two runs of one measurement disagreeing
  * for a reason nobody could see in the number.
  */
-export function createLedgerEnduranceScenario(
-  options: LedgerEnduranceScenarioOptions,
+export function createTranscriptEnduranceFixture(
+  options: TranscriptEnduranceFixtureOptions,
 ): ConsoleScenario {
   const runCount = options.runCount ?? DEFAULT_ENDURANCE_RUN_COUNT;
   if (!Number.isInteger(runCount) || runCount < 1) {
@@ -142,11 +142,11 @@ export function createLedgerEnduranceScenario(
     );
   }
   const { bodyPerRun, lastRunExtraBody } = planRunBodies(options.rowCount, runCount);
-  const entries: LedgerScriptEntry[] = [];
+  const entries: ScriptEntry[] = [];
   const at = (): number => entries.length * ENDURANCE_BEAT_INTERVAL_MS;
 
   entries.push(
-    ...ledgerOpeningEntries({
+    ...composeOpeningEntries({
       sessionId: SESSION_ID,
       openedBy: USER_YOU,
       cast: ENDURANCE_AGENTS.map((agent, agentIndex) => ({
@@ -219,7 +219,7 @@ export function createLedgerEnduranceScenario(
     userIdsInJoinOrder: [USER_YOU, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
     callerUserId: USER_YOU,
     startedAtIso: STARTED_AT_ISO,
-    beats: scriptLedgerBeats({
+    beats: composeScriptBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtMs,
@@ -252,7 +252,7 @@ function enduranceRunId(runIndex: number): string {
 }
 
 /** One body beat, chosen from the cycle by its position within the run. */
-function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): LedgerScriptEntry {
+function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): ScriptEntry {
   const callId = `call-endurance-${String(bodyIndex)}`;
   switch (bodyIndex % ENDURANCE_BODY_CYCLE_LENGTH) {
     case 0:

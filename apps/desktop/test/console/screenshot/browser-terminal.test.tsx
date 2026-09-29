@@ -22,11 +22,8 @@
 import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
-import {
-  mountBrowserPane,
-  mountTerminalPane,
-  type MountedFamilySurface,
-} from "../surfaces/browser-terminal.js";
+import { mountBrowserPane, mountTerminalPane } from "../surfaces/browser-terminal.js";
+import { type MountedView } from "../../../tests/helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "@test/screenshot/settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
@@ -41,7 +38,7 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
  */
 const PINNED_SURFACES: readonly {
   readonly captureName: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
   { captureName: "browser-pane-chrome", mount: mountBrowserPane },
   { captureName: "terminal-pane-degraded-lease", mount: mountTerminalPane },

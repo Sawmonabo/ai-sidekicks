@@ -29,8 +29,8 @@ import {
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
   mountComposerSessionDefault,
-  type MountedFamilySurface,
 } from "../helpers/feature-mounts/composer.js";
+import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
@@ -45,7 +45,7 @@ import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
  */
 const PINNED_SURFACES: readonly {
   readonly captureName: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = [
   { captureName: "composer-session-default", mount: mountComposerSessionDefault },
   { captureName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
@@ -72,7 +72,7 @@ afterEach(async () => {
 const PINNED_CAPTURES: readonly {
   readonly captureName: string;
   readonly scheme: (typeof CONSOLE_SCHEMES)[number];
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<MountedView>;
 }[] = PINNED_SURFACES.flatMap((surface) =>
   CONSOLE_SCHEMES.map((scheme) => ({
     captureName: `${surface.captureName}-${scheme}`,

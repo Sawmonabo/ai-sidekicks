@@ -64,7 +64,7 @@ export const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
  * gives the family's tests the wire-declared id AND the role it plays, which an
  * index does not, and keeps the ids declared exactly once.
  */
-export interface TerminalScenarioCast {
+export interface TerminalScenarioRoles {
   /** The session's owner. Holds the lease first, and holds it at the end. */
   readonly owner: string;
   /** The other device the lease changes hands to. */
@@ -77,7 +77,7 @@ export interface TerminalScenarioCast {
   readonly agent: string;
 }
 
-export const TERMINAL_SCENARIO_CAST: TerminalScenarioCast = {
+export const TERMINAL_SCENARIO_CAST: TerminalScenarioRoles = {
   owner: HUMAN_USER_ID,
   otherDevice: SECOND_DEVICE_USER_ID,
   agent: AGENT_USER_ID,
@@ -170,7 +170,7 @@ export function terminalScenarioInstantAt(atMs: number): string {
  * spelled any other way would be the single row in that log a reader could tell was
  * not the daemon's.
  */
-export function terminalScenarioEventId(sequence: number): string {
+function terminalScenarioEventId(sequence: number): string {
   return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
 }
 
@@ -222,7 +222,7 @@ export function terminalLeaseTransitionBeat(
   });
 }
 
-export const TERMINAL_SCENARIO_ID = "terminal";
+export const TERMINAL_SCENARIO_ID = "terminal-lease";
 
 const OWNER = TERMINAL_SCENARIO_CAST.owner;
 const OTHER_DEVICE = TERMINAL_SCENARIO_CAST.otherDevice;

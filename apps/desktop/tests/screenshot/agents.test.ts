@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../../test/console/console-harness.js";
-import { mountAgentConsolePane } from "./agent-mounts.js";
+import { mountAgentsPane } from "./agent-mounts.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
@@ -29,7 +29,7 @@ const PINNED_CAPTURES: readonly {
 }[] = CONSOLE_SCHEMES.map((scheme) => ({
   captureName: `agents-console-pane-${scheme}`,
   scheme,
-  mount: mountAgentConsolePane,
+  mount: mountAgentsPane,
 }));
 
 beforeEach(() => {

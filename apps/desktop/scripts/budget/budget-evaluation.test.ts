@@ -11,13 +11,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ConsoleBudgetRegistry,
-  ConsoleBudgetRegistryError,
-  evaluateBudget,
-} from "./budget-registry.mjs";
+import { BudgetRegistry } from "./budget-registry.mjs";
+import { BudgetRegistryError } from "./budget-document.mjs";
+import { evaluateBudget } from "./budget-evaluation.mjs";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 
 describe("budget evaluation", () => {
   it("compares a measurement against the canonical limit", () => {
@@ -36,6 +34,6 @@ describe("budget evaluation", () => {
   });
 
   it("refuses an unknown budget id rather than returning a vacuous pass", () => {
-    expect(() => registry.requireBudget("no-such-budget")).toThrow(ConsoleBudgetRegistryError);
+    expect(() => registry.requireBudget("no-such-budget")).toThrow(BudgetRegistryError);
   });
 });

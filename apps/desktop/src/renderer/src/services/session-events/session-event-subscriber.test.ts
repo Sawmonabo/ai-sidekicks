@@ -1,6 +1,6 @@
 // The wire reaches the store, and only through the one door.
 //
-// Everything here runs against the REAL fixture bridge playing the REAL flagship
+// Everything here runs against the REAL fixture bridge playing the REAL concurrent-streaming
 // scenario on the REAL frozen clock the engine builds. That is not ceremony: the
 // gap this class closes was that `SessionStoreRegistry.enqueue` had no caller and
 // nothing subscribed to `daemon.subscribe`, and a test driving a hand-written

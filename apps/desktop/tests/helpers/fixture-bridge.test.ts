@@ -8,7 +8,7 @@
 // bridge. So the answer is handed the wrapped bridge's own call, and this file is
 // where that delegation is held to what it claims.
 //
-// The bridge under test is the real fixture over a re-scripted flagship, so the
+// The bridge under test is the real fixture over a re-scripted concurrent-streaming, so the
 // passed-through reply is one the scenario actually serves rather than a second stub
 // standing in for one.
 
@@ -25,11 +25,11 @@ import {
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
-/** The flagship script with its one read answered immediately, so no clock is spent. */
+/** The concurrent-streaming scenario script with its one read answered immediately, so no clock is spent. */
 function scenarioAnsweringImmediately(): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
-    id: "flagship-pass-through-probe",
+    id: "concurrent-streaming-pass-through-probe",
     replies: [{ call: DELAYED_CALL, result: DELAYED_RESULT }],
   };
 }

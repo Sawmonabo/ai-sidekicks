@@ -38,7 +38,7 @@
 // name, and green for the same reason it was measuring nothing.
 //
 // So the run does two things the earlier shape did not. It NAMES the scenario it
-// wants — `withLaunchedConsole({ scenarioId }, …)`, which the main process turns into a
+// wants — `withLaunchedApp({ scenarioId }, …)`, which the main process turns into a
 // document-URL query the renderer reads once at boot — because the default is the
 // first-run scenario, whose script is one beat long by design. And it advances the
 // frozen clock on every churn cycle through the fixture-only handle the bridge
@@ -91,7 +91,7 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole } from "../helpers/electron-harness.js";
+import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
@@ -101,16 +101,16 @@ import {
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
-  FLAGSHIP_SESSION_ID,
-  openFlagshipSessionRoute,
+  CONCURRENT_STREAMING_SESSION_ID,
+  openConcurrentStreamingSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-  SETTINGS_SURFACE_SELECTOR,
-  WORKSPACE_SURFACE_SELECTOR,
+  SETTINGS_SCREEN_SELECTOR,
+  SESSION_SCREEN_SELECTOR,
 } from "./endurance-workload.js";
-import { readLedgerWindow } from "./transcript-window-read.js";
+import { readTranscriptWindow } from "./transcript-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The real overscan the viewport is constructed with, so the bound below is the
@@ -227,7 +227,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   // the same two constants `churnOnce` waits on, so a wait re-pointed at any
   // element both routes render fails on the two absence checks below.
   it("waits on a surface that only its own destination renders", async () => {
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // `openSettingsRoute` has already waited for its own locator, so the
@@ -235,23 +235,23 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // wait cannot make: that the OTHER route's locator is absent, which is what
       // a locator naming the permanent shell could never satisfy.
       await openSettingsRoute(consoleApplication);
-      expect(await consoleWindow.locator(SETTINGS_SURFACE_SELECTOR).count()).toBeGreaterThan(0);
+      expect(await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
-        await consoleWindow.locator(WORKSPACE_SURFACE_SELECTOR).count(),
+        await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count(),
         "the workspace wait is satisfied on the settings route, so a churn cycle never observes the transition into the workspace",
       ).toBe(0);
 
-      await openFlagshipSessionRoute(consoleApplication);
-      expect(await consoleWindow.locator(WORKSPACE_SURFACE_SELECTOR).count()).toBeGreaterThan(0);
+      await openConcurrentStreamingSessionRoute(consoleApplication);
+      expect(await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
-        await consoleWindow.locator(SETTINGS_SURFACE_SELECTOR).count(),
+        await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count(),
         "the settings wait is satisfied on the workspace route, so a churn cycle never observes the transition into settings",
       ).toBe(0);
     });
   });
 
   it("does not grow its steady-state heap across sustained use", async () => {
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       // Both readings below are taken behind a forced collection, and they have to
       // be: the precision precondition a few lines down allocates four megabytes and
       // drops them, which is half this ceiling standing unreachable in front of the
@@ -278,7 +278,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         const beatsAfterWarmUp = warmUpCycle.deliveredBeatCount;
         const appliedEventsAfterWarmUp = await readAppliedEventCount(
           consoleApplication,
-          FLAGSHIP_SESSION_ID,
+          CONCURRENT_STREAMING_SESSION_ID,
         );
         // Every figure below is a DIFFERENCE of two heap readings, which the default
         // quantized instrument cannot carry — so the instrument is proved before the
@@ -315,7 +315,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
             appliedEventsAtMidRun = await readAppliedEventCount(
               consoleApplication,
-              FLAGSHIP_SESSION_ID,
+              CONCURRENT_STREAMING_SESSION_ID,
             );
           }
         }
@@ -330,7 +330,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         const perCycleBytes = Math.round(growthBytes / CHURN_CYCLE_COUNT);
         const appliedEventCount = await readAppliedEventCount(
           consoleApplication,
-          FLAGSHIP_SESSION_ID,
+          CONCURRENT_STREAMING_SESSION_ID,
         );
         process.stdout.write(
           `[console-endurance] baseline ${String(Math.round(baselineHeapBytes / 1024))} kB, ` +
@@ -389,7 +389,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // nothing — the reading that was zero in every build before the session read
         // had a producer, which made this whole tier an idle loop wearing a
         // workload's name.
-        expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
+        expect(await readBoundSessionIds(consoleApplication)).toContain(
+          CONCURRENT_STREAMING_SESSION_ID,
+        );
 
         // AND THE WINDOW IS STILL A WINDOW, which is the property the whole frame
         // owes its cost to. The viewport mounts the visible range and an overscan
@@ -409,11 +411,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // quantity against a LOG quantity, false for any log shorter than twice the
         // screen however well the window is working, and taken at whatever instant
         // the driver happened to ask rather than after the surface had reconciled.
-        // `readLedgerWindow` waits for the ledger to have mounted a row and then
+        // `readTranscriptWindow` waits for the ledger to have mounted a row and then
         // reads the window from the renderer either way, so a working ledger is
         // measured against itself and a stalled one arrives here with the figures
         // that say WHY rather than with a bare zero.
-        const ledgerWindow = await readLedgerWindow(consoleApplication, FLAGSHIP_SESSION_ID);
+        const ledgerWindow = await readTranscriptWindow(
+          consoleApplication,
+          CONCURRENT_STREAMING_SESSION_ID,
+        );
         expect(
           ledgerWindow,
           `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no ledger viewport for this session, so nothing here says anything about windowing`,
@@ -443,7 +448,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // is what has to be grown until the ledger overflows.
         expect(
           ledgerWindow.viewportScrollHeightPx,
-          "the flagship script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
+          "the concurrent-streaming script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
         ).toBeGreaterThan(ledgerWindow.viewportClientHeightPx);
         expect(
           ledgerWindow.mountedRowCount,
@@ -469,7 +474,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     const snapshotDirectory = await mkdtemp(join(tmpdir(), "sidekicks-endurance-heap-"));
     const snapshotPath = join(snapshotDirectory, "renderer.heapsnapshot");
     try {
-      await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+      await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
         try {
           expect(
@@ -552,7 +557,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     // because the breaches most worth catching are the ones a delivering scenario
     // causes: a beat applied outside the store's chokepoint, a tick that outlived
     // its pane.
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }

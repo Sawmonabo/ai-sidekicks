@@ -15,7 +15,7 @@ import type { ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.
 import { bridgeOnClock } from "@renderer/features/repos/repo-operations.test-support.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 
 /**
  * A bridge on a frozen clock and a store over the family's session, opened with the fold
@@ -25,12 +25,12 @@ import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
  * entity, so a partition a surface reads answers the empty map an empty session answers,
  * and a mount cannot tell the two apart.
  */
-export function scenarioCollaborators(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
+export function scenarioBridgeAndStore(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
   return {
     bridge: bridgeOnClock(),
     sessionStore: new SessionStore({
       sessionId: SESSION_ID,
-      projectors: COMPOSED_CONSOLE_PROJECTORS,
+      projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
   };
 }

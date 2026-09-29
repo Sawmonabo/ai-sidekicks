@@ -58,7 +58,7 @@ export function frameProps(
  * WINDOW rather than of the primitive, and the frame reads it from the bridge. Both
  * arms are the real thing: `createStubBridge()` is the object the preload exposes
  * to a shipped window, and `createFixtureBridge` builds the real engine over the
- * real flagship scenario.
+ * real concurrent-streaming scenario.
  */
 export function bridgeWrapper(
   bridge: ConsoleBridge,

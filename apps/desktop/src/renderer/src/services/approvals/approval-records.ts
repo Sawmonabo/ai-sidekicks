@@ -324,7 +324,7 @@ export function readRememberedRuleList(reply: unknown): ParsedRows<RememberedRul
  * missing a member of it is a record the surface labels rather than renders as if
  * it were whole.
  */
-export function hasCompleteResolvedQuad(record: ApprovalRecord): boolean {
+export function hasCompleteResolution(record: ApprovalRecord): boolean {
   return (
     record.resolvedAt !== undefined &&
     record.decision !== undefined &&

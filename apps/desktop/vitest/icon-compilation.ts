@@ -16,7 +16,7 @@
 // options of their own.
 //
 // THE STROKE CONTRACT, AND WHY IT IS APPLIED HERE RATHER THAN AT THE CALL SITE.
-// `tokens/glyphs.ts` rule 1 fixes one geometry for the whole family: stroked at
+// `styles/glyphs.ts` rule 1 fixes one geometry for the whole family: stroked at
 // `GLYPH_STROKE_WIDTH` in a `GLYPH_VIEWBOX_SIZE` box, round caps and joins,
 // never filled. Tabler draws at a 24-unit box and a 2-unit stroke and puts
 // those attributes on the DRAWING elements, not on the root `<svg>` — so a root
@@ -89,7 +89,7 @@ const TABLER_ICON_PACKAGE = "@iconify-json/tabler";
  * `width: 24, height: 24` at the set level and no icon overrides it. It is a
  * constant here because the scale below needs a number before any icon is
  * loaded — `iconCustomizer` is handed a collection and a name and never the
- * icon's own geometry — and `glyph-faces.test.ts` reads the compiled `viewBox`
+ * icon's own geometry — and `components/Glyph/glyph-icons.test.ts` reads the compiled `viewBox`
  * back off every face, so a set that moved its box fails there rather than
  * shipping a family drawn at two weights.
  */
@@ -141,7 +141,7 @@ function withoutDrawnPresentation(svg: string): string {
  * The stroke width is a RATIO carried across boxes rather than a number per
  * collection: `GLYPH_STROKE_WIDTH` units in a `GLYPH_VIEWBOX_SIZE` box is the
  * same rendered weight as that ratio's share of any other box, so tightening
- * the family is one edit in `tokens/glyphs.ts` and both collections follow.
+ * the family is one edit in `styles/glyphs.ts` and both collections follow.
  */
 function strokeContractFor(collection: string, iconName: string): Record<string, string> {
   const viewBoxSize = COLLECTION_VIEWBOX_SIZES[collection];

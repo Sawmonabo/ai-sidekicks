@@ -39,7 +39,7 @@ const ON_CONTRACT_REPLY = {
 function scenarioAnswering(call: string, result: unknown): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
-    id: "flagship-wire-contract-probe",
+    id: "concurrent-streaming-wire-contract-probe",
     replies: [{ call, result }],
   };
 }

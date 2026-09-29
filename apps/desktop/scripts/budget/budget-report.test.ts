@@ -11,9 +11,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleBudgetRegistry, formatUnavailableBudgetReport } from "./budget-registry.mjs";
+import { BudgetRegistry } from "./budget-registry.mjs";
+import { formatUnavailableBudgetReport } from "./budget-report.mjs";
 
-const registry = ConsoleBudgetRegistry.load();
+const registry = BudgetRegistry.load();
 
 describe("un-measured budget report", () => {
   it("prints one explicit n/a line per un-measured budget, so none is silently omitted", () => {

@@ -27,13 +27,13 @@ export const SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
  * The frozen time by which the whole scenario has been delivered, read off the script
  * rather than restated beside it.
  *
- * A literal here was a copy of the flagship's own timings, and it went stale the first
+ * A literal here was a copy of the concurrent-streaming scenario's own timings, and it went stale the first
  * time the script grew: the advance stopped part-way through and every count asserted
  * against `FLAGSHIP_SCENARIO.beats.length` was measuring the copy instead.
  */
 export const PAST_EVERY_BEAT_MS: number = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
 
-export interface BinderHarness {
+export interface SubscriberHarness {
   readonly registry: SessionStoreRegistry;
   readonly binder: SessionEventBinder;
   readonly engine: ScenarioEngine;
@@ -48,7 +48,7 @@ export interface BinderHarness {
  * than a snapshot, because a snapshot would initialise the stores and change what
  * `applyBatch` does with every event a case delivers.
  */
-export function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): BinderHarness {
+export function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): SubscriberHarness {
   const bridge = createFixtureBridge({ scenario });
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {

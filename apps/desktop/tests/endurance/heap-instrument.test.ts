@@ -20,9 +20,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  withLaunchedConsole,
-  type ConsoleApplication,
-  type LaunchConsoleOptions,
+  withLaunchedApp,
+  type AppUnderTest,
+  type LaunchAppOptions,
 } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { ENDURANCE_LAUNCH_OPTIONS } from "./endurance-workload.js";
@@ -47,7 +47,7 @@ const bundleIsBuilt = fixtureBundleExists();
  * was to assert this function's arithmetic over readings recorded in a comment, and a
  * comment cannot go stale in a way anything fails on.
  */
-const COARSE_LAUNCH_OPTIONS: LaunchConsoleOptions = {
+const COARSE_LAUNCH_OPTIONS: LaunchAppOptions = {
   ...ENDURANCE_LAUNCH_OPTIONS,
   isPreciseHeapReadingRequired: false,
 };
@@ -96,7 +96,7 @@ const MINIMUM_MEASURED_PLANT_BYTES = PRECISION_PROBE_NOMINAL_BYTES / 2;
  * is smaller and still necessary: an indexing read nothing consumes is elidable, and
  * an elided read flattens nothing.
  */
-function plantRetainedHeapBytes(consoleApplication: ConsoleApplication): Promise<number> {
+function plantRetainedHeapBytes(consoleApplication: AppUnderTest): Promise<number> {
   return consoleApplication.window.evaluate(
     ([globalName, characterCount, fillCharacter]: [string, number, string]) => {
       // The precision probe's own shape: one flat one-byte string, a byte a character.
@@ -113,7 +113,7 @@ function plantRetainedHeapBytes(consoleApplication: ConsoleApplication): Promise
 }
 
 /** Drop the only reference to the plant, leaving it unreachable and uncollected. */
-function releaseRetainedHeapBytes(consoleApplication: ConsoleApplication): Promise<void> {
+function releaseRetainedHeapBytes(consoleApplication: AppUnderTest): Promise<void> {
   return consoleApplication.window.evaluate((globalName: string) => {
     delete (globalThis as unknown as Record<string, unknown>)[globalName];
   }, PLANTED_ALLOCATION_GLOBAL);
@@ -121,7 +121,7 @@ function releaseRetainedHeapBytes(consoleApplication: ConsoleApplication): Promi
 
 describe.skipIf(!bundleIsBuilt)("endurance — the reading every gated figure is taken with", () => {
   it("measures bytes planted after the precision precondition, and gives them back", async () => {
-    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
       try {
         // The precondition first, exactly where the tier's own cases put it — and
@@ -188,7 +188,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the reading every gated figure is
     // in coarse mode all three pass and the band is reached. If one ever did fire
     // first this case fails loudly on a message it does not match rather than passing
     // for the wrong reason, which is the safe direction for a control to be wrong in.
-    await withLaunchedConsole(COARSE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(COARSE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
       try {
         await expect(
