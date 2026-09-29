@@ -31,7 +31,6 @@ export const SESSIONS_HASH = "#/sessions";
  */
 export async function mountConsole(): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
-  openWindowAt();
   await act(async () => {
     mounted = render(<ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />);
     await crossMacrotaskBoundary();
@@ -85,29 +84,4 @@ export async function settleRegisteredBodies(): Promise<void> {
     );
     await crossMacrotaskBoundary();
   });
-}
-
-/**
- * Put this window's opening address in place, before anything reads it.
- *
- * WRITTEN ONTO THE WINDOW RATHER THAN PASSED AS A PROP, because that is where the
- * console reads it from: the frame store parses `window.location.hash` in its own
- * constructor and the first-launch rule is decided on the same value, so an address
- * handed through a prop would be an address neither of them consults.
- *
- * THAT DEFAULT IS LOAD-BEARING RATHER THAN TIDY. A window born at no address is an
- * install's first launch, and a fixture build opens one into the demonstration
- * session instead of the sessions list — a different composition, whose deck pulls
- * its pane chunks in while the mount is still settling, so the mount settles in
- * hundreds of milliseconds rather than tens and the window's own idle warm walk
- * reaches the surface board inside it. A unit suite is not an install's first
- * launch and does not become one by saying nothing, so an empty address is given the
- * sessions list's. An address a case set for itself is left exactly as the case set
- * it, or a helper that overwrote it would be the second writer `hash-route-binding.ts`
- * exists to keep off this value.
- */
-function openWindowAt(): void {
-  if (window.location.hash === "") {
-    window.location.hash = SESSIONS_HASH;
-  }
 }

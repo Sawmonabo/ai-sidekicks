@@ -222,7 +222,6 @@
         "src/renderer/src/**",
         "tests/browser/**",
         "tests/helpers/**",
-        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -236,7 +235,6 @@
         "src/renderer/src/**",
         "tests/screenshot/**",
         "tests/helpers/**",
-        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -250,7 +248,6 @@
         "src/renderer/src/**",
         "tests/accessibility/**",
         "tests/helpers/**",
-        "test/console/**",
         "vitest.config.*",
         "vitest/**",
         "tsconfig.paths.json"
@@ -266,7 +263,6 @@
       "dependsOn": ["build"],
       "inputs": [
         "tests/budget/**",
-        "test/console/budget/**",
         "scripts/budget/**",
         "vitest.config.*",
         "vitest/**",
