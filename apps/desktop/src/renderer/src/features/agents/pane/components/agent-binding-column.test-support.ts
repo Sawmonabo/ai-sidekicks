@@ -61,7 +61,7 @@ function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentsPaneCalls {
 const openedModels: AgentsPaneModels[] = [];
 
 /** A daemon that answers the roster read with a fixed roster. */
-export class RosterDaemon {
+export class AgentListDaemon {
   readonly #roster: readonly unknown[];
 
   public readonly answer = async (method: string): Promise<unknown> => {

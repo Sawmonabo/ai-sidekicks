@@ -85,7 +85,7 @@ describe("the ledger — which slots it holds", () => {
     const claims = registry
       .registeredSlots()
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
-    expect(claims).toStrictEqual([["session", "ledger"]]);
+    expect(claims).toStrictEqual([["session", "transcript"]]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {

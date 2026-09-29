@@ -33,7 +33,7 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
   };
 }
 
-describe("sessionsAbsenceKindFor — the read decides, not the row count", () => {
+describe("sessionListNothingKindFor — the read decides, not the row count", () => {
   it("maps each of the two read states to its own kind", () => {
     expect(sessionListNothingKindFor({ status: "reading" })).toBe("not-loaded");
     expect(sessionListNothingKindFor(servedDirectory([]))).toBe("empty");

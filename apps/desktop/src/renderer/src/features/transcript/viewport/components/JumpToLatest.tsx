@@ -7,7 +7,7 @@
 import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
 import type { ViewportSnapshot } from "../viewport-snapshot.js";
 
-export interface LedgerTailAffordanceProps {
+export interface JumpToLatestProps {
   readonly snapshot: ViewportSnapshot;
   readonly onJumpToTail: () => void;
 }
@@ -21,7 +21,7 @@ export interface LedgerTailAffordanceProps {
  * offering to jump to rows already on screen is noise; the pin notice appears
  * whenever history is pinned, because it explains why the log has stopped trimming.
  */
-export function JumpToLatest(props: LedgerTailAffordanceProps): React.JSX.Element | null {
+export function JumpToLatest(props: JumpToLatestProps): React.JSX.Element | null {
   const { reading } = props.snapshot;
   if (reading.mode !== "reading-with-new-rows" && reading.pinnedRootCursor === undefined) {
     return null;

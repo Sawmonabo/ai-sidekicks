@@ -8,7 +8,7 @@
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
@@ -17,7 +17,7 @@ import type { PaneRegistry } from "../panes/pane-registry.js";
 
 /** Everything a surface is handed. Nothing here is global; all of it is per window. */
 export interface ScreenContext {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   readonly bridge: PlatformBridge;
   readonly frameStore: WindowStore;
   /** The session store for the route's session, or `undefined` on a bare route. */

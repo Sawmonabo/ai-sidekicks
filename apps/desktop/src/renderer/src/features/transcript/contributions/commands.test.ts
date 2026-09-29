@@ -202,7 +202,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(raised).toHaveLength(1);
     expect(raised[0]?.code).toBe("transcript.no_mounted_transcript");
-    expect(raised[0]?.origin).toBe("ledger");
+    expect(raised[0]?.origin).toBe("transcript");
     withdrawSink();
   });
 

@@ -53,7 +53,7 @@ export type TranscriptActOutcome =
  * is not here, not which act they reached for.
  */
 export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
-  "ledger",
+  "transcript",
   "transcript.no_mounted_transcript",
   "No ledger is open in this window. Open a session and try again.",
 );

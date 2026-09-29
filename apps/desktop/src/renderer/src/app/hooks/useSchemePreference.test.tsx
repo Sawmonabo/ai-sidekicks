@@ -24,7 +24,7 @@ import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-a
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type SchemePreference } from "@renderer/styles/tokens.js";
-import { useSchemePreference, type SchemePreferenceSurface } from "./useSchemePreference.js";
+import { useSchemePreference, type UseSchemePreferenceResult } from "./useSchemePreference.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /** A store whose every write is refused for quota, exactly as a full disk does. */
@@ -45,7 +45,7 @@ function storeThatWrites(): UiStateStore {
 interface SchemeProbeProps {
   readonly frameStore: WindowStore;
   readonly uiStateStore: UiStateStore;
-  readonly onSurface: (surface: SchemePreferenceSurface) => void;
+  readonly onSurface: (surface: UseSchemePreferenceResult) => void;
 }
 
 function SchemeProbe(props: SchemeProbeProps): null {
@@ -58,7 +58,7 @@ async function mountScheme(
   frameStore: WindowStore,
   uiStateStore: UiStateStore,
 ): Promise<{ readonly choose: (preference: SchemePreference) => Promise<void> }> {
-  let surface: SchemePreferenceSurface | undefined;
+  let surface: UseSchemePreferenceResult | undefined;
   await act(async () => {
     render(
       <SchemeProbe

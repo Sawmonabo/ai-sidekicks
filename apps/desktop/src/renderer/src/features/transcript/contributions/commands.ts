@@ -83,7 +83,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
  * contribution door is owner-scoped, so composing twice — a hot reload, a second
  * test — replaces this family's rows instead of raising on their ids.
  */
-export const TRANSCRIPT_COMMAND_OWNER = "ledger";
+export const TRANSCRIPT_COMMAND_OWNER = "transcript";
 
 /**
  * Contribute the transcript's commands and chords to a window.

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
@@ -33,7 +33,7 @@ import { buildColorSchemeCommand, useBridgeCommands } from "@renderer/features/s
 
 /** What the window's own commands are built against: this window's route, stores and screens. */
 export interface WindowCommandsInput {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The session this window has in hand, which outlives a route that names none;
    * `sessionActive` is derived from it rather than from the route.

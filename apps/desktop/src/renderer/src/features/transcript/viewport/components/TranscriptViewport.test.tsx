@@ -287,7 +287,11 @@ describe("the ledger viewport — the feed", () => {
         errorEntries={[
           {
             kind: "row-projection",
-            refusal: refuse("ledger", "renderer.row_projection_failed", "A row was unreadable."),
+            refusal: refuse(
+              "transcript",
+              "renderer.row_projection_failed",
+              "A row was unreadable.",
+            ),
           },
         ]}
       />,

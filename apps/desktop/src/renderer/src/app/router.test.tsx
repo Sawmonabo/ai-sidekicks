@@ -4,7 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WindowStore } from "@renderer/store/window/window-store.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { AppRouter } from "./router.js";
 import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
@@ -12,7 +12,7 @@ import { screenRegistry, type ScreenContext } from "@renderer/console/seats/inde
 import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
 
 /** The rail's middle destination, whose slot this suite claims for one case. */
-const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
+const WORKFLOWS_ROUTE: AppRoute = { kind: "workflows" };
 
 /**
  * The fields the route switch reads, and nothing else.
@@ -22,7 +22,7 @@ const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
  * never touches it — the same reason `app/pane-harness/PaneHarnessScreen.test.tsx`
  * casts.
  */
-function contextFor(route: ConsoleRoute): ScreenContext {
+function contextFor(route: AppRoute): ScreenContext {
   return {
     route,
     frameStore: new WindowStore({ initialRoute: route }),

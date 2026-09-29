@@ -24,7 +24,7 @@ import { createElement } from "react";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingScreenBody } from "./PendingScreenBody.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "./screen-context.js";
 
 /**
@@ -177,7 +177,7 @@ export function registerScreen(registration: ScreenRegistration): void {
 }
 
 /** Which slot a route mounts. `undefined` for routes that mount no surface. */
-export function findScreenNameForRoute(route: ConsoleRoute): ScreenName | undefined {
+export function findScreenNameForRoute(route: AppRoute): ScreenName | undefined {
   switch (route.kind) {
     case "sessions":
       return "sessions";

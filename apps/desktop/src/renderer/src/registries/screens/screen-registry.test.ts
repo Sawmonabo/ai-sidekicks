@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import {
   SCREEN_NAMES,
   ScreenRegistry,
@@ -85,7 +85,7 @@ describe("surface registry — the slot set is one declaration", () => {
   it("routes every navigable address to a declared slot", () => {
     // The union and the tuple are one declaration now, so this asserts the other
     // half: every slot the route table can produce is a slot the registry knows.
-    const routes: readonly ConsoleRoute[] = [
+    const routes: readonly AppRoute[] = [
       { kind: "sessions" },
       { kind: "session", sessionId: "s-1" },
       { kind: "workflows" },

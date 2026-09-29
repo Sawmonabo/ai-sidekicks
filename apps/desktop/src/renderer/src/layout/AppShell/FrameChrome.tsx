@@ -30,11 +30,11 @@ import { RefusalBanner, ErrorBoundary } from "@renderer/console/primitives/index
 import { type WindowBanner } from "@renderer/store/window/window-store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
-import { formatRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
+import { formatRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { type RailDestination } from "@renderer/routing/route-readers.js";
 
 export interface FrameChromeProps {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   readonly railEntries: readonly RailEntry[];
   readonly railDestination: RailDestination | undefined;
   readonly onSelectDestination: (destination: RailDestination) => void;
@@ -110,7 +110,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
 }
 
 /** A name a person would use, for the boundary's copy. Never a route id. */
-function surfaceNameFor(route: ConsoleRoute): string {
+function surfaceNameFor(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "The sessions list";

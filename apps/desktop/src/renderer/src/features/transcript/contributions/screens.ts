@@ -50,7 +50,7 @@ export function registerTranscriptScreens(
  * and a different owner is refused by name. Two spellings of this feature's own name
  * would make a hot reload a collision.
  */
-export const TRANSCRIPT_OWNER = "ledger";
+export const TRANSCRIPT_OWNER = "transcript";
 
 /**
  * What the workspace slot hands its body.

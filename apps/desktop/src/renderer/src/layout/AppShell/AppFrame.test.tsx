@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import { AppFrame } from "./AppFrame.js";
 import {
   CalmScreen,
@@ -38,7 +38,7 @@ import {
 
 const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
 
-const SETTINGS_ROUTE: ConsoleRoute = { kind: "settings", page: undefined };
+const SETTINGS_ROUTE: AppRoute = { kind: "settings", page: undefined };
 
 function ExplodingScreen(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);

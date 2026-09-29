@@ -17,7 +17,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
@@ -46,7 +46,7 @@ export interface ComposerProps {
    * and find the wrong chokepoint there.
    */
   readonly draftStore: DraftStore;
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The deck pane the person is looking at, or `undefined` when focus is not in
    * the deck.

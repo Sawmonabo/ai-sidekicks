@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_ROUTE, formatRoute, parseRoute, type ConsoleRoute } from "./routes.js";
+import { DEFAULT_ROUTE, formatRoute, parseRoute, type AppRoute } from "./routes.js";
 import { MAIN_WINDOW_ROUTES } from "./route-samples.test-support.js";
 
 describe("routes — every main-window route renders to a hash that parses back to it", () => {
@@ -23,7 +23,7 @@ describe("routes — every main-window route renders to a hash that parses back 
   }
 
   it("round-trips a session id that needs escaping", () => {
-    const route: ConsoleRoute = { kind: "session", sessionId: "session/with#awkward chars" };
+    const route: AppRoute = { kind: "session", sessionId: "session/with#awkward chars" };
     expect(parseRoute(formatRoute(route))).toStrictEqual(route);
   });
 

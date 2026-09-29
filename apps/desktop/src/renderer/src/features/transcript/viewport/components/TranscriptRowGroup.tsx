@@ -9,7 +9,7 @@
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { RefusalCard, ErrorBoundary } from "@renderer/console/primitives/index.js";
 
-export interface LedgerRowGroupProps {
+export interface TranscriptRowGroupProps {
   /** What failed, in the person's words: "a run chapter", "the streaming message". */
   readonly groupLabel: string;
   readonly children: React.ReactNode;
@@ -26,7 +26,7 @@ export interface LedgerRowGroupProps {
  * grammar — the row's own place in the log, holding the reason it could not be
  * drawn, rather than a gap a reader would read as the session having nothing there.
  */
-export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
+export function TranscriptRowGroup(props: TranscriptRowGroupProps): React.JSX.Element {
   return (
     <ErrorBoundary
       regionName={props.groupLabel}
@@ -59,7 +59,7 @@ export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Elemen
  */
 function rowProjectionRefusal(groupLabel: string, error: Error): Refusal {
   return refuse(
-    "ledger",
+    "transcript",
     "renderer.row_projection_failed",
     `${groupLabel} could not be drawn: ${error.message}`,
   );

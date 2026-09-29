@@ -39,7 +39,7 @@ import { useCallback } from "react";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
@@ -77,7 +77,7 @@ export interface SessionScreenProps {
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The pane board THIS composition filled, the same fact `ScreenContext`
    * carries and on the same terms: required rather than defaulted to the process-wide

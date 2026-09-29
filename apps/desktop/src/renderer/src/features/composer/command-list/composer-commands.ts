@@ -26,7 +26,7 @@ import {
 } from "@renderer/registries/commands/window-command-registry.js";
 import { type CommandInvocationOutcome } from "@renderer/registries/commands/command-registry.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through.
@@ -58,7 +58,7 @@ export interface ComposerCommands {
  * captured once at mount would be the empty registry forever. Every caller reads it
  * at the moment a person asks — which is when the answer has to be current anyway.
  */
-export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
+export function readComposerCommands(route: AppRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
   return {
     offeredCommands: commandRegistry.commandsFor(whenContext),
@@ -80,7 +80,7 @@ export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
  * composer is mounted under the workspace deck and does not render on the sessions
  * list, the workflows builder, or the settings pages.
  */
-function composerWhenContext(route: ConsoleRoute): WindowWhenClauseContext {
+function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
   return {
     sessionActive: true,
     onSessions: false,

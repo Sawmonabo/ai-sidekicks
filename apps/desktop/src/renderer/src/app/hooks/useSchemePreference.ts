@@ -32,7 +32,7 @@ import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { isSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** The scheme the frame renders, and the one act that changes it. */
-export interface SchemePreferenceSurface {
+export interface UseSchemePreferenceResult {
   readonly schemePreference: SchemePreference;
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
@@ -41,7 +41,7 @@ export interface SchemePreferenceSurface {
 export function useSchemePreference(
   frameStore: WindowStore,
   uiStateStore: UiStateStore,
-): SchemePreferenceSurface {
+): UseSchemePreferenceResult {
   const schemePreference = useWindowStore(frameStore, (state) => state.schemePreference);
 
   const schemeWasChosenRef = useRef(false);

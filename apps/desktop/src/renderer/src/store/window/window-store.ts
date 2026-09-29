@@ -26,7 +26,7 @@ import {
   mainProcessReportsAreEqual,
   type MainProcessState,
 } from "./main-process-state.js";
-import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
+import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/styles/tokens.js";
 
@@ -50,7 +50,7 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
 }
 
 export interface WindowStoreState {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The session this window most recently had in hand, kept after the route stops
    * naming one.
@@ -123,7 +123,7 @@ export interface WindowStoreState {
 }
 
 export interface WindowStoreOptions {
-  readonly initialRoute?: ConsoleRoute;
+  readonly initialRoute?: AppRoute;
   readonly initialSchemePreference?: SchemePreference;
 }
 
@@ -181,7 +181,7 @@ export class WindowStore {
     return this.#store.getState().lastOpenedSessionId;
   }
 
-  public navigate(route: ConsoleRoute): void {
+  public navigate(route: AppRoute): void {
     this.#setRoute(route);
   }
 
@@ -300,7 +300,7 @@ export class WindowStore {
    * by one of them. A route that names no session leaves it alone, which is the
    * whole behaviour: leaving a workspace does not make it unreachable.
    */
-  #setRoute(route: ConsoleRoute): void {
+  #setRoute(route: AppRoute): void {
     const sessionId = routeSessionId(route);
     this.#store.setState(
       sessionId === undefined ? { route } : { route, lastOpenedSessionId: sessionId },

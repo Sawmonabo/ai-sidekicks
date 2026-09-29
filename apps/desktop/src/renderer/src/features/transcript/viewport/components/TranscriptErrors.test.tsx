@@ -13,12 +13,12 @@ import { TRANSCRIPT_ERROR_KINDS, TranscriptErrorTable } from "../transcript-erro
 import { TranscriptErrors } from "./TranscriptErrors.js";
 
 const PROJECTION_FAILURE = refuse(
-  "ledger",
+  "transcript",
   "renderer.row_projection_failed",
   "A row was unreadable.",
 );
 const GEOMETRY_FAILURE = refuse(
-  "ledger",
+  "transcript",
   "renderer.geometry_unavailable",
   "The viewport was not measurable.",
 );

@@ -136,7 +136,7 @@ const RECORDED_SAMPLE_COUNT = 25;
 const MINIMUM_PARTITIONING_SPEEDUP = 3;
 
 /** Any store the benchmark can drive. */
-interface ConsoleEntityStore {
+interface BenchEntityStore {
   seed(entities: readonly StoredEntity[]): void;
   apply(entity: StoredEntity): void;
   readonly entityCount: number;
@@ -148,7 +148,7 @@ interface ConsoleEntityStore {
  * Never a product artifact — it exists so the partitioned arm has something to
  * be measured against.
  */
-export class FlatConsoleEntityStore implements ConsoleEntityStore {
+export class FlatEntityStore implements BenchEntityStore {
   #entities: Readonly<Record<string, StoredEntity>> = {};
 
   seed(entities: readonly StoredEntity[]): void {
@@ -182,7 +182,7 @@ export class FlatConsoleEntityStore implements ConsoleEntityStore {
  * building the maps directly and it is outside the timer, and what it buys is that
  * the population the timed applies run against is one the shipped path produced.
  */
-export class PartitionedConsoleEntityStore implements ConsoleEntityStore {
+export class PartitionedEntityStore implements BenchEntityStore {
   #partitions: SessionPartitions = emptyPartitions();
 
   seed(entities: readonly StoredEntity[]): void {
@@ -225,7 +225,7 @@ class DeterministicSequence {
 }
 
 /** Builds the entity population, spread evenly across every console entity kind. */
-export function buildConsoleEntities(entityCount: number): readonly StoredEntity[] {
+export function buildStoredEntities(entityCount: number): readonly StoredEntity[] {
   const entities: StoredEntity[] = [];
   for (let ordinal = 0; ordinal < entityCount; ordinal += 1) {
     const kind = ENTITY_KINDS[ordinal % ENTITY_KINDS.length] ?? "session";
@@ -273,7 +273,7 @@ export function buildApplyEventStream(
  * applies against a steady-state population.
  */
 export function measurePerEventApplyCost(
-  createStore: () => ConsoleEntityStore,
+  createStore: () => BenchEntityStore,
   entities: readonly StoredEntity[],
   events: readonly StoredEntity[],
   sampleCount: number,
@@ -312,18 +312,18 @@ test(
   "store fan-out: the console's partition merge applies an event more cheaply than a flat map at 20,000 entities",
   { timeout: 300_000 },
   () => {
-    const entities = buildConsoleEntities(BENCHMARK_ENTITY_COUNT);
+    const entities = buildStoredEntities(BENCHMARK_ENTITY_COUNT);
     const events = buildApplyEventStream(entities, EVENTS_PER_SAMPLE);
 
     const flat = measurePerEventApplyCost(
-      () => new FlatConsoleEntityStore(),
+      () => new FlatEntityStore(),
       entities,
       events,
       RECORDED_SAMPLE_COUNT,
       WARM_UP_SAMPLE_COUNT,
     );
     const partitioned = measurePerEventApplyCost(
-      () => new PartitionedConsoleEntityStore(),
+      () => new PartitionedEntityStore(),
       entities,
       events,
       RECORDED_SAMPLE_COUNT,

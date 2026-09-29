@@ -27,7 +27,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { PaneRegistry, type PaneContext, type PaneKind } from "@renderer/console/seats/index.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
@@ -45,7 +45,7 @@ const HARNESS_SESSION_ID = "session-under-harness";
 /** A test-attribute name, so a case can read what a mounted body was handed. */
 const MOUNTED_PANE_ID_ATTRIBUTE = "data-harness-pane-id";
 
-function harnessRoute(paneKind: string, sessionId: string = HARNESS_SESSION_ID): ConsoleRoute {
+function harnessRoute(paneKind: string, sessionId: string = HARNESS_SESSION_ID): AppRoute {
   return { kind: "pane-harness", paneKind, sessionId };
 }
 
@@ -117,7 +117,7 @@ function boardWithBothStubBodies(): PaneRegistry {
  * constructing them opens a database to hand a surface that only passes them
  * through — `app/router.test.tsx` casts for the same reason.
  */
-function surfaceContextFor(route: ConsoleRoute): ScreenContext {
+function surfaceContextFor(route: AppRoute): ScreenContext {
   return {
     route,
     bridge: {},
@@ -311,7 +311,7 @@ describe("the harness across a route change", () => {
     });
   }
 
-  function surfaceAt(route: ConsoleRoute): React.JSX.Element {
+  function surfaceAt(route: AppRoute): React.JSX.Element {
     return <AppRouter context={surfaceContextFor(route)} />;
   }
 

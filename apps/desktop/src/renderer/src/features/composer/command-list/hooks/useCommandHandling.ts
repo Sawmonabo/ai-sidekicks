@@ -4,7 +4,7 @@
 import { useCallback, useMemo } from "react";
 
 import { useLatestRef } from "@renderer/console/primitives/index.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type {
@@ -43,7 +43,7 @@ export interface CommandHandling {
 
 /** Build the send bar's recogniser, executor, and discovery reading. */
 export function useCommandHandling(options: {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   readonly commandEnumeration: ProviderCommandEnumeration;
   /**
    * Where this composer is addressed, so the published-name lookup reads the

@@ -13,7 +13,7 @@
 // per call site is a reader per call site to disagree with, which is what
 // `routeSessionId` and `settingsSelection` each record below.
 
-import type { ConsoleRoute } from "./routes.js";
+import type { AppRoute } from "./routes.js";
 
 /**
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly
@@ -38,7 +38,7 @@ export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
  * reports neither.
  */
 export type WorkflowPhaseFocus = NonNullable<
-  Extract<ConsoleRoute, { kind: "session" }>["workflowPhase"]
+  Extract<AppRoute, { kind: "session" }>["workflowPhase"]
 >;
 
 /**
@@ -50,7 +50,7 @@ export type WorkflowPhaseFocus = NonNullable<
  * Answering with a destination of its own would name an icon the rail does not
  * render, and the current-destination highlight would simply go out.
  */
-export function railDestinationFor(route: ConsoleRoute): RailDestination | undefined {
+export function railDestinationFor(route: AppRoute): RailDestination | undefined {
   switch (route.kind) {
     case "sessions":
     case "session":
@@ -74,7 +74,7 @@ export function railDestinationFor(route: ConsoleRoute): RailDestination | undef
  * first one to write `route.page === undefined ? undefined : route.selection` slightly
  * differently is a page opened for a provider it was not opened for.
  */
-export function settingsSelection(route: ConsoleRoute): string | undefined {
+export function settingsSelection(route: AppRoute): string | undefined {
   return route.kind === "settings" && route.page !== undefined ? route.selection : undefined;
 }
 
@@ -86,7 +86,7 @@ export function settingsSelection(route: ConsoleRoute): string | undefined {
  * object itself would have to know that rule to round-trip, and a caller with no
  * selection would have to remember not to write the key at all.
  */
-export function settingsRoute(page: string, selection: string | undefined): ConsoleRoute {
+export function settingsRoute(page: string, selection: string | undefined): AppRoute {
   return selection === undefined
     ? { kind: "settings", page }
     : { kind: "settings", page, selection };
@@ -100,7 +100,7 @@ export function settingsRoute(page: string, selection: string | undefined): Cons
  * for itself, and the two that already did — the frame store's active session and
  * a mount's subject — had written two different walks over one union.
  */
-export function routeSessionId(route: ConsoleRoute): string | undefined {
+export function routeSessionId(route: AppRoute): string | undefined {
   switch (route.kind) {
     case "session":
     case "pane-harness":
@@ -128,12 +128,12 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
  * `undefined` rather than being narrowed away at the call site, because a caller
  * holding a `ConsoleRoute` is exactly the caller that does not yet know which arm it is.
  */
-export function routeWorkflowPhase(route: ConsoleRoute): WorkflowPhaseFocus | undefined {
+export function routeWorkflowPhase(route: AppRoute): WorkflowPhaseFocus | undefined {
   return route.kind === "session" ? route.workflowPhase : undefined;
 }
 
 /** Structural route comparison, so an unchanged hash costs no transition. */
-export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean {
+export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
   if (left.kind !== right.kind) {
     return false;
   }

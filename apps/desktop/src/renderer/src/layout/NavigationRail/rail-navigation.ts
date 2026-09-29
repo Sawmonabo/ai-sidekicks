@@ -20,7 +20,7 @@
 // can never be shown in an order nobody declared.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { findScreenNameForRoute, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
@@ -45,7 +45,7 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
  * inverse on every arm — a click lands on a route the rail reports as that same
  * destination — and `rail-navigation.test.ts` holds the pair to it.
  */
-export function routeForDestination(destination: RailDestination): ConsoleRoute {
+export function routeForDestination(destination: RailDestination): AppRoute {
   switch (destination) {
     case "sessions":
       return { kind: "sessions" };
@@ -98,10 +98,7 @@ export function warmDestination(
  * with nothing done, so no caller has to ask first whether the thing it is about to open
  * is loader-backed.
  */
-async function warmRouteScreen(
-  surfaceRegistry: ScreenRegistry,
-  route: ConsoleRoute,
-): Promise<void> {
+async function warmRouteScreen(surfaceRegistry: ScreenRegistry, route: AppRoute): Promise<void> {
   const slot = findScreenNameForRoute(route);
   if (slot === undefined) {
     return;

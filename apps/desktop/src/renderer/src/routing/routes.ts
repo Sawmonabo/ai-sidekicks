@@ -15,7 +15,7 @@
 // than rendering blank.
 
 /** Where the console currently is. A closed union — every arm renders something. */
-export type ConsoleRoute =
+export type AppRoute =
   | { readonly kind: "sessions" }
   // ONE ARM CARRYING AN OPTIONAL FOCUS, unlike the settings split below, and the
   // difference is what the two grammars can express. `#/settings` has nowhere to put
@@ -91,7 +91,7 @@ export type ConsoleRoute =
   | { readonly kind: "not-found"; readonly attempted: string };
 
 /** The route a window with no hash lands on. */
-export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
+export const DEFAULT_ROUTE: AppRoute = { kind: "sessions" };
 
 /**
  * Parse a location hash into a route.
@@ -103,7 +103,7 @@ export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
  * {@link decodeSegment}, and every empty segment is refused before an arm reads
  * one, so neither a `URIError` nor a silently normalised path leaves here.
  */
-export function parseRoute(hash: string): ConsoleRoute {
+export function parseRoute(hash: string): AppRoute {
   const afterHash = hash.startsWith("#") ? hash.slice(1) : hash;
   // The LEADING slash is the one optional separator; every other one is grammar.
   // The filter that used to drop empty segments deleted the evidence the arms
@@ -180,7 +180,7 @@ export function parseRoute(hash: string): ConsoleRoute {
 }
 
 /** Render a route back to a hash. Round-trips with `parseRoute`. */
-export function formatRoute(route: ConsoleRoute): string {
+export function formatRoute(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
@@ -248,7 +248,7 @@ function decodeSegment(segment: string): string | undefined {
  * silently missing its focus. Every id still goes through {@link decodeSegment}, which
  * is what keeps {@link parseRoute} total over a malformed percent-escape.
  */
-function sessionRoute(hash: string, rest: readonly string[]): ConsoleRoute {
+function sessionRoute(hash: string, rest: readonly string[]): AppRoute {
   const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
   if (sessionSegment === undefined) {
     return notFound(hash);
@@ -279,6 +279,6 @@ function sessionRoute(hash: string, rest: readonly string[]): ConsoleRoute {
     : { kind: "session", sessionId, workflowPhase: { workflowRunId, phaseId } };
 }
 
-function notFound(attempted: string): ConsoleRoute {
+function notFound(attempted: string): AppRoute {
   return { kind: "not-found", attempted };
 }

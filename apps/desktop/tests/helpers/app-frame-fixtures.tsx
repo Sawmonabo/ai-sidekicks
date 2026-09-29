@@ -11,7 +11,7 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import {
   RAIL_ENTRY_TEMPLATES,
@@ -22,7 +22,7 @@ const RAIL_ENTRIES: readonly RailEntry[] = [
   { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },
 ];
 
-export const SESSIONS_ROUTE: ConsoleRoute = { kind: "sessions" };
+export const SESSIONS_ROUTE: AppRoute = { kind: "sessions" };
 
 export function CalmScreen(): React.JSX.Element {
   return <p>the settings surface rendered</p>;
@@ -30,10 +30,10 @@ export function CalmScreen(): React.JSX.Element {
 
 /** Everything `AppFrame` needs that a case is not making a claim about. */
 export function frameProps(
-  route: ConsoleRoute,
+  route: AppRoute,
   banners: readonly WindowBanner[] = [],
 ): {
-  route: ConsoleRoute;
+  route: AppRoute;
   railEntries: readonly RailEntry[];
   railDestination: undefined;
   onSelectDestination: () => void;
