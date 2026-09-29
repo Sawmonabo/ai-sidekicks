@@ -41,7 +41,7 @@ export interface MountedPaneLayoutPersistence {
   readonly restoreRefusalCodes: () => readonly string[];
 }
 
-export function deckLayout(): PaneLayoutStore {
+export function createPaneLayoutStore(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
@@ -51,7 +51,7 @@ export async function savePaneLayout(
   kinds: readonly ("transcript" | "runs" | "approvals")[],
   sessionId: string = RESTORE_SESSION_ID,
 ): Promise<void> {
-  const layout = deckLayout();
+  const layout = createPaneLayoutStore();
   for (const kind of kinds) {
     layout.open({ kind });
   }

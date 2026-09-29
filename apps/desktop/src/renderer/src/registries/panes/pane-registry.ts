@@ -79,7 +79,7 @@ export class PaneRegistry {
     duplicatePolicy: "owner-scoped",
     describeWhat: "pane kind",
     ownerOf: (descriptor) => descriptor.owner,
-    duplicateHint: "the deck mounts one body per pane kind, through a single door",
+    duplicateHint: "the pane layout mounts one body per pane kind, from one registration",
   });
 
   /**

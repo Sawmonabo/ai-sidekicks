@@ -45,11 +45,11 @@ describe("LiveRegion — the pair speaks without being replaced", () => {
     const { container } = render(<LiveRegion announcer={announcer} />);
 
     act(() => {
-      announcer.announce("the deck was reordered");
+      announcer.announce("the panes were reordered");
     });
 
     const [polite, assertive] = regionsOf(container);
-    expect(polite?.textContent).toBe("the deck was reordered");
+    expect(polite?.textContent).toBe("the panes were reordered");
     expect(assertive?.textContent).toBe("");
   });
 });

@@ -39,7 +39,7 @@ const ADDRESSED_AGENT_ID = "agent-scout";
  * the type here would retire an exemption four other tasks are still relying on. The
  * registry's method signature is the same contract with no tag on it.
  */
-type DeckPaneContext = Parameters<
+type RegisteredPaneContext = Parameters<
   NonNullable<ReturnType<PaneRegistry["descriptorFor"]>>["render"]
 >[0];
 
@@ -62,7 +62,10 @@ function playedSessionStore(): SessionStore {
 }
 
 /** The address the deck opens this pane at, over one agent or bare. */
-function deckPaneContext(agentId: string | undefined, bridge: PlatformBridge): DeckPaneContext {
+function registeredPaneContext(
+  agentId: string | undefined,
+  bridge: PlatformBridge,
+): RegisteredPaneContext {
   return {
     kind: "agents",
     entity: agentId === undefined ? undefined : { kind: "agent", id: agentId },
@@ -71,11 +74,11 @@ function deckPaneContext(agentId: string | undefined, bridge: PlatformBridge): D
     sessionStore: playedSessionStore(),
     linkedSourcePaneId: undefined,
     focusHue: undefined,
-  } as unknown as DeckPaneContext;
+  } as unknown as RegisteredPaneContext;
 }
 
 /** Mount the deck's pane and let its reads settle. */
-async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement> {
+async function renderRegisteredAgentsPane(agentId: string | undefined): Promise<HTMLElement> {
   const registry = new PaneRegistry();
   registerAgentsPane(registry);
   // The body is loader-backed, so it is fetched before the mount rather than during it —
@@ -87,7 +90,7 @@ async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement>
     throw new Error("the Agents pane registered no pane descriptor");
   }
   const bridge = fixtureBridge();
-  const { container } = render(<>{descriptor.render(deckPaneContext(agentId, bridge))}</>);
+  const { container } = render(<>{descriptor.render(registeredPaneContext(agentId, bridge))}</>);
   // The column's reads are scheduled through the refresh chokepoint, so they land only
   // once the scenario clock has passed its debounce. Without this they settle after the
   // case has ended, which is a state update outside `act`.
@@ -119,7 +122,7 @@ function requireElement(container: HTMLElement, selector: string): HTMLElement {
 
 describe("the deck's mount — the body inside the console's one chrome", () => {
   it("wraps the body in the shared chrome rather than a frame of its own", async () => {
-    const container = await renderDeckPane(ADDRESSED_AGENT_ID);
+    const container = await renderRegisteredAgentsPane(ADDRESSED_AGENT_ID);
 
     const pane = requireElement(container, ".meridian-pane.meridian-pane--agents");
     // Inside the chrome's own body box, which is the whole difference: a body that
@@ -129,7 +132,7 @@ describe("the deck's mount — the body inside the console's one chrome", () => 
   });
 
   it("is named by the chrome's trail, and the body adds no second name", async () => {
-    const container = await renderDeckPane(ADDRESSED_AGENT_ID);
+    const container = await renderRegisteredAgentsPane(ADDRESSED_AGENT_ID);
     const pane = requireElement(container, ".meridian-pane");
 
     // All three of the address members the registrar hands the chrome, read back off

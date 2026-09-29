@@ -6,7 +6,7 @@ import { mountedPaneLayouts, type MountedPaneLayouts } from "../mounted-pane-lay
 /** Adopt the seat for as long as this deck is mounted. */
 export function useMountedPaneLayout(
   acts: PaneLayoutActs,
-  seat: MountedPaneLayouts = mountedPaneLayouts,
+  mountedLayouts: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
-  useEffect(() => seat.adopt(acts), [acts, seat]);
+  useEffect(() => mountedLayouts.adopt(acts), [acts, mountedLayouts]);
 }

@@ -66,7 +66,7 @@ async function storeWithSavedLayouts(): Promise<{
   return { store, adapter };
 }
 
-async function awaitRestoredDeck(container: HTMLElement): Promise<void> {
+async function awaitRestoredPaneLayout(container: HTMLElement): Promise<void> {
   await waitFor(() => {
     expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
@@ -74,10 +74,10 @@ async function awaitRestoredDeck(container: HTMLElement): Promise<void> {
 
 /** Commit one arrangement, and let the write it queues settle. */
 async function commitArrangement(container: HTMLElement): Promise<void> {
-  const deck = container.querySelector(".meridian-pane-layout");
-  expect(deck).not.toBeNull();
-  if (deck !== null) {
-    fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  expect(paneLayoutElement).not.toBeNull();
+  if (paneLayoutElement !== null) {
+    fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
   }
   await crossMacrotaskBoundary();
   await crossMacrotaskBoundary();
@@ -135,7 +135,7 @@ describe("SessionScreen — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
 
     await commitArrangement(container);
@@ -153,7 +153,7 @@ describe("SessionScreen — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
 
     await commitArrangement(container);
@@ -170,7 +170,7 @@ describe("SessionScreen — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
     adapter.mode = "refuse";
@@ -195,7 +195,7 @@ describe("SessionScreen — the banner column belongs to the session that raised
     // they are looking at, with nothing on screen tying it to the one they left.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
     expect(bannerRows(container)).toHaveLength(1);
@@ -212,12 +212,12 @@ describe("SessionScreen — the banner column belongs to the session that raised
     // same triple, so the coalescing rule would count it rather than draw it.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
 
     routeTo(otherSession());
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     await commitArrangement(container);
 
     expect(bannerRows(container)).toHaveLength(1);

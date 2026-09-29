@@ -131,11 +131,13 @@ describe("failure matrix — the durable store cannot be opened", () => {
       sessionPartitionCap: 1,
     });
 
-    const first = await store.write("session-1", "layout", "layout", { deck: { width: 100 } });
+    const first = await store.write("session-1", "layout", "layout", {
+      paneLayout: { width: 100 },
+    });
     expect(first.outcome).toBe("written");
 
     const overflowing = await store.write("session-2", "layout", "layout", {
-      deck: { width: 100, height: 200, ratio: 3, offset: 4, gutter: 5 },
+      paneLayout: { width: 100, height: 200, ratio: 3, offset: 4, gutter: 5 },
     });
 
     expect(overflowing.outcome).toBe("refused");

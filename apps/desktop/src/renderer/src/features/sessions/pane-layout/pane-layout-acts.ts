@@ -40,7 +40,7 @@ export interface PaneLayoutActs {
 export type PaneLayoutActName = keyof PaneLayoutActs;
 
 /** What an act says when the deck it reached is focusing nothing. */
-export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
+export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused.";
 
 /**
  * Bind the five acts to one deck.

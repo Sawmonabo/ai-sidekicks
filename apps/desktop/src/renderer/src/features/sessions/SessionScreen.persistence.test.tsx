@@ -105,11 +105,11 @@ describe("Workspace — the saved arrangement", () => {
 
 describe("Workspace — navigating between two sessions the shell already has open", () => {
   /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
-  function cycleDeckFocus(container: HTMLElement): void {
-    const deck = container.querySelector(".meridian-pane-layout");
-    expect(deck).not.toBeNull();
-    if (deck !== null) {
-      fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+  function cyclePaneFocus(container: HTMLElement): void {
+    const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+    expect(paneLayoutElement).not.toBeNull();
+    if (paneLayoutElement !== null) {
+      fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
     }
   }
 
@@ -136,8 +136,8 @@ describe("Workspace — navigating between two sessions the shell already has op
     // Twice: the first commit goes in flight against the closed gate, the second
     // lands in the writer's single pending slot. That slot is the whole subject —
     // it is what outlives the navigation below.
-    cycleDeckFocus(container);
-    cycleDeckFocus(container);
+    cyclePaneFocus(container);
+    cyclePaneFocus(container);
     await crossMacrotaskBoundary();
     const askedBeforeNavigation = adapter.asked.length;
 

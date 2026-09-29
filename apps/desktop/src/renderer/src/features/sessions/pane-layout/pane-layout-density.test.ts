@@ -36,7 +36,7 @@ describe("PANE_LAYOUT_DENSITIES — the axis", () => {
   });
 });
 
-describe("isDeckDensity — reading a preset off disk", () => {
+describe("isPaneLayoutDensity — reading a preset off disk", () => {
   it("admits every declared preset", () => {
     for (const density of PANE_LAYOUT_DENSITIES) {
       expect(isPaneLayoutDensity(density)).toBe(true);

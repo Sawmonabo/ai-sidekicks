@@ -68,7 +68,7 @@ export interface PaneDropAnnouncement {
  * render at all — the budget the row's "no per-frame renders" constraint states.
  */
 export class PaneLayoutDragCoordinator {
-  readonly #changes = new Emitter<PaneDropIndicator | undefined>("deck drag change");
+  readonly #changes = new Emitter<PaneDropIndicator | undefined>("pane drag change");
   #indicator: PaneDropIndicator | undefined;
   #draggedPaneId: string | undefined;
 

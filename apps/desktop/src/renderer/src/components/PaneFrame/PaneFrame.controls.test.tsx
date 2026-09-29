@@ -49,7 +49,7 @@ describe("PaneFrame — where the controls come from", () => {
       <PaneControlsContext.Provider
         value={{
           onClose: () => {
-            performed.push("deck");
+            performed.push("context");
           },
         }}
       >

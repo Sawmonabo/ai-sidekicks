@@ -35,18 +35,18 @@ describe("the deck's palette rows", () => {
   });
 
   it("runs the act the row names", () => {
-    const deckActs = createSpyingPaneLayoutActs();
-    const commands = paneLayoutPaletteCommands(deckActs);
+    const paneLayoutActs = createSpyingPaneLayoutActs();
+    const commands = paneLayoutPaletteCommands(paneLayoutActs);
     commandById(commands, "paneLayout.focusNextPane").run();
     commandById(commands, "paneLayout.focusPreviousPane").run();
     commandById(commands, "paneLayout.closePane").run();
     commandById(commands, "paneLayout.movePaneLeft").run();
     commandById(commands, "paneLayout.movePaneRight").run();
-    expect(deckActs.focusNextPane).toHaveBeenCalledTimes(1);
-    expect(deckActs.focusPreviousPane).toHaveBeenCalledTimes(1);
-    expect(deckActs.closeFocusedPane).toHaveBeenCalledTimes(1);
-    expect(deckActs.moveFocusedPaneLeft).toHaveBeenCalledTimes(1);
-    expect(deckActs.moveFocusedPaneRight).toHaveBeenCalledTimes(1);
+    expect(paneLayoutActs.focusNextPane).toHaveBeenCalledTimes(1);
+    expect(paneLayoutActs.focusPreviousPane).toHaveBeenCalledTimes(1);
+    expect(paneLayoutActs.closeFocusedPane).toHaveBeenCalledTimes(1);
+    expect(paneLayoutActs.moveFocusedPaneLeft).toHaveBeenCalledTimes(1);
+    expect(paneLayoutActs.moveFocusedPaneRight).toHaveBeenCalledTimes(1);
   });
 
   it("claims no chord, because the deck binds these five on its own element", () => {

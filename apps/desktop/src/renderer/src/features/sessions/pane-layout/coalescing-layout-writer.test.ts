@@ -217,11 +217,11 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
     // Without this the case above would pass over a writer holding one static slot
     // for every caller — which would make one record's write drop the deck's queued
     // arrangement, and the deck's drop the other's.
-    const deckWrites: PaneLayoutSnapshotRecord[] = [];
+    const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
     const secondWrites: SecondRecord[] = [];
-    const deckWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
+    const paneLayoutWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async (_partition, snapshot) => {
-        deckWrites.push(snapshot);
+        paneLayoutWrites.push(snapshot);
       },
       onFailed: () => undefined,
     });
@@ -232,11 +232,11 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
       onFailed: () => undefined,
     });
 
-    deckWriter.request(SESSION_A, snapshotAt(1));
+    paneLayoutWriter.request(SESSION_A, snapshotAt(1));
     secondWriter.request(SESSION_A, { $second: { version: 1, widthPercent: 30 } });
     await settle();
 
-    expect(deckWrites).toHaveLength(1);
+    expect(paneLayoutWrites).toHaveLength(1);
     expect(secondWrites).toHaveLength(1);
   });
 });

@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import {
-  deckLayout,
+  createPaneLayoutStore,
   drain,
   mountPersistence,
   paneKinds,
@@ -33,7 +33,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await savePaneLayout(store, ["transcript", "runs", "approvals"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
@@ -54,7 +54,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await savePaneLayout(store, ["transcript", "runs", "approvals"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();

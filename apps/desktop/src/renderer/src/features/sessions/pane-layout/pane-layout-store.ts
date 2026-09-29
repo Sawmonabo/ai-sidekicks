@@ -13,7 +13,7 @@
 //     the pane that opened it.
 //
 // STATE LIVES IN THE CLASS, NOT IN REACT. Every mutation goes through a method,
-// every method publishes one new immutable `DeckLayoutState`, and React subscribes
+// every method publishes one new immutable `PaneLayoutState`, and React subscribes
 // through `useSyncExternalStore`. A component that held pane order in `useState`
 // would be a second source of truth for it, and the restore path would have two
 // places to write.
@@ -71,7 +71,7 @@ export interface PaneLayoutStoreOptions {
 
 /** The live pane layout of one session screen; every mutation publishes one new state. */
 export class PaneLayoutStore {
-  readonly #changes = new Emitter<PaneLayoutState>("deck layout change");
+  readonly #changes = new Emitter<PaneLayoutState>("pane layout change");
   readonly #restoredPaneCap: number;
   #state: PaneLayoutState;
   #nextPaneOrdinal = 1;

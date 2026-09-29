@@ -43,7 +43,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** The deck's own height. Every assertion below is against this one number. */
-const DECK_HEIGHT_PX = 600;
+const PANE_LAYOUT_HEIGHT_PX = 600;
 
 /**
  * How `react-resizable-panels` lays its group out.
@@ -56,16 +56,16 @@ const DECK_HEIGHT_PX = 600;
  */
 const RESIZABLE_GROUP_LAYOUT = { display: "flex", flexDirection: "row" } as const;
 
-interface MountedDeckPane {
+interface MountedPane {
   readonly slot: HTMLElement;
   readonly pane: HTMLElement;
 }
 
-async function mountPaneInDeckSlot(): Promise<MountedDeckPane> {
+async function mountPaneInPaneLayout(): Promise<MountedPane> {
   installMeridianTokens(document);
   const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
-    <div className="meridian-pane-layout" style={{ height: `${String(DECK_HEIGHT_PX)}px` }}>
+    <div className="meridian-pane-layout" style={{ height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
       <div className="meridian-pane-layout__group" style={RESIZABLE_GROUP_LAYOUT}>
         <div className="meridian-pane-layout__pane">
           <TerminalPane {...terminalPaneContext(undefined, bridge)} />
@@ -82,11 +82,11 @@ async function mountPaneInDeckSlot(): Promise<MountedDeckPane> {
 }
 
 /** The same pane under the arrangement that always worked, for the control below. */
-async function mountPaneInGridSlot(): Promise<MountedDeckPane> {
+async function mountPaneInGridSlot(): Promise<MountedPane> {
   installMeridianTokens(document);
   const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
-    <div style={{ display: "grid", height: `${String(DECK_HEIGHT_PX)}px` }}>
+    <div style={{ display: "grid", height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />
     </div>,
   );
@@ -100,13 +100,13 @@ async function mountPaneInGridSlot(): Promise<MountedDeckPane> {
 
 describe("browser — a pane fills the slot the deck gives it", () => {
   it("takes the whole slot height in the deck's column-flex arrangement", async () => {
-    const { slot, pane } = await mountPaneInDeckSlot();
+    const { slot, pane } = await mountPaneInPaneLayout();
 
-    expect(slot.getBoundingClientRect().height).toBe(DECK_HEIGHT_PX);
+    expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
       "the pane is sized by its content rather than by its slot, so every box below it — the ledger's scroll surface included — is measuring against a height the deck never gave it",
-    ).toBe(DECK_HEIGHT_PX);
+    ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
   it("still fills a grid slot, which is the arrangement that already worked", async () => {
@@ -117,8 +117,8 @@ describe("browser — a pane fills the slot the deck gives it", () => {
     // `flex` is inert on a grid item, so this case must not move.
     const { slot, pane } = await mountPaneInGridSlot();
 
-    expect(slot.getBoundingClientRect().height).toBe(DECK_HEIGHT_PX);
-    expect(pane.getBoundingClientRect().height).toBe(DECK_HEIGHT_PX);
+    expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
+    expect(pane.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
   it("negative control: a pane in a column-flex box with no height hugs its content", async () => {
@@ -139,6 +139,6 @@ describe("browser — a pane fills the slot the deck gives it", () => {
       throw new Error("the pane did not mount");
     }
 
-    expect(pane.getBoundingClientRect().height).toBeLessThan(DECK_HEIGHT_PX);
+    expect(pane.getBoundingClientRect().height).toBeLessThan(PANE_LAYOUT_HEIGHT_PX);
   });
 });

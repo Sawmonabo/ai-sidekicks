@@ -122,11 +122,11 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
  */
 export function registerPaneLayoutCommands(
   surface: CommandContributionRegistry,
-  seat: MountedPaneLayouts = mountedPaneLayouts,
+  mountedLayouts: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
   surface.contribute({
     owner: PANE_LAYOUT_COMMAND_OWNER,
-    commands: paneLayoutPaletteCommands(actsOnTheMountedDeck(seat)),
+    commands: paneLayoutPaletteCommands(actsOnTheMountedPaneLayout(mountedLayouts)),
     keyBindings: [],
   });
 }
@@ -138,9 +138,9 @@ export function registerPaneLayoutCommands(
  * fails to compile here instead of being contributed as a command that reaches the
  * mounted deck through nothing.
  */
-function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
+function actsOnTheMountedPaneLayout(mountedLayouts: MountedPaneLayouts): PaneLayoutActs {
   const perform = (act: PaneLayoutActName): void => {
-    performOnMountedDeck(seat, act);
+    performOnMountedPaneLayout(mountedLayouts, act);
   };
   return {
     focusNextPane: () => {
@@ -162,8 +162,11 @@ function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
 }
 
 /** Perform one act, and state the refusal where a person can see it. */
-function performOnMountedDeck(seat: MountedPaneLayouts, act: PaneLayoutActName): void {
-  const outcome = seat.perform(act);
+function performOnMountedPaneLayout(
+  mountedLayouts: MountedPaneLayouts,
+  act: PaneLayoutActName,
+): void {
+  const outcome = mountedLayouts.perform(act);
   if (outcome.status === "refused") {
     raiseCommandRefusal(outcome.refusal);
   }

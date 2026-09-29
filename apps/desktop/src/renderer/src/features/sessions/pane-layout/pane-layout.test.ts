@@ -45,9 +45,9 @@ describe("normalise", () => {
     { what: "three equal saved widths", saved: [333, 333, 333] },
     { what: "seven equal saved widths", saved: [10, 10, 10, 10, 10, 10, 10] },
     { what: "one dominant pane beside two slivers", saved: [980, 11, 9] },
-    { what: "widths that do not add up to a deck at all", saved: [1, 1, 1] },
-    { what: "widths far larger than a deck", saved: [4000, 4000, 4001] },
-  ])("makes $what sum to exactly one deck", ({ saved }) => {
+    { what: "widths that do not add up to a layout at all", saved: [1, 1, 1] },
+    { what: "widths far larger than a layout", saved: [4000, 4000, 4001] },
+  ])("makes $what sum to exactly one layout", ({ saved }) => {
     const normalised = normalize(panesWithWidths(saved));
     expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
     expect(normalised).toHaveLength(saved.length);

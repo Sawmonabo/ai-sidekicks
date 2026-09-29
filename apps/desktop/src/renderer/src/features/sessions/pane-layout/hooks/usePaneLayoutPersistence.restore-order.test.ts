@@ -21,7 +21,7 @@ import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
 import {
   RESTORE_SESSION_ID,
-  deckLayout,
+  createPaneLayoutStore,
   drain,
   mountPersistence,
   paneKinds,
@@ -41,7 +41,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "runs"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -57,7 +57,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   it("keeps both the saved arrangement and the pane opened during the read", async () => {
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -71,7 +71,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   it("writes the reconciled arrangement once, after the restore settles", async () => {
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -85,7 +85,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   it("does not duplicate a pane the record already held", async () => {
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "runs"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -103,7 +103,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // pane they just closed return, and the write that follows files it as theirs.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "runs"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -128,7 +128,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // which is 700 and 300 rescaled into the 667 the deck still holds.
     const store = memoryStore();
     await savePaneLayout(store, ["approvals"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -152,7 +152,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // having nowhere to send — recoverable only by a click or an arrow key.
     const store = memoryStore();
     await savePaneLayout(store, ["approvals"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -173,7 +173,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // defect the width rule exists for, one axis over.
     const store = memoryStore();
     await savePaneLayout(store, ["approvals"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -193,7 +193,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // person just performed is undone under their hands.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "runs"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -212,7 +212,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "runs"]);
     const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
@@ -226,7 +226,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // The gate must not swallow the first run's own record, which is the arrangement
     // the person finds the next time they open the session.
     const store = memoryStore();
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
@@ -240,7 +240,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // over a hook that had simply stopped writing.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
@@ -262,7 +262,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     // re-audits this call site for.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store, { underStrictMode: true });
     await drain();
@@ -279,7 +279,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     // store on some path other than the writer being tested.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
-    const layout = deckLayout();
+    const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();

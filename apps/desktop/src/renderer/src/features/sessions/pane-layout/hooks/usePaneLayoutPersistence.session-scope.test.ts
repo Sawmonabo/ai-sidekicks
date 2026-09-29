@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { memoryStore } from "../../SessionScreen.test-support.js";
 import {
   RESTORE_SESSION_ID,
-  deckLayout,
+  createPaneLayoutStore,
   drain,
   mountPersistence,
   savePaneLayout,
@@ -35,7 +35,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     // with nothing on screen tying them to a session they had left.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
-    const mounted = mountPersistence(deckLayout(), store);
+    const mounted = mountPersistence(createPaneLayoutStore(), store);
     await drain();
     expect(mounted.restoreRefusalCodes()).toStrictEqual(["snapshot-version-unknown"]);
 
@@ -52,7 +52,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     // no reading to show, and the previous session's is not a stand-in for it.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
-    const mounted = mountPersistence(deckLayout(), store);
+    const mounted = mountPersistence(createPaneLayoutStore(), store);
     await drain();
 
     mounted.routeTo(SECOND_SESSION);
@@ -69,7 +69,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"], RESTORE_SESSION_ID);
     await savePaneLayoutInUnknownVersion(store, SECOND_SESSION);
-    const mounted = mountPersistence(deckLayout(), store);
+    const mounted = mountPersistence(createPaneLayoutStore(), store);
     await drain();
     expect(mounted.restoreRefusalCodes()).toStrictEqual([]);
 
@@ -84,7 +84,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     // two cases above — and no restore would ever report anything.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
-    const mounted = mountPersistence(deckLayout(), store);
+    const mounted = mountPersistence(createPaneLayoutStore(), store);
 
     await drain();
 

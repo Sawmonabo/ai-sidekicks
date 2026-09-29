@@ -60,7 +60,7 @@ export interface SessionPaneSlotProps {
  * event that touches one of them.
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
-  function DeckPaneSlot(props: SessionPaneSlotProps): React.JSX.Element {
+  function SessionPaneSlotBody(props: SessionPaneSlotProps): React.JSX.Element {
     const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
 

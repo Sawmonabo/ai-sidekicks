@@ -165,9 +165,9 @@ export function decodePaneLayoutSnapshot(
 ): DecodedPaneLayoutSnapshot {
   if (!isWireRecord(snapshot)) {
     return emptyDecode(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "snapshot-shape-invalid",
-        "The saved layout is not a layout record, so none of it was restored. The deck opens empty.",
+        "The saved layout is not a layout record, so none of it was restored. The session opens with no panes.",
       ),
     );
   }
@@ -178,9 +178,9 @@ export function decodePaneLayoutSnapshot(
     // members it cannot interpret, and a partly-adopted deck hides which part
     // went missing.
     return emptyDecode(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "snapshot-version-unknown",
-        "The saved layout was written by a different version of the console, so none of it was restored. The deck opens empty and saves again as you arrange it.",
+        "The saved layout was written by a different version of the console, so none of it was restored. The session opens with no panes and saves again as you arrange them.",
       ),
     );
   }
@@ -193,7 +193,7 @@ export function decodePaneLayoutSnapshot(
     }
     if (!isWireRecord(entry)) {
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "pane-shape-invalid",
           "One saved pane was not a pane record and was ignored.",
         ),
@@ -212,7 +212,7 @@ export function decodePaneLayoutSnapshot(
   for (const candidate of candidates) {
     if (panes.length >= restoredPaneCap) {
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "restore-cap-exceeded",
           `The saved layout held more than ${String(restoredPaneCap)} panes. The first ${String(restoredPaneCap)} were restored and the rest were left closed.`,
         ),
@@ -228,7 +228,7 @@ export function decodePaneLayoutSnapshot(
       // Dropped BEFORE the push, so it consumes no cap slot: a record padded with
       // repeats of one address must not push real panes out of the restore.
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "pane-address-duplicate",
           "Two saved panes showed the same thing, so the second was left closed.",
         ),
@@ -256,7 +256,7 @@ export function decodePaneLayoutSnapshot(
 }
 
 /** This module's refusals, named for the restore they are about. */
-function refuseDeckRestore(
+function refusePaneLayoutRestore(
   code: PaneLayoutRestoreRefusalCode,
   detail: string,
 ): PaneLayoutRestoreRefusal {
@@ -285,7 +285,7 @@ function decodePane(
     // grammar below, which would admit it — an ephemeral pane's address is a valid
     // address, and what is wrong with it is that it was SAVED.
     refusals.push(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "pane-kind-unknown",
         "One saved pane is a kind the console never saves, so it was left closed.",
       ),
@@ -307,11 +307,11 @@ function decodePane(
     // closed. The parse's code is the precise one and stays where it was raised.
     refusals.push(
       address.code === "pane-kind-unknown"
-        ? refuseDeckRestore(
+        ? refusePaneLayoutRestore(
             "pane-kind-unknown",
             "One saved pane is a kind this version of the console does not have, so it was left closed.",
           )
-        : refuseDeckRestore(
+        : refusePaneLayoutRestore(
             "pane-entity-invalid",
             "One saved pane named something the console could not resolve, so it was left closed.",
           ),

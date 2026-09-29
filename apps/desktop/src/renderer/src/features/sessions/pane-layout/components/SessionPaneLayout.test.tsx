@@ -50,7 +50,7 @@ function registryWith(
   for (const descriptor of descriptors) {
     registry.register({
       kind: descriptor.kind,
-      owner: descriptor.owner ?? "deck-test",
+      owner: descriptor.owner ?? "pane-layout-test",
       // A body with a text field in it, because the deck's keyboard guard is about
       // where a keystroke came FROM: a marker-only body could not tell a chord
       // taken from the chrome apart from one taken out of somebody's typing.
@@ -76,7 +76,7 @@ function registryWith(
  * region nobody created, or read a clock no window resolved, which is a rule worth
  * honoring in a test rather than working around.
  */
-function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
+function PaneLayoutWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
     <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
@@ -84,26 +84,26 @@ function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.El
   );
 }
 
-function renderDeck(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElement {
+function renderPaneLayout(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElement {
   const { container } = render(
-    <DeckWindow>
+    <PaneLayoutWindow>
       <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
-    </DeckWindow>,
+    </PaneLayoutWindow>,
   );
-  const deck = container.querySelector(".meridian-pane-layout");
-  if (!(deck instanceof HTMLElement)) {
-    throw new Error("Deck rendered no deck element");
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  if (!(paneLayoutElement instanceof HTMLElement)) {
+    throw new Error("SessionPaneLayout rendered no pane layout element");
   }
-  return deck;
+  return paneLayoutElement;
 }
 
 /** Three panes side by side — the arrangement the library's ARIA defect shows on. */
-function threePaneDeck(): HTMLElement {
+function threePaneLayout(): HTMLElement {
   const layout = emptyLayout();
   layout.open({ kind: "transcript" });
   layout.open({ kind: "runs" });
   layout.open({ kind: "approvals" });
-  return renderDeck(
+  return renderPaneLayout(
     layout,
     registryWith({ kind: "transcript" }, { kind: "runs" }, { kind: "approvals" }),
   );
@@ -140,34 +140,36 @@ describe("the deck's panes", () => {
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
-    expect([...deck.querySelectorAll("p")].map((body) => body.textContent)).toStrictEqual([
-      "transcript body",
-      "runs body",
-    ]);
+    const paneLayoutElement = renderPaneLayout(
+      layout,
+      registryWith({ kind: "transcript" }, { kind: "runs" }),
+    );
+    expect(
+      [...paneLayoutElement.querySelectorAll("p")].map((body) => body.textContent),
+    ).toStrictEqual(["transcript body", "runs body"]);
   });
 
   it("focuses the pane that already shows an entity instead of opening a second", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "inspector", entity: { kind: "worktree", id: "you" } });
     const second = layout.open({ kind: "inspector", entity: { kind: "worktree", id: "you" } });
-    const deck = renderDeck(layout, registryWith({ kind: "inspector" }));
+    const paneLayoutElement = renderPaneLayout(layout, registryWith({ kind: "inspector" }));
     expect(second).toBe(first);
-    expect(deck.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
+    expect(paneLayoutElement.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });
 
   it("puts a separator between panes and none before the first", () => {
-    const deck = threePaneDeck();
-    expect(deck.querySelectorAll('[role="separator"]')).toHaveLength(2);
-    expect(deck.querySelectorAll("[data-panel]")).toHaveLength(3);
+    const paneLayoutElement = threePaneLayout();
+    expect(paneLayoutElement.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(paneLayoutElement.querySelectorAll("[data-panel]")).toHaveLength(3);
   });
 
   it("gives every separator the window-splitter role the library provides", () => {
     // The ARIA is the library's, which is the reason the row adopts it rather than
     // keeping the own-built bar: a focusable `role="separator"` carrying a live
     // `aria-valuenow` is what makes resizing operable without a pointer.
-    const deck = threePaneDeck();
-    for (const separator of deck.querySelectorAll('[role="separator"]')) {
+    const paneLayoutElement = threePaneLayout();
+    for (const separator of paneLayoutElement.querySelectorAll('[role="separator"]')) {
       // The SEPARATOR is vertical inside a horizontal group — the bar stands up
       // between two panes that sit side by side.
       expect(separator.getAttribute("aria-orientation")).toBe("vertical");
@@ -179,37 +181,37 @@ describe("the deck's panes", () => {
     // Upstream issue #740 crosses `aria-valuemin` and `aria-valuemax` on every
     // separator after the first at the pinned 4.12.3, so the deck corrects them
     // after each commit. The predicate here is the correction's own.
-    expect(separatorValueBoundsAreOrdered(threePaneDeck())).toBe(true);
+    expect(separatorValueBoundsAreOrdered(threePaneLayout())).toBe(true);
   });
 
   it("negative control: the same assertion FAILS when the swap is simulated", () => {
     // Without this the case above would pass over a predicate that cannot see the
     // defect at all — the swap is invisible on screen, so nothing else would.
-    const deck = threePaneDeck();
-    const separator = deck.querySelector('[role="separator"]');
+    const paneLayoutElement = threePaneLayout();
+    const separator = paneLayoutElement.querySelector('[role="separator"]');
     expect(separator).not.toBeNull();
     separator?.setAttribute("aria-valuemin", "90");
     separator?.setAttribute("aria-valuemax", "10");
-    expect(separatorValueBoundsAreOrdered(deck)).toBe(false);
+    expect(separatorValueBoundsAreOrdered(paneLayoutElement)).toBe(false);
   });
 
   it("says the deck is empty rather than rendering an unexplained blank", () => {
-    const deck = renderDeck(emptyLayout(), registryWith({ kind: "transcript" }));
-    expect(deck.textContent).toContain("No panes are open.");
+    const paneLayoutElement = renderPaneLayout(emptyLayout(), registryWith({ kind: "transcript" }));
+    expect(paneLayoutElement.textContent).toContain("No panes are open.");
   });
 
   it("renders what a restore refused, inside the deck the refusal is about", () => {
     const layout = emptyLayout();
     const report = layout.restore({ $paneLayout: { version: 99 } });
     const { container } = render(
-      <DeckWindow>
+      <PaneLayoutWindow>
         <SessionPaneLayout
           layout={layout}
           registry={registryWith({ kind: "transcript" })}
           paneContextFor={paneContextFor}
           restoreRefusals={report.refusals}
         />
-      </DeckWindow>,
+      </PaneLayoutWindow>,
     );
     // Scoped to the deck's own strip rather than the first `role="status"` in the
     // tree: the announcer's polite region carries that role too and renders above
@@ -225,23 +227,26 @@ describe("the deck's keyboard paths", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
     const second = layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
+    const paneLayoutElement = renderPaneLayout(
+      layout,
+      registryWith({ kind: "transcript" }, { kind: "runs" }),
+    );
 
     focus(layout, first);
-    press(deck, { key: "ArrowRight", altKey: true });
+    press(paneLayoutElement, { key: "ArrowRight", altKey: true });
     expect(layout.snapshot().focusedPaneId).toBe(second);
 
     focus(layout, first);
-    press(deck, { key: "ArrowRight", altKey: true, shiftKey: true });
+    press(paneLayoutElement, { key: "ArrowRight", altKey: true, shiftKey: true });
     expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([second, first]);
   });
 
   it("closes the focused pane with Alt+Backspace", () => {
     const layout = emptyLayout();
     const only = layout.open({ kind: "transcript" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }));
+    const paneLayoutElement = renderPaneLayout(layout, registryWith({ kind: "transcript" }));
     focus(layout, only);
-    press(deck, { key: "Backspace", altKey: true });
+    press(paneLayoutElement, { key: "Backspace", altKey: true });
     expect(layout.snapshot().panes).toHaveLength(0);
   });
 
@@ -253,10 +258,13 @@ describe("the deck's keyboard paths", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
+    const paneLayoutElement = renderPaneLayout(
+      layout,
+      registryWith({ kind: "transcript" }, { kind: "runs" }),
+    );
     focus(layout, first);
 
-    const field = deck.querySelector("textarea");
+    const field = paneLayoutElement.querySelector("textarea");
     expect(field).not.toBeNull();
     const moveEvent = pressFrom(field, { key: "ArrowRight", altKey: true, shiftKey: true });
     const closeEvent = pressFrom(field, { key: "Backspace", altKey: true });
@@ -273,10 +281,17 @@ describe("the deck's keyboard paths", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
     const second = layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
+    const paneLayoutElement = renderPaneLayout(
+      layout,
+      registryWith({ kind: "transcript" }, { kind: "runs" }),
+    );
     focus(layout, first);
 
-    const moveEvent = pressFrom(deck, { key: "ArrowRight", altKey: true, shiftKey: true });
+    const moveEvent = pressFrom(paneLayoutElement, {
+      key: "ArrowRight",
+      altKey: true,
+      shiftKey: true,
+    });
 
     expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([second, first]);
     expect(moveEvent.defaultPrevented).toBe(true);
@@ -288,10 +303,13 @@ describe("the deck's keyboard paths", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
+    const paneLayoutElement = renderPaneLayout(
+      layout,
+      registryWith({ kind: "transcript" }, { kind: "runs" }),
+    );
     focus(layout, first);
-    press(deck, { key: "ArrowRight" });
-    press(deck, { key: "Backspace" });
+    press(paneLayoutElement, { key: "ArrowRight" });
+    press(paneLayoutElement, { key: "Backspace" });
     expect(layout.snapshot().focusedPaneId).toBe(first);
     expect(layout.snapshot().panes).toHaveLength(2);
   });
@@ -311,9 +329,9 @@ function focus(layout: PaneLayoutStore, paneId: string): void {
 }
 
 /** Dispatch one keydown the way a person's key reaches the deck: by bubbling. */
-function press(deck: HTMLElement, init: KeyboardEventInit): void {
+function press(paneLayoutElement: HTMLElement, init: KeyboardEventInit): void {
   act(() => {
-    deck.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
+    paneLayoutElement.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
   });
 }
 
@@ -335,7 +353,7 @@ function pressFrom(origin: Element | null, init: KeyboardEventInit): KeyboardEve
   return event;
 }
 
-describe("Deck — the clock its rect flush runs on", () => {
+describe("SessionPaneLayout — the clock its rect flush runs on", () => {
   /** The scenario's frozen clock, or a failure that says the fixture served none. */
   function frozenClockOf(bridge: PlatformBridge): ManualClock {
     const clock = bridge.scenarioEngine?.clock;
@@ -345,7 +363,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     return clock;
   }
 
-  function renderDeckOn(bridge: PlatformBridge): void {
+  function renderPaneLayoutOn(bridge: PlatformBridge): void {
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     render(
@@ -370,7 +388,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const clock = frozenClockOf(bridge);
 
-    renderDeckOn(bridge);
+    renderPaneLayoutOn(bridge);
 
     // Armed and not yet run — `rect/rect-discipline.ts` rule 1 is reads in the callback and
     // writes on the next frame, and the frame is this window's.

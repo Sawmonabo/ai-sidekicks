@@ -1,4 +1,4 @@
-// The deck's pane kinds, as one closed set.
+// The pane kinds, as one closed set.
 //
 // The console's design fixes this set and fixes its members: `transcript`, `inspector`,
 // `runs`, `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,

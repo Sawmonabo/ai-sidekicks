@@ -92,7 +92,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  const deckState = usePaneLayoutState(layout);
+  const paneLayoutState = usePaneLayoutState(layout);
   // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
   // is the subject and the session the key, which is this console's one session pairing:
   // every refusal that lands here was raised by a call or a write made through that
@@ -165,7 +165,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   );
 
   const composer = findComposerRenderer();
-  const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
+  const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
     <div className="meridian-workspace">

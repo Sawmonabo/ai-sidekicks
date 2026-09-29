@@ -32,11 +32,11 @@ import {
 const PROBE_RECORD: PersistedLayoutRecord = { $probe: { version: 1 } };
 
 /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
-function cycleDeckFocus(container: HTMLElement): void {
-  const deck = container.querySelector(".meridian-pane-layout");
-  expect(deck).not.toBeNull();
-  if (deck !== null) {
-    fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+function cyclePaneFocus(container: HTMLElement): void {
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  expect(paneLayoutElement).not.toBeNull();
+  if (paneLayoutElement !== null) {
+    fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
   }
 }
 
@@ -61,7 +61,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
 
     rerender(workspaceFor(session, storeOver(liveAdapter), false));
     const askedOfRetiredStore = retiredAdapter.asked.length;
-    cycleDeckFocus(container);
+    cyclePaneFocus(container);
     await crossMacrotaskBoundary();
 
     await waitFor(() => {

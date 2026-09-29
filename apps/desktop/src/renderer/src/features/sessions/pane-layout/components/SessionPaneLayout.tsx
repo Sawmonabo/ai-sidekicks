@@ -139,11 +139,13 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
    */
   const minimumPermille = useCallback(
     (density: PaneLayoutDensity): number => {
-      const deckWidth = containerReference.current?.getBoundingClientRect().width ?? 0;
-      if (deckWidth <= 0) {
+      const paneLayoutWidth = containerReference.current?.getBoundingClientRect().width ?? 0;
+      if (paneLayoutWidth <= 0) {
         return 0;
       }
-      return Math.round((minimumPaneWidthPx(density) / deckWidth) * PANE_LAYOUT_TOTAL_PERMILLE);
+      return Math.round(
+        (minimumPaneWidthPx(density) / paneLayoutWidth) * PANE_LAYOUT_TOTAL_PERMILLE,
+      );
     },
     [containerReference],
   );

@@ -41,11 +41,11 @@ describe("LiveAnnouncer — the two lanes are independent speech channels", () =
   it("puts a polite and an assertive announcement in their own regions at once", () => {
     const { announcer } = announcerOnManualClock();
 
-    announcer.announce("the deck was reordered");
+    announcer.announce("the panes were reordered");
     announcer.announce("that node refused the attach", "assertive");
 
     expect(announcer.state).toStrictEqual<LiveAnnouncementState>({
-      polite: "the deck was reordered",
+      polite: "the panes were reordered",
       assertive: "that node refused the attach",
     });
   });
@@ -55,7 +55,7 @@ describe("LiveAnnouncer — the two lanes are independent speech channels", () =
     // making the console interrupt a reader for a routine change.
     const { announcer } = announcerOnManualClock();
 
-    announcer.announce("the deck was reordered");
+    announcer.announce("the panes were reordered");
 
     expect(announcer.state.assertive).toBe("");
   });

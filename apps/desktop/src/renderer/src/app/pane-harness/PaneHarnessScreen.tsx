@@ -119,7 +119,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
           kind="empty"
           placement="surface"
           title="No family has registered a body for this pane kind."
-          detail={`"${address.kind}" is one of the deck's pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
+          detail={`"${address.kind}" is one of the pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
         />
       </PaneHarnessFrame>
     );
