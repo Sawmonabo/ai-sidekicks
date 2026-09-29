@@ -17,8 +17,8 @@ import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-s
 /** A dwell short enough to read in a case, long enough to be advanced past. */
 const TEST_DWELL_MS = 1_000;
 
-/** The newest chapter in the shared log — the one end of it the cap never drops. */
-const NEWEST_CHAPTER_KEY = `chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
+/** The newest run group in the shared log — the one end of it the cap never drops. */
+const NEWEST_RUN_GROUP_KEY = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
 
 /** A window holding the rows named, each a top-level row of its own. */
 function windowWithRows(rowKeys: readonly string[]): TranscriptWindow {
@@ -176,10 +176,13 @@ describe("the trim takes only what the frame cannot reach", () => {
     // driving a state the frame cannot actually produce.
     const clock = new ManualClock();
     const window = loadedWindow();
-    window.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 44 });
-    window.setLease(NEWEST_CHAPTER_KEY, { density: "expanded", innerScrollTopPx: 30 });
+    window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
+    window.setLease(NEWEST_RUN_GROUP_KEY, { density: "expanded", innerScrollTopPx: 30 });
     window.prune(PRUNABLE);
-    expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
+    expect(window.lease("run-group-0")).toStrictEqual({
+      density: "expanded",
+      innerScrollTopPx: 44,
+    });
 
     const trim = new IdleMemoryTrim({
       clock,
@@ -192,8 +195,8 @@ describe("the trim takes only what the frame cannot reach", () => {
     trim.noteActivity();
 
     expect(trim.lastPass?.parkedLeases).toBe(1);
-    expect(window.lease("chapter-0")).toBeUndefined();
-    expect(window.lease(NEWEST_CHAPTER_KEY)).toStrictEqual({
+    expect(window.lease("run-group-0")).toBeUndefined();
+    expect(window.lease(NEWEST_RUN_GROUP_KEY)).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 30,
     });

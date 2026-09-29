@@ -53,7 +53,7 @@ function rendererOptions(
     ledgerWindow,
     openedTerminalRunIds: new Set<string>(),
     hueForActor: () => undefined,
-    toggleChapter: () => undefined,
+    toggleRunGroup: () => undefined,
     rowLease: (): RetainedRowState | undefined => undefined,
     renderTimelineRow: () => <output data-seat-row="yes" />,
     ...overrides,
@@ -68,8 +68,8 @@ function renderDispatch(options: TranscriptRowRendererOptions, key: string): HTM
 }
 
 describe("the feed's row dispatch — which of the four a key is", () => {
-  /** The chaptered fixture, shut, which is what puts a header key in the list. */
-  function foldedChapterWindow(): TranscriptWindowModel {
+  /** The run-grouped fixture, shut, which is what puts a header key in the list. */
+  function foldedRunGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return foldRunGroupHeaders(
       deriveTranscriptWindow(sessionStore.snapshot().timeline, false),
@@ -77,8 +77,8 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     ).window;
   }
 
-  it("draws a chapter header for the run's own key, never through the seat", () => {
-    const ledgerWindow = foldedChapterWindow();
+  it("draws a run group header for the run's own key, never through the seat", () => {
+    const ledgerWindow = foldedRunGroupWindow();
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const container = renderDispatch(
       rendererOptions(ledgerWindow, { renderTimelineRow: seatCalls }),
@@ -86,7 +86,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     );
 
     expect(container.querySelector(".meridian-run-group-header")).not.toBeNull();
-    // The seat owns row BODIES and a chapter header is not one — asking it would
+    // The seat owns row BODIES and a run group header is not one — asking it would
     // render a finished run as an ordinary receipt.
     expect(seatCalls).not.toHaveBeenCalled();
   });
@@ -111,7 +111,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   it("names a row the window no longer holds rather than drawing a blank band", () => {
     // The window moved under the viewport between its reconcile and this paint. A
     // blank would read as a row with nothing in it; this is a fact about the cap.
-    const ledgerWindow = foldedChapterWindow();
+    const ledgerWindow = foldedRunGroupWindow();
     const vanished = viewportRowFor(ledgerWindow, TERMINAL_RUN_ID);
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const { result } = renderHook(() =>
@@ -130,12 +130,12 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   });
 
   it("hands an ordinary row to the seat with the four values the seat is given", () => {
-    const ledgerWindow = foldedChapterWindow();
+    const ledgerWindow = foldedRunGroupWindow();
     const sessionRow = ledgerWindow.viewportRows.find(
       (row) => row.key !== TERMINAL_RUN_ID && ledgerWindow.rowsByKey.has(row.key),
     );
     if (sessionRow === undefined) {
-      throw new Error("the chapter fixture projected no ordinary row");
+      throw new Error("the run group fixture projected no ordinary row");
     }
     const seatCalls = vi.fn(
       (slot: TranscriptRowProps): ReactNode => <output data-seat-row={slot.row.id} />,
@@ -171,7 +171,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     const after = deriveTranscriptWindow(timeline, false, retention);
     const rowKey = before.viewportRows.find((row) => before.rowsByKey.has(row.key))?.key;
     if (rowKey === undefined) {
-      throw new Error("the chapter fixture projected no retained row");
+      throw new Error("the run group fixture projected no retained row");
     }
     return { before, after, rowKey };
   }

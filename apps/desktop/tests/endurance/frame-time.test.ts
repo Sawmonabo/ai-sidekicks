@@ -53,7 +53,7 @@
 //
 // Four agent lanes streaming into the ledger, which is the row's own subject.
 // `fixtures/scenarios/concurrent-streaming.ts` scripts four runs mid-turn at the same tick —
-// interleaved thinking, messages, and tool calls across four run chapters, with an
+// interleaved thinking, messages, and tool calls across four run groups, with an
 // approval blocking one of them while the other three carry on — and the sampled
 // window covers that stretch of it. The run asserts both halves rather than
 // describing them: that the script delivered INSIDE the window rather than before

@@ -66,7 +66,7 @@ describe("reading the run a payload names", () => {
 
   it("negative control: a member decided `another-run` names nothing here", () => {
     // A payload carrying ONLY the parent's spelling answers `undefined` rather
-    // than the parent's id: filing a child's rows in its parent's chapter is the
+    // than the parent's id: filing a child's rows in its parent's run group is the
     // defect this decision exists to refuse.
     expect(attributedRunIdOf({ parentRunId: RUN_ONE })).toBeUndefined();
     // And beside its own run, the row's own id wins.

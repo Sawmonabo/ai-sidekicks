@@ -5,7 +5,7 @@
 //
 // Its two neighbors hold a real window open and read the renderer's heap. This one
 // measures the ledger's own FOLD — `deriveTranscriptWindow`, which turns a session's
-// event log into rows, chapters, seams and a superseded index — over a
+// event log into rows, run groups, seams and a superseded index — over a
 // generated session of ten thousand rows.
 //
 // It cannot be one of those runs, and the reason is structural rather than a
@@ -231,13 +231,13 @@ describe("endurance — the transcript's fold over a long session", () => {
     // viewport row is never drawn at all.
     expect(ledgerWindow.viewportRows).toHaveLength(ledgerWindow.rows.length);
     expect(ledgerWindow.rowsByKey.size).toBe(ledgerWindow.rows.length);
-    // Every generated chapter closes, so the window holds no live turn — and every
-    // row that hangs from a chapter is collapsed under the terminal-chapter fold.
-    // The rows that are NOT collapsed are exactly the ones that belong to no chapter:
+    // Every generated run group closes, so the window holds no live turn — and every
+    // row that hangs from a run group is collapsed under the terminal run group fold.
+    // The rows that are NOT collapsed are exactly the ones that belong to no run group:
     // the session's opening beats, whose arm structurally carries no run. Stated that
     // way rather than as a count, so the claim does not encode how many beats the
     // generator happens to spend opening a session — and it still fails the day the
-    // chapter index stops recognizing a run's terminal at scale, because those rows
+    // run group index stops recognizing a run's terminal at scale, because those rows
     // would join the uncollapsed set carrying a run.
     expect(ledgerWindow.hasActiveTurn).toBe(false);
     const uncollapsedRowKinds = new Set(

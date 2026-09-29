@@ -152,8 +152,8 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
   });
 
   it("keeps two rewinds of one epoch apart, and both apart from a bare run id", () => {
-    // The key shares one map with the chapter header's, which IS a bare run id, so a
-    // collision here would draw a rewind band where a chapter belongs.
+    // The key shares one map with the run group header's, which IS a bare run id, so a
+    // collision here would draw a rewind band where a run group belongs.
     const index = new SupersededIndex([
       runRow({ id: "a2", sequence: 1, type: "run.running", runId: "run-a", position: 2 }),
       runRow({ id: "a4", sequence: 2, type: "run.running", runId: "run-a", position: 4 }),

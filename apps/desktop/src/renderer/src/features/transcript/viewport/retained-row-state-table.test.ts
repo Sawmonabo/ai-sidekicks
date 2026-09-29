@@ -14,10 +14,10 @@ const EXPANDED = { density: "expanded", innerScrollTopPx: 44 } as const;
 describe("the row-lease table — parking, not dropping", () => {
   it("hands a parked lease back under the row's own key", () => {
     const table = new RetainedRowStateTable();
-    table.setLease("chapter-0", EXPANDED);
-    table.park("chapter-0");
+    table.setLease("run-group-0", EXPANDED);
+    table.park("run-group-0");
     expect(table.parkedCount).toBe(1);
-    expect(table.lease("chapter-0")).toStrictEqual(EXPANDED);
+    expect(table.lease("run-group-0")).toStrictEqual(EXPANDED);
   });
 
   it("negative control: a row that leased nothing parks nothing", () => {
@@ -25,17 +25,17 @@ describe("the row-lease table — parking, not dropping", () => {
     // was handed, filling the bounded table with rows nobody had expanded and
     // evicting the ones somebody had.
     const table = new RetainedRowStateTable();
-    table.park("chapter-0");
+    table.park("run-group-0");
     expect(table.parkedCount).toBe(0);
-    expect(table.lease("chapter-0")).toBeUndefined();
+    expect(table.lease("run-group-0")).toBeUndefined();
   });
 
   it("answers from the live table first, so a re-read row's current state wins", () => {
     const table = new RetainedRowStateTable();
-    table.setLease("chapter-0", EXPANDED);
-    table.park("chapter-0");
-    table.setLease("chapter-0", { density: "collapsed", innerScrollTopPx: 0 });
-    expect(table.lease("chapter-0")?.density).toBe("collapsed");
+    table.setLease("run-group-0", EXPANDED);
+    table.park("run-group-0");
+    table.setLease("run-group-0", { density: "collapsed", innerScrollTopPx: 0 });
+    expect(table.lease("run-group-0")?.density).toBe("collapsed");
   });
 });
 
@@ -43,65 +43,68 @@ describe("the row-lease table — the parked bound", () => {
   it("evicts the least recently parked once the bound is passed", () => {
     const table = new RetainedRowStateTable(2);
     for (const index of [0, 1, 2]) {
-      table.setLease(`chapter-${String(index)}`, { density: "expanded", innerScrollTopPx: index });
+      table.setLease(`run-group-${String(index)}`, {
+        density: "expanded",
+        innerScrollTopPx: index,
+      });
     }
     for (const index of [0, 1, 2]) {
-      table.park(`chapter-${String(index)}`);
+      table.park(`run-group-${String(index)}`);
     }
     expect(table.parkedCount).toBe(2);
-    expect(table.lease("chapter-0")).toBeUndefined();
-    expect(table.lease("chapter-1")?.innerScrollTopPx).toBe(1);
-    expect(table.lease("chapter-2")?.innerScrollTopPx).toBe(2);
+    expect(table.lease("run-group-0")).toBeUndefined();
+    expect(table.lease("run-group-1")?.innerScrollTopPx).toBe(1);
+    expect(table.lease("run-group-2")?.innerScrollTopPx).toBe(2);
   });
 
   it("negative control: under the bound nothing is evicted at all", () => {
     // Without this the case above would pass over a table that evicted on every
     // park, which would lose the row a person had open a moment ago.
     const table = new RetainedRowStateTable(2);
-    table.setLease("chapter-0", EXPANDED);
-    table.setLease("chapter-1", EXPANDED);
-    table.park("chapter-0");
-    table.park("chapter-1");
+    table.setLease("run-group-0", EXPANDED);
+    table.setLease("run-group-1", EXPANDED);
+    table.park("run-group-0");
+    table.park("run-group-1");
     expect(table.parkedCount).toBe(2);
-    expect(table.lease("chapter-0")).toStrictEqual(EXPANDED);
+    expect(table.lease("run-group-0")).toStrictEqual(EXPANDED);
   });
 
   it("re-parking a row keeps it, and moves it to the most recently parked end", () => {
     const table = new RetainedRowStateTable(2);
-    for (const key of ["chapter-0", "chapter-1"]) {
+    for (const key of ["run-group-0", "run-group-1"]) {
       table.setLease(key, EXPANDED);
       table.park(key);
     }
-    table.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 9 });
-    table.park("chapter-0");
-    table.setLease("chapter-2", EXPANDED);
-    table.park("chapter-2");
-    expect(table.lease("chapter-1")).toBeUndefined();
-    expect(table.lease("chapter-0")?.innerScrollTopPx).toBe(9);
+    table.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 9 });
+    table.park("run-group-0");
+    table.setLease("run-group-2", EXPANDED);
+    table.park("run-group-2");
+    expect(table.lease("run-group-1")).toBeUndefined();
+    expect(table.lease("run-group-0")?.innerScrollTopPx).toBe(9);
   });
   it("releases every parked lease at once, and keeps every live one", () => {
     // The TIME half of this module's own bound. The count cap keeps the row a person
     // had open a moment ago; this returns the ones from an hour ago, which the header
     // already says nobody expects to survive.
     const table = new RetainedRowStateTable(4);
-    for (const key of ["chapter-0", "chapter-1"]) {
+    for (const key of ["run-group-0", "run-group-1"]) {
       table.setLease(key, EXPANDED);
       table.park(key);
     }
-    table.setLease("chapter-2", EXPANDED);
+    table.setLease("run-group-2", EXPANDED);
 
     expect(table.releaseParkedLeases()).toBe(2);
     expect(table.parkedCount).toBe(0);
-    expect(table.lease("chapter-0")).toBeUndefined();
-    expect(table.lease("chapter-2")).toStrictEqual(EXPANDED);
+    expect(table.lease("run-group-0")).toBeUndefined();
+    expect(table.lease("run-group-2")).toStrictEqual(EXPANDED);
   });
 
   it("releases nothing when nothing is parked", () => {
     // The negative control for the count: a release that answered with the LIVE size
     // would report memory returned that is still held.
     const table = new RetainedRowStateTable(4);
-    table.setLease("chapter-0", EXPANDED);
+    table.setLease("run-group-0", EXPANDED);
     expect(table.releaseParkedLeases()).toBe(0);
-    expect(table.lease("chapter-0")).toStrictEqual(EXPANDED);
+    expect(table.lease("run-group-0")).toStrictEqual(EXPANDED);
   });
 });

@@ -54,10 +54,10 @@ describe("the find walk's reading, on screen", () => {
   });
 
   it("says a fold cut the walk, under its own subject", () => {
-    renderWalk(2, 5, "the run chapters this ledger has folded");
+    renderWalk(2, 5, "the run groups this ledger has folded");
     expect(
       screen.getByText(
-        /read before the answer for the run chapters this ledger has folded was cut short, so what is not shown here may still exist/u,
+        /read before the answer for the run groups this ledger has folded was cut short, so what is not shown here may still exist/u,
       ),
     ).toBeTruthy();
   });

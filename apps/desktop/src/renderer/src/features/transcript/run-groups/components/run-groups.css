@@ -1,19 +1,19 @@
 /* The run group's header (its disclosure, the actor it names, its terminal figure and
  * counts) and its body, shared by the two components here and imported by the
  * transcript's chunk root. The body
- * block below is the chapter's nested scroller: the rows the outer list's ceiling left
+ * block below is the run group's nested scroller: the rows the outer list's ceiling left
  * out, bounded, faded at the top edge, and re-pinned by the engine's own anchoring.
  */
 
-/* --- Structure: the chapter header --------------------------------------- */
+/* --- Structure: the run group header --------------------------------------- */
 
 /*
  * One finished run, on one line, with the disclosure that opens it.
  *
  * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
- * from the user wheel by the component so a chapter and the rows inside it
+ * from the user wheel by the component so a run group and the rows inside it
  * are colored by one allocation. The fallback is the neutral border, which is what
- * an unattributed chapter takes — never a user hue nobody was allocated.
+ * an unattributed run group takes — never a user hue nobody was allocated.
  */
 
 .meridian-run-group-header {
@@ -56,7 +56,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* --- Structure: the chapter body ----------------------------------------- */
+/* --- Structure: the run group body ----------------------------------------- */
 
 /*
  * The body is a full row of the wrapping header, so the scroller sits UNDER the line

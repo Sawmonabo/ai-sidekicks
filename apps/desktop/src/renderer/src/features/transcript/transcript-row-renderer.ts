@@ -41,7 +41,7 @@ import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
 /**
  * A row's collapse state, under the timeline's density rule: tool rows render as one
- * line until opened; run chapters collapse once terminal and the live chapter stays
+ * line until opened; run groups collapse once terminal and the live run group stays
  * open.
  *
  * Two values and not a numeric scale: the rule is about what is COLLAPSED, and a

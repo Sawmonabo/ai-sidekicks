@@ -18,7 +18,7 @@ export interface TranscriptRowRendererOptions {
   readonly ledgerWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly hueForActor: (userId: string) => AgentHueAssignment | undefined;
-  readonly toggleChapter: (chapter: RunGroup) => void;
+  readonly toggleRunGroup: (runGroup: RunGroup) => void;
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
   readonly renderTimelineRow: TranscriptRowRenderer;
@@ -34,22 +34,22 @@ export interface TranscriptRowRendererOptions {
 export function useTranscriptRowRenderer(
   options: TranscriptRowRendererOptions,
 ): ViewportRowRenderer {
-  const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleChapter, rowLease } = options;
+  const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleRunGroup, rowLease } = options;
   const renderTimelineRow = options.renderTimelineRow;
   return useCallback(
     (row: ViewportRow) => {
-      // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
+      // A RUN GROUP HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
       // dispatched before the body lookup — there is no projected row behind it and
-      // there was never meant to be. Every terminal chapter has one; a live chapter
+      // there was never meant to be. Every terminal run group has one; a live run group
       // has none and its rows stay top-level.
-      const chapter = ledgerWindow.chapterByHeaderKey.get(row.key);
-      if (chapter !== undefined) {
+      const runGroup = ledgerWindow.runGroupByHeaderKey.get(row.key);
+      if (runGroup !== undefined) {
         return (
           <RunGroupHeader
-            chapter={chapter}
-            isOpen={openedTerminalRunIds.has(chapter.runId)}
-            actorHue={chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)}
-            onToggle={toggleChapter}
+            runGroup={runGroup}
+            isOpen={openedTerminalRunIds.has(runGroup.runId)}
+            actorHue={runGroup.actorId === undefined ? undefined : hueForActor(runGroup.actorId)}
+            onToggle={toggleRunGroup}
           />
         );
       }
@@ -87,7 +87,7 @@ export function useTranscriptRowRenderer(
           isSuperseded={isSuperseded}
           // THE LEASE OVERLAYS THE LIST, and the list is the fallback rather than the
           // other way round: a row nobody has touched holds no lease and follows the
-          // chapter fold, and a row somebody opened keeps that choice across an
+          // run group fold, and a row somebody opened keeps that choice across an
           // unmount and across a prune, because the window re-parks it.
           density={
             rowLease(projected.id)?.density ??
@@ -97,6 +97,6 @@ export function useTranscriptRowRenderer(
         />
       );
     },
-    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
+    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleRunGroup],
   );
 }

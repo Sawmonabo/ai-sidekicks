@@ -23,7 +23,7 @@ describe("the ledger window — the cap", () => {
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
     expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
-    // Children never trip the cap: the retained set is the cap's worth of chapters
+    // Children never trip the cap: the retained set is the cap's worth of run groups
     // WITH their children, not the cap's worth of rows.
     expect(window.size).toBe(TRANSCRIPT_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
   });
@@ -32,8 +32,10 @@ describe("the ledger window — the cap", () => {
     const window = loadedWindow();
     window.prune(PRUNABLE);
     const retained = window.topLevelRowKeys();
-    expect(retained[0]).toBe(`chapter-${String(TOP_LEVEL_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`);
-    expect(retained[retained.length - 1]).toBe(`chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`);
+    expect(retained[0]).toBe(
+      `run-group-${String(TOP_LEVEL_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`,
+    );
+    expect(retained[retained.length - 1]).toBe(`run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`);
   });
 
   it("never orphans a child: every retained child's parent is retained too", () => {
@@ -97,17 +99,17 @@ describe("the ledger window — when prune may not land", () => {
     expect(outcome.owedBecause).toBeUndefined();
   });
 
-  it("never prunes a held row, however old, nor the chapter above a held child", () => {
+  it("never prunes a held row, however old, nor the run group above a held child", () => {
     const window = loadedWindow();
     const outcome = window.prune({
       ...PRUNABLE,
-      heldRowKeys: ["chapter-0", "chapter-1-child-2"],
+      heldRowKeys: ["run-group-0", "run-group-1-child-2"],
     });
     const retainedKeys = new Set(window.rows().map((row) => row.key));
-    expect(retainedKeys.has("chapter-0")).toBe(true);
-    expect(retainedKeys.has("chapter-1")).toBe(true);
-    expect(retainedKeys.has("chapter-1-child-2")).toBe(true);
-    expect(outcome.prunedKeys).not.toContain("chapter-0");
+    expect(retainedKeys.has("run-group-0")).toBe(true);
+    expect(retainedKeys.has("run-group-1")).toBe(true);
+    expect(retainedKeys.has("run-group-1-child-2")).toBe(true);
+    expect(outcome.prunedKeys).not.toContain("run-group-0");
   });
 
   it("names `held-rows` when every candidate the cap wanted is held", () => {
@@ -118,7 +120,7 @@ describe("the ledger window — when prune may not land", () => {
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
-      heldRowKeys: ["chapter-0", "chapter-1", "chapter-2", "chapter-3", "chapter-4"],
+      heldRowKeys: ["run-group-0", "run-group-1", "run-group-2", "run-group-3", "run-group-4"],
     });
     expect(outcome.applied).toBe(false);
     expect(outcome.deferredBecause).toBe("held-rows");
@@ -134,11 +136,11 @@ describe("the ledger window — when prune may not land", () => {
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
-      heldRowKeys: ["chapter-0", "chapter-2", "chapter-3", "chapter-4"],
+      heldRowKeys: ["run-group-0", "run-group-2", "run-group-3", "run-group-4"],
     });
     expect(outcome.applied).toBe(true);
     expect(outcome.deferredBecause).toBeUndefined();
-    expect(outcome.prunedKeys).toContain("chapter-1");
+    expect(outcome.prunedKeys).toContain("run-group-1");
     expect(outcome.owedBecause).toBe("held-rows");
     expect(window.topLevelRowKeys()).toHaveLength(4);
   });
@@ -157,7 +159,7 @@ describe("the ledger window — when prune may not land", () => {
 
 describe("the ledger window — the reading floor", () => {
   /** The row a reader is parked on, far enough back that the cap wants it gone. */
-  const READER_ROW = "chapter-10";
+  const READER_ROW = "run-group-10";
 
   it("stops the drop at the reader's row, and keeps the window contiguous", () => {
     const window = loadedWindow();
@@ -170,14 +172,14 @@ describe("the ledger window — the reading floor", () => {
     expect(outcome.owedBecause).toBe("reading-floor");
     expect(outcome.topLevelRetained).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
     // Everything above the reader that the cap wanted, and not one row more: the
-    // dropped set is the ten chapters before them, with their children.
+    // dropped set is the ten run groups before them, with their children.
     expect(outcome.prunedKeys).toStrictEqual(
-      Array.from({ length: 10 }, (_unused, index) => `chapter-${String(index)}`).flatMap(
-        (chapterKey) => [
-          chapterKey,
+      Array.from({ length: 10 }, (_unused, index) => `run-group-${String(index)}`).flatMap(
+        (runGroupKey) => [
+          runGroupKey,
           ...Array.from(
             { length: CHILDREN_PER_RUN_GROUP },
-            (_unused, child) => `${chapterKey}-child-${String(child)}`,
+            (_unused, child) => `${runGroupKey}-child-${String(child)}`,
           ),
         ],
       ),
@@ -196,19 +198,19 @@ describe("the ledger window — the reading floor", () => {
     expect(window.prune(PRUNABLE).prunedKeys).toContain(READER_ROW);
   });
 
-  it("holds a chapter whose child the reader is on, rather than dropping its head", () => {
-    const readerChildRow = "chapter-3-child-1";
+  it("holds a run group whose child the reader is on, rather than dropping its head", () => {
+    const readerChildRow = "run-group-3-child-1";
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: readerChildRow });
-    expect(outcome.prunedKeys).not.toContain("chapter-3");
-    expect(outcome.prunedKeys[outcome.prunedKeys.length - 1]).toBe("chapter-2-child-2");
+    expect(outcome.prunedKeys).not.toContain("run-group-3");
+    expect(outcome.prunedKeys[outcome.prunedKeys.length - 1]).toBe("run-group-2-child-2");
   });
 
   it("names `reading-floor` when the floor leaves it nothing to take", () => {
     // A prune that returned `applied` with an empty key list would be
     // indistinguishable from a window that was already under cap.
     const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "chapter-0" });
+    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "run-group-0" });
     expect(outcome.applied).toBe(false);
     expect(outcome.deferredBecause).toBe("reading-floor");
     expect(outcome.prunedKeys).toStrictEqual([]);
@@ -218,7 +220,7 @@ describe("the ledger window — the reading floor", () => {
   it("negative control: a floor the drop never reaches owes nothing", () => {
     // Without this, `owedBecause` could be a member the reading floor sets on every
     // pass it is given rather than only on the passes it actually stopped.
-    const nearTheTailRow = `chapter-${String(TOP_LEVEL_ROW_COUNT - 5)}`;
+    const nearTheTailRow = `run-group-${String(TOP_LEVEL_ROW_COUNT - 5)}`;
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: nearTheTailRow });
     expect(outcome.applied).toBe(true);
@@ -229,7 +231,7 @@ describe("the ledger window — the reading floor", () => {
   it("negative control: a floor at the tail prunes byte-identically to no floor at all", () => {
     // The reader at the tail is the common case, and the floor must cost it
     // nothing: same outcome value, same retained window.
-    const tailKey = `chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
+    const tailKey = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
     const withoutFloor = loadedWindow();
     const withFloorAtTail = loadedWindow();
     expect(withFloorAtTail.prune({ ...PRUNABLE, readingFloorRowKey: tailKey })).toStrictEqual(

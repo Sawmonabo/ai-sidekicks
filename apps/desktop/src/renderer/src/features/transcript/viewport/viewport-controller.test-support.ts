@@ -11,11 +11,11 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import type { ViewportRow } from "./viewport-snapshot.js";
 import { ViewportController } from "./viewport-controller.js";
 
-/** `count` rows, optionally all under one chapter. */
-export function syntheticRows(count: number, chapterKey?: string): readonly ViewportRow[] {
+/** `count` rows, optionally all under one run group. */
+export function syntheticRows(count: number, runGroupKey?: string): readonly ViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
-    key: `${chapterKey ?? "row"}-${String(index)}`,
-    parentKey: chapterKey,
+    key: `${runGroupKey ?? "row"}-${String(index)}`,
+    parentKey: runGroupKey,
     rootCursor: `cursor-${String(index)}`,
   }));
 }

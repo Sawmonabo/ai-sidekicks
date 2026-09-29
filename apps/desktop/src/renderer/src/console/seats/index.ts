@@ -265,7 +265,7 @@ export {
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-// The hook's claim is retired: the ledger's pane holds its chapter disclosure and
+// The hook's claim is retired: the ledger's pane holds its run group disclosure and
 // both of its row-retention tables through this line.
 export { isCurrentSessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 export { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";

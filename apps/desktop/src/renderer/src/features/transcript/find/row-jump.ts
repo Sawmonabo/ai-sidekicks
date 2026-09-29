@@ -14,7 +14,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
  * must have words for are therefore the same set, derived from this line rather
  * than restated beside it.
  */
-export const ROW_JUMP_ABSENCES = ["folded-into-chapter", "outside-window"] as const;
+export const ROW_JUMP_ABSENCES = ["folded-into-run-group", "outside-window"] as const;
 
 /** Which narrowing took a row out of the viewport. */
 export type RowJumpAbsence = (typeof ROW_JUMP_ABSENCES)[number];

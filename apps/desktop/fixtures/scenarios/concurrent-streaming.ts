@@ -14,7 +14,7 @@
 //     scenario has always had, and the one every surface built against it expects.
 //   • The other three lanes spin up, and from the architect's `running` transition
 //     onward all four are streaming: thinking, messages, and tool calls interleaved
-//     across four run chapters rather than four runs taken in turn.
+//     across four run groups rather than four runs taken in turn.
 //   • An approval lands MID-STREAM, in four beats: the request, the implementer's run
 //     entering `waiting_for_approval` while the other three keep talking, the grant,
 //     and the return through `running`.
@@ -596,7 +596,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. The person first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.

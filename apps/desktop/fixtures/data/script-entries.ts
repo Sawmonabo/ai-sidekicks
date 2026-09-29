@@ -28,7 +28,7 @@
 //     twice: one in scenario time, one on the frozen clock the fixture reports. A
 //     script that let them disagree would put a row on screen whose timestamp
 //     contradicted the tick it arrived at, and every reading taken from that frame
-//     — a chapter's duration, a seam's position in the log — would be measuring two
+//     — a run group's duration, a seam's position in the log — would be measuring two
 //     different sessions.
 //   • **Entries are held to non-decreasing `atMs`.** The engine delivers beats by
 //     slicing from the delivered count and filtering by due time, so a beat whose

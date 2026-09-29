@@ -267,7 +267,7 @@ describe("which payload member names a row's run", () => {
 
   it("files an intervention under the run it names, beside that run's own rows", () => {
     // The defect: `intervention.*` spells the affected run `targetRunId`, so every
-    // one of them projected as a session-level row and sat outside the run chapter
+    // one of them projected as a session-level row and sat outside the run group
     // it belongs to — on a ledger whose whole shape is runs.
     const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
@@ -280,7 +280,7 @@ describe("which payload member names a row's run", () => {
       projection.rows.map((row) => (row.kind === "run" ? row.runId : undefined)),
     ).toStrictEqual([RUN_ONE, RUN_ONE, RUN_ONE]);
     // And it takes its ordinal in that run's own sequence rather than sitting
-    // outside the counting: chapters fold on this number and bands rank on it.
+    // outside the counting: run groups fold on this number and bands rank on it.
     expect(runOrdinals(projection.rows)).toStrictEqual([
       [0, 0],
       [1, 0],
@@ -306,7 +306,7 @@ describe("which payload member names a row's run", () => {
 
   it("attributes a child run to itself and never to the parent it names", () => {
     // `run.queued` carries `parentRunId` beside its own `runId`. Reading any
-    // run-naming member would file the child's rows in the parent's chapter, which
+    // run-naming member would file the child's rows in the parent's run group, which
     // is the same defect in the other direction. What keeps it out here is the
     // CONTRACT's attributing list, which does not carry that spelling; the
     // decision table's own job is the compile gate `run-attribution.test.ts` drives.

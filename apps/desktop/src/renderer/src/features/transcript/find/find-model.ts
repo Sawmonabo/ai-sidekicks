@@ -24,7 +24,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
  * Declared here because this is where the walk is, and declared at all because it
  * was the family's one closed set restated inline: ten bare unions across six
  * modules and two directories, in a family where every other closed set — the seam
- * kinds, the row offers, the chapter lifecycles — is an `as const` with a
+ * kinds, the row offers, the run group lifecycles — is an `as const` with a
  * derived type. A third direction (a find that jumps to the head) would have meant
  * editing ten declarations with nothing reporting a missed one; from here it is a
  * compile error at every consumer.

@@ -9,7 +9,7 @@
 //
 // AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The counts beside the find
 // field are made of exactly these separations — a match the cap took and one a folded
-// chapter holds are two states with two different exits — so the stage that removed
+// run group holds are two states with two different exits — so the stage that removed
 // the rows is the one that publishes them.
 // Re-deriving the difference downstream re-walked the whole projection on every
 // appended row for as long as a query sat in the field.
@@ -67,11 +67,11 @@ export interface TranscriptFeedWindowsInputs {
  */
 export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
-  readonly chapterDisclosure: RunGroupDisclosure;
-  /** Every member row of every chapter, before any fold. */
+  readonly runGroupDisclosure: RunGroupDisclosure;
+  /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
-  readonly chapterFold: TranscriptPipelineStage;
-  /** The last model window: chapter-folded. */
+  readonly runGroupFold: TranscriptPipelineStage;
+  /** The last model window: folded by run group. */
   readonly ledgerWindow: TranscriptWindowModel;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
@@ -86,18 +86,18 @@ export function useTranscriptFeedWindows(
   // The same reading `<TranscriptReadState>` draws its shells from, so the empty
   // sentence and the loading shells cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
-  // The fold is the MOUNT's, not the log's: which finished chapters a person has
+  // The fold is the MOUNT's, not the log's: which finished run groups a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
-  // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
+  const runGroupDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
+  // THE UNFURLED PROJECTION — every member row of every run group, before any fold.
   const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
-  const chapterFold = useFoldedRunGroups(
+  const runGroupFold = useFoldedRunGroups(
     unfurledWindow,
-    chapterDisclosure.openedTerminalRunIds,
+    runGroupDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
-  const ledgerWindow = chapterFold.window;
+  const ledgerWindow = runGroupFold.window;
   // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
   // publishes reaches a row through the frame's own channel; what it is DOING reaches
   // the viewport as the drain state, which used to be the literal `false` — a default
@@ -129,7 +129,7 @@ export function useTranscriptFeedWindows(
     [diagnosticsSessionId, readWindowDiagnostics],
   );
 
-  // A lane whose row this window no longer holds, or holds only inside a chapter that
+  // A lane whose row this window no longer holds, or holds only inside a run group that
   // has reached its terminal, is a turn that is over: the engine drops it so a
   // finished lane stops costing memory. Asked of the engine's own lanes, which are at
   // most one per streaming row — walking the window instead would be a pass over the
@@ -148,9 +148,9 @@ export function useTranscriptFeedWindows(
 
   return {
     firstReadSettled,
-    chapterDisclosure,
+    runGroupDisclosure,
     unfurledWindow,
-    chapterFold,
+    runGroupFold,
     ledgerWindow,
     reveal,
     viewport,

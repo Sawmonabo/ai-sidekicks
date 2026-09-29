@@ -56,7 +56,7 @@ interface StreamingProbeProps {
 /**
  * One row body over one lane, and nothing else.
  *
- * Deliberately not a `LedgerFeed`: the feed's window, cap and chapters are
+ * Deliberately not a `LedgerFeed`: the feed's window, cap and run groups are
  * asserted at the unit tier over structural stand-ins, and mounting them here would
  * make a regression in any of them look like a reveal regression. What this file
  * needs from the tree is a text node a layout engine paints and an engine that

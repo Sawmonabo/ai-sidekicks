@@ -28,7 +28,7 @@
 //     own reconciled snapshot, after the cap — so the boundary find states is the
 //     boundary that is actually true of what is on screen. Matches outside that window
 //     are counted beside the field rather than walked into and lost — in TWO counts,
-//     because a match the cap took and one a folded chapter holds are two states with
+//     because a match the cap took and one a folded run group holds are two states with
 //     two different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
@@ -91,11 +91,11 @@ export interface TranscriptFeedProps {
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
-  const { chapterDisclosure, ledgerWindow, viewport, visible } = windows;
+  const { runGroupDisclosure, ledgerWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD AND ITS WALK — one seam, wired next door.
   const findAndJump = useTranscriptFindAndJump({
-    foldedAwayRows: windows.chapterFold.removedRows,
+    foldedAwayRows: windows.runGroupFold.removedRows,
     visible,
     jumpToRow,
     focusLedgerSurface: viewport.focusSurface,
@@ -113,8 +113,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     [props.sessionStore],
   );
 
-  const toggleChapter = chapterDisclosure.toggle;
-  const openedTerminalRunIds = chapterDisclosure.openedTerminalRunIds;
+  const toggleRunGroup = runGroupDisclosure.toggle;
+  const openedTerminalRunIds = runGroupDisclosure.openedTerminalRunIds;
   const rowLease = viewport.rowLease;
   const setRowLease = viewport.setRowLease;
   // Named off the props object rather than read through it, because the callback
@@ -128,7 +128,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     ledgerWindow,
     openedTerminalRunIds,
     hueForActor,
-    toggleChapter,
+    toggleRunGroup,
     rowLease,
     renderTimelineRow,
   });
@@ -136,15 +136,15 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // The palette's chords and the session header's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is its own module's.
-  const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;
-  const collapseAllTerminalChapters = useCallback(() => {
-    collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
+  const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
+  const collapseAllTerminalRunGroups = useCallback(() => {
+    collapseAllTerminal([...ledgerWindow.runGroupByHeaderKey.values()]);
   }, [collapseAllTerminal, ledgerWindow]);
   useTranscriptStructureActs({
     find,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
-    collapseAllTerminalChapters,
+    collapseAllTerminalRunGroups,
   });
 
   return (

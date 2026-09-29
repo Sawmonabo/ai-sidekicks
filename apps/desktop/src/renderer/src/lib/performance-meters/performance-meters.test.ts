@@ -183,12 +183,12 @@ describe("the recording and retiring entry points", () => {
     // which is what the release-absence sweep reads.
     expect(developmentPerformanceMeters).not.toBeNull();
     developmentPerformanceMeters?.reset();
-    recordFrameTime("chapter", 9);
-    recordRevealDrain("chapter", 40);
+    recordFrameTime("run-group", 9);
+    recordRevealDrain("run-group", 40);
     recordApplyLatency("run", 3);
     recordStoreSize("run", 128);
-    expect(developmentPerformanceMeters?.reading("frame-time", "chapter")?.latest).toBe(9);
-    expect(developmentPerformanceMeters?.reading("reveal-drain", "chapter")?.latest).toBe(40);
+    expect(developmentPerformanceMeters?.reading("frame-time", "run-group")?.latest).toBe(9);
+    expect(developmentPerformanceMeters?.reading("reveal-drain", "run-group")?.latest).toBe(40);
     expect(developmentPerformanceMeters?.reading("apply-latency", "run")?.latest).toBe(3);
     expect(developmentPerformanceMeters?.reading("store-size", "run")?.latest).toBe(128);
     developmentPerformanceMeters?.reset();

@@ -10,7 +10,7 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { RefusalCard, ErrorBoundary } from "@renderer/console/primitives/index.js";
 
 export interface TranscriptRowGroupProps {
-  /** What failed, in the person's words: "a run chapter", "the streaming message". */
+  /** What failed, in the person's words: "a run group", "the streaming message". */
   readonly groupLabel: string;
   readonly children: React.ReactNode;
 }

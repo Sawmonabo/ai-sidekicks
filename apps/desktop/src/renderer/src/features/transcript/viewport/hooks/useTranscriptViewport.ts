@@ -40,7 +40,7 @@ export interface TranscriptViewportBinding {
   /**
    * Bring one row into view by its key, if this window still holds it.
    *
-   * Keyed rather than indexed because every caller — find's walk, a chapter's
+   * Keyed rather than indexed because every caller — find's walk, a run group's
    * header, a jump by event id — names a ROW, and an index is a fact about the current
    * window that a prune invalidates between the caller reading it and acting on it.
    * The lookup is over the reconciled snapshot, so a key the cap has already

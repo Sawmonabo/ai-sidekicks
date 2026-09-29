@@ -24,9 +24,9 @@ export function jumpOutcomeRowId(outcome: RowJumpOutcome | undefined): string | 
  * Which run group of this window holds a row, if one does.
  *
  * Composes `readRunIdOfGroupedRow` rather than restating its narrowing: which rows carry
- * a run at all is the chapters module's rule, and what this adds is the membership
+ * a run at all is the run groups module's rule, and what this adds is the membership
  * test against the window in hand. Two copies of the narrowing would drift silently —
- * the jump would go on landing correctly while the chapters it opened were decided by
+ * the jump would go on landing correctly while the run groups it opened were decided by
  * a different reading of the same row.
  */
 export function findRunGroupRunIdInWindow(
@@ -37,5 +37,5 @@ export function findRunGroupRunIdInWindow(
   if (runId === undefined) {
     return undefined;
   }
-  return foldedWindow.chapterByHeaderKey.has(runId) ? runId : undefined;
+  return foldedWindow.runGroupByHeaderKey.has(runId) ? runId : undefined;
 }

@@ -2,7 +2,7 @@
 //
 // Two captures. The whole window with the concurrent-streaming session loaded, in both
 // schemes: its claim is a composition (the rail, the session header, the pane layout,
-// the chapters and the agent hues all true at once), which a shot cropped to the
+// the run groups and the agent hues all true at once), which a shot cropped to the
 // transcript's box would miss. It is that scenario because it carries every signature
 // surface at one tick: several runs streaming in their own hues, an approval asked and
 // granted mid-stream, a run parked on a provider quota with its reset instant, a child

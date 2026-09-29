@@ -1,7 +1,7 @@
 // Child runs and handoffs, as structure the ledger can draw.
 //
 // WHAT WAS MISSING. A row carries `childRunSummary` and nothing rendered it: the
-// chapter header raised an incompleteness marker over a whole chapter and the child
+// run group header raised an incompleteness marker over a whole run group and the child
 // run itself — its state, how much it holds, and which node produced it — reached no
 // row at all. A handoff was worse off still: work changing hands read as an ordinary
 // receipt in the log beside every other row.
@@ -98,8 +98,8 @@ export interface HandoffEntry {
   /**
    * The child run this handoff opened, when the row names one.
    *
-   * What the handoff thread is drawn to: the child run's chapter header is keyed by
-   * its run id, so a handoff that names one can be threaded to the chapter it
+   * What the handoff thread is drawn to: the child run's run group header is keyed by
+   * its run id, so a handoff that names one can be threaded to the run group it
    * started and one that does not draws no thread rather than an invented one.
    */
   readonly childRunId: string | undefined;
@@ -254,8 +254,8 @@ interface ChildRunEntryUnderConstruction {
  * The summary is consulted FIRST because it is a parsed contract shape and the
  * payload member is a free-form read: where a row carries both, the one the schema
  * validated wins. Neither is invented from the row's own `runId`, which on these rows
- * is the PARENT — threading a handoff to its own parent chapter would draw a line
- * from a row to the chapter it already sits in.
+ * is the PARENT — threading a handoff to its own parent run group would draw a line
+ * from a row to the run group it already sits in.
  */
 function childRunIdOf(row: TimelineRow): string | undefined {
   return row.childRunSummary?.runId ?? readWireString(projectedPayload(row)["childRunId"]);

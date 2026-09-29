@@ -68,7 +68,7 @@ export class SupersededIndex {
   /**
    * Every band, keyed by the header key the feed dispatches a band header on.
    *
-   * The same shape `RunGroupIndex` publishes for chapters, and for the same
+   * The same shape `RunGroupIndex` publishes for run groups, and for the same
    * reason: the feed's row dispatch is a map read on `row.key`, so a band that wants
    * a header of its own has to be findable by that key and by nothing else.
    */
@@ -93,7 +93,7 @@ export class SupersededIndex {
 /**
  * One band's identity, as one string.
  *
- * PREFIXED, because this key shares a namespace with the chapter header's — which is
+ * PREFIXED, because this key shares a namespace with the run group header's — which is
  * a bare run id — and with every row id, in the one map the feed's dispatch reads. A
  * band is identified by the three members that define it, so two rollbacks to
  * different cutoffs inside one epoch are two bands and stay two headers.

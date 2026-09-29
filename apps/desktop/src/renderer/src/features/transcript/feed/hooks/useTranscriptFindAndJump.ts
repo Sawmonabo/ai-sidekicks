@@ -29,7 +29,7 @@ export interface TranscriptFindAndJump {
 
 /** Wire the find field to the window it searches and the scroll writer it jumps through. */
 export function useTranscriptFindAndJump(inputs: {
-  /** What the chapter fold reported withholding, for the count beside the field. */
+  /** What the run group fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TimelineRow[];
   readonly visible: VisibleTranscriptWindow;
   /** The transcript's ONE scroll writer. Nothing here touches an element. */

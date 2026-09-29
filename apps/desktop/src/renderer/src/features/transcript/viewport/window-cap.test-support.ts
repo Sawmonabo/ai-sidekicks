@@ -18,14 +18,14 @@ import type { WindowRow } from "./window-cap.js";
 /** Top-level rows in the log {@link loadedWindow} is built over. */
 export const TOP_LEVEL_ROW_COUNT = 10_000;
 
-/** Children hanging from each chapter in that log. */
+/** Children hanging from each run group in that log. */
 export const CHILDREN_PER_RUN_GROUP = 3;
 
-/** A log of chapters, each with children, oldest first. */
+/** A log of run groups, each with children, oldest first. */
 export function syntheticWindowRows(topLevelCount: number): readonly WindowRow[] {
   const rows: WindowRow[] = [];
   for (let index = 0; index < topLevelCount; index += 1) {
-    const key = `chapter-${String(index)}`;
+    const key = `run-group-${String(index)}`;
     rows.push({ key, parentKey: undefined, rootCursor: `cursor-${String(index)}` });
     for (let child = 0; child < CHILDREN_PER_RUN_GROUP; child += 1) {
       rows.push({
@@ -39,16 +39,16 @@ export function syntheticWindowRows(topLevelCount: number): readonly WindowRow[]
 }
 
 /**
- * A log of FOLDED chapters, as the ledger emits one: a header row keyed by the run,
+ * A log of FOLDED run groups, as the ledger emits one: a header row keyed by the run,
  * and the terminal receipt hanging from it.
  *
- * The shape `foldChapterHeaders` produces. It is here rather than in the ledger's
+ * The shape `foldRunGroupHeaders` produces. It is here rather than in the ledger's
  * own suite because what it exercises is the CAP's counting rule, and the rule only
  * became reachable when a row started existing for the key every run row names.
  */
-export function foldedRunGroupLog(chapterCount: number): readonly WindowRow[] {
+export function foldedRunGroupLog(runGroupCount: number): readonly WindowRow[] {
   const rows: WindowRow[] = [];
-  for (let index = 0; index < chapterCount; index += 1) {
+  for (let index = 0; index < runGroupCount; index += 1) {
     const runKey = `run-${String(index)}`;
     rows.push({ key: runKey, parentKey: undefined, rootCursor: runKey });
     rows.push({

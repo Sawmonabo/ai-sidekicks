@@ -1,8 +1,8 @@
-// The chapter fold, driven with no store and no React — what it admits per row.
+// The run group fold, driven with no store and no React — what it admits per row.
 //
 // `TranscriptFeed.rows.test.tsx` proves the fold reaches the screen; this file proves what
 // it selects, which the mounted feed cannot show at this size: the cases below need a
-// run longer than the chapter cap, and a virtualized feed mounts a range rather than
+// run longer than the run group cap, and a virtualized feed mounts a range rather than
 // a window whatever the fold admitted.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
@@ -26,14 +26,14 @@ import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
 import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
-const SESSION_ID = "session-chapter-cap";
+const SESSION_ID = "session-run-group-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 const ROWS_PAST_THE_CAP = 5;
 
 /**
  * One finished run of `memberCount` rows, the last of which is its terminal.
  *
- * A single chapter and nothing else, so every figure below is that chapter's: a
+ * A single run group and nothing else, so every figure below is that run group's: a
  * session-scoped row beside it would be counted by the fold's top-level arm and the
  * cap's arithmetic would stop being readable from the totals.
  */
@@ -49,7 +49,7 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
   }));
 }
 
-/** That log, folded, with the chapter open or shut. */
+/** That log, folded, with the run group open or shut. */
 function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
   return foldRunGroupHeaders(
     deriveTranscriptWindow(oneRunLog(memberCount), false),
@@ -57,12 +57,12 @@ function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindo
   ).window;
 }
 
-/** The chapter's rows in the viewport, which is every row hanging off its header. */
+/** The run group's rows in the viewport, which is every row hanging off its header. */
 function renderedMemberKeys(model: TranscriptWindowModel): readonly string[] {
   return model.viewportRows.filter((row) => row.parentKey === RUN_ID).map((row) => row.key);
 }
 
-describe("an opened chapter admits the cap's own window and no more", () => {
+describe("an opened run group admits the cap's own window and no more", () => {
   const OVER_CAP_MEMBER_COUNT = RUN_GROUP_VISIBLE_ROW_CAP + ROWS_PAST_THE_CAP;
 
   it("renders exactly the cap when a run longer than it is opened", () => {
@@ -73,7 +73,7 @@ describe("an opened chapter admits the cap's own window and no more", () => {
   });
 
   it("keeps the newest rows and clips the run's older head", () => {
-    // Newest and not oldest because the chapter body clips behind a TOP-edge fade.
+    // Newest and not oldest because the run group body clips behind a TOP-edge fade.
     // Reading it the other way round would fade a long run's newest work out of view
     // and leave its opening on screen.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
@@ -91,31 +91,31 @@ describe("an opened chapter admits the cap's own window and no more", () => {
 
   it("reports as clipped exactly what it did not render", () => {
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    const chapter = model.chapterByHeaderKey.get(RUN_ID);
-    expect(chapter?.clippedRowCount).toBe(ROWS_PAST_THE_CAP);
-    expect((chapter?.rowCount ?? 0) - renderedMemberKeys(model).length).toBe(
-      chapter?.clippedRowCount,
+    const runGroup = model.runGroupByHeaderKey.get(RUN_ID);
+    expect(runGroup?.clippedRowCount).toBe(ROWS_PAST_THE_CAP);
+    expect((runGroup?.rowCount ?? 0) - renderedMemberKeys(model).length).toBe(
+      runGroup?.clippedRowCount,
     );
   });
 
-  it("opens a chapter under the cap whole", () => {
+  it("opens a run group under the cap whole", () => {
     const memberCount = RUN_GROUP_VISIBLE_ROW_CAP - 1;
     const model = foldedOverOneRun(memberCount, true);
     expect(renderedMemberKeys(model)).toHaveLength(memberCount);
-    expect(model.chapterByHeaderKey.get(RUN_ID)?.clippedRowCount).toBe(0);
+    expect(model.runGroupByHeaderKey.get(RUN_ID)?.clippedRowCount).toBe(0);
   });
 
-  it("negative control: the same chapter shut still renders its receipt alone", () => {
+  it("negative control: the same run group shut still renders its receipt alone", () => {
     // Without this every case above would pass over a fold that had stopped
-    // admitting anything, which is a chapter nobody can open at all.
+    // admitting anything, which is a run group nobody can open at all.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, false);
     expect(renderedMemberKeys(model)).toHaveLength(1);
     expect(model.rows[0]?.type).toBe("run.completed");
   });
 
-  it("negative control: the cap's selector returns a short chapter by identity", () => {
+  it("negative control: the cap's selector returns a short run group by identity", () => {
     // Without this the selection above could have been written as an unconditional
-    // slice, which allocates a second array for every chapter in every fold.
+    // slice, which allocates a second array for every run group in every fold.
     const shortRowIds = ["a", "b", "c"];
     expect(selectRunGroupRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
     expect(
@@ -126,69 +126,69 @@ describe("an opened chapter admits the cap's own window and no more", () => {
   });
 });
 
-describe("a chapter re-sealed over the rows a narrowing admitted", () => {
+describe("a run group re-sealed over the rows a narrowing admitted", () => {
   const MEMBER_COUNT = 6;
 
-  /** The chapter as the fold sealed it, before any narrowing. */
-  function wholeChapter(): NonNullable<ReturnType<typeof chapterOf>> {
-    const chapter = chapterOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT), false));
-    if (chapter === undefined) {
-      throw new Error("the fold produced no chapter for a finished run");
+  /** The run group as the fold sealed it, before any narrowing. */
+  function wholeRunGroup(): NonNullable<ReturnType<typeof runGroupOf>> {
+    const runGroup = runGroupOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT), false));
+    if (runGroup === undefined) {
+      throw new Error("the fold produced no run group for a finished run");
     }
-    return chapter;
+    return runGroup;
   }
 
-  function chapterOf(model: TranscriptWindowModel) {
-    return model.chapterByHeaderKey.get(RUN_ID);
+  function runGroupOf(model: TranscriptWindowModel) {
+    return model.runGroupByHeaderKey.get(RUN_ID);
   }
 
   it("re-counts membership and carries the run's own facts through untouched", () => {
-    const chapter = wholeChapter();
-    const admitted = new Set(chapter.rowIds.slice(0, 2));
-    const narrowed = narrowRunGroupToAdmittedRows(chapter, admitted);
+    const runGroup = wholeRunGroup();
+    const admitted = new Set(runGroup.rowIds.slice(0, 2));
+    const narrowed = narrowRunGroupToAdmittedRows(runGroup, admitted);
     expect(narrowed?.rowCount).toBe(2);
     expect(narrowed?.rowIds).toStrictEqual([...admitted]);
     // Lifecycle and the terminal are facts about the SESSION. Re-deriving them over
     // the admitted rows would turn a finished run live the moment a narrowing
     // excluded its `run.completed` row, and rule 7 would then keep it open forever.
     expect(narrowed?.lifecycle).toBe("terminal");
-    expect(narrowed?.terminalEventType).toBe(chapter.terminalEventType);
-    expect(narrowed?.terminalRowId).toBe(chapter.terminalRowId);
+    expect(narrowed?.terminalEventType).toBe(runGroup.terminalEventType);
+    expect(narrowed?.terminalRowId).toBe(runGroup.terminalRowId);
   });
 
-  it("answers undefined for a chapter the narrowing admits no row of", () => {
-    expect(narrowRunGroupToAdmittedRows(wholeChapter(), new Set<string>())).toBeUndefined();
+  it("answers undefined for a run group the narrowing admits no row of", () => {
+    expect(narrowRunGroupToAdmittedRows(wholeRunGroup(), new Set<string>())).toBeUndefined();
   });
 
-  it("negative control: a narrowing that took nothing returns the chapter by identity", () => {
-    const chapter = wholeChapter();
-    expect(narrowRunGroupToAdmittedRows(chapter, new Set(chapter.rowIds))).toBe(chapter);
+  it("negative control: a narrowing that took nothing returns the run group by identity", () => {
+    const runGroup = wholeRunGroup();
+    expect(narrowRunGroupToAdmittedRows(runGroup, new Set(runGroup.rowIds))).toBe(runGroup);
   });
 });
 
 /**
- * A finished chapter to press the disclosure on.
+ * A finished run group to press the disclosure on.
  *
  * Derived through the real projection rather than written out, so the object the
- * toggle is handed is the one the fold produces — a hand-built chapter would let a
+ * toggle is handed is the one the fold produces — a hand-built run group would let a
  * disclosure that keyed on the wrong member pass.
  */
-function terminalChapter(): RunGroup {
-  const chapter = deriveTranscriptWindow(oneRunLog(3), false).chapterByHeaderKey.get(RUN_ID);
-  if (chapter === undefined) {
-    throw new Error("the fixture log produced no terminal chapter");
+function terminalRunGroup(): RunGroup {
+  const runGroup = deriveTranscriptWindow(oneRunLog(3), false).runGroupByHeaderKey.get(RUN_ID);
+  if (runGroup === undefined) {
+    throw new Error("the fixture log produced no terminal run group");
   }
-  return chapter;
+  return runGroup;
 }
 
 /**
  * The arrangement this hook replaced: both halves held for the life of the MOUNT.
  *
- * Not a stand-in — it drives the real `ChapterCollapseState` and publishes its real
+ * Not a stand-in — it drives the real `RunGroupCollapseState` and publishes its real
  * opened set, and differs in the one thing these cases are about: what the holder is
  * keyed on.
  */
-function useMountScopedChapterDisclosure(): RunGroupDisclosure {
+function useMountScopedRunGroupDisclosure(): RunGroupDisclosure {
   const [collapseState] = useState(() => new RunGroupFoldState());
   const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
@@ -197,11 +197,11 @@ function useMountScopedChapterDisclosure(): RunGroupDisclosure {
     setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
   }, [collapseState]);
   const toggle = useCallback(
-    (chapter: RunGroup) => {
-      if (collapseState.isOpen(chapter)) {
-        collapseState.close(chapter);
+    (runGroup: RunGroup) => {
+      if (collapseState.isOpen(runGroup)) {
+        collapseState.close(runGroup);
       } else {
-        collapseState.open(chapter);
+        collapseState.open(runGroup);
       }
       publish();
     },
@@ -210,7 +210,7 @@ function useMountScopedChapterDisclosure(): RunGroupDisclosure {
   return { openedTerminalRunIds, toggle, collapseAllTerminal: () => undefined };
 }
 
-describe("the chapter disclosure follows the session the pane is a log of", () => {
+describe("the run group disclosure follows the session the pane is a log of", () => {
   const OTHER_SESSION_ID = "session-the-reader-moved-to";
 
   /**
@@ -231,10 +231,10 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
     });
   }
 
-  it("opens the next session's chapters fresh, whatever was opened in the last", () => {
+  it("opens the next session's run groups fresh, whatever was opened in the last", () => {
     const disclosure = mountDisclosureOver(useRunGroupDisclosure);
     act(() => {
-      disclosure.result.current.toggle(terminalChapter());
+      disclosure.result.current.toggle(terminalRunGroup());
     });
     expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
 
@@ -243,16 +243,16 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
     });
 
     // A run id is a fact about the session that minted it, so carrying this set
-    // across opens a chapter of B by a decision made in A and folds every other one.
+    // across opens a run group of B by a decision made in A and folds every other one.
     expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([]);
   });
 
   it("holds a session's own disclosure across a re-render at that same session", () => {
     // The negative control on the SCOPE: without it the fix could be "reset on every
-    // render", which would fold a chapter the moment any row arrived.
+    // render", which would fold a run group the moment any row arrived.
     const disclosure = mountDisclosureOver(useRunGroupDisclosure);
     act(() => {
-      disclosure.result.current.toggle(terminalChapter());
+      disclosure.result.current.toggle(terminalRunGroup());
     });
 
     act(() => {
@@ -263,9 +263,9 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
   });
 
   it("negative control: a mount-scoped holder carries the last session's disclosure", () => {
-    const disclosure = mountDisclosureOver(useMountScopedChapterDisclosure);
+    const disclosure = mountDisclosureOver(useMountScopedRunGroupDisclosure);
     act(() => {
-      disclosure.result.current.toggle(terminalChapter());
+      disclosure.result.current.toggle(terminalRunGroup());
     });
 
     act(() => {

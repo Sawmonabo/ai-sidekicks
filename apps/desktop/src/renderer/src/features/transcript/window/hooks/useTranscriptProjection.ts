@@ -16,7 +16,7 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
  * does not re-project the log. The store replaces the log's identity only when it
  * admits an event, which is what makes the memo fire exactly then.
  *
- * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed chapter will fold
+ * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed run group will fold
  * away. This is the window a narrowing is applied to, so a facet count and a
  * narrowing both see a finished run's messages, tools and users rather than
  * only the receipt its fold would have left.

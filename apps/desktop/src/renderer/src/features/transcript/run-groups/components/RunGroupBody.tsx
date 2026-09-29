@@ -1,6 +1,6 @@
-// The chapter's older head, as a body that scrolls inside itself.
+// The run group's older head, as a body that scrolls inside itself.
 //
-// WHAT IT ANSWERS. A chapter reports how many of its rows the outer list's ceiling
+// WHAT IT ANSWERS. A run group reports how many of its rows the outer list's ceiling
 // left out, and until this component that figure was the whole of what a person got:
 // the rows themselves were dropped out of the feed, so a long run's opening was
 // counted and gone. This is the bounded viewport those rows live in — the same
@@ -25,7 +25,7 @@ import {
 import { type RunGroup } from "../run-groups.js";
 
 export interface RunGroupBodyProps {
-  readonly chapter: RunGroup;
+  readonly runGroup: RunGroup;
   /**
    * How the engine is asked whether it parses the body's height. Defaulted, and
    * overridable only so a test can drive the arm this host's engine does not take.
@@ -34,14 +34,14 @@ export interface RunGroupBodyProps {
 }
 
 /**
- * One chapter's body: its older head, bounded, with the clip said out loud.
+ * One run group's body: its older head, bounded, with the clip said out loud.
  *
- * `null` where the chapter clips nothing, so an ordinary chapter mounts no scroller
+ * `null` where the run group clips nothing, so an ordinary run group mounts no scroller
  * and pays for none.
  */
 export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null {
-  const { chapter } = props;
-  const contents = useMemo(() => chapterBodyContents(chapter), [chapter]);
+  const { runGroup } = props;
+  const contents = useMemo(() => runGroupBodyContents(runGroup), [runGroup]);
   const maxBlockSize = useMemo(
     () => resolveRunGroupBodyHeight(props.supportsDeclaration),
     [props.supportsDeclaration],
@@ -94,23 +94,23 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
 }
 
 /** The head rows this body holds, and how many of the head it could not keep. */
-interface ChapterBodyContents {
+interface RunGroupBodyContents {
   readonly rows: readonly TimelineRow[];
   readonly unheldRowCount: number;
 }
 
 /**
- * What the body draws, derived from the chapter it was handed.
+ * What the body draws, derived from the run group it was handed.
  *
- * The ids come from the chapter's OWN row ids and the rows from the bounded head the
- * fold sealed, which is what makes this right under a narrowing: a filtered chapter
+ * The ids come from the run group's OWN row ids and the rows from the bounded head the
+ * fold sealed, which is what makes this right under a narrowing: a filtered run group
  * carries the admitted ids, so a row the filter excluded is not asked for — and a row
  * older than the sealed head is asked for, not found, and counted as unheld rather
  * than silently omitted.
  */
-function chapterBodyContents(chapter: RunGroup): ChapterBodyContents {
-  const headRowsById = new Map(chapter.clippedHeadRows.map((row) => [row.id, row]));
-  const headRowIds = listClippedHeadRowIds(chapter.rowIds);
+function runGroupBodyContents(runGroup: RunGroup): RunGroupBodyContents {
+  const headRowsById = new Map(runGroup.clippedHeadRows.map((row) => [row.id, row]));
+  const headRowIds = listClippedHeadRowIds(runGroup.rowIds);
   const rows = headRowIds
     .map((rowId) => headRowsById.get(rowId))
     .filter((row): row is TimelineRow => row !== undefined);

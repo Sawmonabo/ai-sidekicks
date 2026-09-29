@@ -72,8 +72,8 @@ function actInputs(
     jumpToTail: () => {
       trace.push("jumpToTail");
     },
-    collapseAllTerminalChapters: () => {
-      trace.push("collapseAllTerminalChapters");
+    collapseAllTerminalRunGroups: () => {
+      trace.push("collapseAllTerminalRunGroups");
     },
   };
 }
@@ -125,10 +125,10 @@ describe("the transcript's acts — what each one reaches", () => {
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
-  it("folds every terminal chapter this feed has open", () => {
+  it("folds every terminal run group this feed has open", () => {
     const trace: ActTrace = [];
     buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
+    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
   });
 
   it("fires nothing merely by being built", () => {
@@ -146,15 +146,15 @@ describe("the transcript's acts — none of them refuses", () => {
     withdrawSink = undefined;
   });
 
-  it("folds the chapters rather than refusing over a control that now exists", () => {
-    // The refusal this replaces said every finished chapter was already folded and
-    // no control opened one. Both halves are false now that a chapter header is a
+  it("folds the run groups rather than refusing over a control that now exists", () => {
+    // The refusal this replaces said every finished run group was already folded and
+    // no control opened one. Both halves are false now that a run group header is a
     // disclosure, so the press does the fold and raises nothing.
     const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
     buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
+    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
     expect(raised).toStrictEqual([]);
   });
 

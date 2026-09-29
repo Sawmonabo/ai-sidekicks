@@ -15,11 +15,11 @@ import {
  * a person through a palette row or a chord, and none has a control on this surface.
  */
 export function useTranscriptStructureActs(inputs: TranscriptStructureActInputs): void {
-  const { find, jumpToRow, jumpToTail, collapseAllTerminalChapters } = inputs;
+  const { find, jumpToRow, jumpToTail, collapseAllTerminalRunGroups } = inputs;
   const acts = useMemo(
     () =>
-      buildTranscriptStructureActs({ find, jumpToRow, jumpToTail, collapseAllTerminalChapters }),
-    [find, jumpToRow, jumpToTail, collapseAllTerminalChapters],
+      buildTranscriptStructureActs({ find, jumpToRow, jumpToTail, collapseAllTerminalRunGroups }),
+    [find, jumpToRow, jumpToTail, collapseAllTerminalRunGroups],
   );
   useMountedTranscript(acts);
 }

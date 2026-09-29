@@ -28,7 +28,7 @@ import {
  * every run-attributed family except interventions, whose registered shape names the run
  * `targetRunId`. The shell read the first member and nothing else, so every
  * `intervention.*` event projected as a session-level `general` row and sat outside
- * the run chapter it belongs to — on a ledger whose whole shape is runs.
+ * the run group it belongs to — on a ledger whose whole shape is runs.
  *
  * CONSUMED RATHER THAN RE-DERIVED, because the contracts package already declares
  * this set once, with its reasoning, in the package that owns the wire. A second
@@ -56,7 +56,7 @@ export type RunAttributionRole = "this-run" | "another-run";
  * Deciding every member rather than listing the attributing ones is what states
  * `parentRunId`'s case at all: `run.queued` carries it beside its own `runId`, and
  * reading whichever run-naming member turned up first would file a child run's rows
- * in its parent's chapter — the same defect pointing the other way. What KEEPS it
+ * in its parent's run group — the same defect pointing the other way. What KEEPS it
  * out at runtime is the contract's own list, which does not carry it; what this
  * table adds is that nobody can add a member to a payload and leave that question
  * unanswered.

@@ -52,7 +52,7 @@ import { type ViewportRow } from "../viewport/viewport-snapshot.js";
  *
  * ONE INSTANCE PER DERIVATION AND NEVER SHARED. The unfurled projection files a run
  * row under its run's parent key and the fold files that same row under `undefined`
- * when its chapter is live, so a single table would answer one of the two stages with
+ * when its run group is live, so a single table would answer one of the two stages with
  * the other's triple and thrash on every pass.
  */
 export class TranscriptRowRetention {
@@ -91,8 +91,8 @@ export class TranscriptRowRetention {
    *
    * ONE METHOD FOR BOTH GROUPS THE FEED FOLDS, because the identity rule is the same
    * for each: the header IS its group, so it is keyed by the group's own key — the
-   * run id for a chapter, which is the key `readRunGroupKey` already hands that
-   * chapter's rows as their parent, and `supersededBandKey`'s composite for a
+   * run id for a run group, which is the key `readRunGroupKey` already hands that
+   * run group's rows as their parent, and `supersededBandKey`'s composite for a
    * rewound band — and it is its own cut unit, so pruning it takes its subtree with
    * it. A second method with this body would be one implementation of one job
    * written twice.

@@ -57,7 +57,7 @@ describe("the walk when the result moves under it", () => {
    *
    * The fold REPORTS what it removed, which is what the hook counts, so a prefix models
    * the pipeline exactly at this seam: the rows the fold took are the unfurled log's tail
-   * past the folded one. Building a terminal run chapter would produce the same set and
+   * past the folded one. Building a terminal run group would produce the same set and
    * nothing else.
    */
   function findOverPipeline(stages: {
@@ -120,7 +120,7 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
   });
 
-  it("counts matches a folded chapter is holding", () => {
+  it("counts matches a folded run group is holding", () => {
     // Every finished run folds by default, so on a completed session most of the log is
     // behind a run group header and this is most of the matches.
     const { result } = findOverPipeline({ unfurled: 10, folded: 8 });

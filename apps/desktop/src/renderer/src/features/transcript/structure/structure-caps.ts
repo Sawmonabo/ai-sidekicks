@@ -1,30 +1,30 @@
-// The ledger structure's bounds: the chapter's two row caps and the find walk.
+// The ledger structure's bounds: the run group's two row caps and the find walk.
 //
 // Spent inside `ledger/structure/`.
 
 /**
- * Rows a single chapter renders before its body clips.
+ * Rows a single run group renders before its body clips.
  *
- * The cap on a chapter's visible rows, held here rather than inside the fold so the
- * bound sits beside the rest of the structure family's. A chapter is a nested scroller, so the
+ * The cap on a run group's visible rows, held here rather than inside the fold so the
+ * bound sits beside the rest of the structure family's. A run group is a nested scroller, so the
  * cap is not about what fits on screen — it is about how many rows one run may
  * mount at once while three sibling runs stream beside it. 120 is four screens of
- * ledger at this density: enough that scrolling inside a chapter is reading
- * rather than paging, and far short of the point where four live chapters cost a
+ * ledger at this density: enough that scrolling inside a run group is reading
+ * rather than paging, and far short of the point where four live run groups cost a
  * frame.
  */
 export const RUN_GROUP_VISIBLE_ROW_CAP = 120;
 /**
- * Rows one chapter's body holds at all — the mounted window and the head above it.
+ * Rows one run group's body holds at all — the mounted window and the head above it.
  *
  * TWICE the visible cap, and it is a derivation rather than a second number: a
- * chapter body retains what it is showing plus the clipped head a reader scrolls
+ * run group body retains what it is showing plus the clipped head a reader scrolls
  * back up into, and both are bounded by the same figure. Writing it as a product
  * keeps the two in step, so moving the visible cap moves this with it.
  *
  * It is a cap in its own right because it is what the body's ring is SIZED at: the
  * ring is allocated once at this length and then written in place, so nothing about
- * a chapter's retention grows with how long its run streams for.
+ * a run group's retention grows with how long its run streams for.
  */
 export const RUN_GROUP_BODY_RETAINED_ROW_CAP: number = RUN_GROUP_VISIBLE_ROW_CAP * 2;
 /**

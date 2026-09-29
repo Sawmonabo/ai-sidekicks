@@ -11,7 +11,7 @@
 // WHY IT IS GENERATED RATHER THAN WRITTEN
 //
 // Ten thousand hand-written beats would be an unreadable file, and worse, an
-// unfaithful one: what the ledger has to survive is a session with MANY CHAPTERS —
+// unfaithful one: what the ledger has to survive is a session with MANY RUN GROUPS —
 // runs opening, streaming, and folding to receipts — not one run with ten thousand
 // rows under it, and hand-writing that shape at scale guarantees the pattern drifts
 // somewhere in the middle where nobody reads.
@@ -99,8 +99,8 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
  * The body a run streams between `running` and `completed`, as a repeating cycle.
  *
  * Eight entries rather than four, so the generated log is not two alternating rows
- * repeated forever: a chapter carries thinking, prose, three tool calls of which
- * one fails, and one compaction seam. That mix is what the chapter fold folds, what
+ * repeated forever: a run group carries thinking, prose, three tool calls of which
+ * one fails, and one compaction seam. That mix is what the run group fold folds, what
  * the find field searches, and what the row-height ledger has to measure — a uniform
  * body would have every one of them measuring its easiest case.
  */
@@ -110,15 +110,15 @@ const ENDURANCE_BODY_CYCLE_LENGTH = 8;
 interface TranscriptEnduranceFixtureOptions {
   /** Exactly how many beats the generated scenario plays. */
   readonly rowCount: number;
-  /** How many run chapters those beats are spread across. Defaults to 24. */
+  /** How many run groups those beats are spread across. Defaults to 24. */
   readonly runCount?: number;
 }
 
-/** The default chapter count: enough that no fold, cap, or index sees one run. */
+/** The default run group count: enough that no fold, cap, or index sees one run. */
 const DEFAULT_ENDURANCE_RUN_COUNT = 24;
 
 /**
- * A generated session of exactly `rowCount` beats, spread over `runCount` chapters.
+ * A generated session of exactly `rowCount` beats, spread over `runCount` run groups.
  *
  * The count is EXACT rather than approximate, and that is what makes it useful: an
  * endurance reading names the row count it was taken at, and a generator that
@@ -212,7 +212,7 @@ export function createTranscriptEnduranceFixture(
   return {
     id: "transcript-endurance",
     label: "Endurance",
-    purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the transcript at scale.`,
+    purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run groups, for the tiers that measure the transcript at scale.`,
     sessionId: SESSION_ID,
     userIdsInJoinOrder: [USER_YOU, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
     callerUserId: USER_YOU,

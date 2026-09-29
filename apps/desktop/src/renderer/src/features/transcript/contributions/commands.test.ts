@@ -116,7 +116,7 @@ describe("ledger commands — the rows themselves", () => {
       ["transcript.findNext", "stepFindNext"],
       ["transcript.findPrevious", "stepFindPrevious"],
       ["transcript.scrollToTail", "jumpToLatest"],
-      ["transcript.collapseTerminalChapters", "foldEveryRun"],
+      ["transcript.collapseTerminalRunGroups", "foldEveryRun"],
     ];
     for (const [commandId, actName] of expectations) {
       const fired: string[] = [];

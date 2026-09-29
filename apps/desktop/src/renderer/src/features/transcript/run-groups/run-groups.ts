@@ -1,26 +1,26 @@
-// Run chapters — the fold that makes parallel runs read as parallel stories.
+// Run groups — the fold that makes parallel runs read as parallel stories.
 //
-// The collapse behavior is fixed: run chapters collapse once terminal and the live
-// chapter stays open. THE GROUPING IS THIS MODULE'S: a run's rows sit under one chapter
-// header so parallel runs read as parallel stories, one chapter per run, a terminal
-// chapter folded to a header and a past-tense receipt, and nothing re-ordered.
+// The collapse behavior is fixed: run groups collapse once terminal and the live
+// run group stays open. THE GROUPING IS THIS MODULE'S: a run's rows sit under one run group
+// header so parallel runs read as parallel stories, one run group per run, a terminal
+// run group folded to a header and a past-tense receipt, and nothing re-ordered.
 //
 // THREE RULES THIS MODULE ENCODES STRUCTURALLY, because each of them is a way the
 // fold could quietly lie:
 //
 //   • **`runId` and nothing else.** A row joins a
-//     chapter by its carried `runId` and never by a heuristic. `TimelineRow` makes
+//     run group by its carried `runId` and never by a heuristic. `TimelineRow` makes
 //     that checkable rather than aspirational — three of its four arms carry
 //     `runId` as a required member of the arm, and the fourth (`general`) is the
 //     NON-run arm by construction, so a general row cannot be guessed into a
-//     chapter because it has nothing to guess from.
-//   • **Order is the log's order.** Rows keep their sequence inside a chapter and
-//     chapters keep the order their first row arrived in. The fold partitions; it
+//     run group because it has nothing to guess from.
+//   • **Order is the log's order.** Rows keep their sequence inside a run group and
+//     run groups keep the order their first row arrived in. The fold partitions; it
 //     never sorts.
-//   • **The live chapter never collapses.** Collapse state is a separate MODULE
+//   • **The live run group never collapses.** Collapse state is a separate MODULE
 //     from the fold — `run-group-fold-state.ts` — and its `isOpen` answers `true` for a
-//     live chapter before it reads any stored state at all, so "never collapses the
-//     live chapter" is a branch that cannot be reached rather than a rule a caller
+//     live run group before it reads any stored state at all, so "never collapses the
+//     live run group" is a branch that cannot be reached rather than a rule a caller
 //     has to remember.
 //
 // WHAT THIS MODULE IS NOT. It renders nothing. The header — the agent's name and
@@ -43,10 +43,10 @@ import {
 } from "./run-lifecycle-events.js";
 
 /**
- * Whether a chapter is still being written.
+ * Whether a run group is still being written.
  *
  * Two values, and the distinction is the whole of rule 7's collapse behavior: a
- * terminal chapter folds to one line and a live one stays open.
+ * terminal run group folds to one line and a live one stays open.
  */
 export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;
 
@@ -54,10 +54,10 @@ export type RunGroupLifecycle = (typeof RUN_GROUP_LIFECYCLES)[number];
 
 /** One run's rows, folded. */
 export interface RunGroup {
-  /** The run this chapter is, wire-verbatim. The only thing rows are grouped by. */
+  /** The run this run group is, wire-verbatim. The only thing rows are grouped by. */
   readonly runId: string;
   /**
-   * The chapter's rows, in the order they arrived. Cached on the chapter rather
+   * The run group's rows, in the order they arrived. Cached on the run group rather
    * than recomputed per read — this module's cached row-id arrays — so a header that
    * renders a row count and a body that maps over ids read one array.
    */
@@ -67,7 +67,7 @@ export interface RunGroup {
    * Rows the outer list's ceiling left out, which the body clips behind a top-edge
    * fade and scrolls to. Counted by the same rule the body's window is cut with —
    * `countClippedHeadRows`, which the selection itself defers to — so the figure
-   * and the rows cannot disagree; reported rather than dropped, because a chapter that
+   * and the rows cannot disagree; reported rather than dropped, because a run group that
    * hid rows silently would make its own row count a lie.
    */
   readonly clippedRowCount: number;
@@ -83,7 +83,7 @@ export interface RunGroup {
    * where no row in the window carried one and after a rewind that cleared it.
    *
    * It is not `terminalEventType` under another name: a terminal is one of these and
-   * a live run's state is not, so a chapter that has never ended still has a state to
+   * a live run's state is not, so a run group that has never ended still has a state to
    * say. The header renders this and nothing about it is composed here.
    */
   readonly runStateEventType: string | undefined;
@@ -97,7 +97,7 @@ export interface RunGroup {
    * The rows immediately older than the ones the outer list mounted, oldest first and
    * bounded by the same ceiling.
    *
-   * The body's window, sealed here so the component that draws it asks the chapter
+   * The body's window, sealed here so the component that draws it asks the run group
    * rather than re-reading the log. It is a SUBSET of what `clippedRowCount` counts:
    * a run long enough to outrun both bounds has older rows than these, and the body
    * says so rather than implying the head is all there was.
@@ -113,7 +113,7 @@ export interface RunGroup {
    * The row that ENDED it, or `undefined` while live.
    *
    * Carried as a row id rather than re-derived from the terminal event type,
-   * because a folded chapter renders its header and that row and nothing else —
+   * because a folded run group renders its header and that row and nothing else —
    * and a fold that had to scan for its own receipt would be a second reading of
    * the terminal that the seal already performed.
    */
@@ -123,7 +123,7 @@ export interface RunGroup {
   readonly firstTimestamp: string;
   readonly lastTimestamp: string;
   /**
-   * A child run this chapter summarizes whose expansion is incomplete
+   * A child run this run group summarizes whose expansion is incomplete
    * — the marked state this console gives a partial expansion. Read off
    * `TimelineRow.childRunSummary`, which is where the wire says so.
    *
@@ -137,19 +137,19 @@ export interface RunGroup {
   readonly hasIncompleteChildExpand: boolean;
 }
 
-/** What a fold produced: the chapters, and the rows that belong to none. */
+/** What a fold produced: the run groups, and the rows that belong to none. */
 export interface RunGroupFold {
-  readonly chapters: readonly RunGroup[];
+  readonly runGroups: readonly RunGroup[];
   /**
-   * Rows carrying no run attribution — the `general` arm. They are NOT a chapter
+   * Rows carrying no run attribution — the `general` arm. They are NOT a run group
    * and are deliberately not folded into one: a session-scoped row inside a run's
-   * chapter would attribute it to that run.
+   * run group would attribute it to that run.
    */
-  readonly unchapteredRowIds: readonly string[];
+  readonly ungroupedRowIds: readonly string[];
 }
 
 /**
- * The chapter fold over one loaded window.
+ * The run group fold over one loaded window.
  *
  * A class rather than a function because the fold is read several times per frame
  * — the header wants counts, the body wants row ids, the collapse state wants
@@ -162,33 +162,33 @@ export class RunGroupIndex {
   readonly #rows: readonly TimelineRow[];
   /** The lazy completion index. Undefined until the first read folds it. */
   #fold: RunGroupFold | undefined;
-  #chapterByRunId: ReadonlyMap<string, RunGroup> | undefined;
+  #runGroupByRunId: ReadonlyMap<string, RunGroup> | undefined;
 
   public constructor(rows: readonly TimelineRow[]) {
     this.#rows = rows;
   }
 
-  /** Every chapter, in the order each run's first row arrived. */
-  public chapters(): readonly RunGroup[] {
-    return this.#foldOnce().chapters;
+  /** Every run group, in the order each run's first row arrived. */
+  public runGroups(): readonly RunGroup[] {
+    return this.#foldOnce().runGroups;
   }
 
   /** Rows carrying no run attribution, in log order. */
-  public unchapteredRowIds(): readonly string[] {
-    return this.#foldOnce().unchapteredRowIds;
+  public ungroupedRowIds(): readonly string[] {
+    return this.#foldOnce().ungroupedRowIds;
   }
 
-  /** One chapter by run, or `undefined` when the window holds none of that run. */
-  public chapterFor(runId: string): RunGroup | undefined {
-    this.#chapterByRunId ??= new Map(
-      this.#foldOnce().chapters.map((chapter) => [chapter.runId, chapter]),
+  /** One run group by run, or `undefined` when the window holds none of that run. */
+  public runGroupFor(runId: string): RunGroup | undefined {
+    this.#runGroupByRunId ??= new Map(
+      this.#foldOnce().runGroups.map((runGroup) => [runGroup.runId, runGroup]),
     );
-    return this.#chapterByRunId.get(runId);
+    return this.#runGroupByRunId.get(runId);
   }
 
-  /** Chapters that have ended. The input to "collapse all terminal chapters". */
-  public terminalChapters(): readonly RunGroup[] {
-    return this.#foldOnce().chapters.filter((chapter) => chapter.lifecycle === "terminal");
+  /** Run groups that have ended. The input to "collapse all terminal run groups". */
+  public terminalRunGroups(): readonly RunGroup[] {
+    return this.#foldOnce().runGroups.filter((runGroup) => runGroup.lifecycle === "terminal");
   }
 
   #foldOnce(): RunGroupFold {
@@ -209,20 +209,20 @@ export function readRunIdOfGroupedRow(row: TimelineRow): string | undefined {
 }
 
 /**
- * Partition one loaded window into chapters.
+ * Partition one loaded window into run groups.
  *
  * Exported beside the class so the derivation can be driven directly by a test
  * and by the bench tier without constructing an index — the class is the memo,
  * this is the fold, and there is exactly one of each.
  */
 export function groupRowsByRun(rows: readonly TimelineRow[]): RunGroupFold {
-  const accumulatorsByRunId = new Map<string, ChapterAccumulator>();
-  const unchapteredRowIds: string[] = [];
+  const accumulatorsByRunId = new Map<string, RunGroupAccumulator>();
+  const ungroupedRowIds: string[] = [];
 
   for (const row of rows) {
     const runId = readRunIdOfGroupedRow(row);
     if (runId === undefined) {
-      unchapteredRowIds.push(row.id);
+      ungroupedRowIds.push(row.id);
       continue;
     }
     const existing = accumulatorsByRunId.get(runId);
@@ -234,13 +234,13 @@ export function groupRowsByRun(rows: readonly TimelineRow[]): RunGroupFold {
   }
 
   return {
-    chapters: [...accumulatorsByRunId.values()].map(sealChapter),
-    unchapteredRowIds,
+    runGroups: [...accumulatorsByRunId.values()].map(sealRunGroup),
+    ungroupedRowIds,
   };
 }
 
-/** A chapter under construction. Mutable only inside the fold. */
-interface ChapterAccumulator {
+/** A run group under construction. Mutable only inside the fold. */
+interface RunGroupAccumulator {
   readonly runId: string;
   readonly rowIds: string[];
   actorId: string | undefined;
@@ -248,17 +248,17 @@ interface ChapterAccumulator {
   terminalRowId: string | undefined;
   runStateEventType: string | undefined;
   payingAccountId: string | undefined;
-  /** The bounded head this chapter's body will draw. Fed one row at a time. */
+  /** The bounded head this run group's body will draw. Fed one row at a time. */
   readonly bodyRows: RunGroupBodyRowWindow;
   firstSequence: number;
   lastSequence: number;
   firstTimestamp: string;
   lastTimestamp: string;
   /**
-   * The LATEST completeness this chapter's rows reported for each child run.
+   * The LATEST completeness this run group's rows reported for each child run.
    *
    * Per child and replaced in row order rather than folded into a boolean, because the
-   * question the header asks — is any child of this chapter still partly expanded — is
+   * question the header asks — is any child of this run group still partly expanded — is
    * a question about the current readings and not about every reading there has ever
    * been. Keyed by the child's own run id, which is the key
    * `child-runs/child-run-entries.ts` re-summarizes on, so the header and the card
@@ -267,7 +267,7 @@ interface ChapterAccumulator {
   readonly childExpandCompletenessByChildRunId: Map<string, ChildRunCompleteness["state"]>;
 }
 
-function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
+function newAccumulator(runId: string, row: TimelineRow): RunGroupAccumulator {
   return {
     runId,
     rowIds: [],
@@ -285,17 +285,17 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
   };
 }
 
-function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
+function absorbRow(accumulator: RunGroupAccumulator, row: TimelineRow): void {
   accumulator.rowIds.push(row.id);
   accumulator.bodyRows.admit(row);
   // First naming wins, for the actor's reason one line down and for one of its own:
   // the account is settled when the run is admitted, so a later row naming another
   // would be a run that changed who pays while it ran.
   accumulator.payingAccountId ??= payingAccountIdOf(row);
-  // First actor wins. A chapter is one run and a run has one agent; a later row
-  // naming a different actor is a human steering inside the agent's chapter,
+  // First actor wins. A run group is one run and a run has one agent; a later row
+  // naming a different actor is a human steering inside the agent's run group,
   // which stays on the ROW's own 2 px attribution edge in the author's hue rather
-  // than moving the chapter's
+  // than moving the run group's
   // header onto the person who interrupted it.
   accumulator.actorId ??= row.actor;
   if (isRunStateEventType(row.type)) {
@@ -304,7 +304,7 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
     accumulator.runStateEventType = row.type;
   } else if (row.type === "run.rolled_back") {
     // A rewind says the run came back and not what it came back into, so the state it
-    // had is cleared rather than kept: a chapter reporting `run.completed` after the
+    // had is cleared rather than kept: a run group reporting `run.completed` after the
     // completion was rewound would be reading a receipt the daemon already undid.
     accumulator.runStateEventType = undefined;
   }
@@ -316,7 +316,7 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   } else if (isReopeningEventType(row.type)) {
     // And a run that came BACK clears the one it had, in the same act for the same
     // reason. Cleared rather than remembered as a previous ending: the header renders
-    // one receipt from these two members, and a chapter that is live has no receipt
+    // one receipt from these two members, and a run group that is live has no receipt
     // to render. A later ending seals it again through the arm above.
     accumulator.terminalEventType = undefined;
     accumulator.terminalRowId = undefined;
@@ -339,7 +339,7 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   }
 }
 
-function sealChapter(accumulator: ChapterAccumulator): RunGroup {
+function sealRunGroup(accumulator: RunGroupAccumulator): RunGroup {
   const rowCount = accumulator.rowIds.length;
   return {
     runId: accumulator.runId,
@@ -357,7 +357,7 @@ function sealChapter(accumulator: ChapterAccumulator): RunGroup {
     lastSequence: accumulator.lastSequence,
     firstTimestamp: accumulator.firstTimestamp,
     lastTimestamp: accumulator.lastTimestamp,
-    // Derived at the seal beside the chapter's other derived members, from the map the
+    // Derived at the seal beside the run group's other derived members, from the map the
     // fold advanced — never from a second walk over the rows, which would be a second
     // reading of the same member with its own chance to disagree.
     hasIncompleteChildExpand: [...accumulator.childExpandCompletenessByChildRunId.values()].some(

@@ -1,13 +1,13 @@
 // The transcript-states scenario: three lanes ending in three different conditions.
 //
-// The session the ledger frame, the chapters, and the seams are all measured
+// The session the ledger frame, the run groups, and the seams are all measured
 // against. Each lane ends somewhere different, and the three
 // endings are exactly the ones a reader has to be able to tell apart in one frame:
 //
 //   • The implementer's run runs, blocks on an approval, unblocks, is rewound past
-//     a boundary, re-executes, and finishes — so its chapter is TERMINAL and folds
+//     a boundary, re-executes, and finishes — so its run group is TERMINAL and folds
 //     to a one-line past-tense receipt, with a superseded band inside it.
-//   • The reviewer's run runs, fails a tool call, and is PAUSED — so its chapter
+//   • The reviewer's run runs, fails a tool call, and is PAUSED — so its run group
 //     carries the pause seam and stays parked at the frozen tick.
 //   • The architect's run is still LIVE at the last beat, mid-turn, so the frame
 //     always has something streaming in it.
@@ -38,7 +38,7 @@
 //     the log can tell.
 //   • **A cost or token reading.** Not because the members are unnamed — the taxonomy
 //     leg names them, and `concurrent-streaming.ts` meters a cost against exactly that row
-//     — but because this session's subject is the transcript frame, the chapters and the
+//     — but because this session's subject is the transcript frame, the run groups and the
 //     seams, and the meter is not on any of them. Concurrent streaming is
 //     the scenario that moves the meter; a second one here would be a reading no surface
 //     in this session's frame reads. Scripting one would carry every member
@@ -515,7 +515,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   id: TRANSCRIPT_STATES_SCENARIO_ID,
   label: "Three lanes",
   purpose:
-    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters and the seams all have something to render.",
+    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
   // Join order IS hue order: the person first, then the agents in attach order,
   // which is what a real session's join log looks like.

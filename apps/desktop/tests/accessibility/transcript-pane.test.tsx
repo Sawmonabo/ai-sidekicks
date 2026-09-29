@@ -89,7 +89,7 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Trans
 /**
  * A real store holding the whole of one scenario's log.
  *
- * Real rather than a stand-in, because the projection, the chapter fold and the
+ * Real rather than a stand-in, because the projection, the run group fold and the
  * superseded index all run over what this returns — and a fake
  * store would let every one of them be wrong together while axe reported a clean
  * document. The quiet scenario scripts no beats at all, which is exactly how the

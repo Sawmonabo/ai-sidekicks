@@ -22,7 +22,7 @@ export const SESSION_ID = "session-ledger-feed";
  * itself: six byte-identical `at` helpers and four inlined copies of the same
  * `Date.UTC` call. Move the epoch — which a case wanting two sessions on different
  * days would — and ten sites have to move together; miss one and the ordering
- * assertions still pass while the chapter boundaries silently shift.
+ * assertions still pass while the run group boundaries silently shift.
  *
  * `Date.UTC` rather than a parsed literal, for `ledger-cast.ts`' reason: `Date.parse`
  * reads a timezone-less stamp in the host's zone, so a fixture that parsed its own
@@ -64,10 +64,10 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
   return sessionStore;
 }
 
-/** A run that has ENDED, so a case can name the chapter it expects a header for. */
+/** A run that has ENDED, so a case can name the run group it expects a header for. */
 export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 
-/** A run still going, so a case can tell an open chapter from a closed one. */
+/** A run still going, so a case can tell an open run group from a closed one. */
 export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 
 /**
@@ -111,7 +111,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
   return sessionStore;
 }
 
-/** A log of general rows, so no chapter is open and the cap may actually apply. */
+/** A log of general rows, so no run group is open and the cap may actually apply. */
 export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: -1, entities: [] });

@@ -77,7 +77,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
     const idsOf = (admitted: readonly TimelineRow[] | undefined): ReadonlySet<string> =>
       new Set((admitted ?? rows).map((row) => row.id));
     return {
-      "folded-into-chapter": idsOf(admissions.fold),
+      "folded-into-run-group": idsOf(admissions.fold),
       "outside-window": idsOf(admissions.viewport),
     };
   }
@@ -86,12 +86,12 @@ describe("a jump by id names which narrowing is hiding the row", () => {
     expect(jumpToEventId(rows, stagesOver({}), "a1").status).toBe("found");
   });
 
-  it("names the chapter fold and the cap, each for its own stage", () => {
+  it("names the run group fold and the cap, each for its own stage", () => {
     // Each stage is the only one narrowed in its case, so the answer can come from
     // nowhere else.
     const foldedAway = rows.filter((row) => row.id !== "b1");
     expect(jumpToEventId(rows, stagesOver({ fold: foldedAway }), "b1").status).toBe(
-      "folded-into-chapter",
+      "folded-into-run-group",
     );
     expect(jumpToEventId(rows, stagesOver({ viewport: foldedAway }), "b1").status).toBe(
       "outside-window",
@@ -104,7 +104,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
     // offer no act where opening the group reaches it.
     const withoutB1 = rows.filter((row) => row.id !== "b1");
     const outcome = jumpToEventId(rows, stagesOver({ fold: withoutB1, viewport: withoutB1 }), "b1");
-    expect(outcome.status).toBe("folded-into-chapter");
+    expect(outcome.status).toBe("folded-into-run-group");
   });
 
   it("separates an id this window never held from every narrowing", () => {

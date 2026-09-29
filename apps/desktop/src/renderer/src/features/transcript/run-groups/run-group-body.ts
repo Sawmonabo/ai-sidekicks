@@ -1,8 +1,8 @@
-// The chapter body's own viewport: how tall it is, what it holds, and what it says
+// The run group body's own viewport: how tall it is, what it holds, and what it says
 // about the rows it does not hold.
 //
-// WHY A CHAPTER SCROLLS INSIDE ITSELF. `structure-caps.ts`
-// fixes the chapter's row
+// WHY A RUN GROUP SCROLLS INSIDE ITSELF. `structure-caps.ts`
+// fixes the run group's row
 // ceiling and says why in its own words — the cap "is not about what fits on screen,
 // it is about how many rows one run may mount at once while three sibling runs stream
 // beside it". Until this module the ceiling had only one half of that: the rows past
@@ -14,14 +14,14 @@
 // THREE DECISIONS LIVE HERE.
 //
 //   • **The height is a CSS length the engine agreed to.** It is stated in viewport
-//     units so a chapter takes the same share of a tall pane and a short one, and it
+//     units so a run group takes the same share of a tall pane and a short one, and it
 //     is VALIDATED before it is applied: an engine that does not parse the expression
 //     drops the whole declaration, which would leave the body unbounded and put a
 //     4,000-row run back in the outer list. The fallback is a plain `rem` length that
 //     every engine parses, so the failure mode is a body of a fixed height rather
 //     than no body bound at all.
 //   • **The re-pin is the engine's scroll anchoring, declared rather than assumed.**
-//     A chapter's body changes height whenever a row above the reading position
+//     A run group's body changes height whenever a row above the reading position
 //     settles, and the reading position has to survive that. `overflow-anchor` is the
 //     mechanism the platform gives for exactly this, and the ledger's scroll offsets
 //     are written in one module (`frame/scroll/scroll-chokepoint.ts`) — so a second
@@ -39,11 +39,11 @@ import {
 } from "../structure/structure-caps.js";
 
 /**
- * The chapter body's height, as a CSS length.
+ * The run group body's height, as a CSS length.
  *
  * `svh` rather than `vh` because a desktop pane is not the visual viewport and the
  * small-viewport unit is the one that does not change under a retracting chrome. The
- * `min()` keeps a chapter from taking most of a tall display: past two dozen lines a
+ * `min()` keeps a run group from taking most of a tall display: past two dozen lines a
  * body stops being a passage somebody reads and becomes a second feed.
  */
 export const RUN_GROUP_BODY_INTRINSIC_HEIGHT = "min(38svh, 24rem)";
@@ -98,7 +98,7 @@ export function resolveRunGroupBodyHeight(
 }
 
 /**
- * The head of a chapter with nothing in it. One frozen value, so a caller that
+ * The head of a run group with nothing in it. One frozen value, so a caller that
  * memoizes on the result is not handed a new identity for the same nothing.
  */
 const EMPTY_HEAD: readonly string[] = Object.freeze([]);
@@ -107,14 +107,14 @@ const EMPTY_HEAD: readonly string[] = Object.freeze([]);
 const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
 
 /**
- * The rows a chapter's body can still reach, collected as the fold absorbs them.
+ * The rows a run group's body can still reach, collected as the fold absorbs them.
  *
  * WHY A BOUNDED COLLECTOR AND NOT THE WHOLE RUN. The body is a viewport and not an
  * archive: it holds the rows immediately older than the ones the outer list mounted,
  * which is what a person scrolls up into. Keeping every row of a 4,000-row run so a
- * 120-row window could be cut from it would double the fold's per-chapter references
+ * 120-row window could be cut from it would double the fold's per-run-group references
  * to hold rows nothing can draw. One bounded ring holds what the body needs and the
- * chapter's own `clippedRowCount` says how much older history there is beyond it, so
+ * run group's own `clippedRowCount` says how much older history there is beyond it, so
  * the body can name what it does not hold rather than implying it does not exist.
  *
  * ONE RING AND NOT TWO QUEUES, WHICH IS A COST RULE AND NOT A STYLE ONE. The first
@@ -122,7 +122,7 @@ const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
  * between them with `shift()`, which is linear in the array it empties from the front:
  * every row past the cap paid two 120-element moves, so a ten-thousand-row fold spent
  * about two and a half milliseconds moving rows it had already placed. The rows this
- * window keeps are exactly the newest two caps of the chapter, so ONE ring of that
+ * window keeps are exactly the newest two caps of the run group, so ONE ring of that
  * length holds them with a single write per row and no movement at all, and the head
  * is cut out of it once, at the seal, where the caller asks for it.
  */
@@ -132,7 +132,7 @@ export class RunGroupBodyRowWindow {
   /** Where the oldest retained row sits. Zero until the ring has filled once. */
   #oldestIndex = 0;
 
-  /** Admit one row of the chapter, in log order. Constant cost, whatever the run. */
+  /** Admit one row of the run group, in log order. Constant cost, whatever the run. */
   public admit(row: TimelineRow): void {
     if (this.#retained.length < RUN_GROUP_BODY_RETAINED_ROW_CAP) {
       this.#retained.push(row);
@@ -146,8 +146,8 @@ export class RunGroupBodyRowWindow {
    * The head rows this window still holds, oldest first.
    *
    * Cut here rather than maintained on every admit: the caller asks once, when it
-   * seals the chapter, and the ring already holds the rows in the order this walks
-   * them in. A chapter under the cap answers the shared empty value, so a memo over an
+   * seals the run group, and the ring already holds the rows in the order this walks
+   * them in. A run group under the cap answers the shared empty value, so a memo over an
    * empty head does not re-run when the log grows.
    */
   public get headRows(): readonly TimelineRow[] {
@@ -160,7 +160,7 @@ export class RunGroupBodyRowWindow {
     for (let offset = 0; offset < headCount; offset += 1) {
       const row = this.#retained[(this.#oldestIndex + offset) % retainedCount];
       if (row === undefined) {
-        throw new Error("A chapter body's row ring held a gap where a row was admitted");
+        throw new Error("A run group body's row ring held a gap where a row was admitted");
       }
       head.push(row);
     }
@@ -169,26 +169,26 @@ export class RunGroupBodyRowWindow {
 }
 
 /**
- * How many rows of a chapter fall outside the cap, from the chapter's own length.
+ * How many rows of a run group fall outside the cap, from the run group's own length.
  *
- * THE ONE RULE, AND THE COUNT IS ASKED WITHOUT CUTTING. The figure beside a chapter's
+ * THE ONE RULE, AND THE COUNT IS ASKED WITHOUT CUTTING. The figure beside a run group's
  * header is a count and the body's list is a selection, and until this existed the
  * count was taken by cutting the selection and reading its length — which allocated an
- * array of every clipped id, per chapter, on every pass of a fold that runs once per
+ * array of every clipped id, per run group, on every pass of a fold that runs once per
  * admitted event, to answer a subtraction. A ten-thousand-row session paid that
  * allocation for rows nothing was going to look at.
  */
-export function countClippedHeadRows(chapterRowCount: number): number {
-  return Math.max(0, chapterRowCount - RUN_GROUP_VISIBLE_ROW_CAP);
+export function countClippedHeadRows(runGroupRowCount: number): number {
+  return Math.max(0, runGroupRowCount - RUN_GROUP_VISIBLE_ROW_CAP);
 }
 
 /**
- * The row ids outside the cap — the chapter's older head, in log order.
+ * The row ids outside the cap — the run group's older head, in log order.
  *
  * The exact complement of the selection the feed's fold admits, so the two together
- * are the chapter's rows and neither drops one. It is derived from the ids the CALLER
- * holds rather than from the sealed chapter, which is what keeps it right under a
- * narrowing: a filtered chapter carries the admitted ids, so the head this returns is
+ * are the run group's rows and neither drops one. It is derived from the ids the CALLER
+ * holds rather than from the sealed run group, which is what keeps it right under a
+ * narrowing: a filtered run group carries the admitted ids, so the head this returns is
  * the admitted head and never the whole run's. Where the cut falls is
  * {@link countClippedHeadRows}'s to say, so the count and the selection cannot
  * disagree about which rows are outside.

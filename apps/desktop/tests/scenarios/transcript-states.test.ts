@@ -71,7 +71,7 @@ function transcriptStatesRows(): ReturnType<typeof projectTranscriptRows>["rows"
 describe("the three lanes", () => {
   it("ends its three LANES in three different conditions at once", () => {
     // The child run under the architect is a fourth run and not a fourth lane: the
-    // transcript folds it into its parent's chapter as a summary rather than drawing it
+    // transcript folds it into its parent's run group as a summary rather than drawing it
     // beside the three, so it is subtracted here rather than counted as one of them.
     const laneStates = [...finalRunStates(TRANSCRIPT_STATES_SCENARIO)]
       .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)

@@ -10,7 +10,7 @@ import {
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 
 /**
- * Fold the chapters of the window a narrowing left.
+ * Fold the run groups of the window a narrowing left.
  *
  * Its own hook rather than a second half of the projection, so a disclosure toggle
  * re-folds over a projection and a narrowing it did not have to redo — and so the

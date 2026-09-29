@@ -33,7 +33,7 @@ export interface TranscriptFindState {
   /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
   /**
-   * Matches inside terminal run chapters this transcript has folded.
+   * Matches inside terminal run groups this transcript has folded.
    *
    * Finished runs fold by default, so this is the larger of the two on any session that
    * has finished a run.

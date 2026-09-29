@@ -66,7 +66,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
       run: acts.jumpToLatest,
     },
     {
-      id: "transcript.collapseTerminalChapters",
+      id: "transcript.collapseTerminalRunGroups",
       title: "Fold every finished run",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
