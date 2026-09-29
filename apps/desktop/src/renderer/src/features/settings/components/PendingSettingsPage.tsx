@@ -22,11 +22,11 @@
 // contributes no box, so what the reserved region costs the layout is nothing.
 
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/console/seats/index.js";
-import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
+import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 export interface PendingSettingsPageProps {
   /** The rail section whose page is loading, so a refusal can name it. */
-  readonly section: SettingsSectionId;
+  readonly section: SettingsPageId;
 }
 
 /** The settings page's region, before its body. */

@@ -6,7 +6,7 @@
 // the body it names is `preview-pane-body.ts`, loaded as its own chunk.
 
 // NONE OF THIS FEATURE'S STYLESHEETS ENTERS HERE, and that is a fact about the graph
-// rather than about the folder. `console/panes/index.ts` calls `registerBrowserPanes`
+// rather than about the folder. `app/registrations.ts` calls `registerBrowserPanes`
 // from the entry chunk, so every module this file reaches is on the initial import graph
 // and a sheet named here lands on every launch, including the sessions that never open a
 // page. Every one dresses a surface nothing on that graph can render: the pane opens from
@@ -37,7 +37,7 @@ export {
  * Claim the preview pane's seat.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerConsolePanes`' reason: a test composes into a registry it owns, and an
+ * `registerFeatureContributions`' reason: a test composes into a registry it owns, and an
  * auxiliary window composes a different subset without a second code path.
  */
 export function registerBrowserPanes(registry: ConsolePaneRegistry): void {

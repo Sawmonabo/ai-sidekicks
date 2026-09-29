@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
+import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ShellState } from "@renderer/store/window/main-process-state.js";
@@ -17,7 +17,7 @@ import type { SchemePreference } from "@renderer/styles/tokens.js";
 export interface SettingsPageContext {
   readonly bridge: ConsoleBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
-  readonly openSection: (section: SettingsSectionId) => void;
+  readonly openSection: (section: SettingsPageId) => void;
   /**
    * What the address asked this page to be opened FOR, where it asked for anything.
    *

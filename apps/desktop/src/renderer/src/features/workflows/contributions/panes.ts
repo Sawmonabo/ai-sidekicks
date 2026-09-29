@@ -55,7 +55,7 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
  * Claim this family's pane kinds against a registry.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerConsolePanes`' reason: a test composes the same bodies into a registry it
+ * `registerFeatureContributions`' reason: a test composes the same bodies into a registry it
  * owns, and an auxiliary window composes a different subset without a second code
  * path.
  */

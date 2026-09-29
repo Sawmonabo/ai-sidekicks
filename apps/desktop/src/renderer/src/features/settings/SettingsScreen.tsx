@@ -28,10 +28,7 @@ import { settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
-import {
-  SETTINGS_SECTION_IDS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { useSettingsPageIdleWarm } from "./hooks/useSettingsPageIdleWarm.js";
 import { SettingsSearchField } from "./components/SettingsSearchField.js";
 import { SettingsPageList } from "./components/SettingsPageList.js";
@@ -75,7 +72,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
 
   const openSection = useCallback(
-    (section: SettingsSectionId): void => {
+    (section: SettingsPageId): void => {
       context.frameStore.navigate({ kind: "settings", page: section });
     },
     [context.frameStore],
@@ -87,7 +84,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
    * where it landed them.
    */
   const openSearchHit = useCallback(
-    (section: SettingsSectionId): void => {
+    (section: SettingsPageId): void => {
       openSection(section);
       setSettleOrdinal((held) => held + 1);
     },
@@ -164,6 +161,6 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
 }
 
 /** The section a `#/settings/<page>` address names, or `undefined` for none of them. */
-function requestedSection(page: string | undefined): SettingsSectionId | undefined {
-  return SETTINGS_SECTION_IDS.find((section) => section === page);
+function requestedSection(page: string | undefined): SettingsPageId | undefined {
+  return SETTINGS_PAGE_IDS.find((section) => section === page);
 }

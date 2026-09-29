@@ -3,7 +3,7 @@
 // ONE COMPOSITION BECAUSE THE PARTITION SET IS ONE CLAIM. A mount that names the
 // registrars it wants is choosing which partitions its surface can read, and that
 // choice is not a mount's to make — the window makes it, once, in
-// `console/families.ts`. The composer family's approvals mount named
+// `app/registrations.ts`. The composer family's approvals mount named
 // `registerApprovalFlowProjectors` alone, so the `approval` partition folded and the
 // `run` partition did not: `ApprovalsPaneBody` reads the run a pending decision names
 // out of `useSessionPartition(store, "run")`, found nothing there, and rendered
@@ -18,17 +18,17 @@
 // reading an empty partition — which looks exactly like a session that has no runs.
 //
 // SO THE MOUNTS TAKE THE PRODUCTION COMPOSITION RATHER THAN A LIST. What is exported
-// is the snapshot `registerConsoleFamilies` produces, so a family that claims a new
+// is the snapshot `registerFeatureContributions` produces, so a family that claims a new
 // event kind is folded by every capture and every audit on the day it lands, with no
 // surfaces file edited and none forgotten. Review is what keeps it that way: no module
 // under this directory may reach a projector registrar directly, and every store either
 // mount opens names this constant.
 //
 // COMPOSED INTO BOARDS THIS MODULE OWNS, which is what makes it safe to do at module
-// scope. `registerConsoleFamilies` writes only into the four registries it is handed —
-// `console/families.test.ts` asserts exactly that against the process-wide ones — so
-// the three boards built here and dropped are the price of reading the fourth, and no
-// tier's window is touched by importing this file.
+// scope. `registerFeatureContributions` writes only into the registries it is handed —
+// `app/registrations.test.ts` asserts exactly that against the window's — so the ones
+// built here and dropped are the price of reading the projectors, and no tier's window
+// is touched by importing this file.
 //
 // A CONSTANT RATHER THAN A FACTORY, on `frame/run-projection/run-lifecycle-projector.ts`'s precedent
 // for the table it exports: the snapshot is frozen at the registry's own edge, so
@@ -37,13 +37,13 @@
 // which is work whose only observable effect would be to make that impossible to rely
 // on.
 
-import { registerConsoleFamilies } from "@renderer/console/families.js";
-import {
-  ConsolePaneRegistry,
-  ConsoleSurfaceRegistry,
-  InlineCardSeatRegistry,
-} from "@renderer/console/seats/index.js";
+import { registerFeatureContributions } from "@renderer/app/registrations.js";
+import { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { InlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { ConsolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type EntityProjectorRegistry } from "@renderer/store/session/entities/entities.js";
 
 /**
@@ -55,22 +55,23 @@ import { type EntityProjectorRegistry } from "@renderer/store/session/entities/e
 export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorRegistry = composeConsoleProjectors();
 
 /**
- * Run the window's composition into boards this module owns, and keep the fold.
+ * Run the window's composition into registries this module owns, and keep the fold.
  *
- * The other three registries are built here and never read: they are what the
- * composition writes its surfaces, panes, and inline cards into, and a mount resolves
+ * The other registries are built here and never read: they are what the composition
+ * writes its commands, surfaces, panes and inline cards into, and a mount resolves
  * each of those through its own family-scoped registry (`pane-body-resolution.ts`)
- * because a mount composes exactly the body it captures. The fold is the one board
+ * because a mount composes exactly the body it captures. The fold is the one registry
  * that cannot work that way — a partition is read by whichever surface names it, so
  * the table a store opens with has to be the whole one.
  */
 function composeConsoleProjectors(): EntityProjectorRegistry {
-  const projectorBoard = new ConsoleEntityProjectorRegistry();
-  registerConsoleFamilies(
-    new ConsoleSurfaceRegistry(),
-    new ConsolePaneRegistry(),
-    projectorBoard,
-    new InlineCardSeatRegistry(),
-  );
-  return projectorBoard.snapshot();
+  const projectors = new ConsoleEntityProjectorRegistry();
+  registerFeatureContributions({
+    commands: new CommandContributionRegistry(new CommandRegistry()),
+    projectors,
+    surfaces: new ConsoleSurfaceRegistry(),
+    panes: new ConsolePaneRegistry(),
+    inlineCards: new InlineCardSeatRegistry(),
+  });
+  return projectors.snapshot();
 }

@@ -54,7 +54,7 @@ import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js
 // line is given a column narrower than the id on it.
 import "@renderer/features/settings/settings-screen-body.js";
 import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
-import { SETTINGS_SECTION_IDS } from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
 import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
 
 /**
@@ -115,9 +115,9 @@ describe("reflow — the console at 320 CSS px", () => {
   // column: `settings-page.css` sets its prose measure in `ch`, lays field groups
   // out on an auto-fitting track, and caps a control at a px width — three things
   // that each hold a floor of their own and have to fit inside one 320 px viewport
-  // together. The set is `SETTINGS_SECTION_IDS`, the family's own closed tuple, so a
+  // together. The set is `SETTINGS_PAGE_IDS`, the family's own closed tuple, so a
   // fourteenth page is audited the day it is declared.
-  for (const page of SETTINGS_SECTION_IDS) {
+  for (const page of SETTINGS_PAGE_IDS) {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
       document.location.hash = formatRoute({ kind: "settings", page });
       await renderSettled(

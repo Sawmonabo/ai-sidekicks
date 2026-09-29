@@ -20,13 +20,11 @@ import { useEffect, useRef, useState } from "react";
 
 import type { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
 export interface SettingsPageContentProps {
-  readonly section: SettingsSectionId;
+  readonly section: SettingsPageId;
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
@@ -63,7 +61,7 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
   }, [settleOrdinal]);
 
   const descriptor = props.pages.descriptorFor(props.section);
-  const label = SETTINGS_SECTION_LABELS[props.section];
+  const label = SETTINGS_PAGE_LABELS[props.section];
   return (
     <article
       className={

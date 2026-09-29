@@ -20,16 +20,14 @@ import type { ReactNode } from "react";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 
 export function AccountPlaneRefusal(props: {
   readonly refusal: ConsoleRefusal;
-  readonly openSection: (section: SettingsSectionId) => void;
+  readonly openSection: (section: SettingsPageId) => void;
   /**
    * The section this refusal is being rendered ON, where it is on one at all.
    *
@@ -38,7 +36,7 @@ export function AccountPlaneRefusal(props: {
    * renders: what has to happen is worth saying even when the place to do it is the
    * surface it is said on.
    */
-  readonly currentSection?: SettingsSectionId | undefined;
+  readonly currentSection?: SettingsPageId | undefined;
 }): ReactNode {
   const handoff = accountPlaneHandoffFor(props.refusal.code);
   const { openSection } = props;
@@ -59,7 +57,7 @@ export function AccountPlaneRefusal(props: {
                 openSection(handoff.section);
               }}
             >
-              Open {SETTINGS_SECTION_LABELS[handoff.section]}
+              Open {SETTINGS_PAGE_LABELS[handoff.section]}
             </button>
           )}
         </p>

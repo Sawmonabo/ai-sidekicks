@@ -23,7 +23,7 @@ import { act } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { SettingsPageRegistry } from "./settings-pages.js";
-import { SETTINGS_SECTION_IDS } from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
 import {
   CHUNK_WARM_TIMEOUT_MS,
   renderSurface,
@@ -105,7 +105,7 @@ describe("settings rail — every section, always", () => {
     // the registry instead would shrink to whatever has been built, which is the
     // "never hides an entry because its wire is unavailable" rule inverted.
     const { container } = await renderSurface(contextFor(undefined));
-    expect(railLabels(container)).toHaveLength(SETTINGS_SECTION_IDS.length);
+    expect(railLabels(container)).toHaveLength(SETTINGS_PAGE_IDS.length);
   });
 
   it("marks the section the address names, and only that one", async () => {
@@ -132,7 +132,7 @@ describe("settings rail — every section, always", () => {
     (entry as HTMLButtonElement | null)?.click();
     expect(settingsWindow.frameStore.getState().route).toStrictEqual({
       kind: "settings",
-      page: SETTINGS_SECTION_IDS[0],
+      page: SETTINGS_PAGE_IDS[0],
     });
   });
 });
@@ -160,7 +160,7 @@ describe("settings search — one field above the rail", () => {
   it("replaces the rail with ranked hits while a query stands", async () => {
     const { container } = await renderSurface(contextFor(undefined));
     searchFor(container, "mcp");
-    expect(railLabels(container).length).toBeLessThan(SETTINGS_SECTION_IDS.length);
+    expect(railLabels(container).length).toBeLessThan(SETTINGS_PAGE_IDS.length);
     expect(container.textContent ?? "").toContain("MCP servers");
   });
 
@@ -178,7 +178,7 @@ describe("settings search — one field above the rail", () => {
     const { container } = await renderSurface(contextFor(undefined));
     searchFor(container, "mcp");
     searchFor(container, "");
-    expect(railLabels(container)).toHaveLength(SETTINGS_SECTION_IDS.length);
+    expect(railLabels(container)).toHaveLength(SETTINGS_PAGE_IDS.length);
   });
 
   /**

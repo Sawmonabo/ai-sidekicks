@@ -16,12 +16,8 @@
 // for, and its inputs stop at `bridge/` — `core/`'s keyed registry, the bridge
 // contract, the two stores, the two persistence stores, the route union — so the
 // lowest home above all of them is the slot immediately above `bridge/`, which is
-// here. In `frame/` it was the console's last named layering exemption: a view family
-// cannot import `frame/index.ts` (that door reaches `ConsoleRoot`, which reaches
-// `families.ts`, which composes every view family in), so every family wrote a deep
-// specifier past the frame's door and `.dependency-cruiser.mjs` carried a
-// module-named subtraction to tolerate it. The move deletes the subtraction, and
-// `console-cross-family-deep-import` now covers the whole console with no exception.
+// here, where every feature can import it without reaching `app/`, which composes every
+// feature.
 
 import { createElement } from "react";
 

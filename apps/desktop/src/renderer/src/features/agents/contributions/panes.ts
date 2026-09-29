@@ -1,11 +1,6 @@
 // The agent console's pane registration.
 //
-// NOT A DOOR, AND THE DIRECTORY IT SITS IN HAS NONE. `console/panes/` is composition
-// only, so a pane BODY lives in the family that owns its vocabulary: here the card and
-// its resolved configuration. The family door publishes the registrar below and
-// `panes/index.ts` calls it from its own reserved line. A door of this directory's own
-// would be a barrel the family door forwards through, which `console-no-barrel-chain`
-// fails and which would make this module's symbols reachable by two paths.
+// The feature's door publishes the registrar below and `app/registrations.ts` calls it.
 
 import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
 

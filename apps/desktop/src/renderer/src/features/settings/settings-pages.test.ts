@@ -6,10 +6,8 @@
 // widen and the first one to go stale.
 
 import { describe, expect, it } from "vitest";
-import {
-  SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
-} from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 import {
   SettingsPageRegistry,
   matchSettingsPages,
@@ -20,13 +18,13 @@ import type { SettingsPageContext } from "./types.js";
 import type { ReactNode } from "react";
 
 function pageFor(
-  section: (typeof SETTINGS_SECTION_IDS)[number],
+  section: (typeof SETTINGS_PAGE_IDS)[number],
   overrides: Partial<SettingsPageDescriptor> = {},
 ): SettingsPageDescriptor {
   return {
     section,
     owner: "settings-registry-test",
-    label: SETTINGS_SECTION_LABELS[section],
+    label: SETTINGS_PAGE_LABELS[section],
     keywords: [],
     render: () => null,
     ...overrides,
@@ -38,16 +36,14 @@ describe("settings sections — the closed set the rail renders", () => {
     // A total record is what makes a fifteenth section a compile error rather
     // than a rail entry reading `mcp-servers`. Checked at runtime too, because the
     // record could be widened past the union with a cast.
-    expect(Object.keys(SETTINGS_SECTION_LABELS).sort()).toStrictEqual(
-      [...SETTINGS_SECTION_IDS].sort(),
-    );
-    for (const section of SETTINGS_SECTION_IDS) {
-      expect(SETTINGS_SECTION_LABELS[section].length).toBeGreaterThan(0);
+    expect(Object.keys(SETTINGS_PAGE_LABELS).sort()).toStrictEqual([...SETTINGS_PAGE_IDS].sort());
+    for (const section of SETTINGS_PAGE_IDS) {
+      expect(SETTINGS_PAGE_LABELS[section].length).toBeGreaterThan(0);
     }
   });
 
   it("names each section exactly once", () => {
-    expect(new Set(SETTINGS_SECTION_IDS).size).toBe(SETTINGS_SECTION_IDS.length);
+    expect(new Set(SETTINGS_PAGE_IDS).size).toBe(SETTINGS_PAGE_IDS.length);
   });
 });
 
@@ -87,13 +83,11 @@ describe("settings page registry — one page per section", () => {
 
 describe("settings page registry — what is left to warm", () => {
   /** A registration whose body arrives as its own chunk, resolving to nothing. */
-  function deferredPageFor(
-    section: (typeof SETTINGS_SECTION_IDS)[number],
-  ): SettingsPageRegistration {
+  function deferredPageFor(section: (typeof SETTINGS_PAGE_IDS)[number]): SettingsPageRegistration {
     return {
       section,
       owner: "settings-registry-test",
-      label: SETTINGS_SECTION_LABELS[section],
+      label: SETTINGS_PAGE_LABELS[section],
       keywords: [],
       body: () =>
         Promise.resolve<{ Body: (context: SettingsPageContext) => ReactNode }>({

@@ -1,12 +1,9 @@
-import {
-  SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
 export interface SettingsPageListProps {
-  readonly selectedSection: SettingsSectionId | undefined;
-  readonly onOpenSection: (section: SettingsSectionId) => void;
+  readonly selectedSection: SettingsPageId | undefined;
+  readonly onOpenSection: (section: SettingsPageId) => void;
 }
 
 /** Every section, always. The rail is the closed tuple and never a filtered view of it. */
@@ -14,7 +11,7 @@ export function SettingsPageList(props: SettingsPageListProps): React.JSX.Elemen
   return (
     <nav aria-label="Settings sections">
       <ul className="meridian-settings__sections">
-        {SETTINGS_SECTION_IDS.map((section) => (
+        {SETTINGS_PAGE_IDS.map((section) => (
           <li key={section}>
             <button
               type="button"
@@ -24,7 +21,7 @@ export function SettingsPageList(props: SettingsPageListProps): React.JSX.Elemen
                 props.onOpenSection(section);
               }}
             >
-              {SETTINGS_SECTION_LABELS[section]}
+              {SETTINGS_PAGE_LABELS[section]}
             </button>
           </li>
         ))}

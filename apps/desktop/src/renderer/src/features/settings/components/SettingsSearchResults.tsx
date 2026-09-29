@@ -1,15 +1,13 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type SettingsPageMatch } from "../settings-pages.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
 export interface SettingsSearchResultsProps {
   readonly query: string;
   readonly matches: readonly SettingsPageMatch[];
-  readonly selectedSection: SettingsSectionId | undefined;
-  readonly onOpenSection: (section: SettingsSectionId) => void;
+  readonly selectedSection: SettingsPageId | undefined;
+  readonly onOpenSection: (section: SettingsPageId) => void;
 }
 
 /**
@@ -43,7 +41,7 @@ export function SettingsSearchResults(props: SettingsSearchResultsProps): React.
             >
               <span className="meridian-settings__result-label">{match.descriptor.label}</span>
               <span className="meridian-settings__result-section">
-                {SETTINGS_SECTION_LABELS[match.descriptor.section]}
+                {SETTINGS_PAGE_LABELS[match.descriptor.section]}
               </span>
             </button>
           </li>

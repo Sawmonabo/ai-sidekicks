@@ -12,10 +12,9 @@
 //
 // WHAT THE HARNESS IS, AND WHY IT IS NOT A DECK
 //
-// Nothing in this revision mounts a registered pane: `registerConsolePanes` claims
-// the `terminal` kind and the deck that would resolve a descriptor out of that
-// registry is a later family's. `console/frame/pane-harness/PaneHarnessSurface.tsx` is the
-// smallest honest door — a `define`-gated fixture surface, reached at
+// The harness mounts a registered pane body without a deck: `registerTerminalPanes` claims
+// the `terminal` kind, and `app/pane-harness/` is the smallest honest door — a fixture
+// surface the fixture launch registers, reached at
 // `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
 // `ConsolePaneRegistry` and mounts one more of it per press. It is deliberately not
 // a deck: a reading taken inside one would fold the deck's tab strip, layout, and

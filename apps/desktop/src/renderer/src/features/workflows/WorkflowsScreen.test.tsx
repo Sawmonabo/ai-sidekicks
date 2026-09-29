@@ -5,7 +5,7 @@
 // feature's own bodies registered into it by its own registration call, so a stand-in
 // registry cannot agree with a screen that resolved nothing.
 //
-// THE BOARD IS THE COMPOSITION'S AND IS BUILT PER CASE. `registerConsoleFamilies` takes a
+// THE BOARD IS THE COMPOSITION'S AND IS BUILT PER CASE. `registerFeatureContributions` takes a
 // pane registry so a test and an auxiliary window can compose their own, and this screen
 // resolves from the one on its surface context. A suite that registered into the
 // process-wide singleton instead would prove only that the screen reads a global.
@@ -155,7 +155,7 @@ describe("what the workflows screen mounts", () => {
 });
 
 describe("which pane board the screen opens out of", () => {
-  // `registerConsoleFamilies` takes a pane registry so a test and an auxiliary window can
+  // `registerFeatureContributions` takes a pane registry so a test and an auxiliary window can
   // compose their own. A screen that read the process-wide singleton instead would give such
   // a composition the wrong body, or none.
 

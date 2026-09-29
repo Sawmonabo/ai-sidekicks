@@ -4,8 +4,8 @@
 // Composition runs at module scope, here, so "a window exists" and "its features are
 // composed" are one fact: a screen resolves the registry during render, and an effect
 // would run after the first paint had already said the screen does not exist. The
-// boards are named here, so a test or another window composes into boards of its own.
-// The projector board is composed before the window opens its first session store, so
+// registries are named here, so a test or another window composes into registries of its own.
+// The projector registry is filled before the window opens its first session store, so
 // a store folds with every claimed event kind from its first event.
 //
 // The tripwire route is armed first: a registrar can report during composition (a
@@ -14,23 +14,16 @@
 
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
-import { registerConsoleFamilies } from "@renderer/console/families.js";
-import {
-  consolePaneRegistry,
-  consoleSurfaceRegistry,
-  inlineCardSeatRegistry,
-} from "@renderer/console/seats/index.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import { routeConsoleTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
 import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
 import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
-import { registerComposerCommands } from "@renderer/features/composer/contributions/commands.js";
-import { registerComposerKeybindings } from "@renderer/features/composer/contributions/keybindings.js";
-import { registerPaneLayoutCommands } from "@renderer/features/sessions/contributions/commands.js";
-import { registerTranscriptCommands } from "@renderer/features/transcript/contributions/commands.js";
+import { inlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { consolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { consoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { AppBootstrap } from "./AppBootstrap.js";
+import { registerFeatureContributions } from "./registrations.js";
 
 /**
  * The clock the tripwire route stamps its records off.
@@ -46,19 +39,13 @@ const consoleTripwireRouteClock = new ForwardingConsoleClock(new RealClock());
 // The route lives as long as the renderer process, so its detach is dropped.
 routeConsoleTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
 
-// The rail's chords first, so they lead the window's chord table.
-registerNavigationKeybindings(consoleCommandSurface);
-registerComposerCommands(consoleCommandSurface);
-registerComposerKeybindings(consoleCommandSurface);
-registerTranscriptCommands(consoleCommandSurface);
-registerPaneLayoutCommands(consoleCommandSurface);
-
-registerConsoleFamilies(
-  consoleSurfaceRegistry,
-  consolePaneRegistry,
-  consoleEntityProjectorRegistry,
-  inlineCardSeatRegistry,
-);
+registerFeatureContributions({
+  commands: consoleCommandSurface,
+  projectors: consoleEntityProjectorRegistry,
+  surfaces: consoleSurfaceRegistry,
+  panes: consolePaneRegistry,
+  inlineCards: inlineCardSeatRegistry,
+});
 
 /** What the root hands the provider stack. */
 export interface AppProvidersProps {

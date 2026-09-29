@@ -23,18 +23,15 @@ import { NotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { ProvidersPage } from "./pages/providers/ProvidersPage.js";
 import { RuntimePage } from "./pages/runtime/RuntimePage.js";
 import type { SettingsPageBody, SettingsPageContext } from "./types.js";
-import {
-  SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@renderer/console/settings/settings-sections.js";
+import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
 /** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
-  readonly section: SettingsSectionId;
+  readonly section: SettingsPageId;
   /** Who registered the page. Only the same owner may replace it. */
   readonly owner: string;
-  /** The page's own heading. The rail shows {@link SETTINGS_SECTION_LABELS}. */
+  /** The page's own heading. The rail shows {@link SETTINGS_PAGE_LABELS}. */
   readonly label: string;
   /**
    * Alternative terms a person may type for this page.
@@ -57,7 +54,7 @@ export interface SettingsPageDescriptor {
  *
  * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
  * agent definitions page's body is the AGENTS family's, and that family's door is imported
- * EAGERLY by `session-surfaces-family.ts` for the agent console's surface registration. So
+ * EAGERLY by `app/registrations.ts` for the agent console's pane registration. So
  * while this registry took only a `render`, the registration site had to reach the page
  * through that door, and the bundler — which assigns a module reachable both statically
  * and dynamically to the static chunk — put the page and its stylesheet on the initial
@@ -95,7 +92,7 @@ export class SettingsPageRegistry {
   // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
   // the owner's module and must replace, while two owners on one section is a
   // conflict rather than a swap decided by module import order.
-  readonly #descriptorsBySection = new KeyedRegistry<SettingsSectionId, SettingsPageDescriptor>({
+  readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "settings section",
     ownerOf: (descriptor) => descriptor.owner,
@@ -109,10 +106,7 @@ export class SettingsPageRegistry {
    * reason: the descriptor is what every mount site reads and none of them has business
    * knowing whether the page it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySection = new Map<
-    SettingsSectionId,
-    LoadedLazyBody<SettingsPageContext>
-  >();
+  readonly #loadedBodiesBySection = new Map<SettingsPageId, LoadedLazyBody<SettingsPageContext>>();
 
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
@@ -169,7 +163,7 @@ export class SettingsPageRegistry {
    * boundary, where somebody is waiting for it; the walk drops its own rejection because
    * nobody is.
    */
-  public async preload(section: SettingsSectionId): Promise<void> {
+  public async preload(section: SettingsPageId): Promise<void> {
     await this.#loadedBodiesBySection.get(section)?.load();
   }
 
@@ -182,24 +176,24 @@ export class SettingsPageRegistry {
    * Already-resolved sections drop out, so a second walk over a warm board does nothing
    * rather than re-entering every memo.
    */
-  public unloadedKeys(): readonly SettingsSectionId[] {
-    return SETTINGS_SECTION_IDS.filter(
+  public unloadedKeys(): readonly SettingsPageId[] {
+    return SETTINGS_PAGE_IDS.filter(
       (section) => this.#loadedBodiesBySection.get(section)?.isResolved === false,
     );
   }
 
-  public unregister(section: SettingsSectionId): void {
+  public unregister(section: SettingsPageId): void {
     this.#descriptorsBySection.unregister(section);
     this.#loadedBodiesBySection.delete(section);
   }
 
-  public descriptorFor(section: SettingsSectionId): SettingsPageDescriptor | undefined {
+  public descriptorFor(section: SettingsPageId): SettingsPageDescriptor | undefined {
     return this.#descriptorsBySection.get(section);
   }
 
   /** Which sections have a page, in rail order rather than registration order. */
-  public registeredSections(): readonly SettingsSectionId[] {
-    return SETTINGS_SECTION_IDS.filter((section) => this.#descriptorsBySection.has(section));
+  public registeredSections(): readonly SettingsPageId[] {
+    return SETTINGS_PAGE_IDS.filter((section) => this.#descriptorsBySection.has(section));
   }
 
   /** Every registered page, in rail order. The search index's input. */
@@ -211,7 +205,7 @@ export class SettingsPageRegistry {
 }
 
 // There is deliberately NO module-scope page registry here. The surface is handed
-// the one its registrar composed, for `registerConsoleFamilies`' reason one level
+// the one its registrar composed, for `registerFeatureContributions`' reason one level
 // down: a singleton would make the pane's contents depend on a side effect of the
 // slot registration, so a test rendering the surface directly would get an empty
 // pane and a second settings window could not compose a different subset.
@@ -244,7 +238,7 @@ export function matchSettingsPages(
   for (const descriptor of entries) {
     const candidates = [
       descriptor.label,
-      SETTINGS_SECTION_LABELS[descriptor.section],
+      SETTINGS_PAGE_LABELS[descriptor.section],
       ...descriptor.keywords,
     ];
     let best: SettingsPageMatch | undefined;
@@ -385,7 +379,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
 
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {
-  readonly section: SettingsSectionId;
+  readonly section: SettingsPageId;
   readonly owner: string;
   readonly label: string;
   readonly keywords: readonly string[];

@@ -34,7 +34,7 @@ export interface ConsoleSurfaceContext {
    * On the context rather than reached for, and here rather than as one surface's
    * prop, because it is the same fact for every family: a surface that opens a pane
    * has to resolve it from the board the composition around it filled.
-   * `registerConsoleFamilies` already takes the board as a parameter so a test and an
+   * `registerFeatureContributions` already takes the registry as a parameter so a test and an
    * auxiliary window can compose their own — and a surface that then read the
    * process-wide singleton would hand that composition a production body, or the
    * reserved absence where production has none, however carefully it had asked.

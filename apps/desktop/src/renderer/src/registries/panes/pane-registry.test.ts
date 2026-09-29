@@ -51,7 +51,7 @@ describe("pane registry — one owner per kind", () => {
     const registry = new ConsolePaneRegistry();
     registry.register(descriptor("timeline", "workspace-family"));
     expect(() => {
-      registry.register(descriptor("timeline", "session-surfaces-family"));
+      registry.register(descriptor("timeline", "second-owner"));
     }).toThrow(DuplicateRegistrationError);
     // The first owner keeps the kind: a refused claim must not have half-applied.
     expect(registry.descriptorFor("timeline")?.owner).toBe("workspace-family");

@@ -9,10 +9,10 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { SettingsPageContent } from "./SettingsPageContent.js";
 import type { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
-import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
+import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 export interface SettingsPaneProps {
-  readonly section: SettingsSectionId | undefined;
+  readonly section: SettingsPageId | undefined;
   /** The address's own page segment, so an unknown one can be named back. */
   readonly attempted: string | undefined;
   readonly context: SettingsPageContext;

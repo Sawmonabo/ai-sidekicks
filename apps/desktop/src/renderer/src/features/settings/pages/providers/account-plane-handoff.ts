@@ -34,7 +34,7 @@
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
-import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
+import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 /**
  * Every refusal code the account plane raises.
@@ -64,7 +64,7 @@ export type AccountPlaneRefusalCode = (typeof ACCOUNT_PLANE_REFUSAL_CODES)[numbe
 
 /** Where the act that closes a refusal lives, and which of the three acts it is. */
 export interface AccountPlaneHandoff {
-  readonly section: SettingsSectionId;
+  readonly section: SettingsPageId;
   readonly remedyKind: ProviderRemedy["kind"];
 }
 

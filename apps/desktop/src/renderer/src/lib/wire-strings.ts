@@ -19,15 +19,10 @@
 // same reason and not a weaker one: VIEW families may not import each other, so the
 // only home two of them can share is this one.
 //
-// IT LIVES IN `core/` BECAUSE ITS READERS ARE SIBLINGS. Three VIEW families need it
+// IT LIVES IN `lib/` BECAUSE ITS READERS ARE SIBLINGS. Three VIEW families need it
 // and view families never import each other, so the rule has to sit in the lowest
 // family that needs it; this one needs nothing at all — no store type, no contracts
-// schema, no React — which puts it on the DAG floor. It sat in `panes/` while its two
-// first readers were subdirectories of that composition site, and a body module there
-// is reachable from a view family only by importing UPWARD into the site that
-// composes it: an edge the layering gate cannot report, because both composition
-// sites are subtracted from its endpoints so that `panes/index.ts` may name every
-// family.
+// schema, no React — which puts it on the DAG floor.
 //
 // IT IS NOT A REGISTERED-SHAPE READ. A read that answers a REGISTERED wire shape must
 // narrow against the schema the corpus registers, which is what puts it where the

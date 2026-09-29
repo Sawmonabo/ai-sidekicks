@@ -15,11 +15,9 @@
 // renderings of one idea, drifting apart the first time either measure changed, and
 // only the screenshot tier would ever see it.
 //
-// IN `primitives/` RATHER THAN IN `frame/`. A view family cannot reach into `frame/`
-// and cannot reach `frame/index.ts` either: that door re-exports `ConsoleRoot`, which
-// composes every view family through `families.ts`, so the edge back closes a cycle.
-// It is a presentational wrapper that knows no family: a centered measure, a body
-// slot, and the one hint that is true on every surface. That is the same class as
+// A SHARED COMPONENT RATHER THAN A FEATURE'S OR `app/`'s. A feature cannot import `app/`,
+// which composes every feature, and this is a presentational wrapper that knows no
+// feature: a centered measure, a body slot, and the one hint that is true on every screen. That is the same class as
 // `Nothing`, `InlineRefusal`, and `PartialRead` beside it, so it sits with them and
 // every producer reaches DOWN.
 //

@@ -78,7 +78,7 @@
 // claims one, and everything a mounted surface is handed. Here rather than in
 // `frame/` because this is the same kind of contract every other seat is — a family
 // hands the frame a body through it — and because a view family cannot import the
-// frame's door at all without closing a cycle back through `families.ts`. No
+// frame's door at all without closing a cycle back through `app/registrations.ts`. No
 // `@consumedBy` claims: the frame and the composition root read these today.
 //
 // Four names are deliberately absent, each because no PRODUCTION module reaches it

@@ -8,15 +8,9 @@
 // the reserved `/` prefix a prefix that reserves nothing, which is the state this
 // module ends.
 //
-// WHERE THE REGISTRY COMES FROM. `consoleCommands` is the window-scoped registry
-// the palette family declares, and this module takes it off `palette/index.js` like
-// any other console symbol. It used to be the FRAME's, deep-imported past a barrel
-// that did not publish it — and it could not be published there: this module is
-// production shell code, `frame/index.ts` re-exports `ConsoleRoot`, `ConsoleRoot`
-// reaches `console/families.ts`, and `families.ts` composes this half's own
-// registrar in, so the door that would have offered it closes four cycles. Building
-// a second registry here to avoid the import would be worse than either: a person's
-// `/frame.goToSettings` would reach a list the palette has never heard of.
+// WHERE THE REGISTRY COMES FROM. `consoleCommands` is the window-scoped registry in
+// `registries/commands/`, the one the palette reads. A second registry here would give a
+// person's `/frame.goToSettings` a list the palette has never heard of.
 //
 // WHY THE `when` CONTEXT IS TYPED RATHER THAN SPELLED. Eligibility in the palette is
 // a `when` clause over `CONSOLE_WHEN_CLAUSE_KEYS`, and a clause naming a key the

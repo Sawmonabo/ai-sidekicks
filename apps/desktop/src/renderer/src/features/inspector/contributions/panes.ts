@@ -1,17 +1,8 @@
-// The inspector pane's door: one kind claimed, one body behind it.
+// The inspector pane's registration: one kind claimed, one body behind it.
 //
-// THE FAMILY DOOR, and the family's one barrel. The body lives under `pane/` beside
-// this file rather than inside `panes/`: that directory is a COMPOSITION SITE, which
-// sits above every family by construction, so a body parked there is reachable from a
-// sibling family only by an upward import the layering gate cannot see — both
-// composition sites are subtracted from its endpoints so `panes/index.ts` may name
-// every family. `panes/index.ts` calls the function below; nothing else here is
-// reachable from outside this directory.
-//
-// A pane family registers through its own barrel and never edits the pane registry
-// or the pane-kind set — `panes/index.ts` says why, and the short version is that a
-// registry six branches edit at once is a merge that resolves cleanly while
-// dropping someone's registration.
+// The feature's door publishes the registrar below and `app/registrations.ts` calls it.
+// A feature registers through its own registrar and never edits the pane registry or the
+// pane-kind set.
 //
 // The owner string is the KIND's owner rather than the family's. The registry
 // refuses a second owner on one kind, and a refusal that named a whole family would
