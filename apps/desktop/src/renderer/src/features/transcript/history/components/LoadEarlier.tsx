@@ -14,6 +14,9 @@
 // on the control through the console's one refusal renderer rather than as a sentence
 // this file wrote.
 //
+// IT OWNS THE WALK, TOO. It takes the page read as a prop and holds the walk's hook, so
+// a composition with no read mounts no control and runs no walk.
+//
 // AND IT IS A BUTTON, NOT A SCROLL TRIGGER. Reading to the top of a window is not an
 // instruction to fetch history — it is what a reader does on the way to the oldest row
 // they have — and a fetch fired by arriving there would grow the log under somebody
