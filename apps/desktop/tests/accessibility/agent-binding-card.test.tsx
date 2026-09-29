@@ -22,7 +22,7 @@ import {
   runTierAxe,
 } from "./axe-run.js";
 
-import "@renderer/console/agents/index.js";
+import "@renderer/features/agents/index.js";
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 import { AgentCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
 import type { AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";

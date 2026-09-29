@@ -37,10 +37,8 @@
 // line of it.
 
 import { InlineRefusal, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
-import {
-  useHumanFormSubmit,
-  type WorkflowHumanFormSubmitCall,
-} from "@renderer/console/workflows/pane/run/human-form-submit.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
+import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
 import { HumanFormShell } from "../default-human-form-body.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 

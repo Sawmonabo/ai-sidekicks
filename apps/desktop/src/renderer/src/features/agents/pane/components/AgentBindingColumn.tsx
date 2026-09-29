@@ -10,7 +10,7 @@ import { useCallback, useMemo } from "react";
 
 import { AgentCard } from "./AgentBindingCard.js";
 import { ToolGrantCeiling } from "./ToolAllowlistCeiling.js";
-import { type AgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { type AgentConsoleModels } from "../agents-pane-models.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import { Nothing, RefusalCard } from "@renderer/console/primitives/index.js";
 

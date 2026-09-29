@@ -73,7 +73,7 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import {
   registerWorkflowPanes,
   registerWorkflowSurfaces,
-} from "@renderer/console/workflows/index.js";
+} from "@renderer/features/workflows/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneAddress,

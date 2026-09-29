@@ -37,11 +37,9 @@
 import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import {
-  useDefinitionSettlementAnnouncement,
-  useAgentRegistryView,
-  type AgentRegistryCalls,
-} from "@renderer/console/agents/definitions/definition-registry-view.js";
+import { type AgentRegistryCalls } from "./library-view.js";
+import { useAgentRegistryView } from "./hooks/useAgentLibraryView.js";
+import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
 import { SavedDefinitions } from "./components/SavedDefinitions.js";
 
 /** One standing fact about the registry, in the two halves a description list wants. */

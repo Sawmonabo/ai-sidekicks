@@ -17,7 +17,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PhaseGraph } from "@renderer/console/workflows/pane/run/phase-graph/PhaseGraph.js";
+import { PhaseGraph } from "./RunGraph.js";
 import { phaseGraphLoader } from "./run-graph-loader.js";
 import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
 

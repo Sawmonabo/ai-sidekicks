@@ -20,8 +20,8 @@ import {
   phaseNodeAccessibleName,
   sequenceEdgeAccessibleName,
   toPhaseGraphElements,
-  usePhaseGraphElements,
-} from "@renderer/console/workflows/pane/run/phase-graph/phase-graph-elements.js";
+} from "./run-graph-elements.js";
+import { usePhaseGraphElements } from "./hooks/useRunGraphElements.js";
 
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
   return {

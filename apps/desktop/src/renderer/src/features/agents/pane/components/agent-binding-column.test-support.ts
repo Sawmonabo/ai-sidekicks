@@ -2,7 +2,7 @@
 // the bridge, the roster fixtures, and the DOM queries needed by more than one suite,
 // so they live here once rather than being copied into the file written second.
 
-import { AgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { AgentConsoleModels } from "../agents-pane-models.js";
 import type { AgentConsoleCalls } from "../../agent-reads.js";
 import {
   unscriptedScenario,

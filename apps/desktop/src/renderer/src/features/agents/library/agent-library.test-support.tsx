@@ -25,7 +25,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { AgentDefinitionsPage } from "./AgentLibrary.js";
-import type { AgentRegistryCalls } from "@renderer/console/agents/definitions/definition-registry-view.js";
+import type { AgentRegistryCalls } from "./library-view.js";
 
 /**
  * A registry that answers, and counts what it was asked.

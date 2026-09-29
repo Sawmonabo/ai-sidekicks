@@ -29,7 +29,7 @@
 // absent, and the question is asked once here.
 
 import { HumanFormSubmitChannel } from "./HumanFormSubmitBinding.js";
-import type { WorkflowHumanFormSubmitCall } from "@renderer/console/workflows/pane/run/human-form-submit.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
 

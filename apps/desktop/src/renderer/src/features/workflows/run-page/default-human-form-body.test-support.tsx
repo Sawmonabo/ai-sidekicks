@@ -10,12 +10,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 // straight after `render` would hit a control the form has not armed yet.
 import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test-support.js";
 import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
-import { humanFormPhaseFor } from "@renderer/console/workflows/pane/run/human-form-selection.js";
-import type { WorkflowHumanFormSubmitCall } from "@renderer/console/workflows/pane/run/human-form-submit.js";
-import {
-  ServedRunActContext,
-  type RecordServedRunAct,
-} from "@renderer/console/workflows/pane/run/served-run-act.js";
+import { humanFormPhaseFor } from "./human-form-phase.js";
+import type { WorkflowHumanFormSubmitCall } from "./human-form-submit.js";
+import { ServedRunActContext, type RecordServedRunAct } from "./served-run-act.js";
 import { HumanFormSlot } from "./components/HumanFormMountPoint.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 

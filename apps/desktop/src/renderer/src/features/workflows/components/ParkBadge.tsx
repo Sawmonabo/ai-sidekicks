@@ -35,6 +35,8 @@
 // and absent by default: the run list renders the same card for a phase in another
 // pane's run and has nowhere to send anybody.
 
+import "./ParkBadge.css";
+
 import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
 import { ParkFormRoute, type WorkflowParkFormRoute } from "./ParkFormRoute.js";
 import { PARK_REASON_LABELS, parkAttentionTone } from "../park-presentation.js";

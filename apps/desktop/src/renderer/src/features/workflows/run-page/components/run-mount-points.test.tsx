@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { PARKED_RUN } from "../../workflows-probe.test-support.js";
-import type { WorkflowHumanFormSubmitCall } from "@renderer/console/workflows/pane/run/human-form-submit.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import {
   answerSubmit,
   renderSwitchableSlot,

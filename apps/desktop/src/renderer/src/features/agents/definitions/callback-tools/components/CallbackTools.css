@@ -1,14 +1,4 @@
-/* The daemon-hosted tool list, and the framing a provider's own permission ask
-   renders inside an ordinary approval card.
-
-   What stays in `approvals.css` is the set of rules that address selectors in BOTH
-   sheets — the control metrics and the single focus ring — because a grouped selector
-   split across two files is one declaration written twice, and two copies drift.
-
-   Every value here is a Meridian token: no colour literal, no font stack, and no
-   spacing number. */
-
-/* --- daemon-hosted tools ------------------------------------------------ */
+/* The daemon-hosted tool list. Every value here is a Meridian token. */
 
 .meridian-callback-tools__schema-keys {
   margin: 0;
@@ -77,33 +67,4 @@
 .meridian-callback-tools__description {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
-}
-
-/* --- the provider permission ask --------------------------------------- */
-
-/* The framing sits inside the ordinary approval card, between its header and
-   its action row: a body the card reserves, not a second card. The sunken
-   ground is what separates it from the card's own facts without giving it a
-   border that would read as a card edge. */
-.meridian-approval-ask {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  padding: var(--meridian-space-2);
-  background: var(--meridian-surface-sunken);
-  border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-approval-ask__origin {
-  max-width: 68ch;
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
-}
-
-/* The requested resource, inline rather than behind the card's disclosure —
-   for a permission ask it is the whole question. */
-.meridian-approval-ask__input {
-  overflow-wrap: anywhere;
 }

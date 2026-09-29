@@ -22,20 +22,19 @@
 // members the node paints, in the same words, so a reader listening and a reader
 // looking are told the same thing about the same phase.
 
-import { useMemo } from "react";
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 
 import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
-} from "@renderer/features/workflows/run-page/run-graph/phase-sequence-layout.js";
+} from "./phase-sequence-layout.js";
 import {
   PHASE_PARK_ATTENTION_MARKS,
   phaseDisplayText,
   type PhaseGraphNode,
   type PhaseSequenceEdge,
-} from "@renderer/features/workflows/run-page/run-graph/phase-topology.js";
+} from "./phase-topology.js";
 
 /**
  * What a node carries into its own renderer.
@@ -140,17 +139,4 @@ export function toPhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElem
   }));
 
   return { nodes, edges };
-}
-
-/**
- * The renderer's arrays, rebuilt only when the layout moves.
- *
- * A hook rather than a call in a render body, per `apps/desktop/AGENTS.md`, and the
- * dependency is exact: the layout object upstream is already reference-stable across
- * renders that describe one run, so this memo recomputes precisely when the picture
- * changes and never otherwise. That matters because the renderer re-enters its own
- * store whenever the node or edge array identity moves.
- */
-export function usePhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElements {
-  return useMemo(() => toPhaseGraphElements(layout), [layout]);
 }

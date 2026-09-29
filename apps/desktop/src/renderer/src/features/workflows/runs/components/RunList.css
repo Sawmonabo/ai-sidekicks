@@ -1,10 +1,10 @@
 /*
  * The run list: its header counts, its rows, and what a row says about one run.
  *
- * Owned by `RunList.tsx` and imported from the family door, `workflows/index.ts`. Every
- * class here belongs to one of the list's own blocks (`meridian-run-list`,
- * `meridian-run-row`, `meridian-run-attention`), and no other sheet declares them. The
- * park badges a row stacks are in `parks/park-badge.css`.
+ * Imported by `RunList.tsx`, the main component of the three that draw it. Every class here
+ * belongs to one of the list's own blocks (`meridian-run-list`, `meridian-run-row`,
+ * `meridian-run-attention`), and no other sheet declares them. The park badges a row stacks
+ * are in `ParkBadge.css`.
  */
 
 /* ----------------------------------------------------------------- run list */

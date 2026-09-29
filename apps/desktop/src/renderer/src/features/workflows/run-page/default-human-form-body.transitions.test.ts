@@ -20,7 +20,7 @@ import {
   resolveSchemaFormChunks,
   watchingSubmits,
 } from "./default-human-form-body.test-support.js";
-import { useHumanFormSelection } from "@renderer/console/workflows/pane/run/human-form-selection.js";
+import { useHumanFormSelection } from "./hooks/useHumanFormSelection.js";
 import type { HumanFormPhase } from "./human-form-mount.js";
 
 afterEach(() => {

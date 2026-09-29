@@ -17,7 +17,7 @@ import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/re
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { WorkflowRunLiveRounds } from "@renderer/console/workflows/pane/run/run-live-rounds.js";
+import { WorkflowRunLiveRounds } from "./run-live-refresh.js";
 
 const SESSION_ID = "session-live-rounds";
 /** The run the pane in these cases is showing. */

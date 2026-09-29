@@ -31,6 +31,8 @@
 // its invocations land as tool-activity rows, and none of them bypasses the
 // approval pipeline.
 
+import "./CallbackTools.css";
+
 import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityReading } from "@renderer/store/driver-capabilities/driver-capability-readings.js";

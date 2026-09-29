@@ -27,11 +27,9 @@
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
 
-import { useEffect, useState } from "react";
-
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { isCurrentSessionSubject, type SessionSubject } from "../../seats/index.js";
+import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   createAgentRoster,
@@ -39,7 +37,7 @@ import {
   type AgentConsoleCalls,
   type AgentRosterRead,
   type ChildRunLinkageRead,
-} from "@renderer/features/agents/agent-reads.js";
+} from "../agent-reads.js";
 
 /**
  * One holder's grant of a parent run's child-link read.
@@ -193,55 +191,6 @@ export class AgentConsoleModels {
     this.#outstandingLinkageLeaseCount = 0;
     held?.read.dispose();
   }
-}
-
-/**
- * Hold one {@link AgentConsoleModels} for as long as this mount shows one session.
- *
- * A hook rather than a render body: the models open subscriptions and a scheduler,
- * and a body that built them would build a new set on every pass React discarded,
- * each leaving a subscription behind it. `undefined` in either argument is a real
- * state — an auxiliary address that named no session — and answers `undefined`, which
- * the surfaces render as the absence it is.
- *
- * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
- * lags its own inputs by one committed frame, so a console moving directly from one
- * open session to another renders once with the previous session's models under the
- * new session's store. That frame is not merely a stale roster: the column would
- * read through the session the console has LEFT while naming the agent of the one it
- * arrived at. So the held set is answered only while it matches the subject it was
- * asked about, and the mismatched frame answers `undefined` — the absence every
- * consumer already renders.
- *
- * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID. A replacement bridge or a rebuilt
- * store for the SAME session passes an id comparison, so the first committed render
- * after either replacement would hand back models whose reads are bound to the
- * transport and the projection that were just retired. `seats/session-subject.ts`
- * owns the comparison, so the predicate has one copy.
- *
- * `calls` is held stable by the caller: a new object rebuilds the models.
- */
-export function useAgentConsoleModels(
-  bridge: ConsoleBridge | undefined,
-  sessionStore: SessionStore | undefined,
-  calls: AgentConsoleCalls,
-): AgentConsoleModels | undefined {
-  const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
-
-  useEffect(() => {
-    if (bridge === undefined || sessionStore === undefined) {
-      setModels(undefined);
-      return undefined;
-    }
-    const built = new AgentConsoleModels(bridge, sessionStore, calls);
-    setModels(built);
-    return () => {
-      built.dispose();
-      setModels(undefined);
-    };
-  }, [bridge, sessionStore, calls]);
-
-  return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
 }
 
 /** The linkage read the models hold, with the run it answers for. */

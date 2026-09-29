@@ -8,10 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  AGENT_REGISTRY_REFUSAL_ORIGIN,
-  AgentRegistryView,
-} from "@renderer/console/agents/definitions/definition-registry-view.js";
+import { AGENT_REGISTRY_REFUSAL_ORIGIN, AgentRegistryView } from "./library-view.js";
 import { RegistryStub, definition, settle } from "./agent-library.test-support.js";
 
 const REVIEWER = definition();

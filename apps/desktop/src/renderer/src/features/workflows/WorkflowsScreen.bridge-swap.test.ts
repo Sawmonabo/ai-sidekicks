@@ -1,13 +1,13 @@
-// The bridge is replaced under a slot that has already been answered.
+// The bridge is replaced under a screen that has already been answered.
 //
-// SEPARATE FROM `WorkflowsPaneHost.test.tsx` BECAUSE THE SUBJECT IS THE SWAP. That file
+// SEPARATE FROM `WorkflowsScreen.test.tsx` BECAUSE THE SUBJECT IS THE SWAP. That file
 // varies what a person opens against one bridge; every case here opens the same thing
 // and then replaces the bridge under the mounted console.
 //
-// The host holds one answer made from what a bridge served: which pane is open. An
+// The screen holds one answer made from what a bridge served: which pane is open. An
 // address carried across a swap opens a pane on a run the new bridge has never heard of.
 
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   composeWindow,
@@ -19,19 +19,14 @@ import {
 } from "./WorkflowsScreen.test-support.js";
 import { settle } from "./workflows-probe.test-support.js";
 
-vi.mock("@renderer/console/workflows/destination/index.js", async () => {
-  const { stubDestinationModule } = await import("./workflows-probe.test-support.js");
-  return stubDestinationModule();
-});
-
-/** Whether the slot is showing an opened pane rather than the destination. */
+/** Whether the screen is showing an opened pane rather than the runs. */
 function isShowingOpenedPane(container: HTMLElement): boolean {
   return container.querySelector(".meridian-workflows-pane-host") !== null;
 }
 
 beforeAll(loadRunPaneBody);
 
-describe("a bridge replaced under an answered slot", () => {
+describe("a bridge replaced under an answered screen", () => {
   it("closes a pane opened from the previous bridge rather than addressing this one with it", async () => {
     const composed = composeWindow();
     const rendered = mountWorkflowsSlot(composed);
@@ -48,7 +43,7 @@ describe("a bridge replaced under an answered slot", () => {
   });
 
   it("negative control: a re-render at the SAME bridge keeps the open pane", async () => {
-    // Without this, the case above would pass over a host that discarded the open pane
+    // Without this, the case above would pass over a screen that discarded the open pane
     // on every render, which would make no pane openable at all.
     const composed = composeWindow();
     const rendered = mountWorkflowsSlot(composed);

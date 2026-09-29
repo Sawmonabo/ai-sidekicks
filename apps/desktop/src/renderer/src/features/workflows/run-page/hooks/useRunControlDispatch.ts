@@ -59,7 +59,7 @@ import {
   type WorkflowRunCancelReply,
   type WorkflowRunResumeReply,
 } from "../run-controls.js";
-import type { RecordServedRunAct } from "@renderer/console/workflows/pane/run/served-run-act.js";
+import type { RecordServedRunAct } from "../served-run-act.js";
 
 /**
  * The two calls the controls put.

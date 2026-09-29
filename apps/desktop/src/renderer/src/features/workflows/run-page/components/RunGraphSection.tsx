@@ -11,7 +11,7 @@
 import type { WorkflowPhaseState } from "@renderer/services/wire-shapes/workflow-projection.js";
 import { projectParkedPhases } from "../../runs/run-list-projection.js";
 import { parkAwaitsPerson, type WorkflowParkedPhase } from "../../runs/run-list-rows.js";
-import { PhaseGraph } from "@renderer/console/workflows/pane/run/phase-graph/PhaseGraph.js";
+import { PhaseGraph } from "../run-graph/RunGraph.js";
 import type { PhaseGraphNode, PhaseParkAttention } from "../run-graph/phase-topology.js";
 
 /**

@@ -1,8 +1,5 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
-import {
-  type AgentRegistrySnapshot,
-  type AgentRegistryView,
-} from "@renderer/console/agents/definitions/definition-registry-view.js";
+import { type AgentRegistrySnapshot, type AgentRegistryView } from "../library-view.js";
 import { NO_SAVED_DEFINITIONS } from "../definition-rows.js";
 import { SavedDefinitionRow } from "./SavedDefinitionRow.js";
 

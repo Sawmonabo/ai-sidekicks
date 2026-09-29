@@ -25,6 +25,8 @@
 // family's, and the `driver.respondToRequest` ingress that answers one is reached
 // from nowhere on this surface.
 
+import "./ProviderAskDetails.css";
+
 import { WireFigure } from "@renderer/console/primitives/index.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { type ProviderAsk } from "../provider-ask.js";

@@ -4,6 +4,8 @@
 // one-component-per-`.tsx` rule: a module holding several components is a module whose
 // name answers for one of them, and the others are reached only by reading the file.
 
+import "./DefinitionListItem.css";
+
 import { memo } from "react";
 
 import { Chip, WireFigure, formatCount } from "@renderer/console/primitives/index.js";

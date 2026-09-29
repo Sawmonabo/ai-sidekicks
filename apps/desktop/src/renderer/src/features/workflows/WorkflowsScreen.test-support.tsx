@@ -1,19 +1,18 @@
-// One window's composition of the workflows slot, for every suite that drives it.
+// One window's composition of the workflows screen, for every suite that drives it.
 //
 // Hoisted on the second use, per `apps/desktop/AGENTS.md`: the mount cases and the
 // bridge-swap cases both need a real bridge, a real frame store and a real pane board with
-// this family's own bodies registered into it.
+// this feature's own bodies registered into it.
 //
 // Everything here is real except the persistence stores, which are cast away for
 // `RouteSurface.test.tsx`'s reason: constructing them opens a database to hand a branch that
 // never touches it. The session store is `undefined` because `#/workflows` names no session.
 // The bodies reach the board through `registerWorkflowPanes`, the family's own registration
-// call, rather than a hand-built table: the host's claim is that it mounts what the deck
+// call, rather than a hand-built table: the screen's claim is that it mounts what the deck
 // would mount.
 //
-// THE DESTINATION IS THE SUITES' OWN STAND-IN. The host hands it no runs, so a suite
-// substitutes it with one button (`.probe-open-run`) that opens a run through the opener
-// the host gave it; `pressOpenRun` presses that button.
+// THE SCREEN IS MOUNTED WITH A SERVED RUN DIRECTORY, so a suite opens a run by pressing a
+// real row; `pressOpenRun` presses the first one.
 
 import { fireEvent, render } from "@testing-library/react";
 
@@ -27,11 +26,19 @@ import {
   type ConsolePaneContext,
   type ConsoleSurfaceContext,
 } from "@renderer/console/seats/index.js";
-import { registerWorkflowPanes } from "@renderer/console/workflows/index.js";
-import { WorkflowsPaneHost } from "@renderer/console/workflows/WorkflowsPaneHost.js";
+import { registerWorkflowPanes } from "./contributions/panes.js";
+import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
+import { PROBE_RUNS } from "./workflows-probe.test-support.js";
+import { WorkflowsDestination } from "./WorkflowsScreen.js";
+
+/** The probe runs as an enumeration serves them. */
+export const SERVED_DIRECTORY: WorkflowRunDirectoryState = {
+  status: "served",
+  runs: PROBE_RUNS.map((run) => ({ ...run, definitionName: "Ship pipeline" })),
+};
 
 /**
- * One window's composition: the context the slot is handed, and the board inside it.
+ * One window's composition: the context the screen is handed, and the board inside it.
  *
  * The board is handed back beside the context so a case can register a probe into the
  * very registry the render will resolve from. Built per case rather than shared,
@@ -43,7 +50,7 @@ export interface ComposedWindow {
   readonly paneRegistry: ConsolePaneRegistry;
 }
 
-/** The surface context the slot is handed, and this composition's own pane board. */
+/** The surface context the screen is handed, and this composition's own pane board. */
 export function composeWindow(): ComposedWindow {
   const frameStore = new FrameStore();
   const committedRoute: ConsoleRoute = { kind: "workflows" };
@@ -66,7 +73,7 @@ export function composeWindow(): ComposedWindow {
  * The same composition with a replaced bridge.
  *
  * Everything a window keeps across a swap is kept: the frame store, the board and its
- * bodies. What a swap case is about is what the host carried over.
+ * bodies. What a swap case is about is what the screen carried over.
  */
 export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
   return {
@@ -78,23 +85,23 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
   };
 }
 
-/** Mount the slot against one composition, handing back React's own render result. */
+/** Mount the screen against one composition, handing back React's own render result. */
 export function mountWorkflowsSlot(composed: ComposedWindow): ReturnType<typeof render> {
-  return render(inWindowChrome(<WorkflowsPaneHost context={composed.context} />));
+  return render(inWindowChrome(screenOver(composed)));
 }
 
-/** Re-render the mounted slot against `composed`, which a swap case uses for the swap. */
+/** Re-render the mounted screen against `composed`, which a swap case uses for the swap. */
 export function remountWorkflowsSlot(
   rendered: ReturnType<typeof render>,
   composed: ComposedWindow,
 ): void {
-  rendered.rerender(inWindowChrome(<WorkflowsPaneHost context={composed.context} />));
+  rendered.rerender(inWindowChrome(screenOver(composed)));
 }
 
 /**
  * Replace the run body on one composition's board with a recording one.
  *
- * The probe observes the pane context this host composed and nothing else. It replaces
+ * The probe observes the pane context this screen composed and nothing else. It replaces
  * the body on that composition's board, so nothing outside the case sees it and no
  * teardown is owed.
  */
@@ -103,7 +110,7 @@ export function probeRunPane(paneRegistry: ConsolePaneRegistry): readonly Consol
   paneRegistry.unregister("workflow-run");
   paneRegistry.register({
     kind: "workflow-run",
-    owner: "workflows-pane-host-test",
+    owner: "workflows-screen-test",
     render: (context) => {
       mountedContexts.push(context);
       return <p>probe</p>;
@@ -130,9 +137,14 @@ export async function loadRunPaneBody(): Promise<void> {
   await import("./run-page/run-page-body.js");
 }
 
-/** Press the stand-in destination's button, which opens a run through the host's opener. */
+/** Press the first run row's open control, which opens that run's pane. */
 export function pressOpenRun(container: HTMLElement): void {
-  pressFirst(container, ".probe-open-run");
+  pressFirst(container, ".meridian-run-row__open");
+}
+
+/** The screen over one composition, with the served run directory. */
+function screenOver(composed: ComposedWindow): React.JSX.Element {
+  return <WorkflowsDestination context={composed.context} directory={SERVED_DIRECTORY} />;
 }
 
 /**

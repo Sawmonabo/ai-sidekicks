@@ -1,9 +1,8 @@
 /*
  * The park badge, and the stack the surfaces that show more than one arrange them in.
  *
- * Owned by `ParkBadge.tsx` and imported from the family door, `workflows/index.ts`. The
- * stack rule travels with the badge rather than with the run pane that places it,
- * because a stack of badges is only ever a stack of these.
+ * Owned and imported by `ParkBadge.tsx`. The stack rule travels with the badge rather than
+ * with the run pane that places it, because a stack of badges is only ever a stack of these.
  */
 
 /*

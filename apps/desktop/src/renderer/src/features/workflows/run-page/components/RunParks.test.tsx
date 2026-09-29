@@ -33,11 +33,8 @@ import {
   PHASE_PUBLISH,
   PHASE_SIGN_OFF,
 } from "../../workflows-probe.test-support.js";
-import {
-  UNADDRESSABLE_HUMAN_WAIT_DETAIL,
-  humanFormPhaseFor,
-  type HumanFormSelection,
-} from "@renderer/console/workflows/pane/run/human-form-selection.js";
+import { UNADDRESSABLE_HUMAN_WAIT_DETAIL, humanFormPhaseFor } from "../human-form-phase.js";
+import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
 import { phaseGraphLoader } from "../run-graph/run-graph-loader.js";
 import { RunParks } from "./RunParks.js";
 import { RunPhaseGraph } from "./RunGraphSection.js";

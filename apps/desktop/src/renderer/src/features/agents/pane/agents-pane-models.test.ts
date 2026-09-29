@@ -20,10 +20,8 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import {
-  AgentConsoleModels,
-  useAgentConsoleModels,
-} from "@renderer/console/agents/run-console/agent-console-model.js";
+import { AgentConsoleModels } from "./agents-pane-models.js";
+import { useAgentConsoleModels } from "./hooks/useAgentsPaneModels.js";
 import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
 import {
   REJECTING_AGENT_CONSOLE_CALLS,

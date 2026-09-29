@@ -27,7 +27,7 @@
 // nothing would read identically to a pane that supplied one — the distinction
 // `seats/pane/pane-controls.ts` states at the same seam, for the same reason.
 
-import { createContext, useContext } from "react";
+import { createContext } from "react";
 
 /**
  * Record one act on this run that the daemon served.
@@ -49,8 +49,3 @@ export type RecordServedRunAct = () => void;
 export const ServedRunActContext: React.Context<RecordServedRunAct | undefined> = createContext<
   RecordServedRunAct | undefined
 >(undefined);
-
-/** The re-arm of the run pane this component is rendered inside, or `undefined`. */
-export function useRecordServedRunAct(): RecordServedRunAct | undefined {
-  return useContext(ServedRunActContext);
-}

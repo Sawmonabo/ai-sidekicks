@@ -75,6 +75,8 @@
 // exactly as `human-form-selection.ts` resolves its held phase id against the mounts
 // the current snapshot carries.
 
+import "./OperatorControls.css";
+
 import { useId, useMemo, useRef } from "react";
 
 import {

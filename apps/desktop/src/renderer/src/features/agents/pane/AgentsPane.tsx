@@ -15,7 +15,7 @@
 
 import type { ReactNode } from "react";
 
-import { useAgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { useAgentConsoleModels } from "./hooks/useAgentsPaneModels.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
