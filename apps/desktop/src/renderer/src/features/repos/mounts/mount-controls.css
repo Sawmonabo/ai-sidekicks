@@ -166,8 +166,7 @@
 
 .meridian-repo-attach__body,
 .meridian-bind__body,
-.meridian-reattach__body,
-.meridian-root-removal__body {
+.meridian-reattach__body {
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);

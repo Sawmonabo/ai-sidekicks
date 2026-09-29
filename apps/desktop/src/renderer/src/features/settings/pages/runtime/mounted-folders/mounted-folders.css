@@ -6,8 +6,8 @@
  */
 
 /* --- The mount inventory ------------------------------------------------- */
-/* One line per mount, with the two health axes side by side. Detail belongs to the
-   session screen; this list is scannable or it is nothing. */
+/* One line per mount, with the two health axes side by side; this list is scannable
+   or it is nothing. */
 
 .meridian-mount-list {
   display: flex;

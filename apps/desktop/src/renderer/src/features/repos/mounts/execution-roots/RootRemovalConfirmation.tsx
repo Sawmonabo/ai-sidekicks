@@ -1,10 +1,7 @@
 // Removing a worktree, with what it costs stated first.
 //
 // The strongest interaction on this screen, and it is built as one. An alert dialog rather
-// than a button: it traps focus, it does not dismiss on an outside press, and its
-// description is the consequence of removing rather than a generic warning.
-//
-// The consequence comes from the model and is not written here.
+// than a button: it traps focus and it does not dismiss on an outside press.
 //
 // The settlement renders on the card, outside the popup, on `ReattachControl`'s reasoning:
 // the confirm control closes the dialog, so anything drawn inside it is drawn into a popup
@@ -73,9 +70,6 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
           <AlertDialog.Title className="meridian-root-removal__title">
             {REMOVAL_QUESTION}
           </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-root-removal__body">
-            {subject.consequence}
-          </AlertDialog.Description>
           <div className="meridian-root-removal__acts">
             <AlertDialog.Close
               className="meridian-root-removal__cancel"

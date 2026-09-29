@@ -46,7 +46,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
       />
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.foldedAwayMatchCount)]}
-        subject="the run groups this ledger has folded"
+        subject="the run groups this transcript has folded"
       />
     </>
   );

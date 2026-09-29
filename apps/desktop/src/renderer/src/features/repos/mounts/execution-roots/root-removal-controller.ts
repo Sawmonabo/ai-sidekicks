@@ -1,8 +1,6 @@
 // Removing a worktree: one act, one call, and one settlement.
 //
-// A person removing an execution root reads a consequence, consents, and sees what
-// happened. The consequence sentence lives in `root-removal-subject.ts`: removing records a
-// transition and the sweep removes the files afterwards.
+// A person removing an execution root consents and sees what happened.
 //
 // The settlement is published into a host rather than off a snapshot of its own, which is
 // what `execution-mode-selection.ts`, this family's other act-only class, does. A `snapshot`

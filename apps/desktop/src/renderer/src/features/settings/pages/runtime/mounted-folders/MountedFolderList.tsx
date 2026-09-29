@@ -130,12 +130,7 @@ export function MountedFolderList(props: {
   }
   if (state.value.readings.length === 0) {
     return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="This session has mounted no repositories."
-        detail="A mount arrives when a repository is attached to this session from the workspace surface."
-      />
+      <Nothing kind="empty" placement="surface" title="This session has mounted no repositories." />
     );
   }
   return (
@@ -150,8 +145,7 @@ export function MountedFolderList(props: {
       {state.value.unreadMountCount > 0 ? (
         <p className="meridian-settings-page__aside">
           {formatCount(state.value.unreadMountCount)} further mounts in this session were not read.
-          The inventory opens a bounded number of mounts per visit, and the rest are named by the
-          session screen rather than dropped here without saying so.
+          The inventory opens a bounded number of mounts per visit.
         </p>
       ) : null}
     </>
