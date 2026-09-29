@@ -15,9 +15,9 @@
 //      all still paints a complete palette (nothing is defined only inside a
 //      media query — the failure mode where a color exists in one branch only).
 //   2. `@media (prefers-color-scheme: dark)` guarded by
-//      `:root:not([data-console-scheme="light"])` redefines the varying tokens,
+//      `:root:not([data-color-scheme="light"])` redefines the varying tokens,
 //      so the system preference wins when the operator has expressed none.
-//   3. `[data-console-scheme="light"]` and `[data-console-scheme="dark"]` — the
+//   3. `[data-color-scheme="light"]` and `[data-color-scheme="dark"]` — the
 //      explicit-choice layer, which beats the system in both directions. The
 //      attribute is stamped on the document element, so both selectors match
 //      `:root` and win on source order at equal specificity.
@@ -53,7 +53,7 @@ import {
 } from "./tokens.js";
 
 /** The DOM attribute an explicit scheme choice is stamped on. */
-export const SCHEME_ATTRIBUTE = "data-console-scheme";
+export const SCHEME_ATTRIBUTE = "data-color-scheme";
 
 /**
  * The complete text of `meridian.css`. Deterministic: same inputs, same bytes,
@@ -98,7 +98,7 @@ export function generateMeridianCss(): string {
   const systemDarkBlock = [
     "@media (prefers-color-scheme: dark) {",
     "  /* System preference wins only where the operator has expressed none. */",
-    '  :root:not([data-console-scheme="light"]) {',
+    '  :root:not([data-color-scheme="light"]) {',
     schemeColorBlock("dark", "  "),
     "  }",
     "}",
@@ -111,13 +111,13 @@ export function generateMeridianCss(): string {
   const explicitLightBlock = [
     "/* An explicit choice beats the system preference in both directions, for the",
     "   browser's own controls as well as for the palette. */",
-    '[data-console-scheme="light"] {',
+    '[data-color-scheme="light"] {',
     "  color-scheme: light;",
     "}",
   ].join("\n");
 
   const explicitDarkBlock = [
-    '[data-console-scheme="dark"] {',
+    '[data-color-scheme="dark"] {',
     "  color-scheme: dark;",
     "",
     schemeColorBlock("dark", ""),

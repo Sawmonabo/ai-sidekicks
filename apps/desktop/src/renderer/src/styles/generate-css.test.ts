@@ -46,7 +46,7 @@ function definedTokenVariables(css: string): Set<string> {
 /**
  * The declarations inside the TOP-LEVEL rule whose selector is exactly `selector`.
  *
- * Anchored to a line start, because `[data-console-scheme="light"]` also appears
+ * Anchored to a line start, because `[data-color-scheme="light"]` also appears
  * inside the `prefers-color-scheme` block — as the indented `:root:not(...)` guard
  * that exists to exclude that very choice — and a substring search would read the
  * system layer while claiming to read the explicit one.
@@ -136,8 +136,8 @@ describe("assets — the generated token sheet", () => {
     // the inverse mismatch is reachable the same way. The token guard already
     // keeps the right palette; this is the other half of the same choice.
     const css = generateMeridianCss();
-    const explicitLight = topLevelRuleBody(css, '[data-console-scheme="light"]');
-    const explicitDark = topLevelRuleBody(css, '[data-console-scheme="dark"]');
+    const explicitLight = topLevelRuleBody(css, '[data-color-scheme="light"]');
+    const explicitDark = topLevelRuleBody(css, '[data-color-scheme="dark"]');
 
     expect(explicitLight, "there should be an explicit-light rule at all").not.toBe("");
     expect(explicitDark, "there should be an explicit-dark rule at all").not.toBe("");
