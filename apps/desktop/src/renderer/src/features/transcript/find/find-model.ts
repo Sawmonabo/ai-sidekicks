@@ -1,4 +1,4 @@
-// Find in ledger — the matcher behind the field.
+// Find in this session — the matcher behind the field.
 //
 // The subsequence scorer shared by the palette and settings search is own-built. THE
 // FIELD'S RULE IS THIS MODULE'S: find runs over the loaded rows with a match count and

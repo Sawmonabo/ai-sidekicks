@@ -78,7 +78,7 @@ function renderField(
   return {
     field: screen.getByRole("search"),
     acts,
-    input: screen.getByRole("searchbox", { name: "Find in ledger" }),
+    input: screen.getByRole("searchbox", { name: "Find in this session" }),
   };
 }
 
@@ -173,7 +173,9 @@ describe("find field — the chord puts the caret in the field", () => {
         onClose={() => undefined}
       />,
     );
-    const input = screen.getByRole("searchbox", { name: "Find in ledger" }) as HTMLInputElement;
+    const input = screen.getByRole("searchbox", {
+      name: "Find in this session",
+    }) as HTMLInputElement;
     input.blur();
     expect(document.activeElement).not.toBe(input);
     rerender(
@@ -206,7 +208,9 @@ describe("find field — the chord puts the caret in the field", () => {
         onClose={() => undefined}
       />,
     );
-    const input = screen.getByRole("searchbox", { name: "Find in ledger" }) as HTMLInputElement;
+    const input = screen.getByRole("searchbox", {
+      name: "Find in this session",
+    }) as HTMLInputElement;
     input.blur();
     rerender(
       <FindBox

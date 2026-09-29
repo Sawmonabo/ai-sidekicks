@@ -45,7 +45,7 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
     <div className="meridian-find" role="search">
       <label className="meridian-find__field">
         <Glyph name="search" size={GLYPH_SIZE_CHROME} />
-        <span className="meridian-find__label">Find in ledger</span>
+        <span className="meridian-find__label">Find in this session</span>
         <input
           ref={inputRef}
           className="meridian-find__input"

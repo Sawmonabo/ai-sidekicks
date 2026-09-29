@@ -9,7 +9,7 @@
 // bridge or the DOM. Find's walk is `useTranscriptFind`'s and the scroll is the viewport
 // binding's, so the whole set can be driven by a test with no render at all.
 //
-// "Collapse all finished run chapters" never refuses: the headers are disclosures, and this
+// "Fold every finished run" never refuses: the headers are disclosures, and this
 // act folds exactly the ones a person opened.
 
 import { type FindStepDirection } from "../find/find-model.js";

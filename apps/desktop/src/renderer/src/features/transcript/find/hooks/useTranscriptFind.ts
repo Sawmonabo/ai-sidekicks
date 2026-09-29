@@ -55,7 +55,7 @@ export interface TranscriptFindState {
   /**
    * Reveal the field without touching the query or the walk.
    *
-   * Separate from `setQuery`, which also opens: the palette's "Find in ledger" row
+   * Separate from `setQuery`, which also opens: the palette's "Find in this session" row
    * and the chord behind it open a field somebody is about to type into, and
    * folding that into the query setter would have made the act pass an empty string
    * and reset a walk the reader was already in the middle of.

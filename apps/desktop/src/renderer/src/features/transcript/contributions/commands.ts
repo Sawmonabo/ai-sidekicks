@@ -24,13 +24,13 @@ import { TRANSCRIPT_KEY_BINDINGS, WHEN_SESSION_ACTIVE } from "./keybindings.js";
  * The palette group every one of these rows sits under.
  *
  * One binding rather than a literal per command: the group is also a secondary
- * match field, so two spellings of it would split the ledger's own commands across
+ * match field, so two spellings of it would split the transcript's commands across
  * two categories in the palette's category list.
  */
-export const TRANSCRIPT_COMMAND_GROUP = "Ledger";
+export const TRANSCRIPT_COMMAND_GROUP = "Transcript";
 
 /**
- * Build this window's ledger commands.
+ * Build this window's transcript commands.
  *
  * A function of the acts rather than a constant, because every `run` closes over
  * one window's transcript.
@@ -39,7 +39,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Console
   return [
     {
       id: "transcript.find",
-      title: "Find in ledger",
+      title: "Find in this session",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["search", "grep"],
@@ -47,21 +47,21 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Console
     },
     {
       id: "transcript.findNext",
-      title: "Go to next match",
+      title: "Next match",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       run: acts.stepFindNext,
     },
     {
       id: "transcript.findPrevious",
-      title: "Go to previous match",
+      title: "Previous match",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       run: acts.stepFindPrevious,
     },
     {
       id: "transcript.scrollToTail",
-      title: "Scroll to the latest row",
+      title: "Jump to latest",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["follow", "bottom", "live"],
@@ -69,10 +69,10 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Console
     },
     {
       id: "transcript.collapseTerminalChapters",
-      title: "Collapse all finished run chapters",
+      title: "Fold every finished run",
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
-      keywords: ["fold", "chapters", "runs"],
+      keywords: ["fold", "collapse", "runs"],
       run: acts.foldEveryRun,
     },
   ];
@@ -88,7 +88,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Console
 export const TRANSCRIPT_COMMAND_OWNER = "ledger";
 
 /**
- * Contribute the ledger's commands and chords to a window.
+ * Contribute the transcript's commands and chords to a window.
  *
  * Takes the surface rather than reaching for the module-scope one, so a test contributes
  * into a surface it owns.
