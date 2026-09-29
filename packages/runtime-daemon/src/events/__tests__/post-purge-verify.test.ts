@@ -85,6 +85,7 @@ import type {
   PiiEventWriteResult,
   PiiPayloadCiphertext,
 } from "../pii-indirection.js";
+import { AUDIT_STUB_RETENTION_CLASS } from "../session-purge.js";
 import { GENESIS_PREV_HASH, verifyRow } from "../signer.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey, RowVerification, SignedRow } from "../signer.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
@@ -712,7 +713,7 @@ function countRows(database: DatabaseType, tableName: "session_events" | "user_k
  * Named for the column write it performs rather than for any policy operation,
  * because two DIFFERENT operations reach this state:
  *
- *   * compaction NULLs the column and replaces `payload` with a stub
+ *   * a session purge NULLs the column and replaces `payload` with a stub
  *     projection carrying no digest, so the post-state is BOTH-ABSENT and
  *     stays digest-bound.
  *   * An at-rest adversary destroying evidence — the column NULLed while the
@@ -969,7 +970,7 @@ describe("leg 2 — the stored row verifies and its ciphertext binds to the sign
     // `isCiphertextDigestBound` is what catches it: a row carrying a signed
     // digest whose subject was deleted at rest has nothing left tying it to the
     // ciphertext it once held — a plain recompute-and-compare never reaches that
-    // state, because there is nothing to recompute over. Compaction reaches the
+    // state, because there is nothing to recompute over. A session purge reaches the
     // same NULL column LEGITIMATELY by also replacing `payload` with a
     // digest-free stub, which is why the predicate keys on the PAIR and not on
     // the column alone.
@@ -2109,7 +2110,7 @@ describe("a misordered PII write path is refused at runtime", () => {
   });
 
   it("refuses an audit_integrity event before the encrypt step (layer 2)", async () => {
-    // `audit_integrity` rows are never compacted, so a PII payload attached to
+    // `audit_integrity` rows are never purged, so a PII payload attached to
     // one would be permanent. The compile-time half
     // (`piiPayload?: never`) is only one half; the runtime half catches a value
     // that arrived across a serialization boundary or an `as` cast, which is the
@@ -2590,7 +2591,7 @@ describe("a misordered PII write path is refused at runtime", () => {
 // row for exactly that reason. The cases here are the
 // predicate's own contract at unit granularity: every column/payload pair it
 // must classify, including the two the DB-level cases cannot reach — a
-// substituted ciphertext, and a compacted stub.
+// substituted ciphertext, and a purge stub.
 describe("isCiphertextDigestBound — the ciphertext column's only integrity binding", () => {
   const ciphertext = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03]);
   const digestOf = (bytes: Uint8Array): string => bytesToHex(blake3(bytes));
@@ -2632,11 +2633,11 @@ describe("isCiphertextDigestBound — the ciphertext column's only integrity bin
 
   // The both-absent state, which is why the check needs no retention-class
   // branch.
-  it("passes a compacted audit stub", () => {
+  it("passes a purge stub", () => {
     const stubProjection = {
       id: FIXTURE_EVENT_ID,
-      retentionClass: "audit_stub",
-      summary: "a compacted event",
+      retentionClass: AUDIT_STUB_RETENTION_CLASS,
+      summary: "a purged event",
     };
     expect(isCiphertextDigestBound(null, stubProjection)).toBe(true);
   });

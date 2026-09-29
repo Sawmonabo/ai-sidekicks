@@ -1372,13 +1372,7 @@ const buildEventCompacted = () => ({
     nodeId: NODE_ID,
     operationId: "compact-2026-01-22-01",
     occurredAt: "2026-01-22T19:14:40.000Z",
-    fromSeq: 1,
-    toSeq: 4096,
-    eventsBefore: 4096,
-    eventsAfter: 512,
-    bytesReclaimed: 8_388_608,
-    tombstoneCount: 3584,
-    compactionReason: "age_threshold",
+    removedSessions: [{ sessionId: SESSION_ID, fromSeq: 1, toSeq: 4096 }],
   },
 });
 
@@ -1779,15 +1773,26 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     );
   });
 
-  it("event.compacted takes its payload sessionId both ways (single-session pass)", () => {
+  it("event.compacted names at least one removed session", () => {
     const event = buildEventCompacted();
     expect(SessionEventSchema.safeParse(event).success).toBe(true);
     expect(
+      SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, removedSessions: [] } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("event.compacted refuses a stubbed range that ends before it starts", () => {
+    const event = buildEventCompacted();
+    expect(
       SessionEventSchema.safeParse({
         ...event,
-        payload: { ...event.payload, sessionId: SESSION_ID },
+        payload: {
+          ...event.payload,
+          removedSessions: [{ sessionId: SESSION_ID, fromSeq: 10, toSeq: 9 }],
+        },
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("key_reuse_detected requires at least two observed identities", () => {
@@ -1902,30 +1907,6 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     ).toBe(false);
   });
 
-  it.each([["age_threshold"], ["count_threshold"], ["storage_threshold"]] as const)(
-    "event.compacted accepts compactionReason %s",
-    (compactionReason) => {
-      const event = buildEventCompacted();
-      expect(
-        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, compactionReason } })
-          .success,
-      ).toBe(true);
-    },
-  );
-
-  it.each([["compactionReason", buildEventCompacted, "disk_pressure"]] as const)(
-    "rejects an out-of-vocabulary %s",
-    (member, build, badValue) => {
-      const event = build();
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, [member]: badValue },
-        }).success,
-      ).toBe(false);
-    },
-  );
-
   it("caps audit_integrity_failed.detail at its boundary", () => {
     const event = buildAuditIntegrityFailedRegistrarArm();
     const atCap = { ...event.payload, detail: "x".repeat(AUDIT_INTEGRITY_DETAIL_MAX_LEN) };
@@ -1962,13 +1943,23 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     const event = buildEventCompacted();
     const atCeiling = SessionEventSchema.safeParse({
       ...event,
-      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX },
+      payload: {
+        ...event.payload,
+        removedSessions: [
+          { sessionId: SESSION_ID, fromSeq: 1, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX },
+        ],
+      },
     });
     expect(atCeiling.success).toBe(true);
 
     const overCeiling = SessionEventSchema.safeParse({
       ...event,
-      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX + 1 },
+      payload: {
+        ...event.payload,
+        removedSessions: [
+          { sessionId: SESSION_ID, fromSeq: 1, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX + 1 },
+        ],
+      },
     });
     expect(overCeiling.success).toBe(false);
     // Issue COUNT is deliberately not asserted (the envelope pin's reasoning):
@@ -1980,16 +1971,6 @@ describe("audit_integrity + event_maintenance payload variants", () => {
         /the same injectivity ceiling EventEnvelope\.sequence takes/.test(message),
       ),
     ).toBe(true);
-  });
-
-  it("rejects a non-integer count", () => {
-    const event = buildEventCompacted();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, tombstoneCount: 3.5 },
-      }).success,
-    ).toBe(false);
   });
 
   it.each(SESSION_EVENT_VARIANTS)(

@@ -35,9 +35,9 @@
 //
 // FIXTURE NOTE — the signing key source answers for EVERY session id, the
 // daemon-scope sentinel included. A per-session map keyed only on the fixture's
-// session would make any daemon-scope append (the compactor's `event.compacted`,
-// which travels this same path in `compactor.test.ts`) fail mid-flight rather
-// than fail loudly.
+// session would make any daemon-scope append (the session purge's receipt,
+// which travels this same path in `purge-safety-e2e.test.ts`) fail mid-flight
+// rather than fail loudly.
 //
 
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -1702,7 +1702,7 @@ describe("EventLogService — terminal-key backstop", () => {
     // THE STUB-PRESERVATION NEGATIVE CONTROL, and a different predicate from the
     // identity-move above: dropping the key makes both `json_extract`s NULL,
     // which the value-equality check cannot see and the NULL-distinct index
-    // welcomes. This is the shape a compactor bug actually takes — a projection
+    // welcomes. This is the shape a purge bug actually takes — a projection
     // that rebuilds `payload` from a key list and forgets to carry the run key
     // forward re-opens the duplicate-terminal bypass for the row's whole
     // retention life, silently. the projection is what keeps it closed; this arm
@@ -1710,11 +1710,7 @@ describe("EventLogService — terminal-key backstop", () => {
     const { service } = buildService();
     const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
 
-    for (const droppedPayload of [
-      { runVersion: 1 },
-      { runId: "run-1" },
-      { summary: "compacted" },
-    ]) {
+    for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { summary: "purged" }]) {
       expect(
         () =>
           database

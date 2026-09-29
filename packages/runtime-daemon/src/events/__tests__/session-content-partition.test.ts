@@ -1857,11 +1857,11 @@ describe("appending a row that carries machine-authored prose", () => {
   // rotation's shrinking working set, and the append race the delete must lose.
   //
   // Bodies are cleared here with a direct `content_payload = NULL` UPDATE rather
-  // than by driving a real `Compactor`. That is the exact mutation the stub
-  // UPDATE performs and it is what the predicate reads; the compactor's own
+  // than by driving a real `SessionPurge`. That is the exact mutation the stub
+  // UPDATE performs and it is what the predicate reads; the purge's own
   // obligation — that it CALLS this after clearing — is pinned separately in
-  // `compactor.test.ts`, where the seam is recorded. Splitting them keeps each
-  // arm about one thing.
+  // `session-purge.test.ts`, where the seam is recorded. Splitting them keeps
+  // each arm about one thing.
   describe("retiring the wrapped session key", () => {
     function clearBody(eventId: string): void {
       database
@@ -1951,7 +1951,7 @@ describe("appending a row that carries machine-authored prose", () => {
       const { service, store } = buildAppendFixture();
       const doomed = makeAssistantEnvelope();
       const survivor = makeAssistantEnvelopeFor(OTHER_SESSION);
-      await service.append(doomed, { content: { body: "will be compacted" } });
+      await service.append(doomed, { content: { body: "will be purged" } });
       await service.append(survivor, { content: { body: "will survive" } });
       expect(store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY)).toBe(2);
 
@@ -2286,8 +2286,8 @@ describe("appending a row that carries machine-authored prose", () => {
       );
 
       // No row, and — the point of the fix — no key either. Before the
-      // reconciliation this session held a wrapped DEK forever: it never
-      // compacts (there is nothing to compact) so no clearing path would ever
+      // reconciliation this session held a wrapped DEK forever: it has no body
+      // for a purge to clear, so no clearing path would ever
       // reach it, and `rewrapAll` would walk it on every unrelated
       // user's erasure for the life of the node.
       expect(keyRowCount(SESSION)).toBe(0);
@@ -2415,7 +2415,7 @@ describe("appending a row that carries machine-authored prose", () => {
 //
 //   * the codec, per CATEGORY, at `PII_REFUSED_CATEGORY_NAMES` and the switch
 //     that reads it — the refusal that keeps a `pii_payload` off a row says
-//     is never compacted and never crypto-shredded;
+//     is never purged and never crypto-shredded;
 //   * `packages/contracts/src/event.ts`, per registered VARIANT, as the
 //     presence or absence of the two optional members in that variant's payload
 //     shape.

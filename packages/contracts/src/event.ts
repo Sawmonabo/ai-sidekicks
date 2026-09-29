@@ -641,22 +641,16 @@ export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonneg
 export type SourcePosition = number;
 export const SourcePositionSchema: z.ZodType<SourcePosition> = z.number().int().nonnegative();
 
-// The three shared wire literals. Exported as consts — not inlined at each
-// use site — because a later rename is forbidden-non-additive and each
-// literal is shared across two plans' code: stamps the pair at ingestion
-// and reads it in the supersede projection, while compactor writes the
-// resolved originating position into the audit stub under `originPosition`,
-// which rewind-span check reads back. The stamp keys are the registered
-// payload-field names of `originPosition` is the audit-stub PROJECTION key
-// of — a stub-projection field, never a `session_events` column and never a
-// live payload key.
+// The two shared wire literals. Exported as consts — not inlined at each
+// use site — because ingestion stamps the pair and the supersede projection
+// reads it back, so a rename must move both sides at once. They are the
+// registered payload-field names of the stamp.
 //
 // `as const` rather than a written literal annotation: the literal type stays
 // syntactically evident (so `isolatedDeclarations` is satisfied) and the keys
 // stay usable as computed property names in the composition helper below.
 export const SOURCE_EPOCH_PAYLOAD_KEY = "sourceEpoch" as const;
 export const SOURCE_POSITION_PAYLOAD_KEY = "sourcePosition" as const;
-export const ORIGIN_POSITION_STUB_KEY = "originPosition" as const;
 
 /**
  * Composes the optional `sourceEpoch` + `sourcePosition` stamp onto a
@@ -1780,39 +1774,40 @@ const buildEventMaintenanceBaseShape = () => ({
   occurredAt: z.iso.datetime({ offset: true }),
 });
 
+/** One session a deletion removed, with the range of its rows the deletion stubbed. */
+export interface EventCompactedRemovedSession {
+  sessionId: SessionId;
+  fromSeq: number;
+  toSeq: number;
+}
+const EventCompactedRemovedSessionSchema: z.ZodType<EventCompactedRemovedSession> = z
+  .object({
+    sessionId: SessionIdSchema,
+    fromSeq: payloadSequenceSchema,
+    toSeq: payloadSequenceSchema,
+  })
+  .strict()
+  .refine((removed) => removed.fromSeq <= removed.toSeq, {
+    message: "a stubbed range starts at or before its end",
+    path: ["toSeq"],
+  });
+
 /**
- * `event.compacted` — a compaction pass replaced full payloads in a range with
- * audit stubs.
- *
- * `sessionId` is OPTIONAL here and required nowhere else in the family: the
- * spec grants a single-session pass the option of carrying that session's real
- * id while the daemon-scope row binds the sentinel at the ENVELOPE.
+ * `event.compacted` — the receipt of one session deletion (`Delete old data`):
+ * every session it removed and the range of rows it replaced with audit stubs
+ * in each. It is written only when a deletion stubbed rows, so it names at least
+ * one session.
  */
 export type EventCompactedPayload = {
   nodeId: NodeId;
   operationId: string;
   occurredAt: string;
-  sessionId?: SessionId | undefined;
-  fromSeq: number;
-  toSeq: number;
-  eventsBefore: number;
-  eventsAfter: number;
-  bytesReclaimed: number;
-  tombstoneCount: number;
-  compactionReason: "age_threshold" | "count_threshold" | "storage_threshold";
+  removedSessions: EventCompactedRemovedSession[];
 };
 export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
   .object({
     ...buildEventMaintenanceBaseShape(),
-    sessionId: SessionIdSchema.optional(),
-    fromSeq: payloadSequenceSchema,
-    toSeq: payloadSequenceSchema,
-    eventsBefore: z.number().int().nonnegative(),
-    eventsAfter: z.number().int().nonnegative(),
-    bytesReclaimed: z.number().int().nonnegative(),
-    tombstoneCount: z.number().int().nonnegative(),
-    // Closed vocabulary — the three triggers.
-    compactionReason: z.enum(["age_threshold", "count_threshold", "storage_threshold"]),
+    removedSessions: z.array(EventCompactedRemovedSessionSchema).min(1),
   })
   .strict();
 
@@ -1865,7 +1860,7 @@ export const KeyReuseDetectedEventSchema: z.ZodType<KeyReuseDetectedEvent> = z
   })
   .strict();
 
-// Emitted once per compaction pass.
+// Emitted once per session deletion that stubbed rows.
 export interface EventCompactedEvent extends EventEnvelope {
   type: "event.compacted";
   category: "event_maintenance";

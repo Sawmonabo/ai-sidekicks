@@ -4,11 +4,9 @@
 //   • SourceEpochSchema / SourcePositionSchema accept 0 and positive
 //     integers and reject negatives, non-integers, and non-numbers — `0` is
 //     the pre-any-rollback epoch, so it is a VALUE, never a falsy sentinel.
-//   • The three shared wire literals are pinned by exact string equality:
-//     `sourceEpoch` / `sourcePosition` (the registered payload-field names
-//     two plans' code writes and reads) and `originPosition` (the audit-stub
-//     projection key rewind-span check reads back). A rename is
-//     forbidden-non-additive #8.
+//   • The two shared wire literals are pinned by exact string equality:
+//     `sourceEpoch` / `sourcePosition`, the registered payload-field names
+//     ingestion writes and the supersede projection reads.
 //   • withEpochStamp composition: strictness survives (a composed strict
 //     payload still rejects unknown keys), the stamp stays OPTIONAL (absence
 //     means current-epoch), and the pairing refinement rejects all three
@@ -71,7 +69,6 @@ import { z } from "zod";
 
 import {
   EventEnvelopeSchema,
-  ORIGIN_POSITION_STUB_KEY,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_USER_ID_PAYLOAD_KEY,
   SESSION_EVENT_CATEGORY_BY_TYPE,
@@ -143,7 +140,6 @@ describe("payload-field + stub-projection key names (pins)", () => {
   it.each([
     ["SOURCE_EPOCH_PAYLOAD_KEY", SOURCE_EPOCH_PAYLOAD_KEY, "sourceEpoch"],
     ["SOURCE_POSITION_PAYLOAD_KEY", SOURCE_POSITION_PAYLOAD_KEY, "sourcePosition"],
-    ["ORIGIN_POSITION_STUB_KEY", ORIGIN_POSITION_STUB_KEY, "originPosition"],
   ])("%s === %s", (_label, actual, expected) => {
     // Exact-string pins, not shape checks: the stamping leg and compactor's
     // stub projection write and read these literals across plan boundaries,
@@ -1176,13 +1172,7 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
       nodeId: "990e8400-e29b-41d4-a716-446655440011",
       operationId: "compact-pass-0007",
       occurredAt: "2026-08-30T11:02:04.000Z",
-      fromSeq: 0,
-      toSeq: 40,
-      eventsBefore: 41,
-      eventsAfter: 41,
-      bytesReclaimed: 2048,
-      tombstoneCount: 41,
-      compactionReason: "age_threshold" as const,
+      removedSessions: [{ sessionId: SESSION_ID, fromSeq: 0, toSeq: 40 }],
     };
     const base = {
       id: "evt-pii-0002",
@@ -1234,11 +1224,9 @@ describe("the carrier is a PAYLOAD field, not an envelope field", () => {
     expect(parsed.payload[SOURCE_POSITION_PAYLOAD_KEY]).toBe(5);
   });
 
-  it.each([[SOURCE_EPOCH_PAYLOAD_KEY], [SOURCE_POSITION_PAYLOAD_KEY], [ORIGIN_POSITION_STUB_KEY]])(
+  it.each([[SOURCE_EPOCH_PAYLOAD_KEY], [SOURCE_POSITION_PAYLOAD_KEY]])(
     "rejects `%s` as a TOP-LEVEL envelope member (membership is closed)",
     (key) => {
-      // `originPosition` is likewise a stub-projection key, never an
-      // envelope member.
       const broken = { ...buildEnvelope(), [key]: 1 };
       expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
     },
