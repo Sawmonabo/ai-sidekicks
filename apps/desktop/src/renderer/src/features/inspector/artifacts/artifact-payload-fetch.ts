@@ -1,6 +1,6 @@
 // The artifact pane's payload fetch, and the single flight that keeps it to one.
 //
-// The manifest re-read in `artifact-actions.ts` is single-flight per row and superseded by
+// The manifest re-read in `artifact-row-actions.ts` is single-flight per row and superseded by
 // a refresh. This fetch is single-flight across the whole pane and is superseded by
 // nothing but the pane going away.
 //
@@ -20,7 +20,7 @@ import {
   type GenerationClaim,
 } from "@renderer/console/store/read/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
-import type { ArtifactActionHost } from "./artifact-row-action-host.js";
+import type { ArtifactRowActionHost } from "./artifact-row-action-host.js";
 import { withReplacedRow } from "./artifact-list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import {
@@ -38,13 +38,13 @@ const PAYLOAD_FETCH_KEY = "payload-fetch";
 
 export interface ArtifactPayloadFetchesOptions {
   readonly readArtifact: ReadArtifact;
-  readonly host: ArtifactActionHost;
+  readonly host: ArtifactRowActionHost;
 }
 
 /** The pane's one payload fetch at a time, and what its answer writes. */
 export class ArtifactPayloadFetches {
   readonly #readArtifact: ReadArtifact;
-  readonly #host: ArtifactActionHost;
+  readonly #host: ArtifactRowActionHost;
   /** The fetch awaiting its answer. One at a time, and the reading says which. */
   readonly #fetches = new GenerationLatch();
 

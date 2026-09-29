@@ -6,7 +6,7 @@
 // first read has answered, and whether the projection is known-incomplete. The
 // details receive the answers as props and subscribe to nothing themselves.
 //
-// The dispatch is a table read and not a switch: `entity-detail-registry.ts` lists the
+// The dispatch is a table read and not a switch: `entity-detail-by-kind.ts` lists the
 // kinds the inspector's address admits, and the address this reads is typed to those alone.
 
 import {

@@ -13,7 +13,7 @@ import {
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
-  isFilesystemDestination,
+  isFileAddress,
 } from "./address-field-model.js";
 
 const REPORTED = "https://example.invalid/page";
@@ -143,14 +143,14 @@ const DESTINATION_FORMS: readonly {
   { form: "empty field", destination: "", isLocal: false },
 ];
 
-describe("isFilesystemDestination", () => {
+describe("isFileAddress", () => {
   it.each(DESTINATION_FORMS)("$form", ({ destination, isLocal }) => {
-    expect(isFilesystemDestination(destination)).toBe(isLocal);
+    expect(isFileAddress(destination)).toBe(isLocal);
   });
 
   it("is not fooled by the whitespace a paste carries", () => {
-    expect(isFilesystemDestination("  /etc/hosts  ")).toBe(true);
-    expect(isFilesystemDestination("\tfile:///etc/hosts\n")).toBe(true);
+    expect(isFileAddress("  /etc/hosts  ")).toBe(true);
+    expect(isFileAddress("\tfile:///etc/hosts\n")).toBe(true);
   });
 
   it("negative control: the table admits as well as refuses", () => {
@@ -162,6 +162,6 @@ describe("isFilesystemDestination", () => {
   });
 
   it("does not mistake a scheme that merely starts with the same letters", () => {
-    expect(isFilesystemDestination("filesystem-notes.example.invalid")).toBe(false);
+    expect(isFileAddress("filesystem-notes.example.invalid")).toBe(false);
   });
 });

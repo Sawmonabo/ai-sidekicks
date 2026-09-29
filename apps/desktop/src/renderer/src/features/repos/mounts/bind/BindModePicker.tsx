@@ -11,14 +11,14 @@
 // disappearing.
 
 import { WireFigure } from "@renderer/console/primitives/index.js";
-import type { ModeRow } from "../execution-mode-rows.js";
+import type { ExecutionModeRowReading } from "../execution-mode-rows.js";
 
 export interface BindModePickerProps {
-  readonly options: readonly ModeRow[];
+  readonly options: readonly ExecutionModeRowReading[];
   readonly selectedMode: string | undefined;
   /** Every radio in one group needs one name; the caller's dialog supplies it. */
   readonly groupName: string;
-  readonly onSelect: (mode: ModeRow["mode"]) => void;
+  readonly onSelect: (mode: ExecutionModeRowReading["mode"]) => void;
 }
 
 export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
@@ -46,8 +46,8 @@ export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
           />
           <WireFigure value={option.mode} title={option.mode} />
           {/* THE REASON IS RENDERED WHENEVER THE REPLY CARRIED ONE, available arm
-              included, exactly as `ModeRowView.tsx` renders it. A mount that names a
-              mode in BOTH halves of its reply is malformed, and `mode-row.ts` offers
+              included, exactly as `ExecutionModeRow.tsx` renders it. A mount that names a
+              mode in BOTH halves of its reply is malformed, and `execution-mode-rows.ts` offers
               the row — the reply is the authority on what is admitted — while keeping
               what the daemon said about it; a picker that drew the reason only on the
               excluded arm would hide that half, which is the drift the second copy of

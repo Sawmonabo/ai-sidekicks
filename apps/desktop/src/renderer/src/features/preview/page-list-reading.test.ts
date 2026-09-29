@@ -6,9 +6,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { pagesOf, type BrowserPage, type PageListReading } from "./page-list-reading.js";
+import type { PreviewPage } from "@ai-sidekicks/contracts";
 
-const PAGE: BrowserPage = {
+import { pagesOf, type PageListReading } from "./page-list-reading.js";
+
+const PAGE: PreviewPage = {
   pageId: "page-a",
   label: null,
   title: "Example",

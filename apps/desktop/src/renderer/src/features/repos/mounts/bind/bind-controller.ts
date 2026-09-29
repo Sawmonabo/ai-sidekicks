@@ -28,7 +28,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "@renderer/lib/clock.js";
-import { ActSurfaceController } from "../../acts/act-controller-base.js";
+import { ActControllerBase } from "../../acts/act-controller-base.js";
 import { type ActReading } from "../../acts/act-reading.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -69,7 +69,7 @@ type BindOperations = Pick<RepoOperations, "bindWorkspace" | "readMountExecution
 const CAPABILITIES_QUESTION = "capabilities";
 
 /** Reads what a mount admits and sends the bind for it. */
-export class BindWorkspaceController extends ActSurfaceController<
+export class BindWorkspaceController extends ActControllerBase<
   WorkspaceExecutionModeCapabilitiesReadResponse,
   BindSettlement
 > {

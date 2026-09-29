@@ -1,7 +1,7 @@
 // How a React surface holds one artifact pane's reader, and nothing about what the reader
 // reads.
 //
-// Split from `artifact-reader.ts`: that class owns the read, and this module owns the
+// Split from `artifact-list-reader.ts`: that class owns the read, and this module owns the
 // binding to React's rendering lifecycle and its teardown. They meet at one object.
 //
 // The reader is constructed in a hook and never in a render body, subscribed through
@@ -16,14 +16,14 @@ import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/co
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { ArtifactPaneReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
+import type { ArtifactListReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
 import type { ArtifactOperations } from "../services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
 import { ArtifactPaneReader } from "../artifact-list-reader.js";
 
 /** What the hook hands its surface: the reading, and the acts it can put to the port. */
-export interface ArtifactPaneBinding {
-  readonly reading: ArtifactPaneReading;
+export interface ArtifactListBinding {
+  readonly reading: ArtifactListReading;
   readonly refresh: () => void;
   readonly readManifest: (artifactId: string) => Promise<ArtifactRowActOutcome>;
   readonly fetchPayload: (artifactId: string) => Promise<ArtifactPayloadOutcome>;
@@ -50,12 +50,12 @@ export interface ArtifactPaneBinding {
  * by asking the reader, and the replacement is published through the seam so it is closed
  * on the seam's own terms.
  */
-export function useArtifactPaneReading(
+export function useArtifactList(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
   subjectArtifactId: string,
   operations: ArtifactOperations,
-): ArtifactPaneBinding {
+): ArtifactListBinding {
   // The window's own clock, resolved once per bridge.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   // The reader reads the session's whole list, so the artifact id is not passed to it: the

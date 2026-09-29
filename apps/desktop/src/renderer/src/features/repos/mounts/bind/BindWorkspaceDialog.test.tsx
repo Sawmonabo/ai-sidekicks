@@ -1,6 +1,6 @@
 // The bind dialog, driven against a mount whose answer changes under it.
 //
-// WHAT THE MODEL SUITE CANNOT SAY. `bind-model.test.ts` proves the resolution; this file
+// WHAT THE MODEL SUITE CANNOT SAY. `bind-form.test.ts` proves the resolution; this file
 // proves the dialog HANDS IT what the mount admits, on every open rather than once. Both
 // claims below are outside the model: the first is a pre-fill that must not outlive the
 // form it was taken about, and the second is a picker and a button that must read one

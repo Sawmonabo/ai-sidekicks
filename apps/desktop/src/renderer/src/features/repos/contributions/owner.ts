@@ -7,4 +7,4 @@
  * feature claiming a taken key). Literals that drifted apart would turn a hot reload into
  * a conflict.
  */
-export const REPOS_FAMILY_OWNER = "repos";
+export const REPOS_FEATURE_OWNER = "repos";

@@ -13,13 +13,10 @@ import type { PreviewPage, PreviewPageListFrame } from "@ai-sidekicks/contracts"
 
 import type { ReadingState } from "@renderer/console/primitives/index.js";
 
-/** One page the session owns, as every surface in this family reads it. */
-export type BrowserPage = PreviewPage;
-
 /**
  * What the pane knows about the session's pages right now.
  *
- * The same arms `navigation-state.ts` declares and for the same reason: an ended
+ * The same arms `NavigationReading` declares and for the same reason: an ended
  * subscription is a fact, and it carries no last frame, because a strip drawing tabs
  * nobody reports any more would offer close controls over pages that may be gone.
  */
@@ -35,7 +32,7 @@ export type PageListReading =
  * same value for "this session owns no pages" and "nobody has answered yet"; callers
  * that need to tell them apart branch on the reading itself.
  */
-export function pagesOf(reading: PageListReading): readonly BrowserPage[] {
+export function pagesOf(reading: PageListReading): readonly PreviewPage[] {
   return reading.kind === "served" ? reading.frame.pages : [];
 }
 
@@ -43,6 +40,6 @@ export function pagesOf(reading: PageListReading): readonly BrowserPage[] {
  * The page the pane is showing: the served frame's page at its active index, and
  * `undefined` on any other arm or when the session has no page open.
  */
-export function activePageOf(reading: PageListReading): BrowserPage | undefined {
+export function activePageOf(reading: PageListReading): PreviewPage | undefined {
   return reading.kind === "served" ? reading.frame.pages[reading.frame.activeIndex] : undefined;
 }

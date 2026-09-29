@@ -4,7 +4,7 @@ import { createElement } from "react";
 
 import { type InlineCardSeatRegistry } from "@renderer/console/seats/index.js";
 import { InlineDiffCard } from "../diff/components/InlineDiffCard.js";
-import { REPOS_FAMILY_OWNER } from "./owner.js";
+import { REPOS_FEATURE_OWNER } from "./owner.js";
 
 /**
  * Fill the transcript row's `diff` card on the board it is given.
@@ -16,7 +16,7 @@ import { REPOS_FAMILY_OWNER } from "./owner.js";
  */
 export function registerRepos(inlineCardSeats: InlineCardSeatRegistry): void {
   inlineCardSeats.register("diff", {
-    owner: REPOS_FAMILY_OWNER,
+    owner: REPOS_FEATURE_OWNER,
     render: (cardProps) => createElement(InlineDiffCard, { card: cardProps }),
   });
 }

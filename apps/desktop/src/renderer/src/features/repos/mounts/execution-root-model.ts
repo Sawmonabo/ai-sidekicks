@@ -19,7 +19,7 @@
 // rather than rendering as an unstyled string.
 //
 // HOW A ROW IS TABULATED IS NEXT DOOR. The column key sets, the labels, the summary
-// and detail selections, and the absent-cell copy are `worktree-columns.ts`: that is
+// and detail selections, and the absent-cell copy are `execution-root-columns.ts`: that is
 // how a root is DRAWN, and this file is what a root IS.
 //
 // WHY THE RECORD TYPES ARE SPELLED WITH AN INDEXED ACCESS. The contract exports no
@@ -32,7 +32,7 @@
 //     `failed` arrives through a status re-read; nothing here waits for a frame.
 //   • No derived branch name and no derived checkout root. Both are wire strings on
 //     the record, rendered, never computed — which is why every column value in
-//     `worktree-columns.ts` comes back as the wire's own string or as absent.
+//     `execution-root-columns.ts` comes back as the wire's own string or as absent.
 //   • No snapshot refs. Turn-boundary snapshots land under `refs/sidekicks/...` and
 //     never on `refs/heads/`, so a branch column can only ever hold a branch.
 

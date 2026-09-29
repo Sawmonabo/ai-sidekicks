@@ -38,7 +38,7 @@ import {
   type ChipTone,
 } from "@renderer/console/primitives/index.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
-import { workspaceControlPosture, type BindControlPosture } from "../mount-health.js";
+import { readWorkspaceControlAvailability, type BindControlAvailability } from "../mount-health.js";
 import { PrepareExecutionRoot } from "../execution-roots/PrepareExecutionRoot.js";
 import type { PrepareOperations } from "../execution-roots/prepare-controller.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
@@ -80,7 +80,7 @@ export interface WorkspaceCardProps {
    * mount card is already rendering — so the two controls below can say why they are
    * held without this row composing a second wording for the same state.
    */
-  readonly bindControls: BindControlPosture;
+  readonly bindControls: BindControlAvailability;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
@@ -90,7 +90,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
   // place that holds both of its inputs. The picker names the mode a run binds in and
   // the preparation puts that mode's root on disk, so a posture read twice is two
   // rules — and the pair that drifted is the pair that shipped.
-  const posture = workspaceControlPosture(props.bindControls, props.pendingMode);
+  const posture = readWorkspaceControlAvailability(props.bindControls, props.pendingMode);
   return (
     <article className="meridian-workspace-card" aria-label={`Workspace ${workspace.id}`}>
       <header className="meridian-workspace-card__head">

@@ -1,6 +1,6 @@
 // When the artifact pane reads again, and which round a completion belongs to.
 //
-// Split from `artifact-reader.ts`: deciding when to read is this module's, and holding
+// Split from `artifact-list-reader.ts`: deciding when to read is this module's, and holding
 // what a surface renders and what it can act on is the reader's. Nothing here knows what
 // a reading means; the two abstract members below touch one and the subclass answers them.
 //
@@ -31,7 +31,7 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { settledReadReading, type ArtifactPaneReading } from "./artifact-list-reading.js";
+import { settledReadReading, type ArtifactListReading } from "./artifact-list-reading.js";
 import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
 
 /** The namespace every frame about an artifact is registered under. */
@@ -204,10 +204,10 @@ export abstract class ArtifactReadSchedule implements ReadTriggerTarget {
   }
 
   /** What this schedule is publishing against — the reading it is about to replace. */
-  protected abstract currentReading(): ArtifactPaneReading;
+  protected abstract currentReading(): ArtifactListReading;
 
   /** Where a settled round is put. */
-  protected abstract publishReading(reading: Omit<ArtifactPaneReading, "readAtMilliseconds">): void;
+  protected abstract publishReading(reading: Omit<ArtifactListReading, "readAtMilliseconds">): void;
 
   async #performRead(): Promise<void> {
     // A scheduled read always runs and supersedes the one before it, because the rows it

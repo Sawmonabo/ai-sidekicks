@@ -145,7 +145,7 @@ export const EMPTY_PREPARE_FORM: PrepareFormState = {
  * no candidate to name in either — and only `answered` separates a prepare that may be
  * sent from one that would be guessing.
  */
-export interface PrepareReuseStanding {
+export interface ReuseCheckState {
   /** Whether the reuse question has an answer this form may be sent against. */
   readonly answered: boolean;
   /** The candidate the newest answer named, or `none` where there is none to act on. */
@@ -165,9 +165,9 @@ export type PrepareFormVerdict =
  *
  * Every reading that is not a verdict is unanswered, and holds the form shut.
  */
-export function prepareReuseStanding(
+export function readReuseCheckState(
   reading: ActPrerequisiteReading<ReuseVerdict>,
-): PrepareReuseStanding {
+): ReuseCheckState {
   switch (reading.status) {
     case "read":
       return { answered: true, verdict: reading.value };
@@ -207,9 +207,9 @@ export const REUSE_UNANSWERED_COPY =
  * one withheld for a candidate that is dirty is the whole reason the guard exists.
  * The console never sends the acknowledgement on a verdict that does not call for it.
  */
-export function prepareFormVerdict(
+export function resolvePrepareForm(
   form: PrepareFormState,
-  standing: PrepareReuseStanding,
+  standing: ReuseCheckState,
 ): PrepareFormVerdict {
   if (form.branchName.trim().length === 0) {
     return { status: "incomplete", because: "Name the branch this root should check out." };
@@ -226,7 +226,7 @@ export function prepareFormVerdict(
   if (!reusePreparable(standing.verdict)) {
     return { status: "incomplete", because: REUSE_VERDICT_COPY.incompatible };
   }
-  if (reuseConsentRequired(standing.verdict) && !prepareAcknowledgement(form, standing.verdict)) {
+  if (reuseConsentRequired(standing.verdict) && !isDirtyReuseAcknowledged(form, standing.verdict)) {
     return {
       status: "incomplete",
       because: "Confirm that you are reusing a checkout with uncommitted changes in it.",
@@ -238,7 +238,7 @@ export function prepareFormVerdict(
 /**
  * The acknowledgement this prepare may carry, which is none unless the verdict asks.
  *
- * THE RULE ABOVE, MADE INTO A VALUE RATHER THAN LEFT AS A SENTENCE. `prepareFormVerdict`
+ * THE RULE ABOVE, MADE INTO A VALUE RATHER THAN LEFT AS A SENTENCE. `resolvePrepareForm`
  * reads the consent to decide whether the form may be sent; this decides what is sent,
  * and until it existed the two disagreed on one reachable state: the checkbox sets the
  * consent under a `dirty` verdict, a refresh — another user committing, say —
@@ -256,6 +256,6 @@ export function prepareFormVerdict(
  * DOUBLE DUTY, DELIBERATELY: this is also what a consent control reads for its own
  * checked state, so the box on screen and the member on the wire cannot disagree.
  */
-export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVerdict): boolean {
+export function isDirtyReuseAcknowledged(form: PrepareFormState, verdict: ReuseVerdict): boolean {
   return reuseConsentRequired(verdict) && form.acknowledgedCandidateId === verdict.worktreeId;
 }

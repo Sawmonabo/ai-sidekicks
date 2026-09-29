@@ -62,7 +62,7 @@
 
 /*
  * The sub-state line reads louder than the state's own sentence, because it is the
- * one that answers "is this disk free" — the question `worktree-model.ts` says the
+ * one that answers "is this disk free" — the question `execution-root-model.ts` says the
  * surface exists to answer and the one a plain `retired` chip gets wrong.
  */
 .meridian-root-card__disposition {

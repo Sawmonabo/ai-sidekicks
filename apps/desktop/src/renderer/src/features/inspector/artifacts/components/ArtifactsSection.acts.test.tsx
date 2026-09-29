@@ -1,6 +1,6 @@
 // The panel's act: what the re-read control does.
 //
-// What the panel draws before any press is `ArtifactsPanel.test.tsx`: the absences, the
+// What the panel draws before any press is `ArtifactsSection.test.tsx`: the absences, the
 // count, the row's face and the type filter. Every case here is about a control and the
 // consequence it names.
 
@@ -8,16 +8,16 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { artifactRow } from "@test/helpers/artifact-summaries.js";
-import { ArtifactsPanel } from "./ArtifactsSection.js";
+import { ArtifactsSection } from "./ArtifactsSection.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
-describe("ArtifactsPanel — the acts", () => {
+describe("ArtifactsSection — the acts", () => {
   it("offers only the acts the mount wired", () => {
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}
         nowMilliseconds={NOW_MILLISECONDS}
       />,
@@ -32,7 +32,7 @@ describe("ArtifactsPanel — the acts", () => {
     // exactly what the registered read answers with, which is the manifest.
     const onReadManifest = vi.fn();
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}
         nowMilliseconds={NOW_MILLISECONDS}
         onReadManifest={onReadManifest}
@@ -46,7 +46,7 @@ describe("ArtifactsPanel — the acts", () => {
     // The re-read is single-flight per row, so offering the control while that row's call
     // is outstanding would offer a second read of one manifest.
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}
         nowMilliseconds={NOW_MILLISECONDS}
         manifestReadInFlightArtifactIds={new Set([artifactRow().id])}
@@ -62,7 +62,7 @@ describe("ArtifactsPanel — the acts", () => {
     // while making the act unreachable — and a register read per PANEL rather than
     // per row would hold one row's control because another row was waiting.
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow(), artifactRow({ id: "artifact-02" })] }}
         nowMilliseconds={NOW_MILLISECONDS}
         manifestReadInFlightArtifactIds={new Set(["artifact-02"])}
@@ -81,7 +81,7 @@ describe("ArtifactsPanel — the acts", () => {
     // bytes or a handle, so a control named for a payload fetch would promise a
     // download nothing on this port can produce.
     const { queryByRole } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}
         nowMilliseconds={NOW_MILLISECONDS}
         onReadManifest={vi.fn()}
@@ -91,10 +91,10 @@ describe("ArtifactsPanel — the acts", () => {
   });
 });
 
-describe("ArtifactsPanel — the disclosure", () => {
+describe("ArtifactsSection — the disclosure", () => {
   it("holds the digest, the derivation link, and both wire maps", () => {
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{
           kind: "listed",
           rows: [
@@ -118,7 +118,7 @@ describe("ArtifactsPanel — the disclosure", () => {
 
   it("names a non-derivative rather than blanking the link", () => {
     const { container } = render(
-      <ArtifactsPanel
+      <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow({ subject: undefined })] }}
         nowMilliseconds={NOW_MILLISECONDS}
       />,

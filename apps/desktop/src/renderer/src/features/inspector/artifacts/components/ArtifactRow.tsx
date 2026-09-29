@@ -1,7 +1,7 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure.
 //
-// Split from `ArtifactsPanel.tsx`, which owns the session-scoped surface (the head count,
+// Split from `ArtifactsSection.tsx`, which owns the session-scoped surface (the head count,
 // the type filter, and which absence the body renders). Everything here is scoped to one
 // manifest. No element can hold a payload.
 

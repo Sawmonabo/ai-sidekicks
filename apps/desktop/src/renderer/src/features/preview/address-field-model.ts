@@ -99,7 +99,7 @@ export function addressFieldSubmission(
  * registered, and refusing a destination that cannot be reached is the cheap direction;
  * admitting one that reads a file is not.
  */
-export function isFilesystemDestination(destination: string): boolean {
+export function isFileAddress(destination: string): boolean {
   const trimmed = destination.trim();
   return (
     /^file:/iu.test(trimmed) ||

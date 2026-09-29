@@ -14,11 +14,11 @@ import { useMemo } from "react";
 import { useConsoleCommandSeat, type ConsoleCommand } from "@renderer/console/palette/index.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import {
-  REVOKE_COMMAND_OWNER,
+  REVOKE_RULE_COMMAND_OWNER,
   askToRevokeFromCommand,
-  revokeCommandRows,
-  type RevokeCommandInput,
-  type RevokeCommandRow,
+  revokeRuleCommandRows,
+  type RevokeRuleCommandInput,
+  type RevokeRuleCommandRow,
 } from "../contributions/revoke-rule-commands.js";
 
 /** The palette category these sit under, beside the pane's own approval rows. */
@@ -34,8 +34,8 @@ const REVOKE_COMMAND_GROUP = "Approvals";
 const REVOKE_COMMAND_WHEN = "sessionActive";
 
 /** Contribute a row per revocable rule for as long as the list is mounted. */
-export function useRevokeCommands(input: RevokeCommandInput): void {
-  const rows = revokeCommandRows(input);
+export function useRevokeRuleCommands(input: RevokeRuleCommandInput): void {
+  const rows = revokeRuleCommandRows(input);
   // Refreshed by every COMMITTED render and never in the render body: a registered
   // row reads the rules and the arming callback through this at invoke time, and a
   // render-body write would let a concurrent pass React throws away — one composed
@@ -52,13 +52,13 @@ export function useRevokeCommands(input: RevokeCommandInput): void {
     [signature, inputRef],
   );
 
-  useConsoleCommandSeat(REVOKE_COMMAND_OWNER, commands);
+  useConsoleCommandSeat(REVOKE_RULE_COMMAND_OWNER, commands);
 }
 
 /** One command, reading everything that moves through the ref at invoke time. */
 function buildRevokeCommand(
-  row: RevokeCommandRow,
-  inputRef: React.RefObject<RevokeCommandInput>,
+  row: RevokeRuleCommandRow,
+  inputRef: React.RefObject<RevokeRuleCommandInput>,
 ): ConsoleCommand {
   return {
     id: `approvals.ruleRevoke.${row.ruleId}`,

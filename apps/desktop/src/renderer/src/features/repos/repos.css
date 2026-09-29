@@ -9,8 +9,8 @@
  * directory it does not own.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
- * scale, and every colour is read back out of a custom property — the rule
- * `primitives.css` states and the reason there is a token layer at all.
+ * scale, and every color is read back out of a custom property, which is the reason
+ * there is a token layer at all.
  *
  * The design rules this sheet obeys:
  *   • mono is the signature that a figure came from the wire, which is what an

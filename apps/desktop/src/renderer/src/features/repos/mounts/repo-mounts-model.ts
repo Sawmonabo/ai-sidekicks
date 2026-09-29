@@ -53,7 +53,7 @@ export interface RepoMountsReading {
 }
 
 /** The reading before anything has been asked. */
-export const NOTHING_READ_YET: RepoMountsReading = {
+export const REPO_MOUNTS_NOT_READ: RepoMountsReading = {
   status: "not-read",
   mounts: [],
   workspaces: [],

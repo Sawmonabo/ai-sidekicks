@@ -8,16 +8,16 @@
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 
 /** The owner these rows are contributed under. One per surface, one live at a time. */
-export const REVOKE_COMMAND_OWNER = "inspector-rules";
+export const REVOKE_RULE_COMMAND_OWNER = "inspector-rules";
 
 /** One contributed row: which rule, under what title. */
-export interface RevokeCommandRow {
+export interface RevokeRuleCommandRow {
   readonly ruleId: string;
   readonly title: string;
 }
 
 /** What the rows act on, read at invoke time rather than captured. */
-export interface RevokeCommandInput {
+export interface RevokeRuleCommandInput {
   /** The rules the list renders, exactly as it received them. */
   readonly rules: readonly RememberedRule[];
   /** Rules whose revocation is already settling. Their control offers no second press. */
@@ -53,7 +53,9 @@ export function offersRevoke(rule: RememberedRule, revokingRuleIds: ReadonlySet<
  * the keywords in both cases, so a person can find a row by typing what the list says
  * rather than by reading an id.
  */
-export function revokeCommandRows(input: RevokeCommandInput): readonly RevokeCommandRow[] {
+export function revokeRuleCommandRows(
+  input: RevokeRuleCommandInput,
+): readonly RevokeRuleCommandRow[] {
   const revocable = input.rules.filter((rule) => offersRevoke(rule, input.revokingRuleIds));
   const namesTheRule = revocable.length > 1;
   return revocable.map((rule) => ({
@@ -72,7 +74,10 @@ export function revokeCommandRows(input: RevokeCommandInput): readonly RevokeCom
  * in the gap all leave the list offering nothing, and arming a confirmation for a rule
  * with no control on screen would leave a person confirming into empty space.
  */
-export function askToRevokeFromCommand(row: RevokeCommandRow, input: RevokeCommandInput): void {
+export function askToRevokeFromCommand(
+  row: RevokeRuleCommandRow,
+  input: RevokeRuleCommandInput,
+): void {
   const live = input.rules.find((candidate) => candidate.ruleId === row.ruleId);
   if (live === undefined || !offersRevoke(live, input.revokingRuleIds)) {
     return;

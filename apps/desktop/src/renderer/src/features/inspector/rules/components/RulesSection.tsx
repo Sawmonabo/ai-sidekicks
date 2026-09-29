@@ -5,17 +5,21 @@
 // a rules list that is still loading, or the reverse.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { RememberedGrants } from "./RememberedRules.js";
+import { RememberedRules } from "./RememberedRules.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { type ReadPhase } from "@renderer/features/composer/approval/approval-partition.js";
 
-/** One standing-permission list, rendered for the phase its read is in. */
-export function RulesRead(props: RulesReadProps): React.JSX.Element {
+/**
+ * One standing-permission list, rendered for the phase its read is in.
+ *
+ * @consumedBy the inspector's Rules section, which the inspector pane mounts
+ */
+export function RulesSection(props: RulesSectionProps): React.JSX.Element {
   if (props.phase.status === "loading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading standing permissions." />;
   }
   return (
-    <RememberedGrants
+    <RememberedRules
       rules={props.phase.rows}
       unreadableCount={props.phase.unreadableCount}
       revokingRuleIds={props.revokingRuleIds}
@@ -24,7 +28,7 @@ export function RulesRead(props: RulesReadProps): React.JSX.Element {
   );
 }
 
-interface RulesReadProps {
+interface RulesSectionProps {
   readonly phase: ReadPhase<RememberedRule>;
   readonly revokingRuleIds: ReadonlySet<string>;
   readonly onRevoke: (ruleId: string) => void;

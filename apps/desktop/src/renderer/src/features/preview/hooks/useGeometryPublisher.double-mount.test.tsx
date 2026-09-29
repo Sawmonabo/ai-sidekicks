@@ -28,16 +28,16 @@ import { describe, expect, it } from "vitest";
 
 import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
 import {
-  browserPaneContext,
+  previewPaneContext,
   chromeFor,
   recordingActs,
   releaseQueuedPaneFrames,
 } from "../PreviewPane.test-support.js";
 
-describe("browser pane geometry — the publisher's binding", () => {
+describe("Preview pane geometry — the publisher's binding", () => {
   it("publishes this pane's rectangle rather than holding the disposed one", async () => {
     const viewHost = new RecordingViewHost();
-    const built = browserPaneContext();
+    const built = previewPaneContext();
     await act(async () => {
       render(<StrictMode>{chromeFor(built.context, recordingActs(), viewHost)}</StrictMode>);
     });
@@ -53,7 +53,7 @@ describe("browser pane geometry — the publisher's binding", () => {
   it("publishes through the new host when the same pane is handed another one", async () => {
     const firstHost = new RecordingViewHost();
     const secondHost = new RecordingViewHost();
-    const built = browserPaneContext();
+    const built = previewPaneContext();
     const rendered = render(chromeFor(built.context, recordingActs(), firstHost));
     await releaseQueuedPaneFrames(built.bridge);
     expect(firstHost.samples.length).toBeGreaterThan(0);

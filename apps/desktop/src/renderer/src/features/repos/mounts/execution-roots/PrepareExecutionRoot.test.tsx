@@ -19,7 +19,10 @@ import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/cont
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
-import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
+import {
+  readWorkspaceControlAvailability,
+  type WorkspaceControlAvailability,
+} from "../mount-health.js";
 import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
@@ -28,7 +31,7 @@ import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
 const UNHELD_BRANCH = "feat/fresh-root";
 
 /** The card hands the form a live posture; the held arm is `ExecutionModePicker.test.tsx`'s. */
-const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
+const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(
   { offered: true },
   undefined,
 );

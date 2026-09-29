@@ -3,13 +3,13 @@
 // The cases here drive the real section over scripted daemon calls, because the claim worth
 // checking is that the daemon's answer reaches the screen.
 //
-// The controls the section and its rows carry are `RepoSection.controls.test.tsx`, beside
+// The controls the section and its rows carry are `RepoSection.controls.test.ts`, beside
 // this file.
 
 import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
+import { REPO_MOUNTS_NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { sessionOperations } from "./repo-mounts.test-support.js";
 import { MOUNT_CARD_SELECTOR, renderSection } from "./repo-section.test-support.js";
 
@@ -42,7 +42,7 @@ describe("RepoSection — before the first read settles", () => {
     // Nothing is advanced, so the read is still unmade.
     const section = renderSection(sessionOperations());
 
-    expect(section.container.textContent).toContain(NOT_READ_TITLE);
+    expect(section.container.textContent).toContain(REPO_MOUNTS_NOT_READ_TITLE);
     expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
   });
 });

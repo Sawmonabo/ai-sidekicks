@@ -3,11 +3,11 @@ import { useCallback } from "react";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useActController } from "../../../acts/hooks/useActController.js";
 import type { RepoOperations } from "../../../repo-operations.js";
-import { AttachController, type AttachActReading } from "../attach-controller.js";
+import { AttachController, type AttachRequestReading } from "../attach-controller.js";
 
 /** What the hook hands a surface: the reading, and the two things it can ask for. */
 export interface AttachBinding {
-  readonly reading: AttachActReading;
+  readonly reading: AttachRequestReading;
   readonly attach: (localPath: string) => void;
   readonly clearAct: () => void;
 }

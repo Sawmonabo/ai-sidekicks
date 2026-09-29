@@ -4,7 +4,7 @@
 
 import type { ArtifactManifest, ArtifactReadResponse } from "@ai-sidekicks/contracts";
 
-import { artifactManifestRowFrom, type ArtifactsPanelState } from "../artifact-model.js";
+import { artifactManifestRowFrom, type ArtifactsSectionState } from "../artifact-model.js";
 
 /** The call that lists a session's artifact manifests, supplied by whoever mounts the pane. */
 export type ListArtifacts = (sessionId: string) => Promise<readonly ArtifactManifest[]>;
@@ -33,7 +33,7 @@ export interface ArtifactOperations {
 export async function readArtifactList(
   listArtifacts: ListArtifacts,
   sessionId: string,
-): Promise<ArtifactsPanelState> {
+): Promise<ArtifactsSectionState> {
   const manifests = await listArtifacts(sessionId);
   return { kind: "listed", rows: manifests.map(artifactManifestRowFrom) };
 }

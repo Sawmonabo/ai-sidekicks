@@ -23,7 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { type AttachActReading } from "./attach-controller.js";
+import { type AttachRequestReading } from "./attach-controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
 
@@ -149,7 +149,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
  * The attached arm names the mount and the root it resolved to, because a person needs to
  * be able to find the mount the section is about to grow.
  */
-function renderSettlement(reading: AttachActReading): React.JSX.Element | null {
+function renderSettlement(reading: AttachRequestReading): React.JSX.Element | null {
   switch (reading.status) {
     case "idle":
       return null;

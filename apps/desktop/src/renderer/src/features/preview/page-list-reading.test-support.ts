@@ -3,16 +3,18 @@
 // Two suites drive the tab strip over the same three pages — the co-located unit
 // suite, which owns the readings and the drop arithmetic, and the browser tier, which
 // owns what only a real `DataTransfer` and a real cascade can settle. Written twice
-// the two would drift the first time `BrowserPage` grows a member, and the copy that
+// the two would drift the first time `PreviewPage` grows a member, and the copy that
 // forgot it would still compile: every field here has a default, so an omission reads
 // as a deliberate choice rather than as a gap.
 
-import type { BrowserPage, PageListReading } from "./page-list-reading.js";
+import type { PreviewPage } from "@ai-sidekicks/contracts";
+
+import type { PageListReading } from "./page-list-reading.js";
 
 /** One page, defaulted so a case names only the field it is about. */
-export function browserPage(
-  overrides: Partial<BrowserPage> & { readonly pageId: string },
-): BrowserPage {
+export function previewPage(
+  overrides: Partial<PreviewPage> & { readonly pageId: string },
+): PreviewPage {
   return {
     label: null,
     title: `Title ${overrides.pageId}`,
@@ -38,9 +40,9 @@ export function threeBrowserPages(): PageListReading {
     kind: "served",
     frame: {
       pages: [
-        browserPage({ pageId: "page-a" }),
-        browserPage({ pageId: "page-b" }),
-        browserPage({ pageId: "page-c" }),
+        previewPage({ pageId: "page-a" }),
+        previewPage({ pageId: "page-b" }),
+        previewPage({ pageId: "page-c" }),
       ],
       activeIndex: 0,
     },

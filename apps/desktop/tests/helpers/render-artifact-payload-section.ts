@@ -6,7 +6,7 @@
 // binding and the real section against the calls it scripts rather than against a
 // hand-written reading.
 //
-// EVERYTHING ABOUT WHAT IS SERVED COMES FROM `artifact-pane.test-support.ts`, which this
+// EVERYTHING ABOUT WHAT IS SERVED COMES FROM `artifact-list-readers.ts`, which this
 // module imports: a second id or a second manifest here would put the mounted cases and
 // the reader cases on two different fixtures.
 
@@ -20,7 +20,7 @@ import { bridgeOnClock } from "@renderer/features/repos/repo-operations.test-sup
 import type { ArtifactOperations } from "@renderer/features/inspector/artifacts/services/artifact-reads.js";
 import { ArtifactPayloadSection } from "@renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { SESSION_ID } from "./artifact-list-readers.js";
-import { useArtifactPaneReading } from "@renderer/features/inspector/artifacts/hooks/useArtifactList.js";
+import { useArtifactList } from "@renderer/features/inspector/artifacts/hooks/useArtifactList.js";
 
 /** The artifact the hosted pane opens on. */
 export const HOSTED_ARTIFACT_ID = "artifact-diff-01";
@@ -95,7 +95,7 @@ interface PayloadHostProps {
 
 /** Binds the reading for one artifact and draws the rows, the fetch control and the payload. */
 function PayloadHost({ subject, artifactId }: PayloadHostProps): React.JSX.Element {
-  const { reading, fetchPayload } = useArtifactPaneReading(
+  const { reading, fetchPayload } = useArtifactList(
     subject.bridge,
     subject.sessionStore,
     artifactId,

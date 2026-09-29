@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
-import { RememberedGrants } from "../components/RememberedRules.js";
+import { RememberedRules } from "../components/RememberedRules.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
 
 const FIRST_RULE = "rule-01";
@@ -40,7 +40,7 @@ function renderGrants(options: {
   readonly onRevoke?: (ruleId: string) => void;
 }): void {
   render(
-    <RememberedGrants
+    <RememberedRules
       rules={options.rules}
       unreadableCount={0}
       revokingRuleIds={options.revoking ?? new Set()}

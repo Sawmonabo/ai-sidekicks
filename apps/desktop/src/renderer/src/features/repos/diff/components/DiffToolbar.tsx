@@ -1,28 +1,12 @@
-import { useCallback, useState } from "react";
-import { type DiffViewMode } from "../diff-model.js";
+import { type DiffViewControls } from "../hooks/useDiffViewControls.js";
 import { DiffToggle } from "./DiffToggle.js";
 
-/** What the view control holds, and the setter that moves it. */
-export interface DiffViewControls {
-  readonly viewMode: DiffViewMode;
-  toggleViewMode(): void;
-}
-
+/** What the toolbar is given: the view control it draws. */
 export interface DiffToolbarProps {
   readonly controls: DiffViewControls;
 }
 
-/** Hold the split/unified view control. */
-export function useDiffViewControls(): DiffViewControls {
-  const [viewMode, setViewMode] = useState<DiffViewMode>("unified");
-
-  const toggleViewMode = useCallback(() => {
-    setViewMode((previous) => (previous === "unified" ? "split" : "unified"));
-  }, []);
-
-  return { viewMode, toggleViewMode };
-}
-
+/** The diff's toolbar: the split/unified view toggle. */
 export function DiffToolbar(props: DiffToolbarProps): React.JSX.Element {
   const { controls } = props;
   return (

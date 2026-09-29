@@ -40,7 +40,7 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { SessionStoreScoped } from "./hooks/useSessionStoreRebind.js";
 
 /** What a subclass hands the two halves underneath it. */
-export interface ActSurfaceControllerOptions {
+export interface ActControllerBaseOptions {
   /** What this controller's emitters report under when a sink throws. */
   readonly label: string;
   /** The window's one clock, so this refresh coalesces on its surface's time base. */
@@ -58,7 +58,7 @@ export interface ActSurfaceControllerOptions {
  * workspace-and-mode for an execution root — which is why a prerequisite survives a
  * dialog that is closed and reopened.
  */
-export abstract class ActSurfaceController<TValue, TSettlement extends ActSettlementArm>
+export abstract class ActControllerBase<TValue, TSettlement extends ActSettlementArm>
   implements ReadTriggerTarget, SessionStoreScoped
 {
   /** The frames that owe this controller's prerequisite a fresh answer. */
@@ -70,7 +70,7 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
   #reading: ActReading<TValue, TSettlement> = ACT_NOT_STARTED;
   #disposed = false;
 
-  protected constructor(options: ActSurfaceControllerOptions) {
+  protected constructor(options: ActControllerBaseOptions) {
     this.triggeringEventKinds = options.triggeringEventKinds;
     this.#sessionStore = options.sessionStore;
     this.#changes = new Emitter<ActReading<TValue, TSettlement>>(options.label);
@@ -107,7 +107,7 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
   /**
    * Whether this controller's triggers are armed on `sessionStore`.
    *
-   * `store/session/session-store-rebind.ts` states the axis; this is where every
+   * `useSessionStoreRebind.ts` states the axis; this is where every
    * controller that asks first answers it. A store replaced under an unchanged bridge and
    * identity retires the triggers this controller armed, and the binding above it mints a
    * replacement on this answer.

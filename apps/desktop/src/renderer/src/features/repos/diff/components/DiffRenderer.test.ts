@@ -13,7 +13,7 @@
 //
 // HOW A ROW GETS A HEIGHT HERE. happy-dom has no layout engine, so every box it
 // reports is zero and a window measured against one would be measured against
-// nothing. `diff-layout-fixture.test-support.ts` supplies the heights at the seam the library
+// nothing. `tests/helpers/diff-layout-fixture.ts` supplies the heights at the seam the library
 // reads them from, and every case here installs it. Nothing about the window is
 // reimplemented: the library computes it from the numbers a browser would have
 // given it.

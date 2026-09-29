@@ -1,10 +1,7 @@
 // What the git host says about a proposal that already exists there, normalized once.
 //
 // THREE TRICHOTOMIES AND THE CHECK ROLLUP THEY OPEN ON, fixed here because no committed
-// document states them, and this module is the whole of the console's reading of them —
-// `prepared-proposal.ts` beside it owns what a proposal carries before any of this
-// exists, and `ProposalGate.tsx` draws what is decided here without deciding any of it
-// again.
+// document states them, and this module is the whole of the console's reading of them.
 //
 // THE THREE TRICHOTOMIES ARE NORMALIZED HERE AND NOWHERE ELSE. Their
 // members are fixed above, and two of them carry a reading a host-shaped string would lose:

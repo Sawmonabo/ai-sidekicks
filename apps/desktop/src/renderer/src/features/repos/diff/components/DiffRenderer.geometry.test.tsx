@@ -1,6 +1,6 @@
 // A diff row under a window: where it wraps, what expands, and what a header carries.
 //
-// WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.tsx` — the row
+// WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.ts` — the row
 // kinds, the two-hue rule, and the view controls the renderer is handed. Every case
 // here is about a row's GEOMETRY or its provenance: the offsets under a wrapped line,
 // an expansion that mounts rows a window had elided, the extended headers a file header

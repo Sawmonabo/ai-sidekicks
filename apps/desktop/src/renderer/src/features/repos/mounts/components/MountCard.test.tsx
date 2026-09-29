@@ -12,7 +12,12 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import { CANONICAL_ROOT, ENTERED_PATH, mount, workspaceRow } from "../repo-mounts.test-support.js";
+import {
+  CANONICAL_ROOT,
+  ENTERED_PATH,
+  buildMount,
+  workspaceRow,
+} from "../repo-mounts.test-support.js";
 
 /**
  * The card's own state sentence. Each workspace's prepare form repeats a held reason
@@ -34,7 +39,7 @@ function renderCard(
     // the screen.
     <LiveAnnouncerProvider>
       <MountCard
-        mount={mount()}
+        mount={buildMount()}
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
         pendingModeByWorkspaceId={{}}
@@ -101,7 +106,9 @@ describe("MountCard — the two axes", () => {
 
   it("puts an unreachable mount in an error posture and withholds its bind controls", () => {
     const { container } = renderCard({
-      mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" } }),
+      mount: buildMount({
+        health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
+      }),
     });
     expect(container.querySelector(".meridian-mount-card--withheld")).not.toBeNull();
     expect(withheldLine(container)).toMatch(/could not be probed/u);
@@ -109,7 +116,7 @@ describe("MountCard — the two axes", () => {
   });
 
   it("negative control: a detached mount does not read as an unreachable one", () => {
-    const { container } = renderCard({ mount: mount({ state: "detached" }) });
+    const { container } = renderCard({ mount: buildMount({ state: "detached" }) });
     expect(withheldLine(container)).toMatch(/mints a new mount/u);
     expect(withheldLine(container)).not.toMatch(/could not be probed/u);
   });
@@ -143,7 +150,7 @@ describe("MountCard — the drifted mount and its one control", () => {
     // resolve on its own, so offering a re-attach there would push a person into
     // minting a second mount for a path that is about to answer again.
     const { getByLabelText } = renderCard({
-      mount: mount({
+      mount: buildMount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
@@ -157,14 +164,14 @@ describe("MountCard — the drifted mount and its one control", () => {
 
   it("negative control: an unreachable mount offers no re-attach either", () => {
     const { queryByText } = renderCard({
-      mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
+      mount: buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
     });
     expect(queryByText("Re-attach this path")).toBeNull();
   });
 
   it("says the mount is not repaired, and that a new row is minted", () => {
     const { container } = renderCard({
-      mount: mount({
+      mount: buildMount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
@@ -185,21 +192,21 @@ describe("MountCard — the bind entry point", () => {
     // The card already carries the reason on its withheld line; a control the daemon
     // would refuse anyway would be a second, worse statement of the same fact.
     const { queryByText } = renderCard({
-      mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
+      mount: buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
     });
     expect(queryByText("Bind a workspace")).toBeNull();
   });
 
   it("negative control: a detached mount offers no bind", () => {
-    const { queryByText } = renderCard({ mount: mount({ state: "detached" }) });
+    const { queryByText } = renderCard({ mount: buildMount({ state: "detached" }) });
     expect(queryByText("Bind a workspace")).toBeNull();
   });
 
   it("negative control: a drifted mount offers the re-attach and no bind", () => {
-    // The two controls are mutually exclusive by construction: `bindControlPosture`
+    // The two controls are mutually exclusive by construction: `readBindControlAvailability`
     // withholds on any non-healthy verdict, and the re-attach draws on exactly one.
     const { getByLabelText, queryByText } = renderCard({
-      mount: mount({
+      mount: buildMount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });

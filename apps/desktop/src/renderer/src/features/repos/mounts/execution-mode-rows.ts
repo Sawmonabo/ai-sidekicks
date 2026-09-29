@@ -16,7 +16,7 @@ import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 
 /** One row, after the reply has been read but before anything is rendered. */
-export interface ModeRow {
+export interface ExecutionModeRowReading {
   readonly mode: ExecutionMode;
   readonly available: boolean;
   /** The daemon's own words for why this mode is unavailable. Never composed here. */
@@ -37,9 +37,9 @@ export interface ModeRow {
  */
 export function executionModeRows(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): readonly ModeRow[] {
+): readonly ExecutionModeRowReading[] {
   const restrictions = capabilities.restrictions ?? {};
-  const rows: ModeRow[] = capabilities.availableModes.map((mode) => ({
+  const rows: ExecutionModeRowReading[] = capabilities.availableModes.map((mode) => ({
     mode,
     available: true,
     restrictionReason: restrictions[mode],

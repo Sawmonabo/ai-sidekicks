@@ -5,10 +5,10 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
-import { ModeRowView } from "./ExecutionModeRow.js";
+import { ExecutionModeRow } from "./ExecutionModeRow.js";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { selectionInFlightCopy } from "../execution-mode-selection.js";
-import type { WorkspaceControlPosture } from "../mount-health.js";
+import type { WorkspaceControlAvailability } from "../mount-health.js";
 import { controlHoldSentence } from "../mount-health.js";
 
 export interface ExecutionModePickerProps {
@@ -26,7 +26,7 @@ export interface ExecutionModePickerProps {
    * `pendingMode` travels beside it because the announcement below names the mode, which a
    * posture does not carry.
    */
-  readonly posture: WorkspaceControlPosture;
+  readonly posture: WorkspaceControlAvailability;
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
@@ -47,7 +47,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
 
   const rows = executionModeRows(capabilities);
   const { pendingMode } = props;
-  // The sentence `workspaceControlPosture` composes for an outstanding switch, asked of
+  // The sentence `readWorkspaceControlAvailability` composes for an outstanding switch, asked of
   // the module that composes it. `undefined` while nothing is pending, which no hold
   // reason can equal.
   const pendingCopy = pendingMode === undefined ? undefined : selectionInFlightCopy(pendingMode);
@@ -58,7 +58,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
           What a run bound here may do to the repository
         </legend>
         {rows.map((row) => (
-          <ModeRowView
+          <ExecutionModeRow
             key={row.mode}
             row={row}
             workspaceId={props.workspaceId}

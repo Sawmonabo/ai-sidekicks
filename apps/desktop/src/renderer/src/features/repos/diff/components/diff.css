@@ -169,7 +169,7 @@
  * semantics an intervening `<div>` would break and a placement does not.
  *
  * The height is fixed rather than intrinsic because the window ESTIMATES with it: one
- * value under one owner (`diff-bounds.ts`) means the offsets and the painted rows
+ * value under one owner (`diff-measures.ts`) means the offsets and the painted rows
  * cannot drift, and nothing has to be measured.
  */
 .meridian-diff-files__row {

@@ -12,7 +12,7 @@
 //
 // That is also why the discard rule is not this module's. The same close reaches
 // `onOpenChange`, so a discard keyed on it takes back the `sending` the press had just
-// published; `confirmation/confirmation-lifecycle.ts` holds the two moments a discard
+// published; `hooks/useConfirmationLifecycle.ts` holds the two moments a discard
 // belongs to, and this file wires them.
 
 import "./execution-roots.css";

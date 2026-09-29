@@ -30,17 +30,17 @@ import { useSessionStoreRebind, type SessionStoreScoped } from "./useSessionStor
  * need from one.
  *
  * NAMED AS A CONTRACT RATHER THAN AS A CLASS, so an `ActController`, an
- * `ActSurfaceController`, and anything that holds one and offers these members bind
+ * `ActControllerBase`, and anything that holds one and offers these members bind
  * through the same hooks.
  */
-export interface ActControllerSurface<TReading = unknown> extends DisposableController {
+export interface BindableActController<TReading = unknown> extends DisposableController {
   /** What the surface renders. Read through `useSyncExternalStore`, never reached into. */
   readonly snapshot: TReading;
   subscribe(sink: (reading: TReading) => void): Unsubscribe;
 }
 
 /** What a hook hands back: the controller to act through, and what to render. */
-export interface ActControllerBinding<TController extends ActControllerSurface> {
+export interface ActControllerBinding<TController extends BindableActController> {
   readonly controller: TController;
   readonly reading: TController["snapshot"];
 }
@@ -52,7 +52,7 @@ export interface ActControllerBinding<TController extends ActControllerSurface> 
  * that leaves a controller in place across a rebind, holding the previous subject's
  * settlement.
  */
-export function useActController<TController extends ActControllerSurface>(
+export function useActController<TController extends BindableActController>(
   subject: object,
   key: SubjectKey,
   open: () => TController,
@@ -75,7 +75,7 @@ export function useActController<TController extends ActControllerSurface>(
  * prerequisite answer with it.
  */
 export function useSessionScopedActController<
-  TController extends ActControllerSurface & SessionStoreScoped,
+  TController extends BindableActController & SessionStoreScoped,
 >(
   subject: object,
   key: SubjectKey,
@@ -88,7 +88,7 @@ export function useSessionScopedActController<
 }
 
 /** The controller on screen, and its snapshot read through `useSyncExternalStore`. */
-function useControllerBinding<TController extends ActControllerSurface>(
+function useControllerBinding<TController extends BindableActController>(
   controller: TController,
 ): ActControllerBinding<TController> {
   const subscribe = useCallback(

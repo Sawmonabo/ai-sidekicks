@@ -1,6 +1,6 @@
 // The address field's state, held for the pane it was typed for.
 //
-// Its own module beside `act-sequence.ts` and for that module's reason: the pane
+// Its own module beside `usePreviewPaneActs.ts` and for that module's reason: the pane
 // RENDERS, and the two pieces of state it carries between renders — which act may
 // still report, and what somebody has typed into the destination field — are each a
 // small rule that is testable without mounting a chrome around it.

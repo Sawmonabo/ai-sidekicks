@@ -16,7 +16,7 @@ import {
   findRefusalBanner,
   queryRefusalBanner,
   recordingActs,
-  renderBrowserPane,
+  renderPreviewPane,
 } from "./PreviewPane.test-support.js";
 
 /** The platform modifier that closes a tab, as an event initializer. */
@@ -28,7 +28,7 @@ describe("browser pane chrome", () => {
     // every pane by its whole address — the session it belongs to, then what the pane is
     // — so two browser panes in one deck are told apart. This mount addresses no session,
     // so the trail opens on the chrome's own no-address crumb.
-    const { region } = await renderBrowserPane();
+    const { region } = await renderPreviewPane();
     const crumbs = document.getElementById(region.getAttribute("aria-labelledby") ?? "");
 
     expect(region.getAttribute("aria-label")).toBeNull();
@@ -36,7 +36,7 @@ describe("browser pane chrome", () => {
   });
 
   it("disables every history control while no state has been reported", async () => {
-    await renderBrowserPane();
+    await renderPreviewPane();
     expect(screen.getByRole("button", { name: "Back" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Forward" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Reload" })).toHaveProperty("disabled", true);
@@ -45,7 +45,7 @@ describe("browser pane chrome", () => {
   it("keeps the escape to the system browser live, because it is the fallback", async () => {
     // The one control that stays enabled with no reported state: it is what the pane
     // falls back to when nothing else in the chrome can act.
-    await renderBrowserPane();
+    await renderPreviewPane();
     expect(screen.getByRole("button", { name: /Open externally/u })).toHaveProperty(
       "disabled",
       false,
@@ -53,7 +53,7 @@ describe("browser pane chrome", () => {
   });
 
   it("shows the reload arm, not the stop arm, with no load in flight", async () => {
-    await renderBrowserPane();
+    await renderPreviewPane();
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
 });
@@ -61,7 +61,7 @@ describe("browser pane chrome", () => {
 describe("browser pane address field", () => {
   it("refuses a filesystem destination without dispatching a navigation", async () => {
     const navigations: string[] = [];
-    await renderBrowserPane(undefined, recordingActs(navigations));
+    await renderPreviewPane(undefined, recordingActs(navigations));
     const field = addressField();
     fireEvent.change(field, { target: { value: "/etc/hosts" } });
     fireEvent.submit(field.closest("form") as HTMLFormElement);
@@ -75,7 +75,7 @@ describe("browser pane address field", () => {
     // Without this, a guard that refused every destination would satisfy the case
     // above and would also make the address field inert.
     const navigations: string[] = [];
-    await renderBrowserPane(undefined, recordingActs(navigations));
+    await renderPreviewPane(undefined, recordingActs(navigations));
     const field = screen.getByLabelText("Destination");
     fireEvent.change(field, { target: { value: "https://example.invalid/page" } });
     fireEvent.submit(field.closest("form") as HTMLFormElement);
@@ -86,7 +86,7 @@ describe("browser pane address field", () => {
 
 describe("browser pane close-tab chord", () => {
   it("swallows the platform chord, so it cannot reach the window and close it", async () => {
-    const { region } = await renderBrowserPane();
+    const { region } = await renderPreviewPane();
     const event = new KeyboardEvent("keydown", {
       key: "w",
       code: "KeyW",
@@ -102,7 +102,7 @@ describe("browser pane close-tab chord", () => {
   it("negative control: an ordinary keystroke passes through untouched", async () => {
     // A capture handler that prevented every default would take the page's own
     // typing as well, which is the failure the modifier test exists to prevent.
-    const { region } = await renderBrowserPane();
+    const { region } = await renderPreviewPane();
     const event = new KeyboardEvent("keydown", {
       key: "w",
       code: "KeyW",

@@ -11,18 +11,21 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
-import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
+import {
+  readWorkspaceControlAvailability,
+  type WorkspaceControlAvailability,
+} from "../mount-health.js";
 
 /** The two postures a card hands down, composed through the real predicate. */
-const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
+const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(
   { offered: true },
   undefined,
 );
-const CONTROLS_HELD_BY_THE_MOUNT: WorkspaceControlPosture = workspaceControlPosture(
+const CONTROLS_HELD_BY_THE_MOUNT: WorkspaceControlAvailability = readWorkspaceControlAvailability(
   { offered: false, withheldBecause: "This mount is no longer reachable." },
   undefined,
 );
-const CONTROLS_HELD_BY_A_SWITCH: WorkspaceControlPosture = workspaceControlPosture(
+const CONTROLS_HELD_BY_A_SWITCH: WorkspaceControlAvailability = readWorkspaceControlAvailability(
   { offered: true },
   "provisioned-worktree",
 );
@@ -181,7 +184,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   it("announces the mount's own reason and not the switch when both hold the group", () => {
     // THE PRECEDENCE, AND THE COUNT, IN ONE CASE. A mount can go unreachable while a
     // switch is still on the wire, and the two facts are not equal: "wait for the
-    // daemon to answer" is a lie about a root nobody can reach. `workspaceControlPosture`
+    // daemon to answer" is a lie about a root nobody can reach. `readWorkspaceControlAvailability`
     // puts the mount first, and the picker renders whichever sentence it chose.
     //
     // `getByRole` IS THE COUNT ASSERTION. It throws on two matches, so a picker that

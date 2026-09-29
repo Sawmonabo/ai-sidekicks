@@ -1,7 +1,7 @@
 // The pane kind the repos feature claims: the diff pane.
 
 import type { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import { REPOS_FAMILY_OWNER } from "./owner.js";
+import { REPOS_FEATURE_OWNER } from "./owner.js";
 
 /**
  * Claim the `diff` pane kind.
@@ -14,7 +14,7 @@ import { REPOS_FAMILY_OWNER } from "./owner.js";
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "diff",
-    owner: REPOS_FAMILY_OWNER,
+    owner: REPOS_FEATURE_OWNER,
     // Loader-backed: the pane is not on the first paint, and it reaches the diff parser
     // and the virtualized row renderer, the largest block this feature would put on the
     // initial import graph.

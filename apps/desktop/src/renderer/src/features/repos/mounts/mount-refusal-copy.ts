@@ -41,6 +41,7 @@
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
+import { readFrozenRecord } from "@renderer/console/bridge/daemon/session-event-stream-kinds.js";
 import type { RefusalRecoveryCopy } from "@renderer/console/primitives/index.js";
 
 /**
@@ -74,22 +75,6 @@ export const MOUNT_REFUSAL_CODES = [
 export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
 
 /**
- * What a person does next, and the alternatives where there is more than one.
- *
- * `distinctions` is a LIST rather than a second sentence because the cases it holds are
- * exclusive: the reader is choosing between them, and prose that ran them together
- * would read as a sequence of steps. An empty list is the ordinary shape — most codes
- * have exactly one move — and it is a real empty rather than an absent member, so a
- * renderer maps it without asking whether it is there.
- *
- * DERIVED FROM THE SHAPE THE SHELL RENDERS rather than restating its two members:
- * `primitives/refusal/RefusalRecovery.tsx` is what draws one of these, and a table
- * whose entry type merely happened to be assignable would stay assignable right up to
- * the rename that made it stop.
- */
-export type MountRefusalRecovery = RefusalRecoveryCopy;
-
-/**
  * What the caller knows that the code alone does not.
  *
  * `restrictionReason` exists because one code's recovery is a wire string this table
@@ -111,7 +96,7 @@ export interface MountRefusalContext {
 const NO_DISTINCTIONS: readonly string[] = [];
 
 /** What an attach of a folder with no git repository in it reads as. */
-const NOT_A_GIT_REPOSITORY_RECOVERY: MountRefusalRecovery = {
+const NOT_A_GIT_REPOSITORY_RECOVERY: RefusalRecoveryCopy = {
   nextMove: "Could not attach: not a git repository",
   distinctions: NO_DISTINCTIONS,
 };
@@ -120,7 +105,7 @@ const NOT_A_GIT_REPOSITORY_RECOVERY: MountRefusalRecovery = {
  * The table. Total over the codes above, so a code added to the tuple and not here
  * fails to compile rather than surfacing with no move.
  */
-const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRecovery>> = {
+const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecoveryCopy>> = {
   "repo.not_found": {
     nextMove:
       "This mount is gone from the session. The list re-reads itself; if the row is still here after that, the read and the daemon disagree.",
@@ -128,7 +113,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   },
   "repo.root_resolution_failed": {
     // The arm for every reason but a folder with no repository in it, which
-    // `mountRefusalRecovery` answers from the context.
+    // `mountRefusalRemedy` answers from the context.
     nextMove:
       "Nothing was attached. The daemon's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
     distinctions: NO_DISTINCTIONS,
@@ -162,7 +147,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.mode_unsupported": {
-    // Replaced wholesale by `mountRefusalRecovery` when a reason is in hand. This is
+    // Replaced wholesale by `mountRefusalRemedy` when a reason is in hand. This is
     // the arm for a refusal whose mode the capabilities read gave no reason for, and
     // it says that rather than implying one exists somewhere on screen.
     nextMove:
@@ -248,10 +233,10 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
  * `repo.root_resolution_failed` refusal whose reason is `not_a_git_repository` reads as
  * its own sentence; any other reason takes the table's arm.
  */
-export function mountRefusalRecovery(
+export function mountRefusalRemedy(
   code: string,
   context?: MountRefusalContext,
-): MountRefusalRecovery | undefined {
+): RefusalRecoveryCopy | undefined {
   if (code === "workspace.mode_unsupported") {
     const reason = context?.restrictionReason;
     if (reason !== undefined) {
@@ -264,9 +249,7 @@ export function mountRefusalRecovery(
   ) {
     return NOT_A_GIT_REPOSITORY_RECOVERY;
   }
-  return Object.hasOwn(MOUNT_REFUSAL_RECOVERIES, code)
-    ? MOUNT_REFUSAL_RECOVERIES[code as MountRefusalCode]
-    : undefined;
+  return readFrozenRecord(MOUNT_REFUSAL_RECOVERIES, code);
 }
 
 /**

@@ -127,7 +127,7 @@ describe("parseUnifiedPatch", () => {
     // THE BOUND, asserted where it used to be spent. This parser once ran
     // `diffWordsWithSpace` over every delete/insert pair before it returned, so a
     // forty-file change set paid for the whole change set before the virtualizer
-    // placed a row. The split is derived per rendered row now — `intraline-segments.ts`
+    // placed a row. The split is derived per rendered row now — `intraline-segment-cache.ts`
     // owns it — and a parsed line carries its text and nothing else.
     for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
       expect(line.segments).toStrictEqual([{ text: diffLineText(line), changed: false }]);

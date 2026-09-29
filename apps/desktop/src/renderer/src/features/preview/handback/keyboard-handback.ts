@@ -193,7 +193,7 @@ export class KeyboardHandback {
    *
    * ON THE PANE ROOT, NOT ON THE WINDOW. Dispatching on `window` makes the window the
    * target, and a target's propagation path excludes its descendants — so the pane's
-   * own `onKeyDownCapture` never ran and the one chord `BrowserPane` handles there,
+   * own `onKeyDownCapture` never ran and the one chord `PreviewPane` handles there,
    * the close-tab chord of 12.2, was silently swallowed: no refusal, no close, and a
    * keystroke the mirror had just CLAIMED from the page. The window still hears it,
    * which is why this is a re-target and not a second route: a bubbling event

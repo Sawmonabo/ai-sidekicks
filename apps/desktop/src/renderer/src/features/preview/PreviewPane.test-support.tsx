@@ -17,7 +17,7 @@ import { RecordingViewHost } from "./geometry/geometry-publisher.test-support.js
 import type { AttachedPaneViewHost } from "./geometry/view-host.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
-import { BrowserPaneChrome, type BrowserChromeActs } from "./components/PreviewPaneContent.js";
+import { PreviewPaneContent, type BrowserChromeActs } from "./components/PreviewPaneContent.js";
 
 /**
  * The refusal banner the pane raises — a plain group, since the frame's announcer
@@ -66,7 +66,7 @@ export function fixtureBrowserBridge(): ConsoleBridge {
  * The address arm carries no `entity` member: `browser` is session-scoped, so the
  * union's arm has none and the seat refuses one at this call site.
  */
-export function browserPaneContext(
+export function previewPaneContext(
   bridge: ConsoleBridge = fixtureBrowserBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
@@ -103,7 +103,7 @@ export function chromeFor(
   viewHost: AttachedPaneViewHost,
 ): React.JSX.Element {
   return (
-    <BrowserPaneChrome
+    <PreviewPaneContent
       {...context}
       navigation={{ kind: "reading" }}
       pages={{ kind: "reading" }}
@@ -121,7 +121,7 @@ export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
  * slot to another pane. The pane's state has to say whose it is against it, and a suite
  * that could only mount a fresh tree could not reach the stale-subject case.
  */
-export interface BrowserPaneSubjectMount {
+export interface PreviewPaneSubjectMount {
   readonly rebindTo: (nextPaneId: string) => Promise<void>;
 }
 
@@ -133,13 +133,13 @@ export interface BrowserPaneSubjectMount {
  * pane carries between renders has to say whose it is. A suite that could only mount
  * a fresh tree could not reach that case at all.
  */
-export async function mountBrowserPaneForSubject(
+export async function mountPreviewPaneForSubject(
   bridge: ConsoleBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
   acts: BrowserChromeActs = recordingActs(),
-): Promise<BrowserPaneSubjectMount> {
-  const built = browserPaneContext(bridge, paneId);
+): Promise<PreviewPaneSubjectMount> {
+  const built = previewPaneContext(bridge, paneId);
   // One host for the whole mount: a new one per render would re-mint the publisher.
   const viewHost = new RecordingViewHost();
   let mounted: RenderResult | undefined;
@@ -161,7 +161,7 @@ export async function mountBrowserPaneForSubject(
     throw new Error("the browser pane did not mount");
   }
   const rebindTo = async (nextPaneId: string): Promise<void> => {
-    const rebound = browserPaneContext(bridge, nextPaneId);
+    const rebound = previewPaneContext(bridge, nextPaneId);
     await act(async () => {
       rendered.rerender(tree(rebound));
     });
@@ -187,25 +187,25 @@ const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
  * technology navigates by: a pane that lost its accessible name would still match a
  * class selector and every suite here would go on passing.
  */
-export function browserPaneRegion(): HTMLElement {
+export function previewPaneRegion(): HTMLElement {
   return screen.getByRole("region", { name: UNBOUND_BROWSER_PANE_NAME });
 }
 
 /**
  * Mount the pane's chrome and let its first effects settle.
  */
-export async function renderBrowserPane(
+export async function renderPreviewPane(
   bridge?: ConsoleBridge,
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<{
   readonly region: HTMLElement;
   readonly bridge: ConsoleBridge;
 }> {
-  const built = browserPaneContext(bridge);
+  const built = previewPaneContext(bridge);
   await act(async () => {
     render(chromeFor(built.context, acts, new RecordingViewHost()));
   });
-  return { region: browserPaneRegion(), bridge: built.bridge };
+  return { region: previewPaneRegion(), bridge: built.bridge };
 }
 
 /**

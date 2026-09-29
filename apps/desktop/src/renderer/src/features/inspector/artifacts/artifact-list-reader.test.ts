@@ -1,6 +1,6 @@
 // When the pane reads, what makes it read again, and which answers it drops.
 //
-// What a served answer means is next door, in `artifact-pane-reads.test.ts`; nothing below
+// What a served answer means is next door, in `services/artifact-reads.test.ts`; nothing below
 // asserts a row's members, because a case that did would fail for a reason that has nothing
 // to do with scheduling.
 //
@@ -18,7 +18,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
-import type { ArtifactPaneReading } from "./artifact-list-reading.js";
+import type { ArtifactListReading } from "./artifact-list-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "./artifact-read-schedule.js";
 import { ArtifactPaneReader } from "./artifact-list-reader.js";
 import {
@@ -186,7 +186,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
-    const published: ArtifactPaneReading[] = [];
+    const published: ArtifactListReading[] = [];
     reader.subscribe((reading) => published.push(reading));
     reader.start();
     await readThrough(clock);

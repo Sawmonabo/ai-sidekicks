@@ -26,7 +26,7 @@
 // AND IT REUSES THE CONFIRMATION LIFECYCLE FOR THE SAME REASON. The confirm control
 // closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
 // takes back the `sending` that press had just published;
-// `confirmation/confirmation-lifecycle.ts` holds the two moments a discard belongs to,
+// `hooks/useConfirmationLifecycle.ts` holds the two moments a discard belongs to,
 // and both of this family's alert dialogs wire it rather than each stating the rule.
 
 import "./attach.css";
@@ -42,7 +42,7 @@ import {
 } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import { type AttachActReading } from "./attach-controller.js";
+import { type AttachRequestReading } from "./attach-controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 
 export interface ReattachControlProps {
@@ -139,7 +139,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
  * be drawn into a popup that is already gone. On the card it sits beside the verdict it is
  * about.
  */
-function renderSettlement(act: AttachActReading): React.JSX.Element | null {
+function renderSettlement(act: AttachRequestReading): React.JSX.Element | null {
   switch (act.status) {
     case "idle":
       return null;

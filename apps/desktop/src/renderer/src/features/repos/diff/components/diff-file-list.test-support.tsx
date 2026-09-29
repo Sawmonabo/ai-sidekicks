@@ -1,7 +1,7 @@
 // How both file-list suites put the list on screen and reach into what it drew.
 //
 // SPLIT BY SUBJECT, NOT BY SCAFFOLDING. `DiffFileList.test.tsx` is about what one ENTRY
-// is and `DiffFileList.windowing.test.tsx` is about which entries are MOUNTED, and that
+// is and `DiffFileList.windowing.test.ts` is about which entries are MOUNTED, and that
 // split was made by copying the mount and the two readers into both files rather than
 // hoisting them. Nothing failed when one copy changed, which is the whole reason a
 // helper used twice is declared once.

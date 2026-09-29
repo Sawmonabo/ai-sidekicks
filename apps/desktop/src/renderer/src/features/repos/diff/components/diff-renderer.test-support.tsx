@@ -1,6 +1,6 @@
 // How both renderer suites mount the diff and read the count it reports.
 //
-// SPLIT BY SUBJECT, NOT BY SCAFFOLDING. `DiffRenderer.test.tsx` is about the ROWS the
+// SPLIT BY SUBJECT, NOT BY SCAFFOLDING. `DiffRenderer.test.ts` is about the ROWS the
 // renderer draws and `DiffRenderer.geometry.test.tsx` about the offsets under them,
 // and the props builder, the mount and the row-count reader were copied into both
 // rather than hoisted. The props builder is the one that matters: it names every prop

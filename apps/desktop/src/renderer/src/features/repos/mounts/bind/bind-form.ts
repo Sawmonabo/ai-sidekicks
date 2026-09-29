@@ -11,7 +11,7 @@
 // reason beside it WHEN THE REPLY SENT ONE. The map is sparse, so a mode can be
 // excluded with no reason on file, and `BindModePicker` then draws the row and no
 // sentence rather than composing one the daemon did not send — which is what
-// `ModeRowView` does with the same rows. A form that showed one row on a plain
+// `ExecutionModeRow` does with the same rows. A form that showed one row on a plain
 // directory would leave a person wondering where the other three went.
 //
 // ONE `directory` FIELD AND NO SELECTOR BESIDE IT. The wire carries both forms the trust

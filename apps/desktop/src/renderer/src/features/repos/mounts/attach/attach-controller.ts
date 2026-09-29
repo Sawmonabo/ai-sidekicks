@@ -20,7 +20,7 @@ export interface AttachSettlement {
 }
 
 /** Where the attach stands. What a surface renders. */
-export type AttachActReading = ActSettlementReading<AttachSettlement>;
+export type AttachRequestReading = ActSettlementReading<AttachSettlement>;
 
 /** What one attach controller sends through. */
 export interface AttachControllerOptions {

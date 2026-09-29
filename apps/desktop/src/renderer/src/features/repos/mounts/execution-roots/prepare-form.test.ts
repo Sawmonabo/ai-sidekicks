@@ -17,9 +17,9 @@ import {
   EMPTY_PREPARE_FORM,
   REUSE_UNANSWERED_COPY,
   REUSE_VERDICT_COPY,
-  prepareAcknowledgement,
-  prepareFormVerdict,
-  prepareReuseStanding,
+  isDirtyReuseAcknowledged,
+  resolvePrepareForm,
+  readReuseCheckState,
   reuseConsentRequired,
   reusePreparable,
   reuseVerdictFor,
@@ -54,8 +54,8 @@ function form(acknowledgedCandidateId?: string): PrepareFormState {
 }
 
 /** The answered standing for one verdict, which is what a settled check produces. */
-function answered(verdict: ReuseVerdict): ReturnType<typeof prepareReuseStanding> {
-  return prepareReuseStanding({ status: "read", value: verdict });
+function answered(verdict: ReuseVerdict): ReturnType<typeof readReuseCheckState> {
+  return readReuseCheckState({ status: "read", value: verdict });
 }
 
 describe("reuseVerdictFor", () => {
@@ -111,7 +111,7 @@ describe("reuseConsentRequired / reusePreparable", () => {
   });
 });
 
-describe("prepareReuseStanding", () => {
+describe("readReuseCheckState", () => {
   it("carries the answer a settled check gave", () => {
     const standing = answered(DIRTY_CANDIDATE);
     expect(standing.answered).toBe(true);
@@ -122,29 +122,29 @@ describe("prepareReuseStanding", () => {
     // All three leave the verdict at `none` because there is no candidate to name — and
     // `answered` is the whole of what separates them from a check that came back empty.
     for (const reading of [{ status: "not-read" }, { status: "reading" }] as const) {
-      const standing = prepareReuseStanding(reading);
+      const standing = readReuseCheckState(reading);
       expect(standing.answered).toBe(false);
       expect(standing.verdict.kind).toBe("none");
     }
-    expect(prepareReuseStanding({ status: "read", value: { kind: "none" } }).answered).toBe(true);
+    expect(readReuseCheckState({ status: "read", value: { kind: "none" } }).answered).toBe(true);
   });
 });
 
-describe("prepareFormVerdict", () => {
+describe("resolvePrepareForm", () => {
   it("asks for a branch first", () => {
-    const verdict = prepareFormVerdict(EMPTY_PREPARE_FORM, answered({ kind: "none" }));
+    const verdict = resolvePrepareForm(EMPTY_PREPARE_FORM, answered({ kind: "none" }));
     expect(verdict.status === "incomplete" && verdict.because).toContain("branch");
   });
 
   it("sends an ordinary prepare with a branch and no candidate", () => {
-    expect(prepareFormVerdict(form(), answered({ kind: "none" })).status).toBe("sendable");
+    expect(resolvePrepareForm(form(), answered({ kind: "none" })).status).toBe("sendable");
   });
 
   it("holds a branch name past the contract's own bound, in the wire's units", () => {
     // Both prepare requests bound `branchName` at `WORKTREE_GIT_REF_MAX_LEN`, so without
     // this the control is open onto a schema failure naming a member path.
     const overCap = "b".repeat(WORKTREE_GIT_REF_MAX_LEN + 1);
-    const verdict = prepareFormVerdict(
+    const verdict = resolvePrepareForm(
       { branchName: overCap, acknowledgedCandidateId: undefined },
       answered({ kind: "none" }),
     );
@@ -156,7 +156,7 @@ describe("prepareFormVerdict", () => {
 
   it("negative control: a branch name AT the bound is sendable", () => {
     expect(
-      prepareFormVerdict(
+      resolvePrepareForm(
         { branchName: "b".repeat(WORKTREE_GIT_REF_MAX_LEN), acknowledgedCandidateId: undefined },
         answered({ kind: "none" }),
       ).status,
@@ -167,20 +167,20 @@ describe("prepareFormVerdict", () => {
     // The defect this closes: `reading` folded into a no-candidate verdict, so a prepare
     // sent inside the debounce window omitted `reuseWorktreeId` for a branch that had a
     // candidate — an implicit collision the daemon refuses.
-    const verdict = prepareFormVerdict(form(), prepareReuseStanding({ status: "reading" }));
+    const verdict = resolvePrepareForm(form(), readReuseCheckState({ status: "reading" }));
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toBe(REUSE_UNANSWERED_COPY);
   });
 
   it("holds the act before any check has been asked at all", () => {
-    expect(prepareFormVerdict(form(), prepareReuseStanding({ status: "not-read" })).status).toBe(
+    expect(resolvePrepareForm(form(), readReuseCheckState({ status: "not-read" })).status).toBe(
       "incomplete",
     );
   });
 
   it("holds a dirty candidate until the consent is given", () => {
-    expect(prepareFormVerdict(form(), answered(DIRTY_CANDIDATE)).status).toBe("incomplete");
-    expect(prepareFormVerdict(form(WORKTREE_ID), answered(DIRTY_CANDIDATE)).status).toBe(
+    expect(resolvePrepareForm(form(), answered(DIRTY_CANDIDATE)).status).toBe("incomplete");
+    expect(resolvePrepareForm(form(WORKTREE_ID), answered(DIRTY_CANDIDATE)).status).toBe(
       "sendable",
     );
   });
@@ -189,13 +189,13 @@ describe("prepareFormVerdict", () => {
     // A lifecycle refresh can retire one dirty checkout and serve another for the same
     // branch. Nothing a person typed changed, so a consent keyed on the branch text
     // would survive — and the prepare would send the NEW worktree's id under it.
-    const verdict = prepareFormVerdict(form(WORKTREE_ID), answered(REPLACEMENT_DIRTY_CANDIDATE));
+    const verdict = resolvePrepareForm(form(WORKTREE_ID), answered(REPLACEMENT_DIRTY_CANDIDATE));
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toContain("uncommitted changes");
   });
 
   it("negative control: consent does not make an incompatible candidate sendable", () => {
-    const verdict = prepareFormVerdict(
+    const verdict = resolvePrepareForm(
       form(WORKTREE_ID),
       answered({ kind: "incompatible", worktreeId: WORKTREE_ID, reason: undefined }),
     );
@@ -206,34 +206,34 @@ describe("prepareFormVerdict", () => {
   });
 });
 
-describe("prepareAcknowledgement", () => {
+describe("isDirtyReuseAcknowledged", () => {
   it("carries the consent on the candidate that asked for it", () => {
-    expect(prepareAcknowledgement(form(WORKTREE_ID), DIRTY_CANDIDATE)).toBe(true);
+    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), DIRTY_CANDIDATE)).toBe(true);
   });
 
   it("drops a consent the verdict no longer calls for, which a refresh can leave set", () => {
     // The checkbox is ticked under a `dirty` verdict, another user commits, the
     // re-check settles `reusable`, and the checkbox unmounts with the consent recorded.
     expect(
-      prepareAcknowledgement(form(WORKTREE_ID), { kind: "reusable", worktreeId: WORKTREE_ID }),
+      isDirtyReuseAcknowledged(form(WORKTREE_ID), { kind: "reusable", worktreeId: WORKTREE_ID }),
     ).toBe(false);
   });
 
   it("drops a consent given for a different tree, on a verdict that is still dirty", () => {
     // The half a `kind`-only test cannot see: the arm has not changed, the branch has
     // not changed, and the tree the person read about is gone.
-    expect(prepareAcknowledgement(form(WORKTREE_ID), REPLACEMENT_DIRTY_CANDIDATE)).toBe(false);
+    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), REPLACEMENT_DIRTY_CANDIDATE)).toBe(false);
   });
 
   it("negative control: no verdict but `dirty` carries one, consented or not", () => {
-    expect(prepareAcknowledgement(form(WORKTREE_ID), { kind: "none" })).toBe(false);
+    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), { kind: "none" })).toBe(false);
     expect(
-      prepareAcknowledgement(form(WORKTREE_ID), {
+      isDirtyReuseAcknowledged(form(WORKTREE_ID), {
         kind: "incompatible",
         worktreeId: WORKTREE_ID,
         reason: undefined,
       }),
     ).toBe(false);
-    expect(prepareAcknowledgement(form(), DIRTY_CANDIDATE)).toBe(false);
+    expect(isDirtyReuseAcknowledged(form(), DIRTY_CANDIDATE)).toBe(false);
   });
 });

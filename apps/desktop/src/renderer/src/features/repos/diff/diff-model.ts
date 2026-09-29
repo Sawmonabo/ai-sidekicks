@@ -4,7 +4,7 @@
 // `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
 // adopted for parse and intraline compute over patch bytes; this family own-builds the
 // row renderer and its virtualization. The word-level SPLIT of that text is derived per
-// rendered row by `intraline-segments.ts` — bounded, memoised, and never at parse time,
+// rendered row by `intraline-segment-cache.ts` — bounded, memoised, and never at parse time,
 // because computing every pair up front costs the whole change set before the
 // virtualizer has placed a row.
 
@@ -44,7 +44,7 @@ export interface DiffLine {
    * The line's text, as a segment list rather than a string.
    *
    * A producer supplies ONE unchanged segment — the whole line — and a consumer
-   * that wants the word-level split asks `intraline-segments.ts` for it. The list
+   * that wants the word-level split asks `intraline-segment-cache.ts` for it. The list
    * shape stays because the split has to be expressible in the same type the
    * renderer draws from, and because a line with no intraline change is one
    * unchanged segment rather than an empty list, so every consumer reads text the
