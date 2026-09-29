@@ -15,7 +15,7 @@
 // clip is walked here, one style read per ancestor per pass. This paragraph is why a
 // later simplification to an observer is a regression.
 //
-// WHICH ancestors clip is not this module's question. `primitives/clipping-ancestors.ts`
+// WHICH ancestors clip is not this module's question. `lib/clipping-ancestors.ts`
 // owns that — the vocabulary, the predicate, and the walk — because the browser family's
 // geometry publisher asks it too and the two copies had already drifted three ways. What
 // stays here is what this module does with the answer: intersect.

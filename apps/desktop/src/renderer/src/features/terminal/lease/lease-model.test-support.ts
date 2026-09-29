@@ -29,8 +29,8 @@ import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
  * wire-declared UUIDs. Reading them off the join log keeps the family's fixtures saying
  * one thing about what a user id is.
  */
-export const VIEWER_USER: string = TERMINAL_SCENARIO_CAST.owner;
-export const OTHER_USER: string = TERMINAL_SCENARIO_CAST.otherDevice;
+export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_CAST.owner;
+export const OTHER_DEVICE_ID: string = TERMINAL_SCENARIO_CAST.otherDevice;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.
@@ -41,7 +41,7 @@ export const OTHER_USER: string = TERMINAL_SCENARIO_CAST.otherDevice;
 export function leaseEventWithPayload(
   sequence: number,
   payload: Record<string, unknown> | undefined,
-  actorId: string | undefined = OTHER_USER,
+  actorId: string | undefined = OTHER_DEVICE_ID,
 ): ConsoleSessionEvent {
   return {
     // The console's one admitted-event builder, plus the member it does not take: the

@@ -7,7 +7,7 @@
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
-import { registerTerminalPanes } from "@renderer/console/terminal/index.js";
+import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
 import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

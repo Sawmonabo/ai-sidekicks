@@ -23,7 +23,7 @@
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 
 /** One banner on screen, and how many raises it stands for. */
-export interface WorkspaceBanner {
+export interface SessionBanner {
   readonly refusal: ConsoleRefusal;
   /** 1 for a refusal raised once. Rendered only above 1: a count of one is noise. */
   readonly repeatCount: number;
@@ -36,7 +36,7 @@ export interface WorkspaceBanner {
  * a dismissal that emptied the column answer the same identity — a subscriber comparing
  * by reference is told nothing changed when nothing did.
  */
-export const NO_WORKSPACE_BANNERS: readonly WorkspaceBanner[] = Object.freeze([]);
+export const NO_SESSION_BANNERS: readonly SessionBanner[] = Object.freeze([]);
 
 /**
  * The identity of a refusal as this stack counts it.
@@ -46,7 +46,7 @@ export const NO_WORKSPACE_BANNERS: readonly WorkspaceBanner[] = Object.freeze([]
  * compose the same string as a different pair, and two unrelated refusals would
  * coalesce into one banner carrying a count of both.
  */
-export function workspaceBannerKey(refusal: ConsoleRefusal): string {
+export function sessionBannerKey(refusal: ConsoleRefusal): string {
   return [refusal.origin, refusal.code, refusal.detail].join("\u0000");
 }
 
@@ -58,12 +58,12 @@ export function workspaceBannerKey(refusal: ConsoleRefusal): string {
  * under them to record that the same thing happened again would move the dismiss
  * control they were reaching for.
  */
-export function raiseWorkspaceBanner(
-  current: readonly WorkspaceBanner[],
+export function raiseSessionBanner(
+  current: readonly SessionBanner[],
   refusal: ConsoleRefusal,
-): readonly WorkspaceBanner[] {
-  const key = workspaceBannerKey(refusal);
-  const standing = current.find((banner) => workspaceBannerKey(banner.refusal) === key);
+): readonly SessionBanner[] {
+  const key = sessionBannerKey(refusal);
+  const standing = current.find((banner) => sessionBannerKey(banner.refusal) === key);
   if (standing === undefined) {
     return [...current, { refusal, repeatCount: 1 }];
   }
@@ -79,9 +79,9 @@ export function raiseWorkspaceBanner(
  * over is the one from the render that drew it, and a raise since then has replaced
  * that object with a counted one that is the same banner.
  */
-export function dismissWorkspaceBanner(
-  current: readonly WorkspaceBanner[],
+export function dismissSessionBanner(
+  current: readonly SessionBanner[],
   key: string,
-): readonly WorkspaceBanner[] {
-  return current.filter((banner) => workspaceBannerKey(banner.refusal) !== key);
+): readonly SessionBanner[] {
+  return current.filter((banner) => sessionBannerKey(banner.refusal) !== key);
 }

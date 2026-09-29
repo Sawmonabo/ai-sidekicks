@@ -3,7 +3,7 @@
 //
 // This module is the pane's BOUNDARY — the registered body the deck mounts, and the
 // one decision it makes: whether a session was addressed at all. Everything that
-// needs a session is `BoundTerminalPane.tsx` beside it, because the store hooks it
+// needs a session is `SessionTerminalPane.tsx` beside it, because the store hooks it
 // calls may only run when there IS a store and a hook behind a condition is the one
 // React rule a surface cannot bend.
 //
@@ -19,7 +19,7 @@
 // to show.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { BoundTerminalPane } from "./SessionTerminalPane.js";
+import { SessionTerminalPane } from "./SessionTerminalPane.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
 
 /** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
@@ -37,7 +37,7 @@ export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Elem
             detail="A session's shared shell is reached through the session it belongs to, and this pane was opened without one. Nothing here says the session has no terminal — only that none was addressed."
           />
         ) : (
-          <BoundTerminalPane sessionStore={sessionStore} />
+          <SessionTerminalPane sessionStore={sessionStore} />
         )}
       </div>
     </ConsolePaneChrome>

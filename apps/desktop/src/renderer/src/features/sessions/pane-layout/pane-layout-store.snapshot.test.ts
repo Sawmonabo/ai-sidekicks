@@ -19,22 +19,25 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "./pane-layout-snapshot.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP, PaneLayoutStore } from "./pane-layout-store.js";
+import {
+  PANE_LAYOUT_SNAPSHOT_VERSION,
+  PANE_LAYOUT_SNAPSHOT_HEADER_KEY,
+} from "./pane-layout-snapshot.js";
 
-function emptyLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+function emptyLayout(): PaneLayoutStore {
+  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
-function twoPaneLayout(): DeckLayout {
+function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
 
-describe("DeckLayout — what a snapshot carries", () => {
+describe("PaneLayoutStore — what a snapshot carries", () => {
   it("round-trips panes, order, widths, focus, and density", () => {
     const layout = twoPaneLayout();
     const [, second] = layout.snapshot().panes;
@@ -83,17 +86,17 @@ describe("DeckLayout — what a snapshot carries", () => {
   });
 });
 
-describe("DeckLayout — what a restore refuses", () => {
+describe("PaneLayoutStore — what a restore refuses", () => {
   it("discards a snapshot of an unknown version WHOLE", () => {
     // A grammar this build does not know is a grammar whose members it cannot
     // interpret, and a half-restored deck hides which half went missing.
     const layout = twoPaneLayout();
     const snapshot = layout.toSnapshot();
-    const header = snapshot[DECK_SNAPSHOT_HEADER_KEY];
+    const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
     if (header === undefined) {
       throw new Error("the snapshot carried no header");
     }
-    header["version"] = DECK_LAYOUT_SNAPSHOT_VERSION + 1;
+    header["version"] = PANE_LAYOUT_SNAPSHOT_VERSION + 1;
 
     const restored = emptyLayout();
     const report = restored.restore(snapshot);
@@ -233,7 +236,7 @@ describe("DeckLayout — what a restore refuses", () => {
   it("caps how many panes one record can mount", () => {
     const layout = emptyLayout();
     const cap = 3;
-    const capped = new DeckLayout({ restoredPaneCap: cap });
+    const capped = new PaneLayoutStore({ restoredPaneCap: cap });
     for (let index = 0; index < cap + 2; index += 1) {
       layout.open({
         kind: "inspector",
@@ -292,7 +295,7 @@ describe("DeckLayout — what a restore refuses", () => {
       entityId: "worktree-0",
     };
 
-    const report = new DeckLayout({ restoredPaneCap: cap }).restore(snapshot);
+    const report = new PaneLayoutStore({ restoredPaneCap: cap }).restore(snapshot);
 
     expect(report.restoredPaneCount).toBe(cap);
     // The duplicate is the ONLY refusal: if it had consumed a slot, the last
@@ -332,12 +335,12 @@ describe("DeckLayout — what a restore refuses", () => {
     // attribute — `core/refusal.ts`'s own reason for the field.
     const report = emptyLayout().restore(null);
     for (const refusal of report.refusals) {
-      expect(refusal.origin).toBe("deck-layout");
+      expect(refusal.origin).toBe("pane-layout");
     }
   });
 });
 
-describe("DeckLayout — subscription", () => {
+describe("PaneLayoutStore — subscription", () => {
   it("publishes one state per mutation and nothing on a no-op", () => {
     const layout = twoPaneLayout();
     let notifications = 0;
@@ -355,4 +358,3 @@ describe("DeckLayout — subscription", () => {
     unsubscribe();
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";

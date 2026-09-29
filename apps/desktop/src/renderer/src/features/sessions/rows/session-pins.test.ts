@@ -9,11 +9,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { PERSISTENCE_GLOBAL_PARTITION } from "@renderer/store/persistence/persistence-adapter.js";
 import { openStore, openStoreOver } from "../sessions.test-support.js";
-import {
-  SESSION_PIN_TIERS_KEY,
-  SessionPinStore,
-  narrowSessionPinMap,
-} from "@renderer/console/sessions/rows/session-pins.js";
+import { PINNED_SESSIONS_KEY, SessionPinStore, narrowSessionPins } from "./session-pins.js";
 
 describe("pins in the durable store", () => {
   it("writes a pin through the chokepoint, under the global partition", async () => {
@@ -22,7 +18,7 @@ describe("pins in the durable store", () => {
     await pins.setPinned("session-a", true);
 
     expect(pins.pinned).toStrictEqual({ "session-a": "front" });
-    const record = await store.read(PERSISTENCE_GLOBAL_PARTITION, SESSION_PIN_TIERS_KEY);
+    const record = await store.read(PERSISTENCE_GLOBAL_PARTITION, PINNED_SESSIONS_KEY);
     expect(record?.valueClass).toBe("pin");
     expect(record?.value).toStrictEqual({ "session-a": "front" });
   });
@@ -34,7 +30,7 @@ describe("pins in the durable store", () => {
     await pins.setPinned("session-a", false);
 
     expect(pins.pinned).toStrictEqual({});
-    const record = await store.read(PERSISTENCE_GLOBAL_PARTITION, SESSION_PIN_TIERS_KEY);
+    const record = await store.read(PERSISTENCE_GLOBAL_PARTITION, PINNED_SESSIONS_KEY);
     expect(record?.value).toStrictEqual({});
   });
 
@@ -92,13 +88,13 @@ describe("a write the store will not take", () => {
 
 describe("reading a record this build did not write", () => {
   it("keeps the entries it recognizes and drops the ones it does not", () => {
-    expect(narrowSessionPinMap({ "session-a": "front", "session-b": "middle" })).toStrictEqual({
+    expect(narrowSessionPins({ "session-a": "front", "session-b": "middle" })).toStrictEqual({
       "session-a": "front",
     });
   });
 
   it("refuses a record that is not a map at all", () => {
-    expect(narrowSessionPinMap(["session-a"])).toBeUndefined();
-    expect(narrowSessionPinMap("front")).toBeUndefined();
+    expect(narrowSessionPins(["session-a"])).toBeUndefined();
+    expect(narrowSessionPins("front")).toBeUndefined();
   });
 });

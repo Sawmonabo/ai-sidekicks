@@ -12,7 +12,7 @@ import {
   correctSeparatorValueBounds,
   readSeparatorValueBounds,
   separatorValueBoundsAreOrdered,
-} from "@renderer/console/workspace/deck/separator-aria.js";
+} from "./separator-value-bounds.js";
 
 /** A group holding `ranges.length` separators, each announcing one min/max pair. */
 function groupWithSeparators(ranges: readonly (readonly [number, number])[]): HTMLElement {

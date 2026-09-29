@@ -8,7 +8,7 @@
 // `SessionHeaderSessionTitle.tsx`. This module arranges the two and decides nothing.
 
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
-import { SessionHeaderSessionTitle } from "./SessionTitle.js";
+import { SessionTitle } from "./SessionTitle.js";
 
 export interface SessionHeaderIdentityProps {
   /** `undefined` on a route that names no session — rendered as an absence. */
@@ -26,7 +26,7 @@ export function SessionHeaderIdentity(props: SessionHeaderIdentityProps): React.
       ) : (
         <>
           <WireFigure value={props.sessionId} title="Session id" />
-          <SessionHeaderSessionTitle title={props.title} />
+          <SessionTitle title={props.title} />
         </>
       )}
     </span>

@@ -8,7 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -16,13 +16,13 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";
-import { Deck } from "./SessionPaneLayout.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import type { DeckPane } from "../pane-layout.js";
-import { separatorValueBoundsAreOrdered } from "@renderer/console/workspace/deck/separator-aria.js";
+import { SessionPaneLayout } from "./SessionPaneLayout.js";
+import { PaneLayoutStore } from "../pane-layout-store.js";
+import type { SessionPane } from "../pane-layout.js";
+import { separatorValueBoundsAreOrdered } from "../separator-value-bounds.js";
 
-function emptyLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+function emptyLayout(): PaneLayoutStore {
+  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /**
@@ -34,7 +34,7 @@ function emptyLayout(): DeckLayout {
  * the setup the subject. `TimelinePane.test.tsx` makes the same trade for the same
  * reason.
  */
-function paneContextFor(pane: DeckPane): ConsolePaneContext {
+function paneContextFor(pane: SessionPane): ConsolePaneContext {
   return {
     kind: pane.kind,
     entity: pane.entity,
@@ -44,7 +44,7 @@ function paneContextFor(pane: DeckPane): ConsolePaneContext {
 
 /** A registry whose bodies say which pane they are, and nothing else. */
 function registryWith(
-  ...descriptors: readonly { kind: DeckPane["kind"]; owner?: string }[]
+  ...descriptors: readonly { kind: SessionPane["kind"]; owner?: string }[]
 ): ConsolePaneRegistry {
   const registry = new ConsolePaneRegistry();
   for (const descriptor of descriptors) {
@@ -84,10 +84,10 @@ function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.El
   );
 }
 
-function renderDeck(layout: DeckLayout, registry: ConsolePaneRegistry): HTMLElement {
+function renderDeck(layout: PaneLayoutStore, registry: ConsolePaneRegistry): HTMLElement {
   const { container } = render(
     <DeckWindow>
-      <Deck layout={layout} registry={registry} paneContextFor={paneContextFor} />
+      <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
     </DeckWindow>,
   );
   const deck = container.querySelector(".meridian-deck");
@@ -200,10 +200,10 @@ describe("the deck's panes", () => {
 
   it("renders what a restore refused, inside the deck the refusal is about", () => {
     const layout = emptyLayout();
-    const report = layout.restore({ $deck: { version: 99 } });
+    const report = layout.restore({ $paneLayout: { version: 99 } });
     const { container } = render(
       <DeckWindow>
-        <Deck
+        <SessionPaneLayout
           layout={layout}
           registry={registryWith({ kind: "timeline" })}
           paneContextFor={paneContextFor}
@@ -304,7 +304,7 @@ describe("the deck's keyboard paths", () => {
  * the focused pane id from its last render, so a mutation whose re-render has not
  * flushed leaves the handler acting on the pane before last.
  */
-function focus(layout: DeckLayout, paneId: string): void {
+function focus(layout: PaneLayoutStore, paneId: string): void {
   act(() => {
     layout.focus(paneId);
   });
@@ -351,7 +351,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     render(
       <DesktopBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
-          <Deck
+          <SessionPaneLayout
             layout={layout}
             registry={registryWith({ kind: "timeline" })}
             paneContextFor={paneContextFor}

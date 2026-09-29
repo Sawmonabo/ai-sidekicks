@@ -34,74 +34,16 @@
 // what this file adds: the same five acts, discoverable by name, reachable from
 // anywhere in the session, and refusing out loud when there is no deck to act on.
 
-import { useEffect } from "react";
-
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   raiseConsoleActRefusal,
   type ConsoleCommand,
   type ConsoleCommandSurface,
-} from "../../../palette/index.js";
-import type {
-  DeckActName,
-  DeckActs,
-} from "@renderer/features/sessions/pane-layout/pane-layout-acts.js";
-
-/**
- * What an act says when no deck is mounted in this window.
- *
- * One value rather than one per act: a person pressing a deck row from the settings
- * page needs to know the deck is not here, and naming which of the five they reached
- * for would answer a question they did not ask.
- */
-export const DECK_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
-  "workspace",
-  "workspace.no_mounted_deck",
-  "No deck of panes is open in this window. Open a session and try again.",
-);
-
-/** What asking the seat to perform an act produced. */
-export type DeckActOutcome =
-  | { readonly status: "performed"; readonly act: DeckActName }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * The mounted decks, in mount order.
- *
- * A class rather than a module-level array, and release is by IDENTITY rather than by
- * position: a StrictMode double mount and a route change must not leave the seat
- * holding a deck that is gone. The newest mount is the one a command acts on.
- */
-export class MountedDeckSeat {
-  readonly #mounted: DeckActs[] = [];
-
-  public adopt(acts: DeckActs): () => void {
-    this.#mounted.push(acts);
-    return () => {
-      const position = this.#mounted.lastIndexOf(acts);
-      if (position >= 0) {
-        this.#mounted.splice(position, 1);
-      }
-    };
-  }
-
-  public perform(act: DeckActName): DeckActOutcome {
-    const newest = this.#mounted.at(-1);
-    if (newest === undefined) {
-      return { status: "refused", refusal: DECK_NOT_MOUNTED_REFUSAL };
-    }
-    newest[act]();
-    return { status: "performed", act };
-  }
-}
-
-/** This window's seat. Module scope is window scope. */
-export const mountedDeck: MountedDeckSeat = new MountedDeckSeat();
-
-/** Adopt the seat for as long as this deck is mounted. */
-export function useMountedDeck(acts: DeckActs, seat: MountedDeckSeat = mountedDeck): void {
-  useEffect(() => seat.adopt(acts), [acts, seat]);
-}
+} from "@renderer/console/palette/index.js";
+import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
+import {
+  mountedPaneLayouts,
+  type MountedPaneLayouts,
+} from "../pane-layout/mounted-pane-layouts.js";
 
 /**
  * The palette group these rows sit under.
@@ -109,7 +51,7 @@ export function useMountedDeck(acts: DeckActs, seat: MountedDeckSeat = mountedDe
  * One binding rather than a literal per command: the group is also a secondary match
  * field, so two spellings would split the surface's rows across two categories.
  */
-export const DECK_COMMAND_GROUP = "Panes";
+export const PANE_LAYOUT_COMMAND_GROUP = "Panes";
 
 /**
  * The `when` clause every command carries.
@@ -126,47 +68,47 @@ const WHEN_SESSION_ACTIVE = "sessionActive";
  * The contribution door is owner-scoped, so composing twice — a hot reload, a second
  * test — replaces these rows instead of raising on their ids.
  */
-export const DECK_COMMAND_OWNER = "workspace-deck";
+export const PANE_LAYOUT_COMMAND_OWNER = "workspace-deck";
 
 /** Build the palette commands, given the acts each one performs. */
-export function deckPaletteCommands(acts: DeckActs): readonly ConsoleCommand[] {
+export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly ConsoleCommand[] {
   return [
     {
-      id: "deck.focusNextPane",
+      id: "paneLayout.focusNextPane",
       title: "Focus the next pane",
-      group: DECK_COMMAND_GROUP,
+      group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "cycle", "right", "forward"],
       run: acts.focusNextPane,
     },
     {
-      id: "deck.focusPreviousPane",
+      id: "paneLayout.focusPreviousPane",
       title: "Focus the previous pane",
-      group: DECK_COMMAND_GROUP,
+      group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "cycle", "left", "back"],
       run: acts.focusPreviousPane,
     },
     {
-      id: "deck.closePane",
+      id: "paneLayout.closePane",
       title: "Close the focused pane",
-      group: DECK_COMMAND_GROUP,
+      group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "dismiss", "hide"],
       run: acts.closeFocusedPane,
     },
     {
-      id: "deck.movePaneLeft",
+      id: "paneLayout.movePaneLeft",
       title: "Move the focused pane left",
-      group: DECK_COMMAND_GROUP,
+      group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "reorder", "rearrange"],
       run: acts.moveFocusedPaneLeft,
     },
     {
-      id: "deck.movePaneRight",
+      id: "paneLayout.movePaneRight",
       title: "Move the focused pane right",
-      group: DECK_COMMAND_GROUP,
+      group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "reorder", "rearrange"],
       run: acts.moveFocusedPaneRight,
@@ -180,13 +122,13 @@ export function deckPaletteCommands(acts: DeckActs): readonly ConsoleCommand[] {
  * Takes the surface rather than reaching for the module-scope door, for
  * `registerTranscriptCommands`' reason: a test contributes into a surface it owns.
  */
-export function registerDeckCommands(
+export function registerPaneLayoutCommands(
   surface: ConsoleCommandSurface,
-  seat: MountedDeckSeat = mountedDeck,
+  seat: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
   surface.contribute({
-    owner: DECK_COMMAND_OWNER,
-    commands: deckPaletteCommands(actsOnTheMountedDeck(seat)),
+    owner: PANE_LAYOUT_COMMAND_OWNER,
+    commands: paneLayoutPaletteCommands(actsOnTheMountedDeck(seat)),
     keyBindings: [],
   });
 }
@@ -194,12 +136,12 @@ export function registerDeckCommands(
 /**
  * The act set every contributed command runs through.
  *
- * Written out rather than derived from a name list, so a SIXTH act added to `DeckActs`
+ * Written out rather than derived from a name list, so a SIXTH act added to `PaneLayoutActs`
  * fails to compile here instead of being contributed as a command that reaches the
  * mounted deck through nothing.
  */
-function actsOnTheMountedDeck(seat: MountedDeckSeat): DeckActs {
-  const perform = (act: DeckActName): void => {
+function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
+  const perform = (act: PaneLayoutActName): void => {
     performOnMountedDeck(seat, act);
   };
   return {
@@ -222,7 +164,7 @@ function actsOnTheMountedDeck(seat: MountedDeckSeat): DeckActs {
 }
 
 /** Perform one act, and state the refusal where a person can see it. */
-function performOnMountedDeck(seat: MountedDeckSeat, act: DeckActName): void {
+function performOnMountedDeck(seat: MountedPaneLayouts, act: PaneLayoutActName): void {
   const outcome = seat.perform(act);
   if (outcome.status === "refused") {
     raiseConsoleActRefusal(outcome.refusal);

@@ -12,7 +12,7 @@
 //
 // FOUR DECISIONS WORTH STATING:
 //
-//   • **Layout lives in `DeckLayout`, never in `useState`.** A component holding
+//   • **Layout lives in `PaneLayoutStore`, never in `useState`.** A component holding
 //     pane order would be a second source of truth for it, and the restore path
 //     would then have two places to write. This component subscribes and dispatches.
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
@@ -28,13 +28,13 @@
 //
 //   • `react-resizable-panels` owns the resize gesture, the flex arithmetic that
 //     turns a drag into widths, and the window-splitter ARIA with its arrow-key,
-//     Home/End and Enter bindings. It does NOT own the layout: `DeckLayout` does,
+//     Home/End and Enter bindings. It does NOT own the layout: `PaneLayoutStore` does,
 //     and the group reports back to it. Its one open defect — the crossed
 //     `aria-valuemin` / `aria-valuemax` on every separator after the first — is
 //     wrapped in `separator-aria.ts`. A pane's floor rides the panel's own
 //     `minSize` in PIXELS, which is what the density preset means; upstream issue
 //     #720 reports a pixel floor being rescaled as a percentage across a window
-//     resize, which is why `DeckLayout.applyLayout` clamps again over a freshly
+//     resize, which is why `PaneLayoutStore.applyLayout` clamps again over a freshly
 //     measured deck — and only the store's clamp is written to disk.
 //   • `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture, as the
 //     browser's own HTML5 drag, so no React render happens per frame. It provides
@@ -45,6 +45,8 @@
 // Own-built and staying own-built: the deck store, the separator's chrome, the drop
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
+
+import "./pane-layout.css";
 
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
@@ -61,35 +63,33 @@ import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
 } from "@renderer/console/seats/index.js";
+import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
+import { type PaneLayoutStore } from "../pane-layout-store.js";
+import { paneLayoutActsOn } from "../pane-layout-acts.js";
+import { useMountedPaneLayout } from "../hooks/useMountedPaneLayout.js";
 import {
-  useDeckLayoutState,
-  type DeckLayout,
-} from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { deckActsOn } from "../pane-layout-acts.js";
-import { useMountedDeck } from "@renderer/console/workspace/deck/commands/deck-command-seat.js";
-import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "../pane-layout.js";
-import { type DeckDensity } from "../pane-layout-measures.js";
+  PANE_LAYOUT_TOTAL_PERMILLE,
+  toPaneSizePercentages,
+  type SessionPane,
+} from "../pane-layout.js";
+import { type PaneLayoutDensity } from "../pane-layout-measures.js";
 import { minimumPaneWidthPx } from "../pane-layout-density.js";
-import {
-  useDeckDragCoordinator,
-  useDeckDragMonitor,
-  useDeckDropIndicator,
-} from "@renderer/console/workspace/deck/pane-drag.js";
-import { DeckPaneSlot } from "./SessionPaneSlot.js";
+import { usePaneLayoutDragCoordinator } from "../hooks/usePaneLayoutDragCoordinator.js";
+import { usePaneLayoutDragMonitor } from "../hooks/usePaneLayoutDragMonitor.js";
+import { usePaneLayoutDropIndicator } from "../hooks/usePaneLayoutDropIndicator.js";
+import { SessionPaneSlot } from "./SessionPaneSlot.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
-import {
-  usePaneRectSources,
-  usePaneRectTracker,
-} from "@renderer/console/workspace/deck/rect/rect-discipline.js";
-import { useSeparatorValueBoundsCorrection } from "@renderer/console/workspace/deck/separator-aria.js";
+import { usePaneRectSources } from "../hooks/usePaneRectSources.js";
+import { usePaneRectTracker } from "../hooks/usePaneRectTracker.js";
+import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBoundsCorrection.js";
 
 /** What the deck needs: its layout store, where bodies come from, and how each is addressed. */
-export interface DeckProps {
-  readonly layout: DeckLayout;
+export interface SessionPaneLayoutProps {
+  readonly layout: PaneLayoutStore;
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
   readonly registry: ConsolePaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
-  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => ConsolePaneContext | ConsoleRefusal;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
   /** Where measured pane rects go, for a body that hosts a native view.
@@ -97,10 +97,10 @@ export interface DeckProps {
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
-/** The panes a person is looking at, side by side, arranged by a `DeckLayout`. */
-export function Deck(props: DeckProps): React.JSX.Element {
+/** The panes a person is looking at, side by side, arranged by a `PaneLayoutStore`. */
+export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Element {
   const { layout } = props;
-  const state = useDeckLayoutState(layout);
+  const state = usePaneLayoutState(layout);
   const containerReference = useRef<HTMLDivElement>(null);
   // The window's own clock, not a second time base beside it. In fixture mode that
   // is the scenario's FROZEN clock, which every other surface in the window already
@@ -120,16 +120,16 @@ export function Deck(props: DeckProps): React.JSX.Element {
   // context, and a deck mounted outside `LiveAnnouncerProvider` throws on this line
   // rather than reordering panes in a silence nobody watching can detect.
   const announce = useAnnounce();
-  const dragCoordinator = useDeckDragCoordinator();
-  useDeckDragMonitor(dragCoordinator, layout, announce);
-  const dropIndicator = useDeckDropIndicator(dragCoordinator);
+  const dragCoordinator = usePaneLayoutDragCoordinator();
+  usePaneLayoutDragMonitor(dragCoordinator, layout, announce);
+  const dropIndicator = usePaneLayoutDropIndicator(dragCoordinator);
 
   // The five acts, built once per (layout, announcer) pair and shared by the two things
   // that dispatch them: this component's own key handler below, and the palette rows
   // `commands/deck-command-seat.ts` contributes. One implementation, so a chord and a
   // palette row cannot mean two moves.
-  const acts = useMemo(() => deckActsOn(layout, announce), [layout, announce]);
-  useMountedDeck(acts);
+  const acts = useMemo(() => paneLayoutActsOn(layout, announce), [layout, announce]);
+  useMountedPaneLayout(acts);
 
   /**
    * The density floor as a share of the deck, in permille, right now.
@@ -141,12 +141,12 @@ export function Deck(props: DeckProps): React.JSX.Element {
    * never during a render, so nothing here makes rendering depend on layout.
    */
   const minimumPermille = useCallback(
-    (density: DeckDensity): number => {
+    (density: PaneLayoutDensity): number => {
       const deckWidth = containerReference.current?.getBoundingClientRect().width ?? 0;
       if (deckWidth <= 0) {
         return 0;
       }
-      return Math.round((minimumPaneWidthPx(density) / deckWidth) * DECK_TOTAL_PERMILLE);
+      return Math.round((minimumPaneWidthPx(density) / deckWidth) * PANE_LAYOUT_TOTAL_PERMILLE);
     },
     [containerReference],
   );
@@ -292,7 +292,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
                   aria-label="Resize the pane to the left"
                 />
               )}
-              <DeckPaneSlot
+              <SessionPaneSlot
                 pane={pane}
                 isFocused={pane.paneId === state.focusedPaneId}
                 density={state.density}

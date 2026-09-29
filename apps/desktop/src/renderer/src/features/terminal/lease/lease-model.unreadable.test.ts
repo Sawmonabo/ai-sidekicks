@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 
 import { projectTerminalLease } from "./lease-model.js";
 import {
-  OTHER_USER,
-  VIEWER_USER,
+  OTHER_DEVICE_ID,
+  THIS_DEVICE_ID,
   leaseEventWithPayload,
   transitionEvent,
 } from "./lease-model.test-support.js";
@@ -29,34 +29,34 @@ describe("an unread transition — ignorance about a write lease is not the old 
    * itself take the shell, and then saw the daemon do something to it.
    */
   const grantedThenUnread = [
-    transitionEvent(1, "taken", VIEWER_USER),
-    transitionEvent(2, "auto_released_quota_exhausted", null, VIEWER_USER),
+    transitionEvent(1, "taken", THIS_DEVICE_ID),
+    transitionEvent(2, "auto_released_quota_exhausted", null, THIS_DEVICE_ID),
   ];
 
   it("stops reporting this device as the holder the moment a transition cannot be read", () => {
     const state = projectTerminalLease(grantedThenUnread, {
-      viewerUserId: VIEWER_USER,
+      thisDeviceId: THIS_DEVICE_ID,
     });
     // The one reading that would keep stdin open for somebody who no longer holds
     // the shell. `TerminalPane` opens the write gate on exactly this value.
-    expect(state.holding).not.toBe("held-by-you");
+    expect(state.holding).not.toBe("held-by-this-device");
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.holderUserId).toBeNull();
   });
 
   it("negative control: the same grant WITHOUT the unread move does hold", () => {
     // Without this the case above would pass against a fold that never reported
-    // `held-by-you` at all, which is a different bug and not a fix.
+    // `held-by-this-device` at all, which is a different bug and not a fix.
     const state = projectTerminalLease(grantedThenUnread.slice(0, 1), {
-      viewerUserId: VIEWER_USER,
+      thisDeviceId: THIS_DEVICE_ID,
     });
-    expect(state.holding).toBe("held-by-you");
-    expect(state.holderUserId).toBe(VIEWER_USER);
+    expect(state.holding).toBe("held-by-this-device");
+    expect(state.holderUserId).toBe(THIS_DEVICE_ID);
   });
 
   it("carries the reason the wire sent, so the operator has something to paste", () => {
     const state = projectTerminalLease(grantedThenUnread, {
-      viewerUserId: VIEWER_USER,
+      thisDeviceId: THIS_DEVICE_ID,
     });
     expect(state.unreadTransition?.reason).toBe("auto_released_quota_exhausted");
     expect(state.unreadTransition?.sequence).toBe(2);
@@ -68,10 +68,10 @@ describe("an unread transition — ignorance about a write lease is not the old 
     // the lease somewhere this console cannot follow.
     const state = projectTerminalLease(
       [
-        transitionEvent(1, "taken", VIEWER_USER),
-        leaseEventWithPayload(2, { holderUserId: OTHER_USER }),
+        transitionEvent(1, "taken", THIS_DEVICE_ID),
+        leaseEventWithPayload(2, { holderUserId: OTHER_DEVICE_ID }),
       ],
-      { viewerUserId: VIEWER_USER },
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.unreadTransition?.reason).toBeUndefined();
@@ -79,13 +79,13 @@ describe("an unread transition — ignorance about a write lease is not the old 
 
   it("recovers on the next transition it CAN read", () => {
     const state = projectTerminalLease(
-      [...grantedThenUnread, transitionEvent(3, "taken", VIEWER_USER)],
-      { viewerUserId: VIEWER_USER },
+      [...grantedThenUnread, transitionEvent(3, "taken", THIS_DEVICE_ID)],
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     // The console understands the current state again, and the state it understands
     // is that transition's — an unread transition is not a latch.
     expect(state.unreadTransition).toBeUndefined();
-    expect(state.holding).toBe("held-by-you");
+    expect(state.holding).toBe("held-by-this-device");
     expect(state.transitionCount).toBe(2);
   });
 
@@ -95,10 +95,10 @@ describe("an unread transition — ignorance about a write lease is not the old 
     const state = projectTerminalLease(
       [
         ...grantedThenUnread,
-        transitionEvent(3, "taken", VIEWER_USER),
-        transitionEvent(4, "seized", OTHER_USER),
+        transitionEvent(3, "taken", THIS_DEVICE_ID),
+        transitionEvent(4, "seized", OTHER_DEVICE_ID),
       ],
-      { viewerUserId: VIEWER_USER },
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.unreadTransition?.sequence).toBe(4);
@@ -116,8 +116,11 @@ describe("an unread transition — ignorance about a write lease is not the old 
 describe("a holder shape that contradicts its reason is unread, not normalized", () => {
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
     const state = projectTerminalLease(
-      [transitionEvent(1, "taken", OTHER_USER), transitionEvent(2, "taken", null, OTHER_USER)],
-      { viewerUserId: VIEWER_USER },
+      [
+        transitionEvent(1, "taken", OTHER_DEVICE_ID),
+        transitionEvent(2, "taken", null, OTHER_DEVICE_ID),
+      ],
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.holderUserId).toBeNull();
@@ -130,12 +133,15 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
   });
 
   it("refuses a `released` that names this device, rather than reading it as its hold", () => {
-    const state = projectTerminalLease([transitionEvent(1, "released", VIEWER_USER, VIEWER_USER)], {
-      viewerUserId: VIEWER_USER,
-    });
+    const state = projectTerminalLease(
+      [transitionEvent(1, "released", THIS_DEVICE_ID, THIS_DEVICE_ID)],
+      {
+        thisDeviceId: THIS_DEVICE_ID,
+      },
+    );
     // The one reading that opens stdin for somebody the daemon has just taken the
     // shell from, and leaves them typing until the writes are rejected.
-    expect(state.holding).not.toBe("held-by-you");
+    expect(state.holding).not.toBe("held-by-this-device");
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.holderUserId).toBeNull();
   });
@@ -144,8 +150,8 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
     // The three automatic reasons are releases, so the same rule reads them: the
     // user a release took the shell FROM travels as the previous holder.
     const state = projectTerminalLease(
-      [transitionEvent(1, "auto_released_disconnect", OTHER_USER, OTHER_USER)],
-      { viewerUserId: VIEWER_USER },
+      [transitionEvent(1, "auto_released_disconnect", OTHER_DEVICE_ID, OTHER_DEVICE_ID)],
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
   });
@@ -153,13 +159,16 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
   it("negative control: both well-formed directions still read", () => {
     // Without this the three cases above would pass against a fold that called every
     // transition unreadable, which is a lease surface that never says anything.
-    const takenByOther = projectTerminalLease([transitionEvent(1, "taken", OTHER_USER)], {
-      viewerUserId: VIEWER_USER,
+    const takenByOther = projectTerminalLease([transitionEvent(1, "taken", OTHER_DEVICE_ID)], {
+      thisDeviceId: THIS_DEVICE_ID,
     });
-    expect(takenByOther.holding).toBe("held-by-another");
+    expect(takenByOther.holding).toBe("held-by-another-device");
     const releasedByOther = projectTerminalLease(
-      [transitionEvent(1, "taken", OTHER_USER), transitionEvent(2, "released", null, OTHER_USER)],
-      { viewerUserId: VIEWER_USER },
+      [
+        transitionEvent(1, "taken", OTHER_DEVICE_ID),
+        transitionEvent(2, "released", null, OTHER_DEVICE_ID),
+      ],
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(releasedByOther.holding).toBe("unheld");
     expect(releasedByOther.transitionCount).toBe(2);
@@ -170,7 +179,7 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
     // absent holder on a take was the same silent normalization in a second shape.
     const state = projectTerminalLease(
       [leaseEventWithPayload(1, { reason: "taken", holderUserId: "" })],
-      { viewerUserId: VIEWER_USER },
+      { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
   });

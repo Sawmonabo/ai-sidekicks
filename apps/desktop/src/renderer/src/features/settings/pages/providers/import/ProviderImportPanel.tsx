@@ -19,6 +19,8 @@
 // The two fields are the exception and are correctly the panel's: they are what the
 // NEXT import will be, and a person who has left the form has not typed one yet.
 
+import "./provider-import.css";
+
 import { useMemo, useState } from "react";
 
 import { ImportProgressLine } from "./ImportProgressLine.js";

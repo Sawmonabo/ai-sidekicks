@@ -19,7 +19,7 @@ import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 
 /** What stands in for an empty list: a read still in flight, or a node that answered with none. */
-export function SessionsAbsence(props: SessionsAbsenceProps): React.JSX.Element {
+export function SessionListNothing(props: SessionsAbsenceProps): React.JSX.Element {
   const { directory } = props;
   if (directory.status === "reading") {
     // No action on this arm, and the primitive is why: a read in flight renders as

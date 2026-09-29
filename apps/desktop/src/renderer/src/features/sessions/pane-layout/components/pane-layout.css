@@ -1,8 +1,5 @@
 /* The deck: the panes, the separators between them, and the density presets.
  *
- * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
- * land once per bundle and in the family's own order.
- *
  * Every color is a Meridian custom property and every space a step on the scale,
  * so the deck follows the scheme attribute with no conditional in JSX.
  */

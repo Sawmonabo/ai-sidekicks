@@ -9,7 +9,7 @@ import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.t
 // What the publisher DOES with a clipping ancestor, which is the only half of this
 // question that is still this family's.
 //
-// WHICH ancestors clip moved to `primitives/clipping-ancestors.ts` and its suite — the
+// WHICH ancestors clip moved to `lib/clipping-ancestors.ts` and its suite — the
 // vocabulary, the per-member cases, and the closed-union foil are there, beside the
 // declaration they are about. What could not move is this: that the sample the publisher
 // hands its host is narrowed by the ancestor's box rather than being the pane's own.

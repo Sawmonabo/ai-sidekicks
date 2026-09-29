@@ -12,11 +12,11 @@
 // is absent entirely at one — a "×1" would read as a figure about the refusal.
 
 import { DerivedFigure, RefusalBanner } from "@renderer/console/primitives/index.js";
-import { workspaceBannerKey, type WorkspaceBanner } from "../session-banners.js";
+import { sessionBannerKey, type SessionBanner } from "../session-banners.js";
 
 /** One banner row, dismissed by the key the fold counted it under. */
-export function WorkspaceBannerRow(props: {
-  readonly banner: WorkspaceBanner;
+export function SessionBannerRow(props: {
+  readonly banner: SessionBanner;
   readonly onDismiss: (key: string) => void;
 }): React.JSX.Element {
   const { refusal, repeatCount } = props.banner;
@@ -26,7 +26,7 @@ export function WorkspaceBannerRow(props: {
         code={refusal.code}
         detail={refusal.detail}
         onDismiss={() => {
-          props.onDismiss(workspaceBannerKey(refusal));
+          props.onDismiss(sessionBannerKey(refusal));
         }}
       />
       {repeatCount > 1 ? <DerivedFigure text={`×${String(repeatCount)}`} /> : null}

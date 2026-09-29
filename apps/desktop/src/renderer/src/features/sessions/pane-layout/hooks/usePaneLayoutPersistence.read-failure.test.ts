@@ -24,15 +24,15 @@ import {
   drain,
   mountPersistence,
   paneKinds,
-  saveDeck,
+  savePaneLayout,
   savedPaneCount,
 } from "./usePaneLayoutPersistence.test-support.js";
 
-describe("useDeckPersistence — a read the adapter could not perform", () => {
+describe("usePaneLayoutPersistence — a read the adapter could not perform", () => {
   it("keeps the saved arrangement instead of filing the fallback over it", async () => {
     const adapter = new ReadFailureAdapter();
     const store = new UiStateStore({ adapter });
-    await saveDeck(store, ["timeline", "runs", "approvals"]);
+    await savePaneLayout(store, ["timeline", "runs", "approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -53,7 +53,7 @@ describe("useDeckPersistence — a read the adapter could not perform", () => {
     // above.
     const adapter = new ReadFailureAdapter();
     const store = new UiStateStore({ adapter });
-    await saveDeck(store, ["timeline", "runs", "approvals"]);
+    await savePaneLayout(store, ["timeline", "runs", "approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);

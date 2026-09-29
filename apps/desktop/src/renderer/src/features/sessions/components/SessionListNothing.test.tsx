@@ -6,13 +6,15 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
-import { SessionsAbsence } from "./SessionsEmptyState.js";
+import { SessionListNothing } from "./SessionListNothing.js";
 
 function renderAbsence(directory: SessionDirectoryState): void {
-  render(<SessionsAbsence directory={directory} action={<button type="button">Start</button>} />);
+  render(
+    <SessionListNothing directory={directory} action={<button type="button">Start</button>} />,
+  );
 }
 
-describe("SessionsAbsence — one absence per reason there is none", () => {
+describe("SessionListNothing — one absence per reason there is none", () => {
   afterEach(() => {
     cleanup();
   });

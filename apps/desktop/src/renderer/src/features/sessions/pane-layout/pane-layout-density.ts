@@ -20,9 +20,9 @@
 // the ordering, and none of those has a document.
 
 import {
-  DECK_DENSITIES,
-  DECK_MINIMUM_PANE_WIDTH_PX,
-  type DeckDensity,
+  PANE_LAYOUT_DENSITIES,
+  PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX,
+  type PaneLayoutDensity,
 } from "./pane-layout-measures.js";
 
 /**
@@ -33,13 +33,13 @@ import {
  * build. A snapshot naming a preset this build does not have takes the default
  * rather than a hole.
  */
-export function isDeckDensity(value: unknown): value is DeckDensity {
-  return typeof value === "string" && (DECK_DENSITIES as readonly string[]).includes(value);
+export function isPaneLayoutDensity(value: unknown): value is PaneLayoutDensity {
+  return typeof value === "string" && (PANE_LAYOUT_DENSITIES as readonly string[]).includes(value);
 }
 
 /** The floor for a preset. A lookup, so no caller indexes the record itself. */
-export function minimumPaneWidthPx(density: DeckDensity): number {
-  return DECK_MINIMUM_PANE_WIDTH_PX[density];
+export function minimumPaneWidthPx(density: PaneLayoutDensity): number {
+  return PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX[density];
 }
 
 /**
@@ -49,6 +49,6 @@ export function minimumPaneWidthPx(density: DeckDensity): number {
  * a person just opened, and a pane below its floor is a legibility problem the
  * person can fix by resizing the window — an invisible pane is not.
  */
-export function panesThatFit(density: DeckDensity, availableWidthPx: number): number {
+export function panesThatFit(density: PaneLayoutDensity, availableWidthPx: number): number {
   return Math.max(1, Math.floor(availableWidthPx / minimumPaneWidthPx(density)));
 }

@@ -17,7 +17,7 @@ import { XtermHost } from "../../emulator/components/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
 
 /** What this family calls the surface, and the base the name below is built on. */
-const TERMINAL_SURFACE_WORD = "Terminal";
+const TERMINAL_PANE_WORD = "Terminal";
 
 /**
  * The emulator's accessible name, inside the pane.
@@ -30,15 +30,15 @@ const TERMINAL_SURFACE_WORD = "Terminal";
  * why the word above is stated as the base of a derivation rather than as the pane's
  * name.
  */
-const TERMINAL_OUTPUT_LABEL = `${TERMINAL_SURFACE_WORD} output`;
+const TERMINAL_OUTPUT_LABEL = `${TERMINAL_PANE_WORD} output`;
 
 /** The store of the session whose shell the pane shows. */
-export interface BoundTerminalPaneProps {
+export interface SessionTerminalPaneProps {
   readonly sessionStore: SessionStore;
 }
 
 /** The lease line over the emulator, for one addressed session. */
-export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Element {
+export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.Element {
   const { sessionStore } = props;
   const sessionId = sessionStore.sessionId;
   const timeline = useSessionStore(sessionStore, selectTimeline);
@@ -46,7 +46,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   // Derivation under `useMemo`: the selector returns the stored array and the fold runs
   // only when that array's identity changes.
   const lease: TerminalLeaseState = useMemo(
-    () => projectTerminalLease(timeline, { viewerUserId: undefined }),
+    () => projectTerminalLease(timeline, { thisDeviceId: undefined }),
     [timeline],
   );
 
@@ -55,7 +55,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
       <LeaseLine state={lease} />
       <XtermHost
         terminalId={sessionId}
-        isWriteEnabled={lease.holding === "held-by-you"}
+        isWriteEnabled={lease.holding === "held-by-this-device"}
         label={TERMINAL_OUTPUT_LABEL}
       />
     </>

@@ -11,9 +11,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_LEASE_HOLDINGS, UNREAD_TERMINAL_LEASE } from "../lease-model.js";
+import { TERMINAL_LEASE_HOLDERS, UNREAD_TERMINAL_LEASE } from "../lease-model.js";
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_USER, VIEWER_USER } from "../lease-model.test-support.js";
+import { OTHER_DEVICE_ID, THIS_DEVICE_ID } from "../lease-model.test-support.js";
 
 describe("the holding line — every state the fold settles into", () => {
   it("says the lease has not been read, which is not the lease being free", () => {
@@ -35,20 +35,20 @@ describe("the holding line — every state the fold settles into", () => {
     // rendered: it answers a question nobody asked with a value nobody can act on.
     const { container } = renderLease(
       leaseState({
-        holding: "held-by-another",
-        holderUserId: OTHER_USER,
+        holding: "held-by-another-device",
+        holderUserId: OTHER_DEVICE_ID,
       }),
     );
     expect(container.textContent).toContain("Held");
     expect(container.textContent).toContain("The shell is held from another device.");
-    expect(container.textContent).not.toContain(OTHER_USER);
+    expect(container.textContent).not.toContain(OTHER_DEVICE_ID);
   });
 
   it("tells the holding device it may type, and offers no control at all", () => {
     const { container } = renderLease(
       leaseState({
-        holding: "held-by-you",
-        holderUserId: VIEWER_USER,
+        holding: "held-by-this-device",
+        holderUserId: THIS_DEVICE_ID,
       }),
     );
     expect(container.textContent).toContain("You hold it");
@@ -106,12 +106,12 @@ describe("the holding line — every state the fold settles into", () => {
           UNREAD_TERMINAL_LEASE,
           leaseState({ holding: "unheld" }),
           leaseState({
-            holding: "held-by-another",
-            holderUserId: OTHER_USER,
+            holding: "held-by-another-device",
+            holderUserId: OTHER_DEVICE_ID,
           }),
           leaseState({
-            holding: "held-by-you",
-            holderUserId: VIEWER_USER,
+            holding: "held-by-this-device",
+            holderUserId: THIS_DEVICE_ID,
           }),
           leaseState({
             holding: "unrecognized-transition",
@@ -124,6 +124,6 @@ describe("the holding line — every state the fold settles into", () => {
         ] as const
       ).map((state) => renderLease(state).container.textContent),
     );
-    expect(sentences.size).toBe(TERMINAL_LEASE_HOLDINGS.length);
+    expect(sentences.size).toBe(TERMINAL_LEASE_HOLDERS.length);
   });
 });

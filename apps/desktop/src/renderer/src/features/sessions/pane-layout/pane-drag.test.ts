@@ -19,15 +19,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { Announce, AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP, PaneLayoutStore } from "./pane-layout-store.js";
 import {
-  DECK_PANE_DRAG_KEY,
-  DeckDragCoordinator,
+  PANE_LAYOUT_DRAG_KEY,
+  PaneLayoutDragCoordinator,
   commitPaneDrop,
   dropEdgeFor,
   dropPosition,
   paneIdFromDragData,
-} from "@renderer/console/workspace/deck/pane-drag.js";
+} from "./pane-drag.js";
 
 /** An element that reports the given horizontal band, the one thing the edge test reads. */
 function elementSpanning(left: number, width: number): Element {
@@ -39,14 +39,14 @@ function elementSpanning(left: number, width: number): Element {
 
 describe("reading a drag payload", () => {
   it("recognizes a pane drag by its namespaced key", () => {
-    expect(paneIdFromDragData({ [DECK_PANE_DRAG_KEY]: "pane-2" })).toBe("pane-2");
+    expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: "pane-2" })).toBe("pane-2");
   });
 
   it("negative control: somebody else's draggable is not a pane drag", () => {
     // Without this the deck's monitor would act on every element drag on the page,
     // including a ledger row somebody made draggable later.
     expect(paneIdFromDragData({ ledgerRowId: "row-9" })).toBeUndefined();
-    expect(paneIdFromDragData({ [DECK_PANE_DRAG_KEY]: 7 })).toBeUndefined();
+    expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: 7 })).toBeUndefined();
   });
 });
 
@@ -89,7 +89,7 @@ describe("where a drop lands", () => {
 
 describe("the drag coordinator", () => {
   it("publishes once per real move and not at all for a hover that changes nothing", () => {
-    const coordinator = new DeckDragCoordinator();
+    const coordinator = new PaneLayoutDragCoordinator();
     const published: (string | undefined)[] = [];
     coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
 
@@ -103,7 +103,7 @@ describe("the drag coordinator", () => {
   it("negative control: clearing an empty indicator publishes nothing", () => {
     // Without this the coordinator could be publishing on every call, which would
     // re-render the deck for every frame of a drag that crossed no midpoint.
-    const coordinator = new DeckDragCoordinator();
+    const coordinator = new PaneLayoutDragCoordinator();
     const published: (string | undefined)[] = [];
     coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
     coordinator.clear();
@@ -111,7 +111,7 @@ describe("the drag coordinator", () => {
   });
 
   it("forgets both the indicator and the pane in the air when a drag ends", () => {
-    const coordinator = new DeckDragCoordinator();
+    const coordinator = new PaneLayoutDragCoordinator();
     coordinator.startDrag("pane-1");
     coordinator.hover({ overPaneId: "pane-2", edge: "after" });
     expect(coordinator.draggedPaneId).toBe("pane-1");
@@ -145,8 +145,8 @@ function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnounceme
 }
 
 /** Three panes in order — `pane-1`, `pane-2`, `pane-3` — so a drop has room to move. */
-function threePaneLayout(): DeckLayout {
-  const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+function threePaneLayout(): PaneLayoutStore {
+  const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   layout.open({ kind: "timeline", entity: undefined });
   layout.open({ kind: "runs", entity: undefined });
   layout.open({ kind: "approvals", entity: undefined });
@@ -226,4 +226,3 @@ describe("what a settled drop says out loud", () => {
     ]);
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";

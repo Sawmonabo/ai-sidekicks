@@ -6,7 +6,7 @@
 // a first-run window where their arrangement was, and a restore landing after they have
 // arranged the deck takes the arrangement away with no error anywhere.
 //
-// Every case drives the real hook against a real `DeckLayout` and a real store, because
+// Every case drives the real hook against a real `PaneLayoutStore` and a real store, because
 // the failure is in how the two effects interleave and neither half shows it alone.
 // `layout-writer.test.ts` holds the writer's own claims, and
 // `layout-persistence.read-failure.test.tsx` holds what the pair does when the read
@@ -17,30 +17,30 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
-import { type DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { type PaneLayoutStore } from "../pane-layout-store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
 import {
-  RESTORE_SESSION,
+  RESTORE_SESSION_ID,
   deckLayout,
   drain,
   mountPersistence,
   paneKinds,
-  saveDeck,
+  savePaneLayout,
   savedPaneCount,
 } from "./usePaneLayoutPersistence.test-support.js";
 
 /** The widths on screen, in the order the panes sit in. */
-function paneWidths(layout: DeckLayout): readonly number[] {
+function paneWidths(layout: PaneLayoutStore): readonly number[] {
   return layout.snapshot().panes.map((pane) => pane.sizePermille);
 }
 
 /** A width floor loose enough that nothing in these fixtures is clamped by it. */
 const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
 
-describe("useDeckPersistence — an arrangement made while the record was being read", () => {
+describe("usePaneLayoutPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
-    await saveDeck(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -56,7 +56,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
 
   it("keeps both the saved arrangement and the pane opened during the read", async () => {
     const store = memoryStore();
-    await saveDeck(store, ["timeline"]);
+    await savePaneLayout(store, ["timeline"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -70,7 +70,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
 
   it("writes the reconciled arrangement once, after the restore settles", async () => {
     const store = memoryStore();
-    await saveDeck(store, ["timeline"]);
+    await savePaneLayout(store, ["timeline"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -84,7 +84,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
 
   it("does not duplicate a pane the record already held", async () => {
     const store = memoryStore();
-    await saveDeck(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -102,7 +102,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // cannot see it, and the record puts the pane straight back. The person watches a
     // pane they just closed return, and the write that follows files it as theirs.
     const store = memoryStore();
-    await saveDeck(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -127,7 +127,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // live panes keep their seventy-thirty ratio across what is left — 467 to 200,
     // which is 700 and 300 rescaled into the 667 the deck still holds.
     const store = memoryStore();
-    await saveDeck(store, ["approvals"]);
+    await savePaneLayout(store, ["approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -151,7 +151,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // arrived from the record with no focus among them, and the composer read that as
     // having nowhere to send — recoverable only by a click or an arrow key.
     const store = memoryStore();
-    await saveDeck(store, ["approvals"]);
+    await savePaneLayout(store, ["approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -172,7 +172,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // panes unconditionally, which is the same window-undoing-work-under-their-hands
     // defect the width rule exists for, one axis over.
     const store = memoryStore();
-    await saveDeck(store, ["approvals"]);
+    await savePaneLayout(store, ["approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -192,7 +192,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // restore has no way to prefer one, so it takes the record's and the reorder the
     // person just performed is undone under their hands.
     const store = memoryStore();
-    await saveDeck(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -210,15 +210,15 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // Without this, a hook that wrote on every settle would pass the cases above while
     // spending a durable write on every session a person opens.
     const store = memoryStore();
-    await saveDeck(store, ["timeline", "runs"]);
-    const before = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
+    await savePaneLayout(store, ["timeline", "runs"]);
+    const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
     await drain();
 
     expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
-    const after = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
+    const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
@@ -239,7 +239,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // The gate opens; it does not stay shut. Without this every case above would pass
     // over a hook that had simply stopped writing.
     const store = memoryStore();
-    await saveDeck(store, ["timeline"]);
+    await savePaneLayout(store, ["timeline"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -253,7 +253,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   });
 });
 
-describe("useDeckPersistence — the writer across a double-mount", () => {
+describe("usePaneLayoutPersistence — the writer across a double-mount", () => {
   it("keeps saving after the mount that closed its writer re-committed it", async () => {
     // `flushAndClose` is one-way and `request` then drops every arrangement in
     // silence, so a holder that re-committed the retired writer left the person
@@ -261,7 +261,7 @@ describe("useDeckPersistence — the writer across a double-mount", () => {
     // React's own double-mount is the trigger, and it arrives with a wrapper nobody
     // re-audits this call site for.
     const store = memoryStore();
-    await saveDeck(store, ["timeline"]);
+    await savePaneLayout(store, ["timeline"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store, { underStrictMode: true });
@@ -278,7 +278,7 @@ describe("useDeckPersistence — the writer across a double-mount", () => {
     // Without this the case above would pass over a fixture whose deck reached the
     // store on some path other than the writer being tested.
     const store = memoryStore();
-    await saveDeck(store, ["timeline"]);
+    await savePaneLayout(store, ["timeline"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);

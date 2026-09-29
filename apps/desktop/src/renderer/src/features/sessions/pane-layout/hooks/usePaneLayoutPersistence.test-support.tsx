@@ -6,28 +6,29 @@
 // `layout-persistence.store-swap.test.tsx` holds what a replaced store does to the
 // writer — with `layout-persistence.session-scope.test.tsx` beside them for what a
 // route from one session to another leaves on screen. All mount the same hook over the
-// same real `DeckLayout` and a real store, so the mount, the drain and the readings
+// same real `PaneLayoutStore` and a real store, so the mount, the drain and the readings
 // live here rather than being written four times and drifting apart.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "../pane-layout-snapshot.js";
+import { PaneLayoutStore } from "../pane-layout-store.js";
 import {
-  DECK_LAYOUT_RECORD_KEY,
-  useDeckPersistence,
-} from "@renderer/console/workspace/layout/layout-persistence.js";
+  PANE_LAYOUT_SNAPSHOT_VERSION,
+  PANE_LAYOUT_SNAPSHOT_HEADER_KEY,
+} from "../pane-layout-snapshot.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
+import { usePaneLayoutPersistence } from "./usePaneLayoutPersistence.js";
 
 /** The one session every case here arranges, saves, and restores. */
-export const RESTORE_SESSION = "session-restore";
+export const RESTORE_SESSION_ID = "session-restore";
 
 /** What a mounted surface offers a case that routes it, and what it reads back. */
-export interface MountedDeckPersistence {
+export interface MountedPaneLayoutPersistence {
   /**
    * Route the mounted surface to another session, as the workspace does.
    *
@@ -40,15 +41,15 @@ export interface MountedDeckPersistence {
   readonly restoreRefusalCodes: () => readonly string[];
 }
 
-export function deckLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+export function deckLayout(): PaneLayoutStore {
+  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /** A saved arrangement, written through the grammar that reads it back. */
-export async function saveDeck(
+export async function savePaneLayout(
   store: UiStateStore,
   kinds: readonly ("timeline" | "runs" | "approvals")[],
-  sessionId: string = RESTORE_SESSION,
+  sessionId: string = RESTORE_SESSION_ID,
 ): Promise<void> {
   const layout = deckLayout();
   for (const kind of kinds) {
@@ -56,7 +57,7 @@ export async function saveDeck(
   }
   const result = await store.write(
     sessionId,
-    DECK_LAYOUT_RECORD_KEY,
+    PANE_LAYOUT_RECORD_KEY,
     "layout",
     layout.toSnapshot(),
   );
@@ -70,12 +71,12 @@ export async function saveDeck(
  * session-scope suite is about is the REFUSAL a real restore reports — and a decode
  * driven by hand would be a second implementation of the reader the hook calls.
  */
-export async function saveDeckInAnUnknownGrammar(
+export async function savePaneLayoutInUnknownVersion(
   store: UiStateStore,
   sessionId: string,
 ): Promise<void> {
-  const result = await store.write(sessionId, DECK_LAYOUT_RECORD_KEY, "layout", {
-    [DECK_SNAPSHOT_HEADER_KEY]: { version: DECK_LAYOUT_SNAPSHOT_VERSION + 1 },
+  const result = await store.write(sessionId, PANE_LAYOUT_RECORD_KEY, "layout", {
+    [PANE_LAYOUT_SNAPSHOT_HEADER_KEY]: { version: PANE_LAYOUT_SNAPSHOT_VERSION + 1 },
   });
   expect(result.outcome).toBe("written");
 }
@@ -93,13 +94,13 @@ export async function saveDeckInAnUnknownGrammar(
  * pass React discards would leave a reading no commit ever made.
  */
 export function mountPersistence(
-  layout: DeckLayout,
+  layout: PaneLayoutStore,
   store: UiStateStore,
   options: { readonly underStrictMode?: boolean; readonly sessionId?: string } = {},
-): MountedDeckPersistence {
-  const { underStrictMode = false, sessionId = RESTORE_SESSION } = options;
+): MountedPaneLayoutPersistence {
+  const { underStrictMode = false, sessionId = RESTORE_SESSION_ID } = options;
   function Harness(props: { readonly sessionId: string | undefined }): React.JSX.Element {
-    const restoreRefusals = useDeckPersistence({
+    const restoreRefusals = usePaneLayoutPersistence({
       layout,
       uiStateStore: store,
       sessionId: props.sessionId,
@@ -132,13 +133,13 @@ export async function drain(): Promise<void> {
   });
 }
 
-export function paneKinds(layout: DeckLayout): readonly string[] {
+export function paneKinds(layout: PaneLayoutStore): readonly string[] {
   return layout.snapshot().panes.map((pane) => pane.kind);
 }
 
-/** How many panes the saved record holds. Its one non-pane key is `$deck`. */
+/** How many panes the saved record holds. Its one non-pane key is `$paneLayout`. */
 export async function savedPaneCount(store: UiStateStore): Promise<number> {
-  const record = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
+  const record = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
   if (record === undefined) {
     return 0;
   }

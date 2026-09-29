@@ -51,7 +51,7 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  *
  * Written here rather than imported from the deck's grammar, because it is the
  * CLASS's constraint and not the grammar's preference — the deck names its own record
- * `DeckSnapshotRecord`, which satisfies this because it is stored under that class.
+ * `PaneLayoutSnapshotRecord`, which satisfies this because it is stored under that class.
  */
 export type PersistedLayoutRecord = Record<string, Record<string, number | boolean | string>>;
 

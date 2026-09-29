@@ -59,7 +59,7 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
  * anybody may claim — and a `released` that carried this device's own id was presented
- * as `held-by-you`, which opens stdin until the daemon rejects the writes. Neither
+ * as `held-by-this-device`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.
  *
@@ -133,7 +133,7 @@ export function asTerminalLeaseTransitionReason(
  * Both halves have to agree. A recognized reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
  * holder quietly normalized is how a malformed `taken` became a free lease and a
- * `released` carrying this device became `held-by-you`.
+ * `released` carrying this device became `held-by-this-device`.
  */
 export function readTerminalLeaseTransition(
   event: ConsoleSessionEvent,

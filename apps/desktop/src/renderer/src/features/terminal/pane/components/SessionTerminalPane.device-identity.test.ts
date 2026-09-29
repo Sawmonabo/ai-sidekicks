@@ -12,7 +12,7 @@ import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
-  useTerminalViewerIdentity,
+  useTerminalDeviceIdentity,
   type ReadTerminalViewerUser,
 } from "../../lease/hooks/useTerminalDeviceIdentity.js";
 
@@ -53,7 +53,7 @@ describe("the terminal viewer identity", () => {
     const held = heldRead();
     const bridge = freshBridge();
     const { result } = renderHook(() =>
-      useTerminalViewerIdentity(bridge, "session-one", held.readViewerUser),
+      useTerminalDeviceIdentity(bridge, "session-one", held.readViewerUser),
     );
     expect(result.current).toStrictEqual({ status: "not-loaded" });
 
@@ -67,7 +67,7 @@ describe("the terminal viewer identity", () => {
     const bridge = freshBridge();
     const { result, rerender } = renderHook(
       (props: IdentityProps) =>
-        useTerminalViewerIdentity(bridge, props.sessionId, held.readViewerUser),
+        useTerminalDeviceIdentity(bridge, props.sessionId, held.readViewerUser),
       { initialProps: { sessionId: "session-one" } },
     );
     await held.answer(0, "user-one");
@@ -85,7 +85,7 @@ describe("the terminal viewer identity", () => {
     const bridge = freshBridge();
     const { result, rerender } = renderHook(
       (props: IdentityProps) =>
-        useTerminalViewerIdentity(bridge, props.sessionId, held.readViewerUser),
+        useTerminalDeviceIdentity(bridge, props.sessionId, held.readViewerUser),
       { initialProps: { sessionId: "session-one" } },
     );
     rerender({ sessionId: "session-another" });

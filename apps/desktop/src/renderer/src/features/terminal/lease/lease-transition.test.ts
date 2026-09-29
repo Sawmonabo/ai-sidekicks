@@ -24,7 +24,11 @@ import {
   type TerminalLeaseTransition,
   type TerminalLeaseTransitionReason,
 } from "./lease-transition.js";
-import { OTHER_USER, VIEWER_USER, leaseEventWithPayload } from "./lease-model.test-support.js";
+import {
+  OTHER_DEVICE_ID,
+  THIS_DEVICE_ID,
+  leaseEventWithPayload,
+} from "./lease-model.test-support.js";
 
 /** Every event below sits at the same position; what varies is the payload on it. */
 const READER_EVENT_SEQUENCE = 1;
@@ -34,9 +38,9 @@ function transitionOf(reason: TerminalLeaseTransitionReason): TerminalLeaseTrans
     sequence: 1,
     occurredAtIso: "2026-01-01T16:40:00.000Z",
     reason,
-    holderUserId: reason === "taken" ? OTHER_USER : null,
-    previousHolderUserId: reason === "taken" ? null : OTHER_USER,
-    actorId: OTHER_USER,
+    holderUserId: reason === "taken" ? OTHER_DEVICE_ID : null,
+    previousHolderUserId: reason === "taken" ? null : OTHER_DEVICE_ID,
+    actorId: OTHER_DEVICE_ID,
   };
 }
 
@@ -45,15 +49,15 @@ describe("reading one transition — the holder is the wire's, and both halves a
     const transition = readTerminalLeaseTransition(
       leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "taken",
-        holderUserId: OTHER_USER,
-        previousHolderUserId: VIEWER_USER,
+        holderUserId: OTHER_DEVICE_ID,
+        previousHolderUserId: THIS_DEVICE_ID,
       }),
     );
     expect(transition?.reason).toBe("taken");
-    expect(transition?.holderUserId).toBe(OTHER_USER);
-    expect(transition?.previousHolderUserId).toBe(VIEWER_USER);
+    expect(transition?.holderUserId).toBe(OTHER_DEVICE_ID);
+    expect(transition?.previousHolderUserId).toBe(THIS_DEVICE_ID);
     expect(transition?.sequence).toBe(1);
-    expect(transition?.actorId).toBe(OTHER_USER);
+    expect(transition?.actorId).toBe(OTHER_DEVICE_ID);
   });
 
   it("reads a release as naming nobody, which is the free lease explicitly", () => {
@@ -61,11 +65,11 @@ describe("reading one transition — the holder is the wire's, and both halves a
       leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "released",
         holderUserId: null,
-        previousHolderUserId: OTHER_USER,
+        previousHolderUserId: OTHER_DEVICE_ID,
       }),
     );
     expect(transition?.holderUserId).toBeNull();
-    expect(transition?.previousHolderUserId).toBe(OTHER_USER);
+    expect(transition?.previousHolderUserId).toBe(OTHER_DEVICE_ID);
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
@@ -92,7 +96,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
         readTerminalLeaseTransition(
           leaseEventWithPayload(READER_EVENT_SEQUENCE, {
             reason,
-            holderUserId: VIEWER_USER,
+            holderUserId: THIS_DEVICE_ID,
           }),
         ),
       ).toBeUndefined();
@@ -110,7 +114,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
     ).toBeUndefined();
     expect(
       readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderUserId: OTHER_USER }),
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderUserId: OTHER_DEVICE_ID }),
       ),
     ).toBeUndefined();
     expect(
@@ -134,10 +138,10 @@ describe("reading one transition — the holder is the wire's, and both halves a
       readTerminalLeaseTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, {
           reason: "taken",
-          holderUserId: OTHER_USER,
+          holderUserId: OTHER_DEVICE_ID,
         }),
       )?.holderUserId,
-    ).toBe(OTHER_USER);
+    ).toBe(OTHER_DEVICE_ID);
   });
 });
 
@@ -193,8 +197,8 @@ describe("transition sentences — five reasons, five sentences", () => {
     // repeating an identifier back would answer a question nobody asked.
     for (const reason of TERMINAL_LEASE_TRANSITION_REASONS) {
       const sentence = terminalLeaseTransitionSentence(transitionOf(reason));
-      expect(sentence).not.toContain(OTHER_USER);
-      expect(sentence).not.toContain(VIEWER_USER);
+      expect(sentence).not.toContain(OTHER_DEVICE_ID);
+      expect(sentence).not.toContain(THIS_DEVICE_ID);
     }
   });
 

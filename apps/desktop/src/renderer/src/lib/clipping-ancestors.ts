@@ -1,7 +1,7 @@
 // The console's one clipping-ancestor walk.
 //
 // Two view families ask the same question — which ancestors of this element clip what
-// is inside them — for different reasons: `workspace/deck/` intersects the answers into
+// is inside them — for different reasons: the session pane layout intersects the answers into
 // the rectangle a native view may occupy, and `browser/geometry/` collects their boxes
 // so the sampler can subtract them. They sit beside each other in the console's DAG, so
 // neither can read the other's copy, and each writing its own was the shape the

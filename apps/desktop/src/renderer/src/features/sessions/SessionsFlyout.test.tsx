@@ -3,11 +3,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionsSurface } from "./SessionsFlyout.js";
+import { SessionsFlyout } from "./SessionsFlyout.js";
 
 describe("the sessions destination", () => {
   it("draws its heading with no attention binding above it and no sentence beside it", () => {
-    const { container } = render(<SessionsSurface />);
+    const { container } = render(<SessionsFlyout />);
 
     expect(screen.getByRole("region", { name: "Sessions" })).toBeDefined();
     expect(container.textContent).toBe("Sessions");

@@ -26,10 +26,9 @@ import { TerminalPane } from "@renderer/features/terminal/pane/components/Termin
 // arm's members are answered in one place, and a tier that spelled its own copy would
 // be the second answer.
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
-// family's stylesheet behind its own barrel and nowhere else, and this tier is about
-// what that stylesheet computes to.
-import "@renderer/console/terminal/index.js";
+// The pane body, imported for its stylesheets: it is the one module that carries the
+// terminal's rules, and this tier is about what those rules compute to.
+import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 

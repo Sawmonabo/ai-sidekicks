@@ -5,43 +5,43 @@
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { claimControl, leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_USER } from "../lease-model.test-support.js";
+import { takeShellButton, leaseState, renderLease } from "./LeaseLine.test-support.js";
+import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
 
 describe("the claim control", () => {
   it("makes one acquire per press", () => {
-    const acquire = vi.fn();
+    const take = vi.fn();
     const { container } = renderLease(leaseState({ holding: "unheld" }), {
       isInFlight: false,
-      acquire,
+      take,
     });
-    fireEvent.click(claimControl(container));
-    expect(acquire).toHaveBeenCalledTimes(1);
+    fireEvent.click(takeShellButton(container));
+    expect(take).toHaveBeenCalledTimes(1);
   });
 
   it("is disabled while a call is out", () => {
     const { container } = renderLease(leaseState({ holding: "unheld" }), {
       isInFlight: true,
-      acquire: vi.fn(),
+      take: vi.fn(),
     });
-    expect(claimControl(container).disabled).toBe(true);
+    expect(takeShellButton(container).disabled).toBe(true);
   });
 
   it("never moves the holder on a press — the holder is the wire's field", () => {
     const { container } = renderLease(leaseState({ holding: "unheld" }));
-    fireEvent.click(claimControl(container));
+    fireEvent.click(takeShellButton(container));
     // The holder moves when a `pty.control_changed` transition reaches the fold, not here.
     expect(container.textContent).toContain("Nobody holds the shell.");
     expect(container.textContent).toContain("Free");
   });
 
   it("negative control: a hold this window does not have calls acquire", () => {
-    const acquire = vi.fn();
+    const take = vi.fn();
     const { container } = renderLease(
-      leaseState({ holding: "held-by-another", holderUserId: OTHER_USER }),
-      { isInFlight: false, acquire },
+      leaseState({ holding: "held-by-another-device", holderUserId: OTHER_DEVICE_ID }),
+      { isInFlight: false, take },
     );
-    fireEvent.click(claimControl(container));
-    expect(acquire).toHaveBeenCalledTimes(1);
+    fireEvent.click(takeShellButton(container));
+    expect(take).toHaveBeenCalledTimes(1);
   });
 });

@@ -57,7 +57,7 @@ import { registerLedger } from "@renderer/features/transcript/contributions/scre
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "@renderer/features/repos/contributions/inline-cards.js";
 import { registerInspectorInlineCards } from "@renderer/features/inspector/contributions/inline-cards.js";
-import { Workspace } from "./workspace/index.js";
+import { Workspace } from "@renderer/features/sessions/SessionScreen.js";
 import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {
   ConsolePaneRegistry,

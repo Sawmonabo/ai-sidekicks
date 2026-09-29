@@ -18,15 +18,9 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { openStoreOver } from "../sessions.test-support.js";
-import {
-  DurableViewBindingHolder,
-  type DurableViewBinding,
-} from "@renderer/console/sessions/durable-view/durable-view-binding.js";
-import {
-  SESSION_PIN_TIERS_KEY,
-  useSessionPins,
-  type SessionPinMap,
-} from "@renderer/console/sessions/rows/session-pins.js";
+import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
+import { PINNED_SESSIONS_KEY, type SessionPins } from "../rows/session-pins.js";
+import { useSessionPins } from "../hooks/useSessionPins.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */
@@ -110,8 +104,8 @@ function PinProbe(props: { readonly store: UiStateStore }): React.JSX.Element {
 }
 
 /** What is on screen, as the map the probe rendered. */
-function renderedPins(container: HTMLElement): SessionPinMap {
-  return JSON.parse(container.textContent ?? "{}") as SessionPinMap;
+function renderedPins(container: HTMLElement): SessionPins {
+  return JSON.parse(container.textContent ?? "{}") as SessionPins;
 }
 
 describe("the pin binding when the window replaces its durable store", () => {
@@ -150,14 +144,14 @@ describe("the pin binding when the window replaces its durable store", () => {
     expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
     // Read back through a fresh store over the replacement's own adapter, so the
     // assertion is about what was persisted rather than about what is on screen.
-    const readBack = await openStoreOver(replacementAdapter).readGlobal(SESSION_PIN_TIERS_KEY);
+    const readBack = await openStoreOver(replacementAdapter).readGlobal(PINNED_SESSIONS_KEY);
     expect(readBack?.value).toStrictEqual({ "session-a": "front" });
   });
 
   it("hydrates the replacement from what that store already holds", async () => {
     const replacementAdapter = new MemoryPersistenceAdapter();
     const seeding = openStoreOver(replacementAdapter);
-    await seeding.writeGlobal(SESSION_PIN_TIERS_KEY, "pin", { "session-b": "front" });
+    await seeding.writeGlobal(PINNED_SESSIONS_KEY, "pin", { "session-b": "front" });
 
     const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();

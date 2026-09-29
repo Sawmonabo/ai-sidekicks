@@ -80,7 +80,7 @@ export const NEW_SESSION_DRAFT_REFUSAL_ORIGIN = "new-session-draft";
 /** A typed draft refusal — `core`'s one refusal shape, narrowed on `code`. */
 export type NewSessionDraftRefusal = NarrowedRefusal<NewSessionDraftRefusalCode>;
 
-export function refuseDraft(
+export function refuseNewSessionDraft(
   code: NewSessionDraftRefusalCode,
   detail: string,
 ): NewSessionDraftRefusal {
@@ -141,7 +141,7 @@ export function refuseSendThatRejected(): NewSessionSendResult {
     // A fault INSIDE the send, so no composition can be named as the one it carried —
     // and none needs to be, because a refusal closes no draft.
     sentRevision: undefined,
-    refusal: refuseDraft(
+    refusal: refuseNewSessionDraft(
       "send-failed",
       "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
     ),
@@ -174,7 +174,7 @@ export function refuseAmbiguousCreate(sentRevision: number | undefined): NewSess
     // a line reading "Already sent: session.create" would be an assertion this module
     // has no evidence for. The sentence carries the ambiguity instead.
     completedCalls: [],
-    refusal: refuseDraft(
+    refusal: refuseNewSessionDraft(
       "session-create-unreadable",
       "The daemon answered, but this build could not read the reply — so a session may have been created and this window cannot name it. Nothing else was sent. Check the sessions list rather than sending again: a second send would make a second session.",
     ),

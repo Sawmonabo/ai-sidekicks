@@ -9,8 +9,8 @@
 import type { ReactNode } from "react";
 
 import { Chip, WireFigure, type ChipTone } from "@renderer/console/primitives/index.js";
-import { LeaseHoldingStatement } from "./LeaseHolderSentence.js";
-import { type TerminalLeaseHolding, type TerminalLeaseState } from "../lease-model.js";
+import { LeaseHolderSentence } from "./LeaseHolderSentence.js";
+import { type TerminalLeaseHolder, type TerminalLeaseState } from "../lease-model.js";
 
 /** What the lease line shows: the folded state and an optional control slot. */
 export interface LeaseLineProps {
@@ -28,11 +28,11 @@ export interface LeaseLineProps {
  * or looks at the log — which is a different thing from the neutral "not checked",
  * where the console simply has not asked.
  */
-const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolding, { label: string; tone: ChipTone }>> = {
+const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolder, { label: string; tone: ChipTone }>> = {
   "not-checked": { label: "Not checked", tone: "neutral" },
   unheld: { label: "Free", tone: "neutral" },
-  "held-by-you": { label: "You hold it", tone: "accent" },
-  "held-by-another": { label: "Held", tone: "neutral" },
+  "held-by-this-device": { label: "You hold it", tone: "accent" },
+  "held-by-another-device": { label: "Held", tone: "neutral" },
   "unrecognized-transition": { label: "Unread transition", tone: "attention" },
 };
 
@@ -46,7 +46,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
       <div className="meridian-lease-line__head">
         <span className="meridian-lease-line__holder">
           <Chip tone={chip.tone} label={chip.label} />
-          <LeaseHoldingStatement holding={state.holding} />
+          <LeaseHolderSentence holding={state.holding} />
         </span>
         <div className="meridian-lease-line__controls">{props.controls}</div>
       </div>

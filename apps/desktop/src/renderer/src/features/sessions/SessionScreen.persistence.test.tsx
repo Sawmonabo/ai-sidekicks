@@ -16,7 +16,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,
@@ -24,21 +24,21 @@ import {
   SESSION_ID,
   memoryStore,
   otherSession,
-  renderWorkspace,
+  renderSessionScreen,
   saveLayout,
   sessionStore,
   workspaceFor,
   type WorkspaceSession,
 } from "./SessionScreen.test-support.js";
 
-/** How many panes a saved deck record holds. Its one non-pane key is `$deck`. */
+/** How many panes a saved deck record holds. Its one non-pane key is `$paneLayout`. */
 function panesInRecord(value: unknown): number {
   return Object.keys(value as Record<string, unknown>).length - 1;
 }
 
 describe("Workspace — the saved arrangement", () => {
   it("opens the ledger alone when nothing was saved", async () => {
-    const { container } = renderWorkspace(memoryStore());
+    const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
     });
@@ -50,7 +50,7 @@ describe("Workspace — the saved arrangement", () => {
     // record entirely and always opened one ledger.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
-    const { container } = renderWorkspace(store);
+    const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
     });
@@ -61,9 +61,9 @@ describe("Workspace — the saved arrangement", () => {
 
   it("saves the arrangement it opened, so the fallback ledger survives a restart", async () => {
     const store = memoryStore();
-    renderWorkspace(store);
+    renderSessionScreen(store);
     await waitFor(async () => {
-      const record = await store.read(SESSION_ID, DECK_LAYOUT_RECORD_KEY);
+      const record = await store.read(SESSION_ID, PANE_LAYOUT_RECORD_KEY);
       expect(record).not.toBeUndefined();
     });
   });
@@ -74,22 +74,22 @@ describe("Workspace — the saved arrangement", () => {
     // exactly like a first run.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
-    const { container } = renderWorkspace(store);
+    const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
     });
-    const record = await store.read(SESSION_ID, DECK_LAYOUT_RECORD_KEY);
+    const record = await store.read(SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     const value = record?.value as Record<string, unknown> | undefined;
     expect(Object.keys(value ?? {}).length).toBeGreaterThan(2);
   });
 
   it("renders what a restore refused inside the deck", async () => {
     const store = memoryStore();
-    await store.write(SESSION_ID, DECK_LAYOUT_RECORD_KEY, "layout", {
-      $deck: { version: 99, density: "standard" },
+    await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
+      $paneLayout: { version: 99, density: "standard" },
       "pane-1": { position: 0, kind: "timeline" },
     });
-    const { container } = renderWorkspace(store);
+    const { container } = renderSessionScreen(store);
     await waitFor(() => {
       // Scoped to the deck's own refusal strip: the announcer's polite region
       // carries `role="status"` too and renders above every surface.
@@ -194,7 +194,7 @@ describe("Workspace — navigating between two sessions the shell already has op
 
     rerender(workspaceFor(otherSession(), store, false));
     await waitFor(async () => {
-      const record = await store.read(SESSION_B_ID, DECK_LAYOUT_RECORD_KEY);
+      const record = await store.read(SESSION_B_ID, PANE_LAYOUT_RECORD_KEY);
       expect(record).not.toBeUndefined();
     });
     expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);

@@ -20,7 +20,7 @@
 // render the two class names the sheet is about, under the real stylesheet, in the two
 // child arrangements that actually ship — one in-flow child and two. That is the whole
 // of what the rule decides. It deliberately does NOT stand in for the pane-level
-// measurement `deck-pane-fill.test.tsx` makes; the two are different levels of the same
+// measurement `pane-layout-pane-fill.test.tsx` makes; the two are different levels of the same
 // chain and each has its own case.
 
 import { describe, expect, it } from "vitest";

@@ -21,7 +21,7 @@
  * plain object. `Terminal` satisfies it, and a test that had to build a real
  * emulator to check which face it was told to use would be measuring the library.
  */
-export interface TypefaceBearingTerminal {
+export interface MonospaceTypefaceTarget {
   readonly options: { fontFamily?: string | undefined };
 }
 
@@ -45,7 +45,7 @@ export function readDeclaredMonospaceFamily(hostElement: HTMLElement): string | 
  * where the answer is almost always the one already set.
  */
 export function applyDeclaredMonospaceFamily(
-  terminal: TypefaceBearingTerminal,
+  terminal: MonospaceTypefaceTarget,
   hostElement: HTMLElement,
 ): void {
   const declared = readDeclaredMonospaceFamily(hostElement);

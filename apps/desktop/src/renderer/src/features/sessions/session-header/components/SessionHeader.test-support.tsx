@@ -13,7 +13,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 
-export const SESSION_ID = "session-cast";
+export const SESSION_ID = "session-header";
 
 export interface TimelineRow {
   readonly sequence: number;
@@ -69,7 +69,7 @@ export function storeWith(
  * The header reads nothing through the bridge, but the mount still needs one, so every
  * case renders inside a bridge whose scenario declares no answer.
  */
-export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
+export const SESSION_HEADER_SILENT_SCENARIO: ConsoleScenario = {
   id: "session-header-silent",
   label: "Session header, nothing scripted",
   purpose: "A session with no scripted replies.",
@@ -80,13 +80,16 @@ export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
   replies: [],
 };
 
-export interface RenderBarOptions {
+export interface RenderSessionHeaderOptions {
   /** Which scenario the bridge is built from. Silent by default. */
   readonly scenario?: ConsoleScenario;
 }
 
-export function renderBar(element: React.JSX.Element, options: RenderBarOptions = {}): HTMLElement {
-  const scenario = options.scenario ?? CAST_BAR_SILENT_SCENARIO;
+export function renderSessionHeader(
+  element: React.JSX.Element,
+  options: RenderSessionHeaderOptions = {},
+): HTMLElement {
+  const scenario = options.scenario ?? SESSION_HEADER_SILENT_SCENARIO;
   const { container } = render(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
       {element}

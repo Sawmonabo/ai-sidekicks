@@ -1,6 +1,6 @@
 // The terminal family's bounds.
 
-// Spent by three different modules under `console/terminal/`, and two of them are
+// Spent by three different modules in the terminal feature, and two of them are
 // also read by a test tier that must not construct an emulator to learn a number.
 // One of them is spent by that tier ALONE — the width a terminal is measured at —
 // and it lives here rather than beside the harness because the budget row's meaning
@@ -47,4 +47,4 @@ export const TERMINAL_WEBGL_POOL_CAP = 12;
  * because this list is rebuilt on every fold, and an unbounded one would grow
  * with the session's whole log for a panel that shows the last few lines.
  */
-export const TERMINAL_LEASE_LEDGER_CAP = 32;
+export const TERMINAL_LEASE_HISTORY_CAP = 32;

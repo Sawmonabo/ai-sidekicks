@@ -12,7 +12,7 @@
 
 import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneKind } from "@renderer/console/seats/index.js";
-import type { DeckDensity } from "./pane-layout-measures.js";
+import type { PaneLayoutDensity } from "./pane-layout-measures.js";
 
 /**
  * Pane widths are carried as permille of the deck, summing to this.
@@ -22,10 +22,10 @@ import type { DeckDensity } from "./pane-layout-measures.js";
  * step exists to remove. Permille rather than percent so a five-pane deck divides
  * evenly.
  */
-export const DECK_TOTAL_PERMILLE = 1000;
+export const PANE_LAYOUT_TOTAL_PERMILLE = 1000;
 
 /** One pane in the deck. Immutable; every mutation produces a new one. */
-export interface DeckPane {
+export interface SessionPane {
   /** Stable across a layout restore — the identity `ConsolePaneContext` carries. */
   readonly paneId: string;
   readonly kind: PaneKind;
@@ -40,10 +40,10 @@ export interface DeckPane {
 }
 
 /** What React renders from. A fresh object per mutation, so `Object.is` decides. */
-export interface DeckLayoutState {
-  readonly panes: readonly DeckPane[];
+export interface PaneLayoutState {
+  readonly panes: readonly SessionPane[];
   readonly focusedPaneId: string | undefined;
-  readonly density: DeckDensity;
+  readonly density: PaneLayoutDensity;
   /** Monotonic, so a test can count transitions rather than infer them. */
   readonly revision: number;
 }
@@ -83,7 +83,7 @@ const ADDRESS_KEY_SEPARATOR = "\u001f";
  * means.
  *
  * Takes the two members the address is made of rather than either named type, so a
- * `DeckPane` and a `DeckPaneAddress` are keyed by the same call.
+ * `SessionPane` and a `DeckPaneAddress` are keyed by the same call.
  */
 export function paneAddressKey(address: {
   readonly kind: PaneKind;
@@ -102,12 +102,16 @@ export function paneAddressKey(address: {
  * equality rule drift, and the drift is invisible — the deck would go on focusing
  * the right pane while a restore adopted the same one twice.
  */
-export function addressesMatch(pane: DeckPane, address: DeckPaneAddress): boolean {
+export function addressesMatch(pane: SessionPane, address: DeckPaneAddress): boolean {
   return paneAddressKey(pane) === paneAddressKey(address);
 }
 
 /** Move one pane from `from` to `to`. Returns the input unchanged on a bad index. */
-export function reorder(panes: readonly DeckPane[], from: number, to: number): readonly DeckPane[] {
+export function reorder(
+  panes: readonly SessionPane[],
+  from: number,
+  to: number,
+): readonly SessionPane[] {
   const next = [...panes];
   const [moved] = next.splice(from, 1);
   if (moved === undefined) {
@@ -118,16 +122,16 @@ export function reorder(panes: readonly DeckPane[], from: number, to: number): r
 }
 
 /** Give every pane an equal share. What opening and closing leave behind. */
-export function distributeEvenly(panes: readonly DeckPane[]): readonly DeckPane[] {
+export function distributeEvenly(panes: readonly SessionPane[]): readonly SessionPane[] {
   if (panes.length === 0) {
     return panes;
   }
-  const share = Math.floor(DECK_TOTAL_PERMILLE / panes.length);
+  const share = Math.floor(PANE_LAYOUT_TOTAL_PERMILLE / panes.length);
   return panes.map((pane, position) => ({
     ...pane,
     // The remainder goes to the first pane rather than being spread, so the sum is
     // exact and the arithmetic is one line a reader can check.
-    sizePermille: position === 0 ? DECK_TOTAL_PERMILLE - share * (panes.length - 1) : share,
+    sizePermille: position === 0 ? PANE_LAYOUT_TOTAL_PERMILLE - share * (panes.length - 1) : share,
   }));
 }
 
@@ -142,13 +146,13 @@ export function distributeEvenly(panes: readonly DeckPane[]): readonly DeckPane[
  * total it is derived from, rather than being written out at each of the three call
  * sites that need it.
  */
-export const PERMILLE_PER_PERCENT: number = DECK_TOTAL_PERMILLE / 100;
+export const PERMILLE_PER_PERCENT: number = PANE_LAYOUT_TOTAL_PERMILLE / 100;
 
 /** A layout as the panels library states it: panel id to percentage of the group. */
 export type PaneSizePercentages = Readonly<Record<string, number>>;
 
 /** The store's widths, as the percentages the panel group takes as its default. */
-export function toPaneSizePercentages(panes: readonly DeckPane[]): PaneSizePercentages {
+export function toPaneSizePercentages(panes: readonly SessionPane[]): PaneSizePercentages {
   const percentages: Record<string, number> = {};
   for (const pane of panes) {
     percentages[pane.paneId] = pane.sizePermille / PERMILLE_PER_PERCENT;
@@ -175,13 +179,13 @@ export function toPaneSizePercentages(panes: readonly DeckPane[]): PaneSizePerce
  * deck summing to something other than a whole.
  */
 export function applyPaneSizePercentages(
-  panes: readonly DeckPane[],
+  panes: readonly SessionPane[],
   percentages: PaneSizePercentages,
   minimumPermille: number,
-): readonly DeckPane[] {
+): readonly SessionPane[] {
   const floor = Math.max(
     0,
-    Math.min(minimumPermille, Math.floor(DECK_TOTAL_PERMILLE / panes.length)),
+    Math.min(minimumPermille, Math.floor(PANE_LAYOUT_TOTAL_PERMILLE / panes.length)),
   );
   return settleToTotal(
     panes.map((pane) => {
@@ -199,7 +203,10 @@ export function applyPaneSizePercentages(
 }
 
 /** Whether two width sets are the same, so a no-op write-back commits nothing. */
-export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPane[]): boolean {
+export function sizesAreEqual(
+  left: readonly SessionPane[],
+  right: readonly SessionPane[],
+): boolean {
   return (
     left.length === right.length &&
     left.every((pane, position) => pane.sizePermille === right[position]?.sizePermille)
@@ -215,9 +222,9 @@ export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPan
  * is given to the widest pane. Bounded by construction — one pass over a sorted
  * copy, and the floor's own cap guarantees the headroom exists.
  */
-function settleToTotal(panes: readonly DeckPane[], floor: number): readonly DeckPane[] {
+function settleToTotal(panes: readonly SessionPane[], floor: number): readonly SessionPane[] {
   const sizes = panes.map((pane) => pane.sizePermille);
-  let drift = sizes.reduce((sum, size) => sum + size, 0) - DECK_TOTAL_PERMILLE;
+  let drift = sizes.reduce((sum, size) => sum + size, 0) - PANE_LAYOUT_TOTAL_PERMILLE;
   const byHeadroom = sizes
     .map((size, position) => ({ position, size }))
     .sort((left, right) => right.size - left.size);
@@ -252,10 +259,10 @@ const MINIMUM_NORMALISED_PERMILLE = 1;
  * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
  * whole point: equalising a deck that already holds panes destroys the drag the person
  * finished while the record was being read, which is exactly the work
- * `DeckLayout.adoptBeneath` exists to protect.
+ * `PaneLayoutStore.adoptBeneath` exists to protect.
  *
  * HOW THE REMAINDER IS CARVED WHEN THE LIVE PANES ALREADY FILL THE TOTAL, which they
- * always do — every commit leaves the row summing to {@link DECK_TOTAL_PERMILLE}, so
+ * always do — every commit leaves the row summing to {@link PANE_LAYOUT_TOTAL_PERMILLE}, so
  * there is no unclaimed space for an arriving pane to take. Each arriving pane takes the
  * equal share it would have been given had the whole deck opened at once, and the live
  * row is rescaled INTO what is left, in proportion to the widths it already carried. So
@@ -268,17 +275,17 @@ const MINIMUM_NORMALISED_PERMILLE = 1;
  * and the row sums to a whole deck on every path.
  */
 export function distributeAdoptedBeneath(
-  adopted: readonly DeckPane[],
-  live: readonly DeckPane[],
-): readonly DeckPane[] {
+  adopted: readonly SessionPane[],
+  live: readonly SessionPane[],
+): readonly SessionPane[] {
   if (adopted.length === 0) {
     return live;
   }
   if (live.length === 0) {
     return distributeEvenly(adopted);
   }
-  const adoptedShare = Math.floor(DECK_TOTAL_PERMILLE / (adopted.length + live.length));
-  const liveBudget = DECK_TOTAL_PERMILLE - adoptedShare * adopted.length;
+  const adoptedShare = Math.floor(PANE_LAYOUT_TOTAL_PERMILLE / (adopted.length + live.length));
+  const liveBudget = PANE_LAYOUT_TOTAL_PERMILLE - adoptedShare * adopted.length;
   const liveTotal = live.reduce((sum, pane) => sum + pane.sizePermille, 0);
   return settleToTotal(
     [
@@ -313,7 +320,7 @@ export function distributeAdoptedBeneath(
  * two rules for one job drift, and the sum is exactly the property that would stop
  * holding when they did.
  */
-export function normalise(panes: readonly DeckPane[]): readonly DeckPane[] {
+export function normalize(panes: readonly SessionPane[]): readonly SessionPane[] {
   const total = panes.reduce((sum, pane) => sum + pane.sizePermille, 0);
   if (panes.length === 0 || total <= 0) {
     return distributeEvenly(panes);
@@ -323,7 +330,7 @@ export function normalise(panes: readonly DeckPane[]): readonly DeckPane[] {
       ...pane,
       sizePermille: Math.max(
         MINIMUM_NORMALISED_PERMILLE,
-        Math.round((pane.sizePermille / total) * DECK_TOTAL_PERMILLE),
+        Math.round((pane.sizePermille / total) * PANE_LAYOUT_TOTAL_PERMILLE),
       ),
     })),
     MINIMUM_NORMALISED_PERMILLE,
@@ -337,7 +344,7 @@ export function normalise(panes: readonly DeckPane[]): readonly DeckPane[] {
  * id a restored pane already holds — which would make `close` remove two panes and
  * `focus` land on whichever the array reached first.
  */
-export function highestOrdinal(panes: readonly DeckPane[]): number {
+export function highestOrdinal(panes: readonly SessionPane[]): number {
   let highest = 0;
   for (const pane of panes) {
     const ordinal = Number.parseInt(pane.paneId.replace(/^pane-/, ""), 10);
@@ -367,10 +374,10 @@ export function highestOrdinal(panes: readonly DeckPane[]): number {
  * own fallback rather than being handed a silently equalised row.
  */
 export function carveSplitFrom(
-  panes: readonly DeckPane[],
+  panes: readonly SessionPane[],
   sourcePosition: number,
-  arriving: DeckPane,
-): readonly DeckPane[] | undefined {
+  arriving: SessionPane,
+): readonly SessionPane[] | undefined {
   const source = panes[sourcePosition];
   if (source === undefined) {
     return undefined;

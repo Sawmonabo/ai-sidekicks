@@ -6,7 +6,7 @@
 // used `flex` is the initial `0 1 auto`. Under a GRID parent that is harmless — a grid
 // item stretches to its area — and under a COLUMN FLEX parent it is decisive: `0` grow
 // means the section never takes its slot and is sized by its content instead. The deck
-// is a column flex chain (`workspace/deck/deck.css`), so every pane the deck mounts was
+// is a column flex chain (`pane-layout/components/pane-layout.css`), so every pane the deck mounts was
 // content-sized, while `terminal-pane-box.test.tsx` — the one case that measures a pane
 // against a slot — builds its harness as a grid and says so in its own comment. Both
 // paths ship; only the grid one was covered.
@@ -34,12 +34,11 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// Two family doors, imported for their side effect: `apps/desktop/AGENTS.md` puts a
-// family's stylesheet behind its own barrel, and this tier is about what those
-// stylesheets compute to. The workspace door carries `deck.css`, which is the half of
-// the arrangement under test that is not the pane's own.
-import "@renderer/console/terminal/index.js";
-import "@renderer/console/workspace/index.js";
+// Imported for their stylesheets, because this tier is about what those sheets compute
+// to: the terminal's pane body carries the pane's own rules, and the session pane layout
+// carries `pane-layout.css`, the half of the arrangement under test that is not the pane's.
+import "@renderer/features/terminal/pane/terminal-pane-body.js";
+import "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
@@ -50,7 +49,7 @@ const DECK_HEIGHT_PX = 600;
  * How `react-resizable-panels` lays its group out.
  *
  * Written here rather than taken from the library because the library writes it
- * INLINE at runtime and this tier is measuring CSS: `workspace/workspace.css` records
+ * INLINE at runtime and this tier is measuring CSS: `pane-layout.css` records
  * that the group's `display`, `flex-direction` and `overflow` are the library's, and
  * the only property of that arrangement this case depends on is that the group is a
  * ROW — which is what makes the pane slot inside it stretch vertically.

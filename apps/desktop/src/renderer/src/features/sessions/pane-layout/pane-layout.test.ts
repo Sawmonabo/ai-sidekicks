@@ -14,14 +14,14 @@ import { describe, expect, it } from "vitest";
 import {
   addressesMatch,
   carveSplitFrom,
-  DECK_TOTAL_PERMILLE,
-  normalise,
+  PANE_LAYOUT_TOTAL_PERMILLE,
+  normalize,
   paneAddressKey,
-  type DeckPane,
+  type SessionPane,
 } from "./pane-layout.js";
 
 /** Panes carrying only the axis these cases are about: their widths. */
-function panesWithWidths(widths: readonly number[]): readonly DeckPane[] {
+function panesWithWidths(widths: readonly number[]): readonly SessionPane[] {
   return widths.map((sizePermille, position) => ({
     paneId: `pane-${String(position + 1)}`,
     kind: "timeline" as const,
@@ -32,11 +32,11 @@ function panesWithWidths(widths: readonly number[]): readonly DeckPane[] {
   }));
 }
 
-function widthsOf(panes: readonly DeckPane[]): readonly number[] {
+function widthsOf(panes: readonly SessionPane[]): readonly number[] {
   return panes.map((pane) => pane.sizePermille);
 }
 
-function sumOf(panes: readonly DeckPane[]): number {
+function sumOf(panes: readonly SessionPane[]): number {
   return panes.reduce((total, pane) => total + pane.sizePermille, 0);
 }
 
@@ -48,8 +48,8 @@ describe("normalise", () => {
     { what: "widths that do not add up to a deck at all", saved: [1, 1, 1] },
     { what: "widths far larger than a deck", saved: [4000, 4000, 4001] },
   ])("makes $what sum to exactly one deck", ({ saved }) => {
-    const normalised = normalise(panesWithWidths(saved));
-    expect(sumOf(normalised)).toBe(DECK_TOTAL_PERMILLE);
+    const normalised = normalize(panesWithWidths(saved));
+    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
     expect(normalised).toHaveLength(saved.length);
   });
 
@@ -57,11 +57,11 @@ describe("normalise", () => {
     // The rule stated rather than implied: the drift settles on the pane with the
     // most headroom, and a tie keeps the panes' own order. A snapshot therefore
     // restores to one arrangement rather than to whichever the sort happened on.
-    expect(widthsOf(normalise(panesWithWidths([333, 333, 333])))).toStrictEqual([334, 333, 333]);
+    expect(widthsOf(normalize(panesWithWidths([333, 333, 333])))).toStrictEqual([334, 333, 333]);
     // The widest is not first here, and it is still the pane the shortfall lands on.
-    expect(widthsOf(normalise(panesWithWidths([7, 10, 10])))).toStrictEqual([259, 371, 370]);
+    expect(widthsOf(normalize(panesWithWidths([7, 10, 10])))).toStrictEqual([259, 371, 370]);
     // An EXCESS comes back off the widest by the same rule.
-    expect(widthsOf(normalise(panesWithWidths([10, 10, 10, 10, 10, 10, 10])))).toStrictEqual([
+    expect(widthsOf(normalize(panesWithWidths([10, 10, 10, 10, 10, 10, 10])))).toStrictEqual([
       142, 143, 143, 143, 143, 143, 143,
     ]);
   });
@@ -69,9 +69,9 @@ describe("normalise", () => {
   it("keeps every pane at a permille or more", () => {
     // A pane that rounds to nothing would come back as a column with no width for a
     // person to grab, which is a pane lost rather than a pane restored.
-    const normalised = normalise(panesWithWidths([100_000, 1, 1]));
+    const normalised = normalize(panesWithWidths([100_000, 1, 1]));
     expect(Math.min(...widthsOf(normalised))).toBeGreaterThanOrEqual(1);
-    expect(sumOf(normalised)).toBe(DECK_TOTAL_PERMILLE);
+    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   // The negative control: a row whose rounding already lands on the total is
@@ -79,15 +79,15 @@ describe("normalise", () => {
   // that redistributed every deck it saw, which would move panes a person had
   // arranged deliberately.
   it("negative control: leaves an already-exact row alone", () => {
-    expect(widthsOf(normalise(panesWithWidths([500, 500])))).toStrictEqual([500, 500]);
-    expect(widthsOf(normalise(panesWithWidths([250, 250, 250, 250])))).toStrictEqual([
+    expect(widthsOf(normalize(panesWithWidths([500, 500])))).toStrictEqual([500, 500]);
+    expect(widthsOf(normalize(panesWithWidths([250, 250, 250, 250])))).toStrictEqual([
       250, 250, 250, 250,
     ]);
   });
 
   it("falls back to an even spread when there is no width to rescale", () => {
-    expect(normalise(panesWithWidths([]))).toHaveLength(0);
-    expect(sumOf(normalise(panesWithWidths([0, 0, 0])))).toBe(DECK_TOTAL_PERMILLE);
+    expect(normalize(panesWithWidths([]))).toHaveLength(0);
+    expect(sumOf(normalize(panesWithWidths([0, 0, 0])))).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 });
 
@@ -96,12 +96,16 @@ describe("normalise", () => {
 // the snapshot decoder asks whether it has already adopted an address — and the
 // cases below assert they cannot answer differently.
 describe("paneAddressKey", () => {
-  function paneAt(kind: DeckPane["kind"], entity: DeckPane["entity"], paneId = "pane-1"): DeckPane {
+  function paneAt(
+    kind: SessionPane["kind"],
+    entity: SessionPane["entity"],
+    paneId = "pane-1",
+  ): SessionPane {
     return {
       paneId,
       kind,
       entity,
-      sizePermille: DECK_TOTAL_PERMILLE,
+      sizePermille: PANE_LAYOUT_TOTAL_PERMILLE,
       isEphemeral: false,
       sourcePaneId: undefined,
     };
@@ -159,11 +163,11 @@ describe("paneAddressKey", () => {
 
 describe("carveSplitFrom", () => {
   /** A pane with no width of its own yet — the arriving half of a split. */
-  const arriving: DeckPane = {
+  const arriving: SessionPane = {
     paneId: "pane-arriving",
     kind: "browser",
     entity: undefined,
-    sizePermille: DECK_TOTAL_PERMILLE,
+    sizePermille: PANE_LAYOUT_TOTAL_PERMILLE,
     isEphemeral: true,
     sourcePaneId: "pane-2",
   };
@@ -176,7 +180,7 @@ describe("carveSplitFrom", () => {
     // alone is not the assertion.
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
     expect(widthsOf(split ?? [])).toStrictEqual([200, 250, 250, 300]);
-    expect(sumOf(split ?? [])).toBe(DECK_TOTAL_PERMILLE);
+    expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("seats the arriving pane immediately right of its source", () => {
@@ -192,7 +196,7 @@ describe("carveSplitFrom", () => {
   it("leaves an odd remainder with the pane that was already there", () => {
     const split = carveSplitFrom(panesWithWidths([501, 499]), 0, arriving);
     expect(widthsOf(split ?? [])).toStrictEqual([251, 250, 499]);
-    expect(sumOf(split ?? [])).toBe(DECK_TOTAL_PERMILLE);
+    expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("refuses a source too narrow to halve, and an index the deck does not hold", () => {

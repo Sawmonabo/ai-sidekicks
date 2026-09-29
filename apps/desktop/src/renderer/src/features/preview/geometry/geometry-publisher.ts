@@ -329,11 +329,10 @@ function readElementRect(element: Element): PaneRect {
  * Every clipping ancestor's box, outermost first — the order `PaneGeometryInput`
  * declares, kept even though the fold that consumes it intersects and so cannot tell.
  *
- * WHICH ancestors clip is `primitives/clipping-ancestors.ts`'s answer and not this
- * module's. The walk, the vocabulary, and the shorthand-versus-axes reading lived here
- * and again in `workspace/deck/rect/rect-geometry.ts`, and the two had drifted three ways
- * before the hoist. What is left here is the part that is this family's: turning the
- * ancestors into the rects the sampler subtracts.
+ * WHICH ancestors clip is `lib/clipping-ancestors.ts`'s answer and not this
+ * module's, shared with the session pane layout's `pane-rect-geometry.ts` so the two read
+ * one walk. What is left here is the part that is this family's: turning the ancestors
+ * into the rects the sampler subtracts.
  */
 function readClippingAncestorRects(element: HTMLElement): readonly PaneRect[] {
   return [...clippingAncestorsOf(element)].reverse().map(readElementRect);

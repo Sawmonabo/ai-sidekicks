@@ -7,23 +7,23 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
-import { DeckLayout } from "@renderer/console/workspace/deck/model/deck-layout.js";
-import { DECK_TOTAL_PERMILLE } from "./pane-layout.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout-store.js";
+import { PaneLayoutStore } from "./pane-layout-store.js";
+import { PANE_LAYOUT_TOTAL_PERMILLE } from "./pane-layout.js";
 
-function emptyLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+function emptyLayout(): PaneLayoutStore {
+  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
-function twoPaneLayout(): DeckLayout {
+function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
 
-describe("DeckLayout — one entity, one pane", () => {
+describe("PaneLayoutStore — one entity, one pane", () => {
   it("focuses the pane that already shows an entity rather than opening a second", () => {
     const layout = emptyLayout();
     const first = layout.open({
@@ -51,7 +51,7 @@ describe("DeckLayout — one entity, one pane", () => {
   });
 });
 
-describe("DeckLayout — order, focus, and the ephemeral cascade", () => {
+describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
   it("opens a pane beside its source rather than at the end", () => {
     const layout = twoPaneLayout();
     const [first] = layout.snapshot().panes;
@@ -120,7 +120,7 @@ describe("DeckLayout — order, focus, and the ephemeral cascade", () => {
   });
 });
 
-describe("DeckLayout — adopting what the panel group settled on", () => {
+describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   it("takes the group's percentages as the deck's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
     layout.open({ kind: "runs", entity: undefined });
@@ -133,7 +133,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
 
     const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
     expect(after).toStrictEqual([500, 300, 200]);
-    expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("clamps a width below the floor IN THE STORE, whatever the DOM reported", () => {
@@ -148,7 +148,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
 
     const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
     expect(Math.min(...after)).toBeGreaterThanOrEqual(floorPermille);
-    expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("negative control: with no floor the same layout is adopted unclamped", () => {
@@ -173,7 +173,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
   });
 });
 
-describe("DeckLayout — the split act", () => {
+describe("PaneLayoutStore — the split act", () => {
   it("splits the source pane and leaves every other pane's width alone", () => {
     // Three panes at a third each, then a browser opened beside the FIRST. The split
     // rule takes the arriving pane's width from that pane and nothing else, so the
@@ -197,7 +197,7 @@ describe("DeckLayout — the split act", () => {
       before[1],
       before[2],
     ]);
-    expect(after.reduce((total, size) => total + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((total, size) => total + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("negative control: an open naming no source re-divides the whole deck", () => {

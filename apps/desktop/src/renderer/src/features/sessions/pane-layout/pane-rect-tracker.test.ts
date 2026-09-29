@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "./pane-layout-measures.js";
-import { PaneRectTracker } from "@renderer/console/workspace/deck/rect/rect-discipline.js";
+import { PaneRectTracker } from "./pane-rect-tracker.js";
 import { type TrackedRect } from "./pane-rect-geometry.js";
 
 /** A rectangle in viewport coordinates, as the DOM would report one. */

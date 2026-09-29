@@ -16,7 +16,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DECK_LAYOUT_RECORD_KEY } from "@renderer/console/workspace/layout/layout-persistence.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
 import { CoalescingLayoutWriter, type PersistedLayoutRecord } from "../coalescing-layout-writer.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
@@ -83,7 +83,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
         () =>
           new CoalescingLayoutWriter<PersistedLayoutRecord>({
             write: async (partition, snapshot) => {
-              await props.store.write(partition, DECK_LAYOUT_RECORD_KEY, "layout", snapshot);
+              await props.store.write(partition, PANE_LAYOUT_RECORD_KEY, "layout", snapshot);
             },
             onFailed: () => undefined,
           }),
@@ -114,7 +114,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
 
 describe("Workspace — the restore runs once for the session on screen", () => {
   it("does not read the record again when the store is replaced under it", async () => {
-    // `DeckLayout.restore` replaces wholesale, which is right at a mount against an
+    // `PaneLayoutStore.restore` replaces wholesale, which is right at a mount against an
     // empty deck and wrong against one somebody has been arranging: the two records
     // below deliberately disagree, so a second restore is visible as the deck losing a
     // pane rather than as nothing at all.

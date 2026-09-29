@@ -67,7 +67,7 @@ import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { sendNewSessionDraft } from "./new-session-send.js";
 import {
   refuseAmbiguousCreate,
-  refuseDraft,
+  refuseNewSessionDraft,
   type NewSessionSendResult,
 } from "./new-session-settlement.js";
 
@@ -238,7 +238,7 @@ export class NewSessionDraft {
         sentRevision: undefined,
         // Named for the one control that exists: the shipped control offers the first
         // message and nothing else.
-        refusal: refuseDraft("draft-empty", "Type the first message before sending."),
+        refusal: refuseNewSessionDraft("draft-empty", "Type the first message before sending."),
       };
     }
 

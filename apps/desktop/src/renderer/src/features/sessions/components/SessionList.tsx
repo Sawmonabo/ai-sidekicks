@@ -25,13 +25,13 @@
 import { useMemo } from "react";
 
 import { orderSessionRows, type SessionListRow } from "../rows/session-rows.js";
-import type { SessionPinMap } from "@renderer/console/sessions/rows/session-pins.js";
+import type { SessionPins } from "../rows/session-pins.js";
 import { SessionRowGroup } from "./SessionRowGroup.js";
 
 /** What the list is handed: the rows, which of them are pinned, and how to open one. */
 export interface SessionListProps {
   readonly rows: readonly SessionListRow[];
-  readonly pinned: SessionPinMap;
+  readonly pinned: SessionPins;
   /** Open a session. Renderer-local navigation. */
   readonly onOpen: (sessionId: string) => void;
 }
