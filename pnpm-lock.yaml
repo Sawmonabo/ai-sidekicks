@@ -364,12 +364,18 @@ importers:
       canonicalize:
         specifier: 3.0.0
         version: 3.0.0
+      lru-cache:
+        specifier: ^11.5.0
+        version: 11.5.0
       node-pty:
         specifier: ^1.2.0-beta.12
         version: 1.2.0-beta.12
       semver:
         specifier: ^7.7.4
         version: 7.7.4
+      shiki:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13

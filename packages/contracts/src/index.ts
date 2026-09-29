@@ -36,6 +36,7 @@ export * from "./error.js";
 export * from "./event-anchor.js";
 export * from "./event.js";
 export * from "./gitflow/index.js";
+export * from "./highlight.js";
 export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";

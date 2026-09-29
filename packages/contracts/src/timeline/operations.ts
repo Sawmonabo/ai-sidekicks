@@ -1,5 +1,6 @@
-// The four timeline operations' request/response pairs: `TimelineRead`,
-// `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`.
+// The four paged and streamed timeline operations' request/response pairs:
+// `TimelineRead`, `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`,
+// and the frame budget every paged timeline reply shares.
 //
 // This module APPLIES them; it decides nothing.
 //
@@ -73,7 +74,6 @@
 // every registered handler receives beside its parsed params.
 import { z } from "zod";
 
-import { EVENT_FIELD_MAX_LEN } from "../event.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
@@ -216,11 +216,11 @@ export function countEntriesFittingOneFrame(
  * issue path learns WHICH array overflowed on a response carrying more than
  * one.
  */
-const requirePageToRideOneFrame = (
+export function requirePageToRideOneFrame(
   pagedMember: readonly unknown[],
   memberName: string,
   issueContext: z.RefinementCtx,
-): void => {
+): void {
   const measuredBytes = jsonUtf8ByteLength(pagedMember);
   if (measuredBytes > TIMELINE_PAGE_MAX_BYTES) {
     issueContext.addIssue({
@@ -234,7 +234,7 @@ const requirePageToRideOneFrame = (
         "budget trips first",
     });
   }
-};
+}
 
 /**
  * Adjacent entries must not go backwards in sequence.
@@ -450,31 +450,6 @@ export const TimelineSubscribeRequestSchema: z.ZodType<
 export type TimelineSubscribeResponse = SubscribeAckResponse;
 export const TimelineSubscribeResponseSchema: z.ZodType<TimelineSubscribeResponse> =
   SubscribeAckResponseSchema;
-
-// ---------------------------------------------------------------------------
-// BodyRead
-// ---------------------------------------------------------------------------
-
-/**
- * `timeline.bodyRead`'s request: the one row whose large body or full output a
- * surface opens when its control is pressed. `rowId` is the row's `id`, which is
- * the id of the event the row renders, so the read is keyed by row rather than by
- * a cursor range and fetches nothing the surface has not asked to show.
- */
-export interface TimelineBodyReadRequest {
-  sessionId: SessionId;
-  rowId: string;
-}
-
-export const TimelineBodyReadRequestSchema: z.ZodType<
-  TimelineBodyReadRequest,
-  TimelineBodyReadRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    rowId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineBodyReadRequest.rowId"),
-  })
-  .strict();
 
 // ---------------------------------------------------------------------------
 // ReasoningSurfaceRead

@@ -34,8 +34,10 @@
     "@noble/hashes": "^2",
     "better-sqlite3": "13.0.3",
     "canonicalize": "3.0.0",
+    "lru-cache": "^11.5.0",
     "node-pty": "^1.2.0-beta.12",
-    "semver": "^7.7.4"
+    "semver": "^7.7.4",
+    "shiki": "4.4.3"
   },
   "optionalDependencies": {
     "koffi": "^2.14.1"
