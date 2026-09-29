@@ -1,11 +1,9 @@
-// The agent definitions page: the agents a person has tuned, so a configuration
-// outlives the session it was typed into.
+// The agent library: the agents a person has tuned, so a configuration outlives the
+// session it was typed into.
 //
-// WHAT IS ON THIS PAGE TODAY: THE REGISTRY, READ
-//
-// The page puts one read in flight on mount and renders whichever of three answers
-// comes back — a read still going, a served empty registry, or the rows. Those stay
-// apart because they are different facts: "nobody has answered yet" and "there are
+// THE REGISTRY, READ. The page puts one read in flight on mount and renders whichever of
+// three answers comes back — a read still going, a served empty registry, or the rows.
+// Those stay apart because they are different facts: "nobody has answered yet" and "there are
 // none" are two separate things, and a page that showed an empty list for the first
 // would assert something nothing on this machine established.
 //

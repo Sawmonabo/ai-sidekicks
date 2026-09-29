@@ -1,4 +1,4 @@
-// What a test of the agent definitions page needs before it can assert anything.
+// What a test of the agent library needs before it can assert anything.
 //
 // Extracted rather than repeated, and extracted rather than left in one file: the
 // page has six properties worth asserting and the scaffolding for them — a registry

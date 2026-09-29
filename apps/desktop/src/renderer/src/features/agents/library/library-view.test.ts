@@ -1,4 +1,4 @@
-// The carrier behind the agent definitions page, driven without a DOM.
+// The carrier behind the agent library, driven without a DOM.
 //
 // The page's own file asserts what a person sees; this one asserts the state machine
 // underneath, because the property that matters here is about two calls in flight and

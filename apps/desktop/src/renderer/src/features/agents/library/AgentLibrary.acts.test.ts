@@ -1,4 +1,4 @@
-// What a press on the agent definitions page does, and what it refuses to do on one press.
+// What a press on the agent library does, and what it refuses to do on one press.
 //
 // The act worth the file is the delete: it is the only one here with no undo, so it
 // asks first, it sends the identifier rather than the label, and it RE-READS instead
@@ -27,7 +27,7 @@ import {
   settle,
 } from "./agent-library.test-support.js";
 
-describe("the agent definitions page — the editor's subject", () => {
+describe("the agent library — the editor's subject", () => {
   it("selects the record whose edit was pressed", async () => {
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
@@ -64,7 +64,7 @@ describe("the agent definitions page — the editor's subject", () => {
   });
 });
 
-describe("the agent definitions page — deleting one", () => {
+describe("the agent library — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {
     const stub = new RegistryStub({ lists: [[definition()]] });
     const { container } = renderAgentLibrary(stub);
@@ -122,7 +122,7 @@ describe("the agent definitions page — deleting one", () => {
   });
 });
 
-describe("the agent definitions page — while one delete is running", () => {
+describe("the agent library — while one delete is running", () => {
   it("stops every row's delete taking presses, and keeps the pending row legible", async () => {
     // Delete is the one act on this page with no undo, and the carrier runs one at a
     // time. The page is where that shows: a control that still took presses would

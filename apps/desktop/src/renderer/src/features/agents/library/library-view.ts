@@ -1,4 +1,4 @@
-// What the agent definitions page HOLDS: the registry read, the delete in flight, and which
+// What the agent library HOLDS: the registry read, the delete in flight, and which
 // record the editor is open on.
 //
 // It is a module of its own rather than a class at the top of `AgentLibrary.tsx`

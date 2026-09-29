@@ -1,4 +1,4 @@
-// What the agent definitions page reads, shows, and says out loud.
+// What the agent library reads, shows, and says out loud.
 //
 // Two of the ways this page could go wrong quietly are here. It could order rows by
 // whatever order the registry answered in, which makes a list a person is scanning
@@ -26,7 +26,7 @@ import {
   settle,
 } from "./agent-library.test-support.js";
 
-describe("the agent definitions page — the read", () => {
+describe("the agent library — the read", () => {
   it("says a read is in flight before the registry answers", () => {
     // Asserted before `settle`, which is the only moment this arm exists.
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[]] }));
@@ -51,7 +51,7 @@ describe("the agent definitions page — the read", () => {
   });
 });
 
-describe("the agent definitions page — a row", () => {
+describe("the agent library — a row", () => {
   it("shows the label, the identifier, and every axis the record carries", async () => {
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
@@ -108,7 +108,7 @@ describe("the agent definitions page — a row", () => {
   });
 });
 
-describe("the agent definitions page — the settlement it announces", () => {
+describe("the agent library — the settlement it announces", () => {
   it("says what it read and how many, once, politely", async () => {
     const { container } = renderAgentLibrary(
       new RegistryStub({
@@ -161,7 +161,7 @@ describe("the agent definitions page — the settlement it announces", () => {
   });
 });
 
-describe("the agent definitions page — the facts it teaches without asking anything", () => {
+describe("the agent library — the facts it teaches without asking anything", () => {
   it("states exactly the two a person needs before tuning one", async () => {
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[]] }));
     await settle();
