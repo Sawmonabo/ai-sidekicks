@@ -33,9 +33,9 @@
 // current state with the state it was in before the window opened. The log grows; the
 // projection of the present does not move.
 
-import { ActorHueAllocator } from "@renderer/styles/agent-hue.js";
+import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import type { ConsoleSessionEvent } from "./entities/entities.js";
-import { OutstandingAskJournal } from "./waiting-on-person/waiting-on-person-register.js";
+import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from "./session-state.js";
 
@@ -58,11 +58,11 @@ export interface EarlierWindowMerge {
 }
 
 /** Everything the state-level fold below advances beside the state it answers with. */
-export interface EarlierWindowCollaborators {
+export interface EarlierWindowDependencies {
   readonly sessionId: string;
-  readonly hueAllocator: ActorHueAllocator;
+  readonly hueAllocator: AgentHueAllocator;
   /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
-  readonly outstandingAsks: OutstandingAskJournal;
+  readonly outstandingAsks: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
 }
 
@@ -145,7 +145,7 @@ export interface EarlierWindowFold {
 export function foldEarlierWindowPage(
   current: SessionStoreState,
   events: readonly ConsoleSessionEvent[],
-  collaborators: EarlierWindowCollaborators,
+  collaborators: EarlierWindowDependencies,
 ): EarlierWindowFold {
   const admissible = orderBatchBySequence(
     events.filter(

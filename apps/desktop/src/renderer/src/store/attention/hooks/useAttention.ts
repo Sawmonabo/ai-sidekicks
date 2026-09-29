@@ -1,10 +1,12 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, type Context } from "react";
 
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
-import type { SessionAttention } from "../AttentionProvider.js";
+import type { WindowAttention } from "../AttentionProvider.js";
 
 /** What the attention provider holds; `undefined` outside it, which the hook refuses. */
-export const SessionAttentionContext = createContext<SessionAttention | undefined>(undefined);
+export const SessionAttentionContext: Context<WindowAttention | undefined> = createContext<
+  WindowAttention | undefined
+>(undefined);
 
 /** The subsystem a missing provider names as the author of its refusal. */
 const SESSION_ATTENTION_ORIGIN = "attention-provider";
@@ -18,7 +20,7 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
  * read, and a second read here would be the second answer this binding exists to
  * prevent. It is the rule `useConsoleBridge` already follows one layer down.
  */
-export function useSessionAttention(): SessionAttention {
+export function useAttention(): WindowAttention {
   const held = useContext(SessionAttentionContext);
   if (held === undefined) {
     throw new ConsoleRefusalError(

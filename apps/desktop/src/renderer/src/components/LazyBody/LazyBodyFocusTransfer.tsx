@@ -22,11 +22,11 @@
 
 import { useLayoutEffect } from "react";
 
-import { type RevealFocusHandoff } from "./reveal-focus-transfer.js";
+import { type RevealFocusTransfer } from "./reveal-focus-transfer.js";
 
-export interface LazyBodyFocusHandoffProps {
+export interface LazyBodyFocusTransferProps {
   /** The one mount's record, written by the reserved side and read by the loaded one. */
-  readonly handoff: RevealFocusHandoff;
+  readonly handoff: RevealFocusTransfer;
   /** Which side of the reveal this instance is standing on. */
   readonly phase: "reserved" | "revealed";
 }
@@ -40,7 +40,7 @@ export interface LazyBodyFocusHandoffProps {
  * renders or the element type it returns, and a module that resolved neither would read
  * as clean against a rule that had never been applied to it.
  */
-export function LazyBodyFocusHandoff(props: LazyBodyFocusHandoffProps): React.JSX.Element {
+export function LazyBodyFocusTransfer(props: LazyBodyFocusTransferProps): React.JSX.Element {
   const { handoff, phase } = props;
   useLayoutEffect(() => {
     if (phase === "revealed") {

@@ -51,7 +51,7 @@ export const PERF_METER_KINDS = [
 export type PerfMeterKind = (typeof PERF_METER_KINDS)[number];
 
 /** What one series says when it is read. */
-export interface PerfMeterReading {
+export interface PerformanceMeterReading {
   readonly kind: PerfMeterKind;
   /** The lane, store scope, or coordinator-scoped key the samples came from. */
   readonly seriesKey: string;
@@ -74,7 +74,7 @@ export interface PerfMeterReading {
  * drops it. Module-level state would carry samples between cases and make every
  * percentile assertion depend on what ran before it.
  */
-export class PerfMeterRegistry {
+export class PerformanceMeterRegistry {
   /**
    * One map per kind, rather than one map keyed by the two joined.
    *
@@ -160,7 +160,7 @@ export class PerfMeterRegistry {
   }
 
   /** One series' reading, or `null` where that series has recorded nothing. */
-  public reading(kind: PerfMeterKind, seriesKey: string): PerfMeterReading | null {
+  public reading(kind: PerfMeterKind, seriesKey: string): PerformanceMeterReading | null {
     const boundedKey = seriesKey.slice(0, PERF_METER_BOUNDS.seriesKeyCharacterCount);
     const series = this.#seriesByKind.get(kind)?.get(boundedKey);
     if (series === undefined || series.retainedCount === 0) {
@@ -180,8 +180,8 @@ export class PerfMeterRegistry {
   }
 
   /** Every reading the registry holds, in the order the series were opened. */
-  public readings(): readonly PerfMeterReading[] {
-    const collected: PerfMeterReading[] = [];
+  public readings(): readonly PerformanceMeterReading[] {
+    const collected: PerformanceMeterReading[] = [];
     for (const [kind, seriesForKind] of this.#seriesByKind) {
       for (const seriesKey of seriesForKind.keys()) {
         const reading = this.reading(kind, seriesKey);
@@ -289,8 +289,8 @@ function nearestRankSample(sortedSamples: readonly number[], percentile: number)
  * `null` and the class above becomes unreachable from every release entry — which is
  * what "compiled out" means here, as opposed to constructed and then not consulted.
  */
-export const devPerfMeters: PerfMeterRegistry | null = __SIDEKICKS_CONSOLE_FIXTURES__
-  ? new PerfMeterRegistry()
+export const devPerfMeters: PerformanceMeterRegistry | null = __SIDEKICKS_CONSOLE_FIXTURES__
+  ? new PerformanceMeterRegistry()
   : null;
 
 /**

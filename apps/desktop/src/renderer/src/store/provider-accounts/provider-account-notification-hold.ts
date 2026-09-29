@@ -56,7 +56,7 @@ export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;
  * What holding one notification did. Two outcomes, and `overflowed` is an
  * instruction to the caller rather than a failure — see the header.
  */
-export type QuotaNotificationHoldOutcome = "held" | "overflowed";
+export type NotificationHoldOutcome = "held" | "overflowed";
 
 /**
  * The notifications one reading is holding, and whether it is holding at all.
@@ -91,7 +91,7 @@ export class ProviderQuotaNotificationHold {
   }
 
   /** Hold one frame, or say the caller must apply live and re-read. */
-  public hold(notification: ProviderAccountNotification): QuotaNotificationHoldOutcome {
+  public hold(notification: ProviderAccountNotification): NotificationHoldOutcome {
     if (this.#held.length >= PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP) {
       return "overflowed";
     }

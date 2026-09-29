@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 import { BOUNDED_ENUMERATION_MAX_ROWS } from "./palette.js";
 import { ENUMERATION_ROW_HEIGHT_REM } from "./palette.js";
 import { BOUNDED_ENUMERATION_HEIGHT_REM } from "./palette.js";
-import { ACTOR_HUES, SCHEME_COLOR_TOKENS, actorHueTokenName, tokenVariableName } from "./tokens.js";
+import { HUE_WHEEL, SCHEME_COLOR_TOKENS, actorHueTokenName, tokenVariableName } from "./tokens.js";
 import { formatOklch } from "./color.js";
 import { generateMeridianCss } from "./generate-css.js";
 import { CONSOLE_SCHEMES } from "./tokens.js";
@@ -122,7 +122,7 @@ describe("assets — the generated token sheet", () => {
         ).toBe(true);
       }
     }
-    ACTOR_HUES.forEach((hue, step) => {
+    HUE_WHEEL.forEach((hue, step) => {
       const variableName = tokenVariableName(actorHueTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });

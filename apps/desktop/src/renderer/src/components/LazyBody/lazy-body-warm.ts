@@ -29,7 +29,7 @@
 // each key once and then ends, and the retry a failed chunk gets is the one a person
 // asks for by opening the surface.
 
-import type { LazyBodyBoard } from "./lazy-body.js";
+import type { PreloadableRegistry } from "./lazy-body.js";
 
 /**
  * How long after the first frame the walk waits when the host has no idle callback.
@@ -63,7 +63,7 @@ export interface IdleWarmScheduler {
  * caller keeps — the shape every effect in this console already uses.
  */
 export class LazyBodyIdleWarm<TKey> {
-  readonly #board: LazyBodyBoard<TKey>;
+  readonly #board: PreloadableRegistry<TKey>;
   readonly #scheduler: IdleWarmScheduler;
   /**
    * Every key this walk has armed a step for, so none is armed twice.
@@ -76,7 +76,7 @@ export class LazyBodyIdleWarm<TKey> {
   #hasStarted = false;
   #isCancelled = false;
 
-  public constructor(board: LazyBodyBoard<TKey>, scheduler: IdleWarmScheduler) {
+  public constructor(board: PreloadableRegistry<TKey>, scheduler: IdleWarmScheduler) {
     this.#board = board;
     this.#scheduler = scheduler;
   }

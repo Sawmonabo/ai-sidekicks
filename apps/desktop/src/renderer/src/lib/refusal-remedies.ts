@@ -35,8 +35,18 @@
 /** Which of rule 9's three shapes a refusal's blast radius calls for. */
 export type RefusalRendering = "inline" | "card" | "banner";
 
-/** What a surface does about one named refusal, beyond rendering the daemon's words. */
-export interface RefusalRemedy {
+/**
+ * What a surface does about one named refusal, beyond rendering the daemon's words, in
+ * one of two variants: the app-wide table's entry, or a feature table's entry with the
+ * exclusive cases one code stands for.
+ */
+export type RefusalRemedy = AppRefusalRemedy | RefusalRecoveryCopy;
+
+/**
+ * The app-wide table's entry: the shape a refusal calls for, its next move, and whether
+ * the request is finished.
+ */
+export interface AppRefusalRemedy {
   /**
    * The shape this refusal calls for, by blast radius rather than by severity.
    *
@@ -59,13 +69,26 @@ export interface RefusalRemedy {
 }
 
 /**
+ * A feature table's entry: the next move, and the exclusive cases a person chooses
+ * between where one code stands for more than one situation.
+ *
+ * `distinctions` is a real empty rather than an absent member on the codes that have one
+ * move: an empty list says "there is exactly one move" instead of "somebody forgot to
+ * write them".
+ */
+export interface RefusalRecoveryCopy {
+  readonly nextMove: string;
+  readonly distinctions: readonly string[];
+}
+
+/**
  * The next move for each named refusal, keyed on the wire code verbatim.
  *
  * Every entry is a code the corpus registers and a surface in this console actually
  * reaches. A code with no entry is not an omission to be filled for symmetry: it is
  * a refusal whose daemon sentence is the whole of what the console can honestly say.
  */
-const REFUSAL_REMEDIES: Readonly<Record<string, RefusalRemedy>> = {
+const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   // The retry carried a key already spent on different text. The daemon applied the
   // first body and nothing new went out, so the remedy is a new message rather than
   // another attempt at this one.
@@ -110,6 +133,6 @@ const REFUSAL_REMEDIES: Readonly<Record<string, RefusalRemedy>> = {
 };
 
 /** The next move for this code, or nothing where the daemon's sentence is the whole of it. */
-export function refusalRemedyFor(code: string): RefusalRemedy | undefined {
+export function refusalRemedyFor(code: string): AppRefusalRemedy | undefined {
   return Object.hasOwn(REFUSAL_REMEDIES, code) ? REFUSAL_REMEDIES[code] : undefined;
 }

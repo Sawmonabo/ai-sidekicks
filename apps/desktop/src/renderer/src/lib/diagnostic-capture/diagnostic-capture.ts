@@ -72,7 +72,7 @@ export type DiagnosticForwarderDetach = () => void;
  * these so an operator reading a quiet diagnostics panel can tell a console with
  * nothing to report from a console that cannot tell.
  */
-export interface BlindProbe {
+export interface UnreadableProbe {
   readonly probe: string;
   readonly reason: string;
   readonly since: string;
@@ -82,7 +82,7 @@ export interface BlindProbe {
 const CAPTURE_SOURCE = "console/core/diagnostic-capture";
 
 /** The probe name the forward seam is blind under when no forwarder is installed. */
-export const DIAGNOSTIC_BAND_FORWARD_PROBE = "diagnostic-band-forward";
+export const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-band-forward";
 
 /** What a truncated detail ends with, so a reader can tell truncation from brevity. */
 const TRUNCATION_SUFFIX = "…";
@@ -96,7 +96,7 @@ const TRUNCATION_SUFFIX = "…";
  */
 export class DiagnosticCapture {
   readonly #pending: DiagnosticRecord[] = [];
-  readonly #blindProbes = new Map<string, BlindProbe>();
+  readonly #blindProbes = new Map<string, UnreadableProbe>();
   #forwarder: DiagnosticBatchForwarder | null = null;
   #droppedRecordCount = 0;
   #forwardedRecordCount = 0;
@@ -113,7 +113,7 @@ export class DiagnosticCapture {
    */
   public installForwarder(forwarder: DiagnosticBatchForwarder): DiagnosticForwarderDetach {
     this.#forwarder = forwarder;
-    this.#blindProbes.delete(DIAGNOSTIC_BAND_FORWARD_PROBE);
+    this.#blindProbes.delete(DIAGNOSTIC_FORWARD_PROBE);
     this.flush();
     return () => {
       if (this.#forwarder === forwarder) {
@@ -173,8 +173,8 @@ export class DiagnosticCapture {
     if (this.#blindProbes.has(probe)) {
       return;
     }
-    if (this.#blindProbes.size >= DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount) {
-      if (probe === DIAGNOSTIC_BAND_FORWARD_PROBE) {
+    if (this.#blindProbes.size >= DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount) {
+      if (probe === DIAGNOSTIC_FORWARD_PROBE) {
         return;
       }
       this.#refusedBlindProbeCount += 1;
@@ -185,7 +185,7 @@ export class DiagnosticCapture {
           source: CAPTURE_SOURCE,
           kind: "probe-blind-set-full",
           detail:
-            `the blind-probe set is full at ${String(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount)} names, ` +
+            `the blind-probe set is full at ${String(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount)} names, ` +
             `so "${probe}" is counted rather than marked and every probe refused after it is counted too. ` +
             "Read refusedBlindProbeCount for the total.",
         });
@@ -203,7 +203,7 @@ export class DiagnosticCapture {
   }
 
   /** Every probe the console currently cannot read, in the order they went blind. */
-  public blindProbes(): readonly BlindProbe[] {
+  public blindProbes(): readonly UnreadableProbe[] {
     return [...this.#blindProbes.values()];
   }
 
@@ -229,7 +229,7 @@ export class DiagnosticCapture {
       const oldest = this.#pending[0];
       if (oldest !== undefined) {
         this.markBlind(
-          DIAGNOSTIC_BAND_FORWARD_PROBE,
+          DIAGNOSTIC_FORWARD_PROBE,
           "no diagnostic forwarder is installed in this window",
           oldest.at,
         );
@@ -245,7 +245,7 @@ export class DiagnosticCapture {
         const oldest = batch[0];
         this.#forwarder = null;
         if (oldest !== undefined) {
-          this.markBlind(DIAGNOSTIC_BAND_FORWARD_PROBE, reason, oldest.at);
+          this.markBlind(DIAGNOSTIC_FORWARD_PROBE, reason, oldest.at);
         }
         return;
       }

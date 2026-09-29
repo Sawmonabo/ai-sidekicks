@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 
-import type { FrameStore, FrameStoreState } from "../window-store.js";
+import type { FrameStore, WindowStoreState } from "../window-store.js";
 
 /**
  * Select from the window's store.
@@ -10,7 +10,7 @@ import type { FrameStore, FrameStoreState } from "../window-store.js";
  */
 export function useFrameStore<TSelected>(
   store: FrameStore,
-  selector: (state: FrameStoreState) => TSelected,
+  selector: (state: WindowStoreState) => TSelected,
 ): TSelected {
   return useStore(store.readable, selector);
 }

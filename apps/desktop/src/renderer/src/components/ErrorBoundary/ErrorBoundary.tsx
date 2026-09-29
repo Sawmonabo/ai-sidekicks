@@ -17,7 +17,7 @@ import { RenderFailureCard } from "./RenderFailureCard.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
-export interface SurfaceErrorBoundaryProps {
+export interface ErrorBoundaryProps {
   /** What failed, in the person's words: "the timeline", "the approvals pane". */
   readonly surfaceName: string;
   readonly children: ReactNode;
@@ -26,11 +26,8 @@ export interface SurfaceErrorBoundaryProps {
 }
 
 /** Catches a render failure in its subtree, reports it, and offers a retry in place. */
-export class SurfaceErrorBoundary extends Component<
-  SurfaceErrorBoundaryProps,
-  SurfaceErrorBoundaryState
-> {
-  public constructor(props: SurfaceErrorBoundaryProps) {
+export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBoundaryState> {
+  public constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { error: undefined, attempt: 0 };
   }

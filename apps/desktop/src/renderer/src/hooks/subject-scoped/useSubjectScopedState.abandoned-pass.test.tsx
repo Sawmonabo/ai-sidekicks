@@ -40,16 +40,16 @@ import {
   type NamedFixtureSubject,
 } from "@test/helpers/subject-fixtures.js";
 import { SubjectScopedHolder } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
-import { ResourceDetourProbe } from "./DiscardedRenderResourceProbe.test-support.js";
-import { ValueDetourProbe } from "./DiscardedRenderValueProbe.test-support.js";
+import { DiscardedRenderResourceProbe } from "./DiscardedRenderResourceProbe.test-support.js";
+import { DiscardedRenderValueProbe } from "./DiscardedRenderValueProbe.test-support.js";
 import {
-  DETOUR_KEY,
+  DISCARDED_RENDER_KEY,
   type ResourceProbeProps,
   type ValueProbeProps,
 } from "./subject-scoped-probes.test-support.js";
 import {
   DISCARDED_SUBJECT,
-  ResourceLedger,
+  ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
@@ -92,16 +92,16 @@ class CapturedPublishers<TValue> {
  */
 function RenderTimeRetireValueProbe(props: ValueProbeProps): ReactElement {
   const [holder] = useState(() => new SubjectScopedHolder<string>());
-  holder.address(props.subject, DETOUR_KEY, () => {
+  holder.address(props.subject, DISCARDED_RENDER_KEY, () => {
     props.onSeed();
     return "seed";
   });
-  holder.commit(props.subject, DETOUR_KEY);
+  holder.commit(props.subject, DISCARDED_RENDER_KEY);
   const subscribe = useCallback((onChange: () => void) => holder.subscribe(onChange), [holder]);
   const read = useCallback(() => holder.value, [holder]);
   const value = useSyncExternalStore(subscribe, read, read);
   const publish = useMemo(
-    () => holder.publisherFor(props.subject, DETOUR_KEY),
+    () => holder.publisherFor(props.subject, DISCARDED_RENDER_KEY),
     [holder, props.subject, holder.addressing],
   );
   props.onReady(publish);
@@ -173,8 +173,8 @@ async function driveValueCase(Probe: (props: ValueProbeProps) => ReactElement): 
 /** What both resource cases drive, and what each is left holding. */
 async function driveResourceCase(
   Probe: (props: ResourceProbeProps) => ReactElement,
-): Promise<{ readonly ledger: ResourceLedger; readonly unmount: () => void }> {
-  const ledger = new ResourceLedger();
+): Promise<{ readonly ledger: ResourceOpenCloseLog; readonly unmount: () => void }> {
+  const ledger = new ResourceOpenCloseLog();
   const view = await driveAbandonedPass<NamedFixtureSubject>(
     (subject, suspendOn) => (
       <Suspense fallback={<p>the pass that was parked</p>}>
@@ -191,7 +191,7 @@ async function driveResourceCase(
 
 describe("useSubjectScopedState — a parked pass leaves the visit on screen alone", () => {
   it("settles through the publisher the surface has been holding all along", async () => {
-    const detour = await driveValueCase(ValueDetourProbe);
+    const detour = await driveValueCase(DiscardedRenderValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
@@ -222,7 +222,7 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
     // parked pass really handed its caller a publisher, and that publisher names an
     // addressing no frame ever carried. Admitting it would write another subject's
     // answer into the visit on screen.
-    const detour = await driveValueCase(ValueDetourProbe);
+    const detour = await driveValueCase(DiscardedRenderValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_TWO)("what a pass nobody saw read");
     });
@@ -241,7 +241,7 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
 
 describe("useSubjectScopedResource — a parked pass's resource is closed, and only it", () => {
   it("closes what the parked pass opened and leaves the one on screen alone", async () => {
-    const resources = await driveResourceCase(ResourceDetourProbe);
+    const resources = await driveResourceCase(DiscardedRenderResourceProbe);
 
     expect(resources.ledger.opened).toStrictEqual(["settled", "discarded"]);
     expect(resources.ledger.closed).toStrictEqual(["discarded"]);
@@ -270,13 +270,13 @@ describe("useSubjectScopedResource — a parked pass's resource is closed, and o
     // pass is followed by no render at all because the surface itself went away. The
     // proposal is reachable through nothing else, so the mount's end is its last
     // moment.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const treeAt = (
       subject: NamedFixtureSubject,
       suspendOn: Promise<void> | undefined,
     ): ReactElement => (
       <Suspense fallback={<p>the pass that was parked</p>}>
-        <ResourceDetourProbe
+        <DiscardedRenderResourceProbe
           subject={subject}
           suspendOn={suspendOn}
           ledger={ledger}

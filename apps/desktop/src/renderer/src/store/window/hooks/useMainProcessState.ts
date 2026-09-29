@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 
-import type { FrameStore, FrameStoreState } from "../window-store.js";
+import type { FrameStore, WindowStoreState } from "../window-store.js";
 import type { ShellState } from "../main-process-state.js";
 
 /**
@@ -13,6 +13,6 @@ export function useShellState(store: FrameStore): ShellState {
   return useStore(store.readable, readShellState);
 }
 
-function readShellState(state: FrameStoreState): ShellState {
-  return state.shellState;
+function readShellState(state: WindowStoreState): ShellState {
+  return state.mainProcessState;
 }

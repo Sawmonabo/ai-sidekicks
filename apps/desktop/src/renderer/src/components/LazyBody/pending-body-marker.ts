@@ -37,7 +37,7 @@ import { createElement } from "react";
 export const PENDING_PANE_BODY_ATTRIBUTE = "data-meridian-pane-body-pending";
 
 /** The selector form, so no caller composes the brackets itself. */
-export const PENDING_PANE_BODY_SELECTOR: string = `[${PENDING_PANE_BODY_ATTRIBUTE}]`;
+export const PENDING_BODY_SELECTOR: string = `[${PENDING_PANE_BODY_ATTRIBUTE}]`;
 
 /**
  * Every pending pane body inside a tree, in document order.
@@ -51,8 +51,8 @@ export const PENDING_PANE_BODY_SELECTOR: string = `[${PENDING_PANE_BODY_ATTRIBUT
  * and report a pending pane as settled.
  */
 export function pendingPaneBodiesIn(root: Element): readonly Element[] {
-  const withinRoot = [...root.querySelectorAll(PENDING_PANE_BODY_SELECTOR)];
-  return root.matches(PENDING_PANE_BODY_SELECTOR) ? [root, ...withinRoot] : withinRoot;
+  const withinRoot = [...root.querySelectorAll(PENDING_BODY_SELECTOR)];
+  return root.matches(PENDING_BODY_SELECTOR) ? [root, ...withinRoot] : withinRoot;
 }
 
 /**

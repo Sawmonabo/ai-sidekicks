@@ -32,7 +32,6 @@ import {
   formatCount,
   formatDuration,
   formatMoney,
-  formatRate,
   formatRelativeTime,
   formatWireString,
 } from "./wire-figures.js";
@@ -87,20 +86,8 @@ describe("formatCount — grouped, never abbreviated", () => {
   });
 });
 
-describe("formatRate — a derived rate carries its own unit", () => {
-  it("holds one fraction digit and appends the caller's unit", () => {
-    expect(formatRate(12.34, "tok", "en-US")).toBe("12.3 tok/s");
-    expect(formatRate(0, "tok", "en-US")).toBe("0 tok/s");
-  });
-
-  it("renders a dash for a rate it cannot stand behind", () => {
-    expect(formatRate(-1, "tok", "en-US")).toBe("—");
-    expect(formatRate(Number.NaN, "tok", "en-US")).toBe("—");
-  });
-});
-
 describe("every formatted quantity is rendered in the caller's locale", () => {
-  // One property over six formatters. A hand-rolled `toFixed` implementation, or one
+  // One property over five formatters. A hand-rolled `toFixed` implementation, or one
   // that dropped the `locale` parameter on the floor, renders identically in both
   // columns — so requiring the two to differ IS the control, and it fails for exactly
   // the defect the eight rules' `Intl` requirement exists to prevent.
@@ -112,7 +99,6 @@ describe("every formatted quantity is rendered in the caller's locale", () => {
     ],
     ["count", formatCount(1234567, "en-US"), formatCount(1234567, "de-DE")],
     ["duration", formatDuration(1500, "en-US"), formatDuration(1500, "de-DE")],
-    ["rate", formatRate(12.34, "tok", "en-US"), formatRate(12.34, "tok", "de-DE")],
     ["money", formatMoney(1234.5, "EUR", "en-US"), formatMoney(1234.5, "EUR", "de-DE")],
     [
       "relative time",

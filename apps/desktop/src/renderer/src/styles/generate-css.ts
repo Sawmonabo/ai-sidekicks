@@ -45,7 +45,7 @@ import {
 import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
 import type { ConsoleScheme } from "./tokens.js";
 import {
-  ACTOR_HUES,
+  HUE_WHEEL,
   SCHEME_COLOR_TOKENS,
   actorHueTokenName,
   tokenReference,
@@ -193,7 +193,7 @@ function invariantBlock(): string {
 
   lines.push("");
   lines.push("  /* User wheel — identity, never attention, never theme. */");
-  ACTOR_HUES.forEach((color, step) => {
+  HUE_WHEEL.forEach((color, step) => {
     lines.push(declaration(actorHueTokenName(step), formatOklch(color)));
   });
 

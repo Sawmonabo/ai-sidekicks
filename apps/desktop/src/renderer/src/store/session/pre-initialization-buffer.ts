@@ -16,7 +16,7 @@ import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
 import type { ConsoleSessionEvent } from "./entities/entities.js";
 
 /** Events held for a base state, oldest first, never more than the cap. */
-export class PreInitialisationBuffer {
+export class PreInitializationBuffer {
   readonly #held: ConsoleSessionEvent[] = [];
   #dropCount = 0;
 

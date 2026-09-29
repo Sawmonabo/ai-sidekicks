@@ -2,17 +2,15 @@
 //
 // The set this window has open is a different question with a different answer from
 // the node's directory: a node with six sessions and a window that has opened none of
-// them is not an empty node. This hook reads the directory, and `useOpenSessionIds`
-// stays the seam for what this WINDOW holds.
-//
-// The call that lists the sessions is the caller's, taken as an argument, so this
-// module keeps only its own logic: when to read again, and how the answer is held.
+// them is not an empty node. `useSessionDirectory` reads the directory, and
+// `useOpenSessionIds` stays the seam for what this WINDOW holds. This module holds the
+// directory's types and how many times each call's answer went stale.
 //
 // ONE READ PER SIGNAL, AND NO POLLING
 //
 // The read is issued from a mount effect and never repeated on a timer. It is
 // repeated when something SAYS the answer moved: the mount, the window regaining
-// focus, and a reconnect, through `store/read/read-triggers.ts` and no second
+// focus, and a reconnect, through `store/reads/read-triggers.ts` and no second
 // mechanism. `subscribe` is deliberately not routed into the revision below, because
 // the mount read IS the subscribe read.
 //
@@ -21,15 +19,6 @@
 // changed. It is keyed on the call rather than on any one caller's state, because
 // what went stale is the node's answer every reader of that call holds.
 //
-// THE STATE IS SUBJECT-SCOPED, AND THE SUBJECT IS THE CALL
-//
-// A new call is a new source of session truth, and the answer read through the
-// previous one stops being an answer at that instant. The state is held by the
-// console's one subject-scoped holder, addressed DURING the render that first sees a
-// new call, and re-seeded to `reading`. The key within the subject is `undefined`
-// because the call IS the whole subject. An answer dispatched through a call that has
-// since been replaced writes NOWHERE.
-
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
 /** One session the node lists. A session with no title is shown by its identifier. */
@@ -55,8 +44,8 @@ export type SessionDirectoryState =
  * How many times each call's directory has been declared stale.
  *
  * DELIBERATELY NOT A SUBJECT-SCOPED HOLDER AND NOT A GENERATION LATCH, which are the
- * two things `store/subject-scoped/subject-scoped-state.ts` and
- * `store/read/generation-latch.ts` already are and which no third module may become.
+ * two things `lib/subject-scoped/subject-scoped-holder.ts` and
+ * `lib/reads/generation-latch.ts` already are and which no third module may become.
  * It holds no value addressed by a subject and it gates no settlement. What it counts
  * is how many times somebody said this node's list moved, which is a fact about the
  * NODE rather than about any round of any caller's.
@@ -65,7 +54,7 @@ export type SessionDirectoryState =
  * rule in `apps/desktop/AGENTS.md`. A `WeakMap` rather than a `Map` because the key is
  * the whole lifetime: a superseded call is unreachable and its count goes with it.
  */
-class SessionDirectoryStaleness {
+export class SessionDirectoryStaleness {
   readonly #revisionByCall = new WeakMap<SessionDirectoryReadCall, number>();
   readonly #watchersByCall = new WeakMap<SessionDirectoryReadCall, Set<() => void>>();
 
@@ -99,7 +88,7 @@ class SessionDirectoryStaleness {
  * This window's staleness counts: advanced by {@link requestSessionDirectoryRead} and
  * read by the directory hook, and by nothing else.
  */
-export const sessionDirectoryStaleness = new SessionDirectoryStaleness();
+export const sessionDirectoryStaleness: SessionDirectoryStaleness = new SessionDirectoryStaleness();
 
 /**
  * Ask every surface reading this node's directory to read it again.

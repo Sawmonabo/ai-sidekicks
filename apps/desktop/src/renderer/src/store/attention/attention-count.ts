@@ -17,7 +17,7 @@ import type { AttentionReading } from "./attention-summary.js";
  * projection is still being read the rail says nothing rather than a number from
  * before.
  */
-export function railAttentionCountOf(reading: AttentionReading): number | undefined {
+export function attentionCountOf(reading: AttentionReading): number | undefined {
   if (reading.phase !== "read") {
     return undefined;
   }

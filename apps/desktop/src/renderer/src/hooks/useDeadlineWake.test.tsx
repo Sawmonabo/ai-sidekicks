@@ -21,8 +21,8 @@ import { earliestFutureDeadline } from "@renderer/lib/deadlines.js";
 import {
   CountingManualClock,
   MOUNTED_AT,
-  WakingSurface,
-  renderWake,
+  DeadlineWakeProbe,
+  renderDeadlineWake,
 } from "./useDeadlineWake.test-support.js";
 
 /**
@@ -69,30 +69,30 @@ const NOTHING_OUTSTANDING = "nothing outstanding";
 describe("useDeadlineWake — one timer, at the earliest deadline", () => {
   it("arms exactly one timer for a set of deadlines", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    renderWake(clock, [9_000, 2_000, 5_000]);
+    renderDeadlineWake(clock, [9_000, 2_000, 5_000]);
     expect(clock.pendingCount).toBe(1);
   });
 
   it("arms one timer for a thousand deadlines", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadlines = Array.from({ length: 1_000 }, (unused, offset) => MOUNTED_AT + offset + 1);
-    renderWake(clock, deadlines);
+    renderDeadlineWake(clock, deadlines);
     expect(clock.pendingCount).toBe(1);
     expect(clock.armCount).toBe(1);
   });
 
   it("arms nothing when no deadline is in the future", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    renderWake(clock, []);
+    renderDeadlineWake(clock, []);
     expect(clock.pendingCount).toBe(0);
-    renderWake(clock, [MOUNTED_AT - 1, 500]);
+    renderDeadlineWake(clock, [MOUNTED_AT - 1, 500]);
     expect(clock.pendingCount).toBe(0);
     expect(clock.armCount).toBe(0);
   });
 
   it("wakes at the earliest deadline and not before", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [9_000, 2_000, 5_000]);
+    const wake = renderDeadlineWake(clock, [9_000, 2_000, 5_000]);
     expect(wake.instant()).toBe(MOUNTED_AT);
     act(() => {
       clock.advance(999);
@@ -106,7 +106,7 @@ describe("useDeadlineWake — one timer, at the earliest deadline", () => {
 
   it("re-arms for the next deadline once one has been crossed", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [5_000, 2_000]);
+    const wake = renderDeadlineWake(clock, [5_000, 2_000]);
     act(() => {
       clock.advance(1_000);
     });
@@ -122,7 +122,7 @@ describe("useDeadlineWake — one timer, at the earliest deadline", () => {
 
   it("re-arms when the set changes to an earlier deadline", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [9_000]);
+    const wake = renderDeadlineWake(clock, [9_000]);
     expect(clock.armCount).toBe(1);
     act(() => {
       wake.setDeadlines([9_000, 3_000]);
@@ -137,7 +137,7 @@ describe("useDeadlineWake — one timer, at the earliest deadline", () => {
 
   it("drops its timer when the consumer unmounts", () => {
     const clock = new CountingManualClock(MOUNTED_AT);
-    const { unmount } = render(<WakingSurface clock={clock} deadlines={[5_000]} />);
+    const { unmount } = render(<DeadlineWakeProbe clock={clock} deadlines={[5_000]} />);
     expect(clock.pendingCount).toBe(1);
     unmount();
     expect(clock.pendingCount).toBe(0);
@@ -150,7 +150,7 @@ describe("useDeadlineWake — the dependency is the deadline, not the array", ()
     // into deadlines hands a fresh array every render, and an effect keyed on that
     // array cancels and re-arms a timer on every single one.
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [5_000, 9_000]);
+    const wake = renderDeadlineWake(clock, [5_000, 9_000]);
     expect(clock.armCount).toBe(1);
     for (let renderPass = 0; renderPass < 5; renderPass += 1) {
       act(() => {
@@ -165,7 +165,7 @@ describe("useDeadlineWake — the dependency is the deadline, not the array", ()
     // once and never again, which is a wake-up that stops working the moment the
     // rows change.
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [5_000]);
+    const wake = renderDeadlineWake(clock, [5_000]);
     expect(clock.armCount).toBe(1);
     act(() => {
       wake.setDeadlines([4_000]);
@@ -177,7 +177,7 @@ describe("useDeadlineWake — the dependency is the deadline, not the array", ()
     // The earliest is what is armed for, so a set whose tail moved has not changed
     // what this hook has to do.
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [5_000, 9_000]);
+    const wake = renderDeadlineWake(clock, [5_000, 9_000]);
     act(() => {
       wake.setDeadlines([5_000, 12_000]);
     });
@@ -198,7 +198,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     vi.useFakeTimers();
     vi.setSystemTime(MOUNTED_AT);
     const clock = new RecordingRealClock();
-    renderWake(clock, [MOUNTED_AT + SIXTY_DAYS_MILLISECONDS]);
+    renderDeadlineWake(clock, [MOUNTED_AT + SIXTY_DAYS_MILLISECONDS]);
     expect(SIXTY_DAYS_MILLISECONDS).toBeGreaterThan(MAXIMUM_TIMEOUT_MILLISECONDS);
     expect(clock.armedDelaysMilliseconds).toStrictEqual([MAXIMUM_TIMEOUT_MILLISECONDS]);
   });
@@ -210,7 +210,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     vi.useFakeTimers();
     vi.setSystemTime(MOUNTED_AT);
     const clock = new RecordingRealClock();
-    renderWake(clock, [MOUNTED_AT + MILLISECONDS_PER_MINUTE]);
+    renderDeadlineWake(clock, [MOUNTED_AT + MILLISECONDS_PER_MINUTE]);
     expect(clock.armedDelaysMilliseconds).toStrictEqual([MILLISECONDS_PER_MINUTE]);
   });
 
@@ -221,7 +221,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     // was armed" observable rather than a claim about `setTimeout`.
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadline = MOUNTED_AT + SIXTY_DAYS_MILLISECONDS;
-    const wake = renderWake(clock, [deadline]);
+    const wake = renderDeadlineWake(clock, [deadline]);
     expect(clock.armCount).toBe(1);
 
     act(() => {
@@ -255,7 +255,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
     // behind the surface at once: nothing armed, every row expired, until unmount.
     const laterClock = new CountingManualClock(LATER_START);
     const earlierClock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(laterClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    const wake = renderDeadlineWake(laterClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
     expect(wake.instant()).toBe(LATER_START);
     expect(laterClock.armCount).toBe(0);
 
@@ -300,7 +300,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
     // that read the clock on every pass — a render whose output depends on when it
     // ran, which is the impurity the frozen clock exists to remove.
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    const wake = renderDeadlineWake(clock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
     act(() => {
       clock.advance(2_000);
     });
@@ -318,7 +318,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
     // left is cancelled rather than carried.
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const laterClock = new CountingManualClock(LATER_START);
-    const wake = renderWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    const wake = renderDeadlineWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
     expect(earlierClock.armCount).toBe(1);
 
     act(() => {

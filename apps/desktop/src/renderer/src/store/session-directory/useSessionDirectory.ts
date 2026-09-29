@@ -1,3 +1,11 @@
+// The node's session directory, read for as long as a caller is mounted.
+//
+// THE STATE IS SUBJECT-SCOPED, AND THE SUBJECT IS THE CALL. A new call is a new source
+// of session truth, and the answer read through the previous one stops being an answer
+// at that instant. The state is held by the one subject-scoped holder, addressed during
+// the render that first sees a new call, and re-seeded to `reading`. An answer
+// dispatched through a call that has since been replaced writes nowhere.
+
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import {
@@ -29,7 +37,7 @@ const SESSION_DIRECTORY_PROJECTION: SubjectReadProjection<
  * address, so the answer already on screen stays there until the new one lands.
  *
  * THE WINDOW HALF OF THE TRIGGER SET AND NOT THE SESSION HALF, on the rule
- * `store/read/read-triggers.ts` states: this read is addressed at the NODE, so no one
+ * `store/reads/read-triggers.ts` states: this read is addressed at the NODE, so no one
  * session's repair and no one session's timeline bear on it. The transport signal is
  * the caller's because it is the BRIDGE's.
  *

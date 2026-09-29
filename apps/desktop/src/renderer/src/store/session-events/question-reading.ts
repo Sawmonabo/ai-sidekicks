@@ -38,7 +38,7 @@ import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "./wire-payload.js";
 
 /** The four event types this surface renders, and the only ones it renders. */
-export const DRIVER_ASK_EVENT_TYPES = [
+export const QUESTION_EVENT_TYPES = [
   "driver_ask.requested",
   "driver_ask.responded",
   "driver_ask.expired",
@@ -46,24 +46,23 @@ export const DRIVER_ASK_EVENT_TYPES = [
 ] as const;
 
 /** One ask state. Derived from the event types, never restated as a second union. */
-export type DriverAskState = "requested" | "responded" | "expired" | "canceled";
+export type QuestionState = "requested" | "responded" | "expired" | "canceled";
 
 /**
  * The state each event type names. Total over the four types by construction, so a
  * fifth type added to the tuple above fails to compile here rather than reaching a
  * card that renders it as a pending ask.
  */
-const STATE_BY_EVENT_TYPE: Readonly<
-  Record<(typeof DRIVER_ASK_EVENT_TYPES)[number], DriverAskState>
-> = {
-  "driver_ask.requested": "requested",
-  "driver_ask.responded": "responded",
-  "driver_ask.expired": "expired",
-  "driver_ask.canceled": "canceled",
-};
+const STATE_BY_EVENT_TYPE: Readonly<Record<(typeof QUESTION_EVENT_TYPES)[number], QuestionState>> =
+  {
+    "driver_ask.requested": "requested",
+    "driver_ask.responded": "responded",
+    "driver_ask.expired": "expired",
+    "driver_ask.canceled": "canceled",
+  };
 
 /** One offered answer, as the provider declared it. */
-export interface DriverAskOption {
+export interface QuestionOption {
   readonly value: string;
   /** The provider's own label, where it supplied one. Never composed from `value`. */
   readonly label: string | undefined;
@@ -84,11 +83,11 @@ export interface DriverAskReading {
    * dispatches then name the same one by construction.
    */
   readonly runId: RunId | undefined;
-  readonly state: DriverAskState;
+  readonly state: QuestionState;
   /** The provider's question. `undefined` where the ask carried none. */
   readonly prompt: string | undefined;
   /** The declared choice set, or empty where the ask offered none. Never synthesized. */
-  readonly options: readonly DriverAskOption[];
+  readonly options: readonly QuestionOption[];
   /** The daemon's stamped deadline, verbatim. `undefined` on a pre-stamp row. */
   readonly expiresAt: string | undefined;
   /** The delivered answer, rendered verbatim on the `responded` row alone. */
@@ -141,8 +140,8 @@ export const ASK_ANSWER_UNSENT: DriverAskDelivery = Object.freeze({ status: "uns
  * ledger's ask card may draw, and a caller that wanted to tell them apart would be
  * asking this reader to classify rows it does not own.
  */
-export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
-  const question = readDriverAskPayload(row.type, projectedPayload(row));
+export function readQuestion(row: TimelineRow): DriverAskReading | undefined {
+  const question = readQuestionPayload(row.type, projectedPayload(row));
   // The `run` arm is the only one carrying an attribution, and the `general` arm is the
   // non-run arm by construction — so this narrows on `kind` rather than guessing a run
   // out of a payload member.
@@ -154,14 +153,14 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
 /**
  * Read one event type and its payload as an input ask, before any run is attributed.
  *
- * The part of {@link readDriverAsk} a session event can answer as well as a row, so the
+ * The part of {@link readQuestion} a session event can answer as well as a row, so the
  * store's settlement fold and the card read an ask by one rule.
  */
-export function readDriverAskPayload(
+export function readQuestionPayload(
   eventType: string,
   payload: Readonly<Record<string, unknown>>,
 ): Omit<DriverAskReading, "runId"> | undefined {
-  const state = STATE_BY_EVENT_TYPE[eventType as (typeof DRIVER_ASK_EVENT_TYPES)[number]];
+  const state = STATE_BY_EVENT_TYPE[eventType as (typeof QUESTION_EVENT_TYPES)[number]];
   if (state === undefined) {
     return undefined;
   }
@@ -214,11 +213,11 @@ export function askSettledBy(
  * cannot be pressed correctly. An entry with a `value` and no `label` is kept and
  * renders by its value — the label is the provider's and the console composes none.
  */
-function readAskOptions(value: unknown): readonly DriverAskOption[] {
+function readAskOptions(value: unknown): readonly QuestionOption[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  const options: DriverAskOption[] = [];
+  const options: QuestionOption[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) {
       continue;

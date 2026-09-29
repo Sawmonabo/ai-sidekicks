@@ -95,7 +95,7 @@ export interface LedgerWindowReading {
 }
 
 /** One mounted viewport's live answer. Called by a reader, never by the ledger. */
-export type LedgerWindowReader = () => LedgerWindowReading;
+export type TranscriptWindowReader = () => LedgerWindowReading;
 
 /**
  * Which session's ledger can be read right now.
@@ -104,8 +104,8 @@ export type LedgerWindowReader = () => LedgerWindowReading;
  * `apps/desktop/AGENTS.md`: what is registered is state, and the identity check the
  * unregister makes is only meaningful against a remembered value.
  */
-export class LedgerWindowDiagnosticsRegistry {
-  readonly #readerBySessionId = new Map<string, LedgerWindowReader>();
+export class TranscriptWindowDiagnosticsRegistry {
+  readonly #readerBySessionId = new Map<string, TranscriptWindowReader>();
 
   /**
    * Publish one mount's reader, and hand back the only way to retire it.
@@ -114,7 +114,7 @@ export class LedgerWindowDiagnosticsRegistry {
    * a remount that registered before the outgoing mount's cleanup ran keeps its
    * registration.
    */
-  public register(sessionId: string, reader: LedgerWindowReader): Unsubscribe {
+  public register(sessionId: string, reader: TranscriptWindowReader): Unsubscribe {
     this.#readerBySessionId.set(sessionId, reader);
     return () => {
       if (this.#readerBySessionId.get(sessionId) === reader) {
@@ -133,5 +133,5 @@ export class LedgerWindowDiagnosticsRegistry {
  * The console's registry. One per renderer process, for `consoleTripwires`' reason:
  * an auxiliary window is its own renderer process and therefore its own registry.
  */
-export const consoleLedgerWindows: LedgerWindowDiagnosticsRegistry =
-  new LedgerWindowDiagnosticsRegistry();
+export const consoleLedgerWindows: TranscriptWindowDiagnosticsRegistry =
+  new TranscriptWindowDiagnosticsRegistry();

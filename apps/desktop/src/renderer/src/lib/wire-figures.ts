@@ -226,15 +226,6 @@ export function formatDayDuration(days: number, locale?: string): string {
   return dayDurationFormatFor(locale).format(days);
 }
 
-/** A rate the console derived, e.g. tokens per second. */
-export function formatRate(perSecond: number, unitLabel: string, locale?: string): string {
-  if (!Number.isFinite(perSecond) || perSecond < 0) {
-    return "—";
-  }
-  const value = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(perSecond);
-  return `${value} ${unitLabel}/s`;
-}
-
 /**
  * A relative time, through `Intl.RelativeTimeFormat`.
  *
@@ -322,8 +313,7 @@ export function formatDateTime(iso: string, locale?: string): string {
  * hidden convention this function would have to be read to discover.
  *
  * It lives here for the reason every other formatter does: the `%` sign is a unit
- * label, and `formatRate` is beside it precisely because a unit composed at a call
- * site is a second formatter. Out-of-range and non-finite inputs answer the same em
+ * label, and a unit composed at a call site is a second formatter. Out-of-range and non-finite inputs answer the same em
  * dash as its siblings rather than rendering a percentage nobody can act on.
  */
 export function formatPercent(fraction: number, locale?: string): string {

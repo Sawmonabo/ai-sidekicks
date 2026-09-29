@@ -51,7 +51,7 @@ import { SessionAttentionContext } from "./hooks/useAttention.js";
  * The members are what the consumers between them need, and no more: the destination
  * renders the reading and can ask for the directory again.
  */
-export interface SessionAttention {
+export interface WindowAttention {
   /** The node's own session list, as the read settled it. */
   readonly directory: SessionDirectoryState;
   readonly reading: AttentionReading;
@@ -60,7 +60,7 @@ export interface SessionAttention {
 }
 
 /** The subtree it provides for, and the calls and window handles it keeps answers from. */
-export interface SessionAttentionBindingProps {
+export interface AttentionProviderProps {
   readonly children: ReactNode;
   /** The call that lists the node's sessions. */
   readonly readDirectory: SessionDirectoryReadCall;
@@ -81,7 +81,7 @@ export interface SessionAttentionBindingProps {
  * MOUNTED BY THE COMPOSITION AND NEVER BY A ROUTE, so this component's lifetime is the
  * window's.
  */
-export function SessionAttentionBinding(props: SessionAttentionBindingProps): React.JSX.Element {
+export function AttentionProvider(props: AttentionProviderProps): React.JSX.Element {
   const directory = useSessionDirectory(props.readDirectory, props.transportReconnect);
   const reading = useAttentionProjection(
     props.readAttention,
@@ -93,7 +93,7 @@ export function SessionAttentionBinding(props: SessionAttentionBindingProps): Re
   const recheckDirectory = useCallback(() => {
     requestSessionDirectoryRead(readDirectory);
   }, [readDirectory]);
-  const held = useMemo<SessionAttention>(
+  const held = useMemo<WindowAttention>(
     () => ({
       directory,
       reading,

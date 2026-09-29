@@ -75,5 +75,5 @@ export const DIAGNOSTIC_CAPTURE_BOUNDS = {
    * to find, and because a name arriving from a value rather than a literal is
    * exactly the bug this catches.
    */
-  blindProbeCount: 32,
+  unreadableProbeCount: 32,
 } as const;

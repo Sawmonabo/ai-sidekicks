@@ -125,7 +125,7 @@ export function admitsSnapshotAt(cursor: number, current: SessionStoreState): bo
  * state a projection reset returns it to, and the reconciler rebase that reset
  * performs — and a literal in three places is one value with three homes.
  */
-export const UNINITIALISED_CURSOR = -1;
+export const UNINITIALIZED_CURSOR = -1;
 
 /**
  * Which end of an over-cap log survives.
@@ -146,7 +146,7 @@ export type TimelineRetainedEnd = "newest" | "oldest";
  * known-incomplete until the read that follows it lands, and rendering that window as
  * a settled empty session would be the console reporting a fact it does not have.
  */
-export function uninitialisedState(input: {
+export function uninitializedState(input: {
   readonly sessionId: string;
   readonly revision: number;
   readonly degradedCause?: SessionDegradedCause | undefined;
@@ -156,7 +156,7 @@ export function uninitialisedState(input: {
     initialised: false,
     partitions: emptyPartitions(),
     timeline: [],
-    cursor: UNINITIALISED_CURSOR,
+    cursor: UNINITIALIZED_CURSOR,
     windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
     gaps: [],

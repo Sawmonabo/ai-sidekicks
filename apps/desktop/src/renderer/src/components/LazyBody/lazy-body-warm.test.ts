@@ -16,7 +16,7 @@ import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
 } from "./lazy-body-warm.js";
-import { type LazyBodyBoard } from "./lazy-body.js";
+import { type PreloadableRegistry } from "./lazy-body.js";
 
 /** A host that records which API a scheduler chose, and with what. */
 function recordingHost(options: {
@@ -96,7 +96,7 @@ describe("the warm scheduler — the pair is detected together", () => {
 });
 
 /** A board whose unloaded set the case controls, recording what was asked for. */
-class RecordingBoard implements LazyBodyBoard<string> {
+class RecordingBoard implements PreloadableRegistry<string> {
   #unloaded: string[];
   public readonly preloaded: string[] = [];
   readonly #rejectingKeys: ReadonlySet<string>;

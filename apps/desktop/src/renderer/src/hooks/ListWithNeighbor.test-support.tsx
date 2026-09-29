@@ -7,7 +7,7 @@
 import { RovingList } from "./RovingList.test-support.js";
 
 /** The list with a neighbour. */
-export function ListWithNeighbour(props: {
+export function ListWithNeighbor(props: {
   readonly rowCount: number;
   readonly windowStart: number;
   readonly windowLength: number;
@@ -28,7 +28,7 @@ export function ListWithNeighbour(props: {
 }
 
 /** The element the reader tabbed to, read back from the tree that rendered it. */
-export function neighbourOf(container: HTMLElement): HTMLElement {
+export function neighborOf(container: HTMLElement): HTMLElement {
   const neighbour = container.querySelector<HTMLElement>("[data-neighbour]");
   if (neighbour === null) {
     throw new Error("the neighbour did not render");

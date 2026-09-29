@@ -14,10 +14,13 @@
 // and the two suites replaced different ones.
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
-import type { OpenResource, ResourceLedger } from "./useSubjectScopedResource.test-support.js";
+import type {
+  OpenResource,
+  ResourceOpenCloseLog,
+} from "./useSubjectScopedResource.test-support.js";
 
 /** The key BOTH visits are addressed at, so only the addressing tells them apart. */
-export const DETOUR_KEY = "s1";
+export const DISCARDED_RENDER_KEY = "s1";
 
 export interface ValueProbeProps {
   readonly subject: object;
@@ -31,6 +34,6 @@ export interface ValueProbeProps {
 export interface ResourceProbeProps {
   readonly subject: NamedFixtureSubject;
   readonly suspendOn: Promise<void> | undefined;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   readonly onReady: (publish: (next: OpenResource) => void) => void;
 }

@@ -18,7 +18,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ConsolePaneChrome, GLYPH_BY_PANE_KIND, TITLE_BY_PANE_KIND } from "./PaneFrame.js";
-import { renderChrome } from "./PaneFrame.test-support.js";
+import { renderPaneFrame } from "./PaneFrame.test-support.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 
 /** The element the pane names itself by, resolved the way an assistive reader does. */
@@ -42,7 +42,7 @@ describe("ConsolePaneChrome — every declared kind has a frame", () => {
 
   it("names and draws every pane kind", () => {
     for (const kind of PANE_KINDS) {
-      const pane = renderChrome(
+      const pane = renderPaneFrame(
         <ConsolePaneChrome
           kind={kind}
           sessionId="session-1"
@@ -73,7 +73,7 @@ describe("ConsolePaneChrome — every declared kind has a frame", () => {
 
 describe("ConsolePaneChrome — how the pane names itself", () => {
   it("is named by its whole trail, so two panes of one kind differ", () => {
-    const runsPane = renderChrome(
+    const runsPane = renderPaneFrame(
       <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -86,12 +86,12 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
   it("negative control: two runs panes at different addresses are named differently", () => {
     // Without this the case above would pass over a chrome named by its title alone,
     // which is the state a deck full of `runs` panes is unnavigable in.
-    const first = renderChrome(
+    const first = renderPaneFrame(
       <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
     );
-    const second = renderChrome(
+    const second = renderPaneFrame(
       <ConsolePaneChrome kind="runs" sessionId="session-1" runId="run-02" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -100,7 +100,7 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
   });
 
   it("mints its own id when the caller has none to give", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome kind="diff" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -110,7 +110,7 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
   });
 
   it("takes the caller's id where the caller owns one", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome
         kind="diff"
         headingId="host-owned-heading"
@@ -146,7 +146,7 @@ describe("ConsolePaneChrome — how the pane names itself", () => {
 
 describe("ConsolePaneChrome — the focus treatments are attributed or neutral, never guessed", () => {
   it("carries an attributed pane's hue", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome
         kind="inspector"
         sessionId="session-1"
@@ -162,7 +162,7 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
     // Fail-closed: the stylesheet's own fallbacks are the neutral ring and the neutral
     // boundary, and an unattributed pane must reach them by carrying NO custom property
     // rather than by carrying someone else's.
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome kind="inspector" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -171,7 +171,7 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
   });
 
   it("is reachable programmatically without spending a tab stop", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome kind="approvals" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -185,7 +185,7 @@ describe("ConsolePaneChrome — the focus treatments are attributed or neutral, 
 describe("ConsolePaneChrome — the pane-level key claim", () => {
   /** A chrome whose key claim records every key it heard, in order. */
   function renderClaiming(heard: string[], children: React.ReactNode): HTMLElement {
-    return renderChrome(
+    return renderPaneFrame(
       <ConsolePaneChrome
         kind="browser"
         sessionId="session-1"
@@ -232,7 +232,7 @@ describe("ConsolePaneChrome — the pane-level key claim", () => {
   it("negative control: a chrome given no handler binds nothing", () => {
     // Without this, a chrome that always attached a listener of its own would satisfy
     // both cases above while claiming keys from a pane that asked for none.
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome kind="browser" sessionId="session-1" focusHue={undefined}>
         <input aria-label="address" />
       </ConsolePaneChrome>,

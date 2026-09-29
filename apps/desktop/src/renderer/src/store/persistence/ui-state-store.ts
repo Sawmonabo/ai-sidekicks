@@ -64,8 +64,8 @@ import {
 import { validatePersistedAddress } from "./persisted-value-classes.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import {
-  openConsoleDatabase,
-  type OpenConsoleDatabaseOptions,
+  openUiStateDatabase,
+  type OpenUiStateDatabaseOptions,
 } from "./indexeddb-persistence-adapter.js";
 import {
   PERSISTENCE_READ_ABSENT,
@@ -75,7 +75,7 @@ import {
 } from "./persistence-read-outcome.js";
 import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
 import {
-  PersistenceHealthLedger,
+  PersistenceHealthTracker,
   REFUSED_ADDRESS_SITE,
   type PersistenceHealth,
 } from "./persistence-health.js";
@@ -121,7 +121,7 @@ export class UiStateStore {
   readonly #sessionPartitionCap: number;
   readonly #recordByteCap: number;
   readonly #clock: ConsoleClock;
-  readonly #health = new PersistenceHealthLedger();
+  readonly #health = new PersistenceHealthTracker();
   #closed = false;
 
   public constructor(options: UiStateStoreOptions) {
@@ -140,9 +140,9 @@ export class UiStateStore {
    * object to every surface. `openConsoleDatabase` is documented never to throw,
    * which is what lets the pending adapter be a promise that cannot reject.
    */
-  public static opening(options: OpenConsoleDatabaseOptions = {}): UiStateStore {
+  public static opening(options: OpenUiStateDatabaseOptions = {}): UiStateStore {
     return new UiStateStore({
-      adapter: openConsoleDatabase(options).then((outcome) =>
+      adapter: openUiStateDatabase(options).then((outcome) =>
         outcome.outcome === "opened"
           ? outcome.adapter
           : new MemoryPersistenceAdapter({ unavailableReason: outcome.reason }),

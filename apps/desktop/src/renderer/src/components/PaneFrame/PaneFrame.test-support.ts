@@ -15,7 +15,7 @@ import { render } from "@testing-library/react";
  * A throw rather than a nullable return, so a suite that mounted nothing fails at the
  * mount rather than passing an assertion over an absent element.
  */
-export function renderChrome(element: React.JSX.Element): HTMLElement {
+export function renderPaneFrame(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
   const pane = container.querySelector(".meridian-pane");
   if (!(pane instanceof HTMLElement)) {

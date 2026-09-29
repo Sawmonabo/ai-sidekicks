@@ -13,7 +13,7 @@ import {
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import { ProviderQuotaFold, quotaMergeDispositionFor } from "./provider-account-fold.js";
+import { ProviderQuotaFold, decideUsageWindowMerge } from "./provider-account-fold.js";
 
 // Minted through the registered schema rather than cast, so a case cannot file a
 // reading under an id the wire would refuse.
@@ -75,7 +75,7 @@ describe("quotaMergeDispositionFor — consumption does not fall inside one wind
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER });
 
-    expect(quotaMergeDispositionFor(lowerButNewer, held, true)).toBe("dropped-below-high-water");
+    expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
   });
 
   it("seats a lower reading once the window itself has moved on", () => {
@@ -89,7 +89,7 @@ describe("quotaMergeDispositionFor — consumption does not fall inside one wind
       resetsAt: NEXT_WINDOW_RESET,
     });
 
-    expect(quotaMergeDispositionFor(nextWindow, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(nextWindow, held, true)).toBe("seated");
   });
 
   it("treats two readings that publish no reset horizon as one continuing window", () => {
@@ -98,7 +98,7 @@ describe("quotaMergeDispositionFor — consumption does not fall inside one wind
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER, resetsAt: undefined });
     const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER, resetsAt: undefined });
 
-    expect(quotaMergeDispositionFor(lowerButNewer, held, true)).toBe("dropped-below-high-water");
+    expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
   });
 
   it("negative control: an equal-or-higher same-window reading is seated on its timestamp", () => {
@@ -107,7 +107,7 @@ describe("quotaMergeDispositionFor — consumption does not fall inside one wind
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const higher = usageWindow({ usedPercent: 91, observedAt: LATER });
 
-    expect(quotaMergeDispositionFor(higher, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(higher, held, true)).toBe("seated");
   });
 
   it("negative control: an older same-window reading is held by observation time", () => {
@@ -116,15 +116,15 @@ describe("quotaMergeDispositionFor — consumption does not fall inside one wind
     const held = usageWindow({ usedPercent: 90, observedAt: LATER });
     const older = usageWindow({ usedPercent: 95, observedAt: EARLIER });
 
-    expect(quotaMergeDispositionFor(older, held, true)).toBe("held");
+    expect(decideUsageWindowMerge(older, held, true)).toBe("held");
   });
 
   it("breaks an exact observation tie by arrival and by nothing else", () => {
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const tied = usageWindow({ usedPercent: 92, observedAt: EARLIER });
 
-    expect(quotaMergeDispositionFor(tied, held, true)).toBe("seated");
-    expect(quotaMergeDispositionFor(tied, held, false)).toBe("held");
+    expect(decideUsageWindowMerge(tied, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(tied, held, false)).toBe("held");
   });
 });
 

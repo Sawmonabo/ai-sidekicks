@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { sampleGeneralRow, sampleRunRow } from "@test/helpers/timeline-row-samples.js";
-import { askSettledBy, readDriverAsk, type DriverAskReading } from "./question-reading.js";
+import { askSettledBy, readQuestion, type DriverAskReading } from "./question-reading.js";
 
 /** The run every sample row carries, restated so a case can assert it. */
 const SAMPLE_RUN_ID = "01J0000000000000000000000B";
@@ -24,7 +24,7 @@ function askRow(
  * quietly assert `undefined` against `undefined` and pass.
  */
 function readAsk(row: ReturnType<typeof sampleRunRow>): DriverAskReading {
-  const reading = readDriverAsk(row);
+  const reading = readQuestion(row);
   if (reading === undefined) {
     throw new Error(`the sample row ${row.type} produced no ask reading`);
   }
@@ -33,7 +33,7 @@ function readAsk(row: ReturnType<typeof sampleRunRow>): DriverAskReading {
 
 describe("readDriverAsk", () => {
   it("reads the ask's own members wire-verbatim", () => {
-    const ask = readDriverAsk(
+    const ask = readQuestion(
       askRow("driver_ask.requested", {
         prompt: "Which branch should this land on?",
         expiresAt: "2026-09-02T10:05:00.000Z",
@@ -57,21 +57,21 @@ describe("readDriverAsk", () => {
   });
 
   it("names the state from the row's own event type on every arm", () => {
-    expect(readDriverAsk(askRow("driver_ask.responded", { response: "develop" }))?.state).toBe(
+    expect(readQuestion(askRow("driver_ask.responded", { response: "develop" }))?.state).toBe(
       "responded",
     );
-    expect(readDriverAsk(askRow("driver_ask.expired", {}))?.state).toBe("expired");
-    expect(readDriverAsk(askRow("driver_ask.canceled", {}))?.state).toBe("canceled");
+    expect(readQuestion(askRow("driver_ask.expired", {}))?.state).toBe("expired");
+    expect(readQuestion(askRow("driver_ask.canceled", {}))?.state).toBe("canceled");
   });
 
   it("shows a delivered answer only on the row that carries one", () => {
     expect(
-      readDriverAsk(askRow("driver_ask.responded", { response: "develop" }))?.deliveredAnswer,
+      readQuestion(askRow("driver_ask.responded", { response: "develop" }))?.deliveredAnswer,
     ).toBe("develop");
     // A `requested` row carrying a stray `response` is an emitter defect, and the
     // card must not render an answer for an ask that is still open.
     expect(
-      readDriverAsk(askRow("driver_ask.requested", { response: "develop" }))?.deliveredAnswer,
+      readQuestion(askRow("driver_ask.requested", { response: "develop" }))?.deliveredAnswer,
     ).toBeUndefined();
   });
 
@@ -80,7 +80,7 @@ describe("readDriverAsk", () => {
   // decision surface for one approval.
   it("refuses a permission-kind ask", () => {
     expect(
-      readDriverAsk(
+      readQuestion(
         sampleRunRow({
           type: "driver_ask.requested",
           payload: { askId: "ask-02", kind: "permission", prompt: "Run this command?" },
@@ -91,7 +91,7 @@ describe("readDriverAsk", () => {
 
   it("refuses an ask whose kind this build does not know", () => {
     expect(
-      readDriverAsk(
+      readQuestion(
         sampleRunRow({
           type: "driver_ask.requested",
           payload: { askId: "ask-03", kind: "elicit" },
@@ -101,18 +101,18 @@ describe("readDriverAsk", () => {
   });
 
   it("refuses a row of another type entirely", () => {
-    expect(readDriverAsk(sampleRunRow({ type: "assistant.message" }))).toBeUndefined();
-    expect(readDriverAsk(sampleGeneralRow())).toBeUndefined();
+    expect(readQuestion(sampleRunRow({ type: "assistant.message" }))).toBeUndefined();
+    expect(readQuestion(sampleGeneralRow())).toBeUndefined();
   });
 
   it("refuses an ask row carrying no usable identifier", () => {
     expect(
-      readDriverAsk(sampleRunRow({ type: "driver_ask.requested", payload: { kind: "input" } })),
+      readQuestion(sampleRunRow({ type: "driver_ask.requested", payload: { kind: "input" } })),
     ).toBeUndefined();
   });
 
   it("drops an unusable option rather than repairing it, and synthesizes none", () => {
-    const ask = readDriverAsk(
+    const ask = readQuestion(
       askRow("driver_ask.requested", {
         options: [{ label: "no value at all" }, "not an object", { value: "keep-me" }, null],
       }),
@@ -121,8 +121,8 @@ describe("readDriverAsk", () => {
   });
 
   it("reports no options where the ask declared none", () => {
-    expect(readDriverAsk(askRow("driver_ask.requested", {}))?.options).toEqual([]);
-    expect(readDriverAsk(askRow("driver_ask.requested", { options: "develop" }))?.options).toEqual(
+    expect(readQuestion(askRow("driver_ask.requested", {}))?.options).toEqual([]);
+    expect(readQuestion(askRow("driver_ask.requested", { options: "develop" }))?.options).toEqual(
       [],
     );
   });

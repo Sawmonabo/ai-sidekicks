@@ -29,15 +29,15 @@ import type {
 } from "../session/entities/entities.js";
 import { driverAskIdentitySegments } from "../session/waiting-on-person/driver-ask-identity.js";
 import {
-  DRIVER_ASK_EVENT_TYPES,
-  readDriverAskPayload,
+  QUESTION_EVENT_TYPES,
+  readQuestionPayload,
   type DriverAskReading,
-  type DriverAskState,
+  type QuestionState,
   type QuestionSettlement,
 } from "./question-reading.js";
 
 /** A state a question ends in. */
-type SettledQuestionState = Exclude<DriverAskState, "requested">;
+type SettledQuestionState = Exclude<QuestionState, "requested">;
 
 /** One terminal as the entity body holds it, under the member named for its state. */
 interface SettledQuestionRecord {
@@ -58,7 +58,7 @@ const SETTLED_QUESTION_STATES: readonly SettledQuestionState[] = [
  * The request kind is not claimed, so an open question reaches no entity.
  */
 export const QUESTION_SETTLEMENT_PROJECTORS: EntityProjectorRegistry = Object.fromEntries(
-  DRIVER_ASK_EVENT_TYPES.filter((eventType) => eventType !== "driver_ask.requested").map(
+  QUESTION_EVENT_TYPES.filter((eventType) => eventType !== "driver_ask.requested").map(
     (eventType) => [eventType, projectQuestionSettlement],
   ),
 );
@@ -100,7 +100,7 @@ export function findQuestionSettlement(
 /** Fold one terminal into the question it settles. Pure: it reads the event alone. */
 function projectQuestionSettlement(event: ConsoleSessionEvent): readonly EntityMutation[] {
   const payload = event.payload ?? {};
-  const question = readDriverAskPayload(event.kind, payload);
+  const question = readQuestionPayload(event.kind, payload);
   const key =
     question === undefined
       ? undefined

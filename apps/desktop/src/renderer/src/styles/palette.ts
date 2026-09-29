@@ -99,7 +99,7 @@ function oklch(lightness: number, chroma: number, hueDegrees: number): OklchColo
  * `ground` is the window's own field, `surface` a pane's, `surfaceRaised` an
  * overlay's, `surfaceSunken` a well (a code block, an input trough).
  */
-export const SURFACE_TOKENS: Readonly<Record<string, SchemePair>> = {
+export const GROUND_TOKENS: Readonly<Record<string, SchemePair>> = {
   ground: { light: oklch(0.965, 0.003, 255), dark: oklch(0.165, 0.011, 255) },
   surface: { light: oklch(0.995, 0.001, 255), dark: oklch(0.203, 0.013, 255) },
   "surface-raised": { light: oklch(1, 0, 255), dark: oklch(0.246, 0.014, 255) },
@@ -275,28 +275,28 @@ export const ACTOR_HUE_STEPS = 12;
  * band, which is why both schemes clear the floor with comparable headroom
  * (~3.43 light, ~3.37 dark) rather than one of them scraping past.
  */
-export const ACTOR_HUE_LIGHTNESS = 0.57;
+export const HUE_WHEEL_LIGHTNESS = 0.57;
 
 /**
  * Requested chroma for every user hue. Green and cyan cannot hold it in
  * sRGB at this lightness, so those steps are chroma-fitted down; the wheel stays
  * perceptually even in lightness, which is what carries the "one family" reading.
  */
-export const ACTOR_HUE_CHROMA = 0.135;
+export const HUE_WHEEL_CHROMA = 0.135;
 
 /**
  * Hue angle of step 0. Offset off 0° so no user lands on the pure red
  * that the failed-state token owns, which would make identity read as failure at
  * a glance.
  */
-export const ACTOR_HUE_ORIGIN_DEGREES = 20;
+export const HUE_WHEEL_ORIGIN_DEGREES = 20;
 
 /** Degrees between adjacent wheel steps. */
-export const ACTOR_HUE_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
+export const HUE_WHEEL_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
 
 /** The hue angle of a wheel step, in degrees. */
-export function actorHueAngle(step: number): number {
-  return (ACTOR_HUE_ORIGIN_DEGREES + step * ACTOR_HUE_STEP_DEGREES + 360) % 360;
+export function computeHueWheelAngle(step: number): number {
+  return (HUE_WHEEL_ORIGIN_DEGREES + step * HUE_WHEEL_STEP_DEGREES + 360) % 360;
 }
 
 /**

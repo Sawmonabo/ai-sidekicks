@@ -44,7 +44,7 @@ describe("the glyph vocabulary — one closed set of names", () => {
     expect(misnamed).toStrictEqual([]);
   });
 
-  it("carries a rewind and a fold, the two marks the ledger's turn controls need", () => {
+  it("carries a rewind and a fold, the two marks the transcript's turn controls need", () => {
     // Named rather than left to the sweep above, because the sweep holds over
     // whatever the set happens to contain: it would pass just as cleanly on the
     // day one of these was deleted. These two are what a superseded turn and a

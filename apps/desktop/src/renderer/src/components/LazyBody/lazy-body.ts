@@ -61,7 +61,7 @@ export type LazyBodyLoader<TContext extends object> = () => Promise<LazyBodyModu
  * both and a second copy of it keyed on the other board would be one scheduler to keep
  * in step with another.
  */
-export interface LazyBodyBoard<TKey> {
+export interface PreloadableRegistry<TKey> {
   /** Which registered keys still have a body to load, in declaration order. */
   unloadedKeys: () => readonly TKey[];
   /** Start that key's body loading. Idempotent; settles immediately for a loaded one. */

@@ -8,7 +8,7 @@ import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { OpenResource } from "./useSubjectScopedResource.test-support.js";
 
 /** The resource hook, driven through its own door. */
-export function ResourceDetourProbe(props: ResourceProbeProps): ReactElement {
+export function DiscardedRenderResourceProbe(props: ResourceProbeProps): ReactElement {
   const { value, publish } = useSubjectScopedResource<OpenResource>(
     props.subject,
     undefined,

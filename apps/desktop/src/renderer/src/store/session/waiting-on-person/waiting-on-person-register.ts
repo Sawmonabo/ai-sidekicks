@@ -54,7 +54,7 @@ import {
  * settles the request all the same, and an opener that arrives afterwards does not
  * re-open it.
  */
-export interface OutstandingRequestRecord {
+export interface WaitingRequestRecord {
   /** Where the opening event sat, or `undefined` while only a terminal has been seen. */
   readonly openedAtSequence: number | undefined;
   /** Where the newest terminal sat, or `undefined` while none has been seen. */
@@ -62,16 +62,16 @@ export interface OutstandingRequestRecord {
 }
 
 /** One run's newest known state, as the position it was read at and what it means. */
-export interface OutstandingRunRecord {
+export interface WaitingRunRecord {
   readonly atSequence: number;
   /** Whether that state is one a person has to act on. */
   readonly needsAttention: boolean;
 }
 
 /** Everything the register knows, as one immutable reading. */
-export interface OutstandingAskLedger {
-  readonly requestsByKey: ReadonlyMap<string, OutstandingRequestRecord>;
-  readonly runsByRunId: ReadonlyMap<string, OutstandingRunRecord>;
+export interface WaitingOnPersonRecords {
+  readonly requestsByKey: ReadonlyMap<string, WaitingRequestRecord>;
+  readonly runsByRunId: ReadonlyMap<string, WaitingRunRecord>;
   /**
    * Whether requests raised below this window's head exist that were never read here.
    *
@@ -84,7 +84,7 @@ export interface OutstandingAskLedger {
 }
 
 /** What one read establishes about what is outstanding. */
-export interface OutstandingAskSeed {
+export interface WaitingOnPersonSeed {
   readonly entities: readonly ConsoleEntity[];
   /**
    * The sequence the base state is current as of, which is the position every entity it
@@ -106,13 +106,13 @@ export interface OutstandingAskSeed {
  * that change it, and both acts have to be able to admit rows in any order without every
  * caller remembering why.
  */
-export class OutstandingAskJournal {
-  readonly #requestsByKey = new Map<string, OutstandingRequestRecord>();
-  readonly #runsByRunId = new Map<string, OutstandingRunRecord>();
+export class WaitingOnPersonRegister {
+  readonly #requestsByKey = new Map<string, WaitingRequestRecord>();
+  readonly #runsByRunId = new Map<string, WaitingRunRecord>();
   #isWindowHeadUnread = false;
   /** Bumped on every change, so a reader can hold one reading and re-ask cheaply. */
   #revision = 0;
-  #reading: OutstandingAskLedger | undefined;
+  #reading: WaitingOnPersonRecords | undefined;
   #readingRevision = -1;
 
   /**
@@ -123,7 +123,7 @@ export class OutstandingAskJournal {
    * hold. What it does move is the window-head fact, because that is a property of the
    * read that just landed.
    */
-  public seedFrom(seed: OutstandingAskSeed): void {
+  public seedFrom(seed: WaitingOnPersonSeed): void {
     this.#isWindowHeadUnread = seed.windowHeadCursor !== undefined;
     this.#revision += 1;
     for (const entity of seed.entities) {
@@ -152,12 +152,12 @@ export class OutstandingAskJournal {
    * nothing while nothing moved: the maps are copied on the way out, because a reader
    * handed the live ones could watch them change underneath a render.
    */
-  public get ledger(): OutstandingAskLedger {
+  public get ledger(): WaitingOnPersonRecords {
     const reading = this.#reading;
     if (reading !== undefined && this.#readingRevision === this.#revision) {
       return reading;
     }
-    const fresh: OutstandingAskLedger = {
+    const fresh: WaitingOnPersonRecords = {
       requestsByKey: new Map(this.#requestsByKey),
       runsByRunId: new Map(this.#runsByRunId),
       isWindowHeadUnread: this.#isWindowHeadUnread,
@@ -190,7 +190,7 @@ export class OutstandingAskJournal {
     }
   }
 
-  #recordRunState(record: { readonly runId: string } & OutstandingRunRecord): void {
+  #recordRunState(record: { readonly runId: string } & WaitingRunRecord): void {
     const held = this.#runsByRunId.get(record.runId);
     // NEWEST WINS, and equal loses. A row at the seed's own position is one the base
     // state has already folded in, so replaying it would put a run back into the state

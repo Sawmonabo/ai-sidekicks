@@ -26,14 +26,14 @@ import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import {
   DISCARDED_SUBJECT,
-  ResourceLedger,
+  ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
 
 interface RemintProbeProps {
   readonly subject: NamedFixtureSubject;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   /** Whether this caller's `close` is terminal, which is the whole difference. */
   readonly declaresTerminalClose: boolean;
   /** Every value a render read, so the last one is what the subject ended up holding. */
@@ -74,7 +74,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
   it("holds a live resource after React's double-mount, not the one it disposed", () => {
     // The double-mount runs the committed cleanup and then the effect again, against
     // the value that cleanup closed. The subject must be holding something usable.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     render(
       <StrictMode>
@@ -99,7 +99,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     // The behaviour every caller had, and still has where a `close` releases rather
     // than ends. Without it the case above would be satisfied by a fixture that never
     // reached the double-mount teardown at all, and by a hook that had stopped closing.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     render(
       <StrictMode>
@@ -123,7 +123,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     // to a host that has nothing to draw. The lifetime effect depends on the resource
     // alone, so a self-disposal re-runs nothing — and this states that as a claim
     // rather than leaving it as a property of the dependency list.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     const { rerender } = render(
       <RemintProbe
@@ -153,7 +153,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     // The re-mint is about one subject's value ending; it changes nothing about the
     // holder's own rule. A swap — the window handing this surface a different bridge —
     // opens the new subject's resource and retires the old one through the effect.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     const { rerender } = render(
       <RemintProbe

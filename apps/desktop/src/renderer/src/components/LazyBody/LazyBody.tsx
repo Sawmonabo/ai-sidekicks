@@ -17,8 +17,8 @@
 
 import { Suspense, useState } from "react";
 
-import { RevealFocusHandoff } from "./reveal-focus-transfer.js";
-import { LazyBodyFocusHandoff } from "./LazyBodyFocusTransfer.js";
+import { RevealFocusTransfer } from "./reveal-focus-transfer.js";
+import { LazyBodyFocusTransfer } from "./LazyBodyFocusTransfer.js";
 
 export interface LazyBodyProps<TContext extends object> {
   /**
@@ -102,12 +102,12 @@ export function LazyBody<TContext extends object>(
         // once that chrome was already out of the document and focus already lost. First
         // means the teardown reads a document that still holds the focused control.
         <>
-          <LazyBodyFocusHandoff handoff={focusHandoff} phase="reserved" />
+          <LazyBodyFocusTransfer handoff={focusHandoff} phase="reserved" />
           {fallback(context)}
         </>
       }
     >
-      <LazyBodyFocusHandoff handoff={focusHandoff} phase="revealed" />
+      <LazyBodyFocusTransfer handoff={focusHandoff} phase="revealed" />
       <MountedBody {...context} />
     </Suspense>
   );
@@ -126,7 +126,7 @@ interface PinnedBody<TContext extends object> {
   /** The arm this mount renders: the settled body if there was one, else the lazy form. */
   readonly MountedBody: React.ComponentType<TContext>;
   /** The reveal record the reserved side writes and the loaded side reads. */
-  readonly focusHandoff: RevealFocusHandoff;
+  readonly focusHandoff: RevealFocusTransfer;
 }
 
 /** Pin one registration's arm, with the reveal record that belongs to that mount. */
@@ -137,6 +137,6 @@ function pinBody<TContext extends object>(
   return {
     registration: Body,
     MountedBody: resolvedBody ?? Body,
-    focusHandoff: new RevealFocusHandoff(),
+    focusHandoff: new RevealFocusTransfer(),
   };
 }

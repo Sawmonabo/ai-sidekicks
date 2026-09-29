@@ -268,7 +268,7 @@ export {
   /** @consumedBy a refusal that offers the person a way to recover */
   RefusalRecovery,
 } from "@renderer/components/Refusal/RefusalRemedyContent.js";
-export type { RefusalRecoveryCopy } from "@renderer/components/Refusal/refusal-props.js";
+export type { RefusalRecoveryCopy } from "@renderer/lib/refusal-remedies.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families reach these primitives through

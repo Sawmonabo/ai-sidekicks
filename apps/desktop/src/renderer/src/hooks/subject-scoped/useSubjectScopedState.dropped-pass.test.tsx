@@ -45,16 +45,16 @@ import {
   SUBJECT_TWO,
   type NamedFixtureSubject,
 } from "@test/helpers/subject-fixtures.js";
-import { ResourceDetourProbe } from "./DiscardedRenderResourceProbe.test-support.js";
-import { ValueDetourProbe } from "./DiscardedRenderValueProbe.test-support.js";
+import { DiscardedRenderResourceProbe } from "./DiscardedRenderResourceProbe.test-support.js";
+import { DiscardedRenderValueProbe } from "./DiscardedRenderValueProbe.test-support.js";
 import {
-  DETOUR_KEY,
+  DISCARDED_RENDER_KEY,
   type ResourceProbeProps,
   type ValueProbeProps,
 } from "./subject-scoped-probes.test-support.js";
 import {
   DISCARDED_SUBJECT,
-  ResourceLedger,
+  ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
@@ -71,7 +71,7 @@ const PUBLISHED_RESOURCE_NAME = "published";
  */
 function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
   const [holder] = useState(() => new SubjectScopedHolder<string>());
-  holder.address(props.subject, DETOUR_KEY, () => {
+  holder.address(props.subject, DISCARDED_RENDER_KEY, () => {
     props.onSeed();
     return "seed";
   });
@@ -79,7 +79,7 @@ function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
   const read = useCallback(() => holder.value, [holder]);
   const value = useSyncExternalStore(subscribe, read, read);
   const publish = useMemo(
-    () => holder.publisherFor(props.subject, DETOUR_KEY),
+    () => holder.publisherFor(props.subject, DISCARDED_RENDER_KEY),
     [holder, props.subject],
   );
   props.onReady(publish);
@@ -159,10 +159,10 @@ async function driveValueDetour(
 /** What both resource cases drive, and what each is left holding. */
 async function driveResourceDetour(Probe: (props: ResourceProbeProps) => ReactElement): Promise<{
   readonly view: RenderResult;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   readonly publish: (next: OpenResource) => void;
 }> {
-  const ledger = new ResourceLedger();
+  const ledger = new ResourceOpenCloseLog();
   let publishInto: (next: OpenResource) => void = () => {};
   const view = await driveDroppedPass<NamedFixtureSubject>(
     (subject, suspendOn) => (
@@ -197,7 +197,7 @@ describe("useSubjectScopedState — the publisher names the visit on screen", ()
     // it, so the render back at the first subject found the committed addressing
     // already right and re-seeded nothing. That is the whole of what the hook does
     // differently from the arrangement below.
-    const detour = await driveValueDetour(ValueDetourProbe, 2);
+    const detour = await driveValueDetour(DiscardedRenderValueProbe, 2);
     act(() => {
       detour.publish("the answer this visit read");
     });
@@ -223,7 +223,7 @@ describe("useSubjectScopedResource — a dropped publish is an open resource nob
     // The live callers' re-mint arm: a store that closed itself is replaced by
     // publishing a freshly opened one, and that publish has to land or the
     // connection it opened is held by nothing.
-    const detour = await driveResourceDetour(ResourceDetourProbe);
+    const detour = await driveResourceDetour(DiscardedRenderResourceProbe);
     act(() => {
       detour.publish(detour.ledger.open(PUBLISHED_RESOURCE_NAME));
     });

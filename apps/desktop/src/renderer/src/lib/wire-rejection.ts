@@ -59,7 +59,7 @@ import {
   wireFailedBindingsExtension,
   wireRetryExtension,
   withRefusalExtensions,
-  type ConsoleRefusalExtensions,
+  type RefusalExtensions,
   type ExtendedConsoleRefusal,
 } from "./refusal-extensions.js";
 import { refuse } from "./refusal.js";
@@ -196,7 +196,7 @@ interface RefusalMembers {
   readonly code: unknown;
   readonly detail: unknown;
   readonly origin: unknown;
-  readonly extensions: ConsoleRefusalExtensions;
+  readonly extensions: RefusalExtensions;
 }
 
 /** One read per member. The only place a candidate's refusal members are touched. */

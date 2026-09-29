@@ -31,7 +31,7 @@ import {
   GLYPH_VIEWBOX_SIZE,
   type GlyphName,
 } from "@renderer/styles/glyphs.js";
-import { GLYPH_FACES } from "./glyph-icons.js";
+import { GLYPH_ICONS } from "./glyph-icons.js";
 import { Glyph, type GlyphProps } from "./Glyph.js";
 
 /** The share of its own box every face's stroke must occupy. */
@@ -122,9 +122,9 @@ describe("the glyph faces — the map is total over the name set", () => {
     // error. What it cannot say is that a row holds a component rather than
     // `undefined`, which is what an icon specifier that resolved to nothing
     // would leave behind.
-    const undrawn = GLYPH_NAMES.filter((name) => GLYPH_FACES[name] === undefined);
+    const undrawn = GLYPH_NAMES.filter((name) => GLYPH_ICONS[name] === undefined);
     expect(undrawn).toStrictEqual([]);
-    expect(Object.keys(GLYPH_FACES).sort()).toStrictEqual([...GLYPH_NAMES].sort());
+    expect(Object.keys(GLYPH_ICONS).sort()).toStrictEqual([...GLYPH_NAMES].sort());
   });
 
   it("draws from both collections, so neither half of the pairing is empty", () => {

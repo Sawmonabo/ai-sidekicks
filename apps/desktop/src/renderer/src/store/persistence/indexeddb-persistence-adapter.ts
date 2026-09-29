@@ -39,8 +39,8 @@ import {
 import { refusePersistence } from "./persistence-refusals.js";
 
 /** The database this build reads and writes. Bumping the version is a migration. */
-export const CONSOLE_DATABASE_NAME = "sidekicks-console-ui-state";
-export const CONSOLE_DATABASE_VERSION = 1;
+export const CONSOLE_DATABASE_NAME = "sidekicks-ui-state";
+export const UI_STATE_DATABASE_VERSION = 1;
 export const UI_STATE_STORE_NAME = "ui-state";
 
 /** How long the console will wait for a database before rendering without one. */
@@ -55,7 +55,7 @@ export type DatabaseOpenOutcome =
       readonly cause?: unknown;
     };
 
-export interface OpenConsoleDatabaseOptions {
+export interface OpenUiStateDatabaseOptions {
   readonly databaseName?: string;
   readonly openTimeoutMs?: number;
   /**
@@ -252,8 +252,8 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
  * Attempt the durable open. Never throws: the failure modes above are outcomes the
  * caller renders, not exceptions it swallows.
  */
-export async function openConsoleDatabase(
-  options: OpenConsoleDatabaseOptions = {},
+export async function openUiStateDatabase(
+  options: OpenUiStateDatabaseOptions = {},
 ): Promise<DatabaseOpenOutcome> {
   const indexedDbFactory = resolveIndexedDbFactory(options);
   if (indexedDbFactory === undefined) {
@@ -273,7 +273,7 @@ export async function openConsoleDatabase(
   });
 
   try {
-    const opening = openDB<ConsoleDatabaseSchema>(databaseName, CONSOLE_DATABASE_VERSION, {
+    const opening = openDB<ConsoleDatabaseSchema>(databaseName, UI_STATE_DATABASE_VERSION, {
       upgrade(database) {
         const store = database.createObjectStore(UI_STATE_STORE_NAME, {
           keyPath: ["partition", "key"],
@@ -346,7 +346,7 @@ interface ConsoleDatabaseSchema extends DBSchema {
  * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
  * contract rather than a nicety.
  */
-function resolveIndexedDbFactory(options: OpenConsoleDatabaseOptions): IDBFactory | undefined {
+function resolveIndexedDbFactory(options: OpenUiStateDatabaseOptions): IDBFactory | undefined {
   if ("indexedDbFactory" in options) {
     return options.indexedDbFactory;
   }

@@ -103,7 +103,7 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
 const PANE_KIND_GLYPH_SIZE = GLYPH_DEFAULT_SIZE;
 
 /** What one pane's frame needs: its kind, the address it is scoped to, and its body. */
-export interface ConsolePaneChromeProps {
+export interface PaneFrameProps {
   readonly kind: PaneKind;
   /**
    * The id the pane's `<section>` names itself by, minted here when absent.
@@ -164,7 +164,7 @@ export interface ConsolePaneChromeProps {
  * points at the crumb list, whose last crumb is this pane's own name — so the name is
  * "session-1 run-01 Runs" rather than "Runs" for every runs pane in the deck.
  */
-export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Element {
+export function ConsolePaneChrome(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();
   const headingId = props.headingId ?? mintedHeadingId;
   const hostControls = usePaneControls();

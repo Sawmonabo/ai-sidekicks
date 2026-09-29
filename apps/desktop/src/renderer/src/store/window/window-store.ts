@@ -19,11 +19,11 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { ModalSurfaceClaims } from "./modal-dialog-claims.js";
-import { toReadableStore, type ConsoleReadableStore } from "../readable-store.js";
+import { ModalDialogClaims } from "./modal-dialog-claims.js";
+import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import {
   UNREPORTED_SHELL_STATE,
-  shellReportsAreEqual,
+  mainProcessReportsAreEqual,
   type ShellState,
 } from "./main-process-state.js";
 import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
@@ -49,7 +49,7 @@ export interface FrameBanner extends Pick<ConsoleRefusal, "code" | "detail"> {
   readonly dismissible: boolean;
 }
 
-export interface FrameStoreState {
+export interface WindowStoreState {
   readonly route: ConsoleRoute;
   /**
    * The session this window most recently had in hand, kept after the route stops
@@ -91,7 +91,7 @@ export interface FrameStoreState {
    *
    * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped surfaces can be
    * up at once, and while each published this cell directly the first to close cleared
-   * it under the one still open. {@link FrameStore.modalSurfaceClaims} holds the
+   * it under the one still open. {@link FrameStore.modalDialogClaims} holds the
    * claimants and owns the only write; this cell is `size > 0` and nothing else.
    */
   readonly isModalSurfaceOpen: boolean;
@@ -119,16 +119,16 @@ export interface FrameStoreState {
    * frame, the settings pages and the sessions list above it — and a value declared
    * in `frame/` is one none of them may import.
    */
-  readonly shellState: ShellState;
+  readonly mainProcessState: ShellState;
 }
 
-export interface FrameStoreOptions {
+export interface WindowStoreOptions {
   readonly initialRoute?: ConsoleRoute;
   readonly initialSchemePreference?: SchemePreference;
 }
 
 export class FrameStore {
-  readonly #store: StoreApi<FrameStoreState>;
+  readonly #store: StoreApi<WindowStoreState>;
   /**
    * The open modal surfaces this window holds, and the one writer of the cell above.
    *
@@ -136,11 +136,11 @@ export class FrameStore {
    * register and the cell it derives are two halves of one fact, and a caller able to
    * supply a second register could publish into a cell no surface's claim reached.
    */
-  readonly #modalSurfaceClaims: ModalSurfaceClaims;
+  readonly #modalSurfaceClaims: ModalDialogClaims;
 
-  public constructor(options: FrameStoreOptions = {}) {
+  public constructor(options: WindowStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
-    this.#store = createStore<FrameStoreState>(() => ({
+    this.#store = createStore<WindowStoreState>(() => ({
       route: initialRoute,
       // Seeded from the opening route rather than left empty and filled by the
       // first transition: a window opened AT a session has that session in hand on
@@ -152,19 +152,19 @@ export class FrameStore {
       isModalSurfaceOpen: false,
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
-      shellState: UNREPORTED_SHELL_STATE,
+      mainProcessState: UNREPORTED_SHELL_STATE,
     }));
-    this.#modalSurfaceClaims = new ModalSurfaceClaims((isAnyHeld) => {
+    this.#modalSurfaceClaims = new ModalDialogClaims((isAnyHeld) => {
       this.#setModalSurfaceOpen(isAnyHeld);
     });
   }
 
   /** Read-only handle for components. No setter escapes the class. */
-  public get readable(): ConsoleReadableStore<FrameStoreState> {
+  public get readable(): ReadableStore<WindowStoreState> {
     return toReadableStore(this.#store);
   }
 
-  public getState(): FrameStoreState {
+  public getState(): WindowStoreState {
     return this.#store.getState();
   }
 
@@ -210,7 +210,7 @@ export class FrameStore {
    * something a surface HOLDS: `modal-surface-claims.ts` states why the register can
    * add and remove only the caller's own id and offers no clear-all.
    */
-  public get modalSurfaceClaims(): ModalSurfaceClaims {
+  public get modalDialogClaims(): ModalDialogClaims {
     return this.#modalSurfaceClaims;
   }
 
@@ -223,12 +223,12 @@ export class FrameStore {
    * over the connection union in `shell-state.ts`, so a new arm fails to compile there
    * rather than comparing false forever.
    */
-  public publishShellReport(report: ShellState): void {
-    const { shellState } = this.#store.getState();
-    if (shellReportsAreEqual(shellState, report)) {
+  public publishMainProcessReport(report: ShellState): void {
+    const { mainProcessState } = this.#store.getState();
+    if (mainProcessReportsAreEqual(mainProcessState, report)) {
       return;
     }
-    this.#store.setState({ shellState: report });
+    this.#store.setState({ mainProcessState: report });
   }
 
   public setWindowFocused(isWindowFocused: boolean): void {

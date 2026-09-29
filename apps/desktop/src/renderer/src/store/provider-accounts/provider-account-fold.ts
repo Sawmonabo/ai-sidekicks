@@ -91,10 +91,14 @@ export function remainingPercentOf(reading: ProviderQuotaReading): number {
  * not have sent, and the caller records it. Collapsing them would make the second
  * unreportable.
  */
-export const QUOTA_MERGE_DISPOSITIONS = ["seated", "held", "dropped-below-high-water"] as const;
+export const USAGE_WINDOW_MERGE_DISPOSITIONS = [
+  "seated",
+  "held",
+  "dropped-below-high-water",
+] as const;
 
 /** One merge outcome, derived from the tuple above. */
-export type QuotaMergeDisposition = (typeof QUOTA_MERGE_DISPOSITIONS)[number];
+export type UsageWindowMergeDisposition = (typeof USAGE_WINDOW_MERGE_DISPOSITIONS)[number];
 
 /**
  * Which of two readings for one key is current.
@@ -105,11 +109,11 @@ export type QuotaMergeDisposition = (typeof QUOTA_MERGE_DISPOSITIONS)[number];
  * weakest evidence here, so it is consulted last and only when the wire's own ordering
  * key cannot separate the two.
  */
-export function quotaMergeDispositionFor(
+export function decideUsageWindowMerge(
   candidate: ProviderAccountUsageWindow,
   held: ProviderAccountUsageWindow,
   isCandidateLaterArrival: boolean,
-): QuotaMergeDisposition {
+): UsageWindowMergeDisposition {
   if (isSameWindow(candidate, held) && candidate.usedPercent < held.usedPercent) {
     return "dropped-below-high-water";
   }
@@ -188,7 +192,7 @@ export class ProviderQuotaFold {
   }
 
   /** Merge one reading under its `(accountId, limitId)` key, and say what that did. */
-  public mergeWindow(usageWindow: ProviderAccountUsageWindow): QuotaMergeDisposition {
+  public mergeWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
     const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
     const held = this.#windowsByKey.get(key);
     const arrivalOrdinal = this.#nextArrivalOrdinal;
@@ -197,7 +201,7 @@ export class ProviderQuotaFold {
       this.#windowsByKey.set(key, { usageWindow, arrivalOrdinal });
       return "seated";
     }
-    const disposition = quotaMergeDispositionFor(
+    const disposition = decideUsageWindowMerge(
       usageWindow,
       held.usageWindow,
       arrivalOrdinal > held.arrivalOrdinal,
