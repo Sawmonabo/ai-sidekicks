@@ -7,7 +7,7 @@
 // one, and declares it once: three of them do, and a fourth copy of these eight members
 // would be a second answer to "what is the smallest scenario the runtime accepts".
 
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 
 /** The one instant every stand-in starts at, so two of them are ordered by nothing. */
 const STAND_IN_STARTED_AT_ISO = "2026-01-14T11:20:00.000Z";

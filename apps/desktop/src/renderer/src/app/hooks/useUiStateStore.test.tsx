@@ -36,7 +36,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";

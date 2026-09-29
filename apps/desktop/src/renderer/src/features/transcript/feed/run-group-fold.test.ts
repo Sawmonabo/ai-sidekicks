@@ -10,7 +10,7 @@ import { act, renderHook } from "@testing-library/react";
 import { createElement, useCallback, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import {

@@ -12,8 +12,7 @@
 // class rather than about the fixture being noisy.
 
 import { beforeEach, describe, expect, it } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";

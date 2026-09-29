@@ -5,7 +5,7 @@
 
 import { render } from "@testing-library/react";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

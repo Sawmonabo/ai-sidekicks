@@ -10,7 +10,7 @@
 // against a boundary that reads the wrong wire.
 //
 // The envelopes below are written out member by member rather than composed by
-// `bridge/scenario/runtime/envelope.ts`: the composer is what the fixture uses, and a test
+// `event-envelope.fixture.ts`: the composer is what the fixture uses, and a test
 // that fed this boundary the composer's output would prove the two agree with each
 // other and nothing about whether either agrees with the contract.
 

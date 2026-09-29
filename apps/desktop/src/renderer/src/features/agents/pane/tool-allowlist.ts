@@ -40,7 +40,7 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
-import type { AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /**
  * What the resolved configuration says this agent may reach.

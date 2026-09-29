@@ -32,7 +32,7 @@
 // axis of the binding.
 
 import { WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
-import { type AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 import { ResolvedConfigurationEcho } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";

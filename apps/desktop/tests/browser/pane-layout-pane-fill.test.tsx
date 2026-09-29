@@ -40,7 +40,7 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 // the arrangement under test that is not the pane's own.
 import "@renderer/console/terminal/index.js";
 import "@renderer/console/workspace/index.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
 
 /** The deck's own height. Every assertion below is against this one number. */

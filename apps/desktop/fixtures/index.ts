@@ -28,7 +28,7 @@ import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/fl
 import { LEDGER_QUIET_SCENARIO } from "./scenarios/empty-session.js";
 import { LEDGER_SCENARIO } from "@renderer/console/bridge/scenario/ledger/ledger.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "./scenario.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [

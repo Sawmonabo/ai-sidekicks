@@ -32,8 +32,7 @@
 // shell, which is the frame that carries the most: a named holder and a script behind
 // it that reached every ending. A script that ended on a plain free lease would pin
 // the emptiest frame the surface has.
-
-import type { ConsoleScenario } from "../runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 import {
   TERMINAL_SCENARIO_STARTED_AT_ISO,
   terminalLeaseTransitionBeat,

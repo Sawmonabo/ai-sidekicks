@@ -15,8 +15,8 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {

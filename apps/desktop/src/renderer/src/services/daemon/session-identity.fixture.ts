@@ -19,7 +19,7 @@
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
 import type { SessionSummary } from "./session-reads.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 
 /** The subsystem an identity-derivation refusal names as its author. */
 const IDENTITY_ORIGIN = "fixture-session-identity";

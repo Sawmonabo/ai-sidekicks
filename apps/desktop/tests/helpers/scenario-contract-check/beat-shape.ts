@@ -28,8 +28,8 @@
 // declared per EVENT, not per payload — there is no exported payload-only schema to
 // reach for, and the one place the two are paired is inside the discriminated union.
 // So the check presents each beat as the wire event it claims to be. It does not
-// compose that envelope itself: `bridge/scenario/runtime/envelope.ts`
-// composes it, and that is the same function `fixture/call-plane/bridge.ts` delivers through.
+// compose that envelope itself: `services/daemon/event-envelope.fixture.ts`
+// composes it, and that is the same function the fixture daemon delivers through.
 // Two compositions would be two answers to "what does this beat travel as", and this
 // check would then be validating a record no subscriber ever receives — which is the
 // shape of the defect that made the console's decode boundary and the fixture agree
@@ -67,8 +67,8 @@ import {
 
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { describeRunAndQueueSemanticsDefect } from "./run-and-queue-semantics.js";
-import { composeScenarioEventEnvelope } from "@renderer/console/bridge/scenario/runtime/index.js";
-import type { ScenarioBeat } from "@renderer/console/bridge/scenario/runtime/index.js";
+import { composeScenarioEventEnvelope } from "@renderer/services/daemon/event-envelope.fixture.js";
+import type { ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** What is wrong with one beat, or `undefined` when the wire could have emitted it. */
 export function describeBeatDefect(beat: ScenarioBeat): string | undefined {

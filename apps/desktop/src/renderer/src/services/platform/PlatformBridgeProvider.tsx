@@ -21,13 +21,11 @@ import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
 import { BridgeContext, type BridgeResolution } from "./bridge-context.js";
 import { consoleClockFor } from "./hooks/useClock.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
-import {
-  DEFAULT_SCENARIO_ID,
-  ScenarioFixtureControl,
-} from "@renderer/console/bridge/scenario/selection.js";
+import { DEFAULT_SCENARIO_ID } from "@renderer/console/bridge/scenario/selection.js";
+import { ScenarioFixtureControl } from "../daemon/selection.fixture.js";
 
 /** The bridge provider's props. */
 export interface DesktopBridgeProviderProps {

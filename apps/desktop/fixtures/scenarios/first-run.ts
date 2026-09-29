@@ -18,8 +18,7 @@
 // the identifiers are the UUIDs the branded id types declare, and `session.created`
 // carries `{sessionId, config, metadata}` — the registered payload — rather than a
 // title, which its `.strict()` schema rejects.
-
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../scenario.js";
 
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 

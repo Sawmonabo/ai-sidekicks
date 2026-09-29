@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";

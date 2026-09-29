@@ -29,10 +29,7 @@ import {
   type BridgeShape,
 } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
-import {
-  FIXTURE_APP_META,
-  createFixtureBridge,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { FIXTURE_APP_META, createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
 import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";

@@ -7,8 +7,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useTerminalOutputStream, type TerminalOutputStream } from "./useTerminalOutputStream.js";
 

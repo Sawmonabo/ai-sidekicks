@@ -22,7 +22,7 @@ import {
   createFixture,
   lastScriptedBeatMs,
   type FixtureUnderTest,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+} from "@test/helpers/fixture-bridge.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */

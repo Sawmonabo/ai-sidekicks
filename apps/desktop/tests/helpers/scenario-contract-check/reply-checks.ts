@@ -18,7 +18,7 @@
 
 import { CONSOLE_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
 import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 // Wire names the CORPUS registers that this console binds no DAEMON shape for.
 //

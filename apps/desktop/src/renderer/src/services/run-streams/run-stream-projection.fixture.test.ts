@@ -1,6 +1,6 @@
 // The projector's own behaviour, apart from the bridge that calls it.
 //
-// `fixture/call-plane/bridge.run-streams.test.ts` drives this module through a real bridge and
+// `services/daemon/daemon.fixture.run-streams.test.ts` drives this module through a real bridge and
 // a real engine, which is the right way to prove that a subscriber receives the
 // registered payload. It cannot prove two things, though, and they are the two a
 // wrong projector fails at silently:
@@ -25,17 +25,14 @@ import { describe, expect, it } from "vitest";
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import {
-  PROBE_RUN_ID,
-  runTransitionBeat,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { PROBE_RUN_ID, runTransitionBeat } from "@test/helpers/fixture-bridge.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "../daemon/session-event-streams.js";
 
 /** A session the branded schema accepts that is not the one the beats are delivered on. */
 const OTHER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";

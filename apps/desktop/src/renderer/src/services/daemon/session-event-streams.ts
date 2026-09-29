@@ -5,7 +5,7 @@
 // event type, and the two answer differently — a stream delivers a projection of
 // many kinds, an event type delivers only its own. Both sides of that seam read this
 // module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
-// and `fixture/call-plane/subscriptions.ts` has to route by the same table to answer the
+// and `scenario-subscriptions.fixture.ts` has to route by the same table to answer the
 // way the daemon would. Two copies of the rule would let the producer and the
 // consumer drift while every test still passed — which is exactly what happened
 // before this table existed: the fixture recognised one stream name and delivered
@@ -44,13 +44,10 @@
 // saying so. The kind lists carry their own freeze next door, where they are
 // declared.
 
-import type { RunState } from "@ai-sidekicks/contracts";
-
+import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import {
   RUN_QUEUE_STREAM_CARRIED_KINDS,
   RUN_STATE_STREAM_CARRIED_KINDS,
-  readFrozenRecord,
-  runStateStreamArmFor,
 } from "./session-event-stream-kinds.js";
 
 /**
@@ -77,9 +74,6 @@ export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
  * payload.
  */
 export const PRESENCE_EVENT_STREAM = "presence.subscribe";
-
-/** The namespace prefix every run-lifecycle event kind carries. */
-const RUN_EVENT_KIND_PREFIX = "run.";
 
 /**
  * A stream that carries a session's whole event log.
@@ -112,7 +106,7 @@ export interface NarrowedSessionEventStream {
  * It carries no session-event kind: what reaches a subscriber is that the register
  * moved, and the reading comes from the register's own read. A separate scope rather
  * than a narrowed stream with a flag, because the two answer a subscriber differently
- * at the delivery seam — `fixture/call-plane/subscriptions.ts` routes on exactly this
+ * at the delivery seam — `scenario-subscriptions.fixture.ts` routes on exactly this
  * discriminant — and a flag on the narrowed row would have to be read by everything
  * that handles one.
  */
@@ -204,26 +198,4 @@ export function subscriptionDeliversEventKind(
     return false;
   }
   return stream.carriedKinds.includes(eventKind);
-}
-
-/**
- * The run state a state-change kind announces, or `undefined` for any other kind.
- *
- * The one per-kind reading on this side of the seam, and it is here because its
- * readers are the two surfaces that consume a DELIVERED frame — the frame's
- * run-lifecycle projector and the run-stream projection — rather than anything that
- * asks what a stream carries. It reads the arm table next door instead of a second
- * table of its own.
- *
- * Read off the kind rather than out of a table at all: `run.waiting_for_approval`
- * announces `waiting_for_approval`, because the kind IS the prefix plus the state,
- * which is why the arm union could be `Extract`ed with a template literal in the
- * first place. Sound by that record's own key type — every `state-change` row is
- * keyed `run.${RunState}`, and the one key that is not is the `rollback` row this
- * guard excludes.
- */
-export function runStateForTransitionKind(eventKind: string): RunState | undefined {
-  return runStateStreamArmFor(eventKind) === "state-change"
-    ? (eventKind.slice(RUN_EVENT_KIND_PREFIX.length) as RunState)
-    : undefined;
 }

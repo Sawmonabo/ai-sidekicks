@@ -6,13 +6,9 @@
 // suites split on what they assert (one send's ladder, and what repeated sends do);
 // the scaffolding does not split with them, and a second copy is how two files come to
 // script slightly different replies for one wire.
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import {
-  withDaemonCall,
-  type RecordedDaemonCall,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 // The method the SEND names, taken from the module that sends it rather than

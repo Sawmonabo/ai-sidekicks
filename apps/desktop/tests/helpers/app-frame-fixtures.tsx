@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
-import { FIXTURE_APP_META } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { FrameBanner } from "@renderer/store/window/window-store.js";
 import {

@@ -65,26 +65,34 @@
 // rather than one widened sink list is `scenario-delivery.ts`'s to state.
 
 import { ManualClock, type ConsoleClock } from "@renderer/lib/clock.js";
-import {
-  SCENARIO_PENDING_REPLY_CAP,
-  SCENARIO_TICK_MS,
-} from "@renderer/console/core/constants/fixture-caps.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import {
-  HeldReplyQueue,
-  type ScenarioReplyOutcome,
-} from "@renderer/services/daemon/held-reply-queue.fixture.js";
+import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
   ScenarioDelivery,
   type ScenarioSink,
   type ScenarioSubscribeOptions,
-} from "@renderer/services/daemon/event-delivery.fixture.js";
-import type { UnpositionedSessionEvent } from "@renderer/services/daemon/session-log.fixture.js";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
-import type { ConsoleScenario } from "./vocabulary.js";
+} from "./event-delivery.fixture.js";
+import type { UnpositionedSessionEvent } from "./session-log.fixture.js";
+import type { ScenarioReply } from "./scenario-reply.fixture.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+
+/**
+ * The fixture scenario clock's tick, in milliseconds of scenario time. Every scenario's
+ * script is expressed in whole ticks, so a frozen tick names one exact frame and a capture
+ * target is byte-stable.
+ */
+export const SCENARIO_TICK_MS = 50;
+
+/**
+ * Scripted replies the engine holds waiting for the frozen clock. A held reply is one
+ * in-flight request on one surface, so a handful is the whole working set; the clock moves
+ * only when a caller moves it, so past the cap the engine refuses the call rather than
+ * parking it for a driver that will never release any of it.
+ */
+export const SCENARIO_PENDING_REPLY_CAP = 64;
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */
 export interface ScenarioProgress {
@@ -329,7 +337,7 @@ export class ScenarioEngine {
    * Never rejects. The outcome carries the refusal, because the vocabulary a
    * surface renders belongs to the bridge and not to the engine — and that holds
    * for a scripted REFUSAL too: the release says only that the reply came due,
-   * and `fixture/call-plane/bridge.ts` is what turns a due `ScenarioRejectingReply` into a
+   * and `scripted-reply.fixture.ts` is what turns a due `ScenarioRejectingReply` into a
    * rejection. An engine that rejected here would have to know the wire's error
    * shape, which is the bridge boundary's vocabulary and not the playback
    * engine's.

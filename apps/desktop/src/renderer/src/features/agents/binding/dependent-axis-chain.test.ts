@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PROVIDER_AXES } from "@renderer/console/agents/agent-wire.js";
+import { PROVIDER_AXES } from "@renderer/services/wire-shapes/agent-vocabularies.js";
 import { DEPENDENT_AXES, unvouchedAxesOf } from "./dependent-axis-chain.js";
 import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "./driver-catalog.test-support.js";
 

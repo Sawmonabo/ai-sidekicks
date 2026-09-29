@@ -15,10 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
-import type {
-  ConsoleScenario,
-  ScenarioBeat,
-} from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** A session the branded schema accepts that is not the one the flagship's beats travel on. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";

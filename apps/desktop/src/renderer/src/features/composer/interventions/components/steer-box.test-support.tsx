@@ -13,10 +13,7 @@ import type { RunControlCommandRun } from "@renderer/console/runs/pane/controls/
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
 import { RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
 import { useRunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
-import {
-  bridgeAnswering,
-  type RecordedDaemonCall,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 
 /** What the stub answers one intervention with. */
 export type ScriptedAnswer = () => unknown;

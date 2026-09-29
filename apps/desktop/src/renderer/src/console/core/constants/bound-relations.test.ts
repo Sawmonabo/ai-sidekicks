@@ -41,7 +41,10 @@ import {
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
 } from "@renderer/features/repos/diff-caps.js";
-import { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./fixture-caps.js";
+import {
+  SCENARIO_PENDING_REPLY_CAP,
+  SCENARIO_TICK_MS,
+} from "@renderer/services/daemon/engine.fixture.js";
 import {
   LEDGER_EARLIER_PAGE_ROWS,
   LEDGER_PARKED_LEASE_CAP,

@@ -18,22 +18,22 @@
 import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
 
-import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,
   capabilityCallCount,
-  neverRead,
   reportFor,
-  settledRefusalOf,
-} from "@renderer/console/bridge/driver-capabilities/driver-capability-read.test-support.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+} from "./useDriverCapabilities.test-support.js";
 import {
-  useDriverCapabilityRepairRead,
-  type DriverCapabilityReadout,
-} from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+  neverRead,
+  settledRefusalOf,
+} from "@renderer/store/driver-capabilities/driver-capability-readout.test-support.js";
+import { SessionStore } from "@renderer/store/session/session-store.js";
+import { useDriverCapabilityRepairRead } from "./useDriverCapabilityRepairRead.js";
+import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { declaredFlagsForDriver } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
 
 describe("useDriverCapabilities — one read, every consumer", () => {

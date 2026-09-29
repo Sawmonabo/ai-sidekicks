@@ -6,8 +6,7 @@
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {

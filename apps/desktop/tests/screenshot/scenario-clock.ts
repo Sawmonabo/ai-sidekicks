@@ -23,7 +23,7 @@ import { act } from "@testing-library/react";
 
 import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
-import type { ScenarioFixtureHandle } from "@renderer/console/bridge/scenario/selection.js";
+import type { ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
 /**

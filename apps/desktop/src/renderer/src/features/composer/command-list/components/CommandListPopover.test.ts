@@ -29,7 +29,7 @@ import {
   stepIntoList,
   typeIntoLine,
 } from "../command-list.test-support.js";
-import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { recordingBridge } from "../provider-command-enumeration.test-support.js";
 
 describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {

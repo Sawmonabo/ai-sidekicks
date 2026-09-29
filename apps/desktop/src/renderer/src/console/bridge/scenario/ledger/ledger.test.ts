@@ -17,7 +17,7 @@ import { RUN_ARCHITECT_CHILD, RUN_IMPLEMENTER, SUBAGENT_REVIEWER } from "./ledge
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
 import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
-import type { ConsoleScenario, ScenarioBeat } from "../runtime/index.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../../../../../../fixtures/scenario.js";
 // The ledger family's own readers, reached deeply rather than through its door: this
 // is a claim about what THIS SCENARIO reaches, so the three treatments it has to
 // reach are named by the modules that derive them.

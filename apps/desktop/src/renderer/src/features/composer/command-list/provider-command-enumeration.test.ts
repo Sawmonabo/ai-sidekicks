@@ -20,7 +20,7 @@ import {
   recordingBridge,
   targetForAgent,
 } from "./provider-command-enumeration.test-support.js";
-import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
 import { settleEnumeration } from "./provider-command-read.js";

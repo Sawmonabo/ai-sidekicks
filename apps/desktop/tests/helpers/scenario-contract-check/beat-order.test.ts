@@ -16,10 +16,7 @@ import { describe, expect, it } from "vitest";
 import { FIRST_RUN_SCENARIO } from "../../../fixtures/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
-import type {
-  ConsoleScenario,
-  ScenarioBeat,
-} from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 describe("scenario wire truth — the log position a scenario opens at", () => {
   /** The flagship's beats, every position shifted by the same amount. */

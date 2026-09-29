@@ -10,10 +10,7 @@
 // nothing outside it drives these hooks. It dies with the shell, exactly as the two
 // modules it serves do.
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import {
-  bridgeAnswering,
-  type BridgeUnderTest,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.js";
 
 /** A bridge whose one scripted method fails until the case clears the flag. */
 export interface RecoverableBridge {

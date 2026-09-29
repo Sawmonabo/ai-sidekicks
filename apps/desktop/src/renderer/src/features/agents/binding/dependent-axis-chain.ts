@@ -30,7 +30,10 @@
 // Membership is the test rather than presence, because a catalog read can move under
 // a form nobody touched.
 
-import { PROVIDER_AXES, type ProviderAxis } from "@renderer/console/agents/agent-wire.js";
+import {
+  PROVIDER_AXES,
+  type ProviderAxis,
+} from "@renderer/services/wire-shapes/agent-vocabularies.js";
 import {
   catalogCarriesEffortLevel,
   catalogCarriesModel,

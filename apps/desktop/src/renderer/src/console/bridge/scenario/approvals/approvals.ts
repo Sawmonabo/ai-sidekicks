@@ -24,8 +24,7 @@
 // `ApprovalRequestId` are branded ids the contracts declare over UUID values, and a
 // readable `approval-01` also renders at a third of the width a real one does — a
 // design lie in a fixture whose whole job is to be measured.
-
-import type { ConsoleScenario } from "../runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 import {
   SESSION_ID,
   USER_YOU,

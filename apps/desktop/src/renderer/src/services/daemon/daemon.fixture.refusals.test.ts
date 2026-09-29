@@ -28,9 +28,9 @@ import {
   SCRIPTED_LATENCY_MS,
   callThroughBridge,
   createFixture,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+} from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { readWireErrorEnvelope, type WireErrorEnvelope } from "@shared/wire-errors.js";
 

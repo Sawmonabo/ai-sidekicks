@@ -13,8 +13,7 @@
 // than a `session.list` the method registry does not carry. A call this scenario does
 // not answer is refused by name, and each surface renders that refusal where it
 // happened.
-
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../scenario.js";
 
 export const LEDGER_QUIET_SCENARIO_ID = "ledger-quiet";
 

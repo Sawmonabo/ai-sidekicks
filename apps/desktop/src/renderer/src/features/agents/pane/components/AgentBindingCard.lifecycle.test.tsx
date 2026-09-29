@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { AgentCard } from "./AgentBindingCard.js";
 import { formatDateTime } from "@renderer/console/primitives/index.js";
-import type { AgentRosterEntry } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 
 const ATTACHED_AT = "2026-03-04T08:15:00.000Z";
 

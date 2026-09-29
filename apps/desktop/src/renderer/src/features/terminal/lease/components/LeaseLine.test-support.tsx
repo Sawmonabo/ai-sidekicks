@@ -6,8 +6,7 @@
 // reason, and every case renders under a read one unless it is about the other arm.
 
 import { render, type RenderResult } from "@testing-library/react";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";

@@ -11,7 +11,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";

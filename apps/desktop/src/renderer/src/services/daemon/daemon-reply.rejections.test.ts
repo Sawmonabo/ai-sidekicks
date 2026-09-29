@@ -21,10 +21,7 @@ import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "@renderer/lib/
 import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import { callDaemon } from "./daemon-reply.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
-import {
-  bridgeAnswering,
-  createFixture,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
 
 /**
  * The retry bound a refusal carries, read structurally.

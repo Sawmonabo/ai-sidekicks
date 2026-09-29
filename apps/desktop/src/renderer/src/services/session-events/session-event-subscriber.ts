@@ -83,7 +83,7 @@ import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "@shared/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { SESSION_EVENT_STREAM } from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";

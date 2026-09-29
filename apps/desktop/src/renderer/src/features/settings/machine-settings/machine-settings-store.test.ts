@@ -3,9 +3,8 @@
 // opening read and a choice, and between keys.
 
 import { describe, expect, it, vi } from "vitest";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
 import { effectivePreference } from "./machine-settings-snapshot.js";

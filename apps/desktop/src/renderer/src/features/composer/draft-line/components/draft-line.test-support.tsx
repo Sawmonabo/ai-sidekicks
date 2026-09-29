@@ -8,10 +8,7 @@
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  bridgeAnswering,
-  type RecordedDaemonCall,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";

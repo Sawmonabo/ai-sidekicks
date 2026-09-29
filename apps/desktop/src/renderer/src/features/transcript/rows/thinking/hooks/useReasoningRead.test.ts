@@ -20,10 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts";
 
-import {
-  bridgeAnswering,
-  type BridgeUnderTest,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
 import { settle } from "@test/helpers/settle.js";
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "@test/helpers/recoverable-bridge.js";
 import { useReasoningSurfaceRead } from "./useReasoningRead.js";

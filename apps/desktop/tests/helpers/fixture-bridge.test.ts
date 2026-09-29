@@ -21,8 +21,8 @@ import {
   createFixture,
   withDaemonCall,
   type BridgeUnderTest,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+} from "./fixture-bridge.js";
+import type { ConsoleScenario } from "../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 
 /** The flagship script with its one read answered immediately, so no clock is spent. */

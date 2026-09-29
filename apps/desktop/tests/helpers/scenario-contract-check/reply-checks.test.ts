@@ -16,7 +16,7 @@ import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/fl
 import { findScenarioWireTruthDefects } from "./contract-check.js";
 import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 /** A call the flagship scripts no answer for, so a case adds one rather than shadowing one. */
 const PROBE_CALL = "presence.read";

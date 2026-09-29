@@ -24,7 +24,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";

@@ -13,10 +13,7 @@ import { describe, expect, it } from "vitest";
 import { CONSOLE_SCENARIOS } from "../../../fixtures/index.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
-import type {
-  ConsoleScenario,
-  ScenarioBeat,
-} from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";

@@ -3,7 +3,7 @@
 
 import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 /**
  * The log position a scenario's first beat occupies.

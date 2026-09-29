@@ -49,11 +49,10 @@
 import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../../../test/console/console-harness.js";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { unscriptedScenario } from "../fixture-bridge.js";
 import {
   PARKED_RUN,
   PROBE_SESSION_ID,

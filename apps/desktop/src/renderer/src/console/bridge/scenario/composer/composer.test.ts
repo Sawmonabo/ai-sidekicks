@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleScenario } from "../runtime/vocabulary.js";
+import { type ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 import { APPROVALS_SCENARIO } from "../approvals/approvals.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";

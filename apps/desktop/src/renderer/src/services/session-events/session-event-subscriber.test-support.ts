@@ -13,10 +13,9 @@
 // harness records the reasons its read was performed for and counts refusals, which
 // no delivery case needs, and folding both shapes into one builder would give every
 // caller a parameter it passes the same way.
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
+import type { ScenarioEngine } from "../daemon/engine.fixture.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventBinder } from "./session-event-subscriber.js";

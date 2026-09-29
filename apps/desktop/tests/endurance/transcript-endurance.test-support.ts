@@ -37,7 +37,7 @@ import {
   toolActivityEntry,
   type LedgerScriptEntry,
 } from "../../fixtures/data/script-entries.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../fixtures/scenario.js";
 
 export const LEDGER_ENDURANCE_SCENARIO_ID = "ledger-endurance";
 

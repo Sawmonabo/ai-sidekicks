@@ -7,8 +7,7 @@
 // is a property of a call and meaningless for a frame.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-
-import type { ScenarioReply } from "../runtime/index.js";
+import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import { RUN_ID, SESSION_ID } from "./identifiers.js";
 
 /**

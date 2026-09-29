@@ -35,15 +35,15 @@ import {
   lastScriptedBeatMs,
   runTransitionBeat,
   subscribeThroughBridge,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+} from "@test/helpers/fixture-bridge.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;

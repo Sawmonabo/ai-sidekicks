@@ -6,9 +6,8 @@
 
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
   UNREPORTED_SHELL_STATE,

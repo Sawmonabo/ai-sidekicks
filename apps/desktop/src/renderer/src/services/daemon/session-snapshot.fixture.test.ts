@@ -9,9 +9,8 @@
 // its own would be a second source of truth for them.
 
 import { describe, expect, it } from "vitest";
-
-import { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/index.js";
-import { fixtureSessionAnswers } from "@renderer/console/bridge/fixture/session/session-answers.js";
+import { ScenarioEngine } from "./engine.fixture.js";
+import { fixtureSessionAnswers } from "./session-answers.fixture.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.fixture.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import type { SessionSnapshot } from "@renderer/store/session/session-store.js";

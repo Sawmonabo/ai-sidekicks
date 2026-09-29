@@ -13,13 +13,10 @@
 import type { ProviderCommandBindingGroup, RunId } from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  bridgeAnswering,
-  type RecordedDaemonCall,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";

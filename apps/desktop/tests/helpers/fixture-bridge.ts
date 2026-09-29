@@ -14,13 +14,10 @@
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { createFixtureBridge } from "./bridge.js";
-import type {
-  ConsoleScenario,
-  ScenarioBeat,
-  ScenarioEngine,
-} from "../../scenario/runtime/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
+import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
+import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;

@@ -32,7 +32,7 @@
 // what a person writes in a document; no capture tier reads a reference file by it, and
 // a formatter with no caller is a handle nothing is held by.
 
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 
 /** One pinned frame of one scenario: what it is called, and the tick it is taken at. */
 export interface ScenarioFrozenTick {

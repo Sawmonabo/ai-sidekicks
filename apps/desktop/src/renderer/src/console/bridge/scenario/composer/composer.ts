@@ -38,8 +38,7 @@
 // serves the first entry, so a second `driver.listProviderCommands` scripting a
 // refusal would be unreachable rather than conditional. That arm is driven in the
 // command zone's own unit, over a bridge whose scenario refuses this call.
-
-import type { ConsoleScenario } from "../runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,

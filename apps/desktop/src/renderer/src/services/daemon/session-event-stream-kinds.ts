@@ -62,7 +62,14 @@
 // nothing to inject, and nothing for one subscription to change out from under
 // another.
 
-import type { QueueItemState, RunState, SessionEventType } from "@ai-sidekicks/contracts";
+import type { QueueItemState, SessionEventType } from "@ai-sidekicks/contracts";
+
+import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
+import {
+  RUN_STATE_KINDS,
+  runStateForTransitionKind,
+  type RunStateTransitionKind,
+} from "@renderer/store/session-events/run-state-kinds.js";
 
 /**
  * The registered event kinds `run.subscribeState` projects, and the wire arm each
@@ -96,10 +103,9 @@ import type { QueueItemState, RunState, SessionEventType } from "@ai-sidekicks/c
  * there rather than listed, so a run kind that joins or leaves this stream moves
  * across that walk's obligation without anyone editing a second list.
  */
-export type RunStateStreamKind = Extract<
-  SessionEventType,
-  `run.${Exclude<RunState, RunInitialState>}` | "run.rolled_back"
->;
+export type RunStateStreamKind =
+  | RunStateTransitionKind
+  | Extract<SessionEventType, "run.rolled_back">;
 
 /**
  * Which of the stream's two registered arms a kind is projected into.
@@ -112,29 +118,17 @@ export type RunStateStreamKind = Extract<
 export type RunStateStreamArm = "state-change" | "rollback";
 
 /**
- * The run's initial state.
- *
- * The run state machine calls `queued` the state a run is CREATED in, and its
- * complete transition table — the single authoritative reference — names `queued` in
- * the `From` column of three rows and in the `To` column of none. So no
- * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
- * there is no registered state a run could have come from to reach it, and no
- * pre-birth member of the vocabulary to invent one out of.
+ * The stream's arm table, built from the store's run-state kinds: every state change rides
+ * the `state-change` arm, and `run.rolled_back` rides its own.
  */
-type RunInitialState = "queued";
-
-const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<RunStateStreamKind, RunStateStreamArm>> =
-  Object.freeze({
-    "run.starting": "state-change",
-    "run.running": "state-change",
-    "run.waiting_for_approval": "state-change",
-    "run.waiting_for_input": "state-change",
-    "run.paused": "state-change",
-    "run.completed": "state-change",
-    "run.interrupted": "state-change",
-    "run.failed": "state-change",
-    "run.rolled_back": "rollback",
-  } satisfies Record<RunStateStreamKind, RunStateStreamArm>);
+const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<string, RunStateStreamArm>> = Object.freeze(
+  Object.fromEntries<RunStateStreamArm>([
+    ...RUN_STATE_KINDS.filter((kind) => runStateForTransitionKind(kind) !== undefined).map(
+      (kind): [string, RunStateStreamArm] => [kind, "state-change"],
+    ),
+    ["run.rolled_back", "rollback"] satisfies [RunStateStreamKind, RunStateStreamArm],
+  ]),
+);
 
 /**
  * The registered event kinds `run.subscribeQueue` projects, and the queue state
@@ -195,27 +189,4 @@ export function runStateStreamArmFor(eventKind: string): RunStateStreamArm | und
  */
 export function runQueueStreamStateFor(eventKind: string): QueueItemState | undefined {
   return readFrozenRecord(RUN_QUEUE_STREAM_STATE_BY_KIND, eventKind);
-}
-
-/**
- * One row of a keyed table, looked up by a wire-verbatim string.
- *
- * `Object.hasOwn` rather than a bare indexed read, and one helper rather than the
- * same widened-view dance written out at each call site: the argument is a string
- * that arrived off the wire, so `"constructor"` and `"toString"` reach these lookups
- * exactly as a real kind does, and an indexed read would answer one of them with
- * something off `Object.prototype` — a truthy value where the caller is asking
- * whether the table has a row at all.
- *
- * Exported for the one caller outside this file, `session-event-streams.ts`, which
- * asks the same question of the subscription table it keys by NAME. Both halves of
- * this seam are looked up by a string a subscriber supplied, so writing the guard
- * twice would be two spellings of one rule — and the second spelling is the one that
- * forgets the prototype.
- */
-export function readFrozenRecord<Row>(
-  table: Readonly<Record<string, Row>>,
-  key: string,
-): Row | undefined {
-  return Object.hasOwn(table, key) ? table[key] : undefined;
 }

@@ -26,12 +26,12 @@
 //
 // WHAT IS NOT HERE. Teardown — the disposed engine's dropped ticks, its abandoned
 // replies, and the advance sink it stops calling — is `failure-modes.test.ts`'s, and
-// the scripted-latency queue is `fixture/call-plane/bridge.latency.test.ts`'s.
+// the scripted-latency queue is `daemon.fixture.latency.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
-import { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import { ScenarioEngine } from "./engine.fixture.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";

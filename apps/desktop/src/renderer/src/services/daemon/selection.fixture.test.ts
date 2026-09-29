@@ -6,9 +6,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SCENARIO_FIXTURE_GLOBAL, ScenarioFixtureControl } from "./selection.js";
-import { ScenarioEngine } from "./runtime/engine.js";
-import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./flagship/flagship.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
+import { ScenarioFixtureControl } from "./selection.fixture.js";
+import { ScenarioEngine } from "./engine.fixture.js";
+import {
+  FLAGSHIP_SCENARIO,
+  FLAGSHIP_SCENARIO_ID,
+} from "@renderer/console/bridge/scenario/flagship/flagship.js";
 
 describe("ScenarioFixtureControl — the handle a driver holds", () => {
   it("names the scenario its engine is playing", () => {

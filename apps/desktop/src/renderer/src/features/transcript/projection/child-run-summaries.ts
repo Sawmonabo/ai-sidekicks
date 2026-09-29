@@ -53,8 +53,7 @@
 // is one row per child run and is stated here rather than discovered from a profile.
 
 import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
-
-import { runStateForTransitionKind } from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";

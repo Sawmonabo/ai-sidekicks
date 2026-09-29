@@ -33,7 +33,7 @@ import type {
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
-import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */

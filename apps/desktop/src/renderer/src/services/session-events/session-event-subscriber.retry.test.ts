@@ -18,10 +18,10 @@ import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
-import { withDaemonSubscribe } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
+import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
+import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";

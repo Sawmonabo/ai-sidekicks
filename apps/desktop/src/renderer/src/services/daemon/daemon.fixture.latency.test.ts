@@ -26,12 +26,12 @@ import {
   callThroughBridge,
   createFixture,
   subscribeThroughBridge,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+} from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
+import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import { SESSION_EVENT_STREAM } from "@renderer/console/bridge/daemon/session-event-streams.js";
-import { SCENARIO_PENDING_REPLY_CAP } from "@renderer/console/core/constants/fixture-caps.js";
+import { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+import { SCENARIO_PENDING_REPLY_CAP } from "./engine.fixture.js";
 
 /** The flagship script, re-scripted so its one read carries a latency. */
 function scenarioWithDelayedReply(afterMs: number): ConsoleScenario {

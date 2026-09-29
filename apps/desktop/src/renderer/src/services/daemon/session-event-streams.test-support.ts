@@ -23,7 +23,7 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekick
 import {
   sessionEventStreamFor,
   type ConsoleSessionEventStreamName,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 
 /** The registered forward, non-state rollback row — the state stream's second arm. */
 export const ROLLED_BACK_KIND = "run.rolled_back";

@@ -8,7 +8,7 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";

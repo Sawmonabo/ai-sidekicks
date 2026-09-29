@@ -16,8 +16,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import type { FilePathRef } from "@shared/preload-api.js";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";

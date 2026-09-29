@@ -57,7 +57,7 @@ import { findBeatOrderDefects } from "./beat-order.js";
 import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
 import { describeCallerDefect } from "./caller-defects.js";
 import { findReplyDefects } from "./reply-checks.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 export type { ScenarioWireTruthDefect };
 

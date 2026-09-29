@@ -1,19 +1,14 @@
 // What both halves of the capability suite build their cases out of.
 //
-// The read's cases and the pure readers' cases were one file, and the fixtures they
-// share are the reason it could be split at all: a driver's report, the counting
-// bridge that answers it, the probe that consumes the hook, and the two readings that
-// stand for "nothing was read". Written once so the two files cannot drift into
+// A driver's report, the counting bridge that answers it, and the probe that consumes the
+// hook, written once so the read's cases and the pure readers' cases cannot drift into
 // disagreeing about what a report looks like.
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-import {
-  bridgeAnswering,
-  type RecordedDaemonCall,
-} from "../fixture/call-plane/bridge.test-support.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useDriverCapabilities, type DriverCapabilityReadout } from "./driver-capability-read.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import { useDriverCapabilities } from "./useDriverCapabilities.js";
+import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 export interface CountingBridge {
   readonly bridge: ConsoleBridge;
@@ -72,17 +67,4 @@ export function CapabilityProbe(props: {
   const readout = useDriverCapabilities(props.bridge);
   props.onReadout(readout);
   return <span />;
-}
-
-/** The refusal a settled reading carries, or a failure naming what was found instead. */
-export function settledRefusalOf(readout: DriverCapabilityReadout | undefined): ConsoleRefusal {
-  if (readout?.readRefusal === undefined) {
-    throw new Error("the capability read settled without the refusal the case is about");
-  }
-  return readout.readRefusal;
-}
-
-/** A reading no read produces, so a probe whose callback never ran fails loudly. */
-export function neverRead(): DriverCapabilityReadout {
-  return { flagsByDriverName: new Map(), driverNameByRunId: new Map(), readRefusal: undefined };
 }

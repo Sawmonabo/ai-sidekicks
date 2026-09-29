@@ -18,7 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TERMINAL_SCENARIO } from "./terminal/terminal.js";
-import type { ScenarioBeat } from "./runtime/index.js";
+import type { ScenarioBeat } from "../../../../../../fixtures/scenario.js";
 
 describe("the terminal scenario ends held", () => {
   /** Who holds the lease once these beats have played, or `null` for a free one. */

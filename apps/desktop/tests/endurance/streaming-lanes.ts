@@ -35,8 +35,7 @@
 // test is this module's guess at it.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
-
-import type { ScenarioBeat } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ScenarioBeat } from "../../fixtures/scenario.js";
 
 /**
  * The most lanes this script has streaming at one time, within the given beat range.

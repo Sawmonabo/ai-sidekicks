@@ -27,7 +27,7 @@ import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
 import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
 import { type ConsoleBridge } from "./platform-bridge.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";

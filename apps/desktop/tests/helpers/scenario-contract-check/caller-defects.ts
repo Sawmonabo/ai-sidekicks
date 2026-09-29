@@ -4,7 +4,7 @@
 // anything wrong — which is why a predicate has to hold every scenario to it.
 
 import type { ScenarioWireTruthDefect } from "./scenario-contract-defect.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../fixtures/scenario.js";
 
 /**
  * A stated caller who is not in the session, or `undefined` when the scenario is sound.

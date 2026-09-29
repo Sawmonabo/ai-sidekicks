@@ -92,7 +92,7 @@ import {
   STARTED_AT_ISO,
 } from "./flagship-cast.js";
 import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
-import type { ConsoleScenario } from "../runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
 

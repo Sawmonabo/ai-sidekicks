@@ -4,15 +4,12 @@
 
 import { AgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
 import type { AgentConsoleCalls } from "../../agent-reads.js";
-import {
-  unscriptedScenario,
-  withDaemonCall,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import {
   type AgentRosterReading,
   type ChildRunLinkReading,
-} from "@renderer/console/bridge/wire-shapes/agent-plane.js";
+} from "@renderer/services/wire-shapes/agents.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 

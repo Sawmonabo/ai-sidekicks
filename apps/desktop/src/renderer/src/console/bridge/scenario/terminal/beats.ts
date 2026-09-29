@@ -23,8 +23,7 @@
 // the value a hand-written table would have held: a v7 id minted one beat after
 // another differs in its tail and nowhere else. The beats state their `sequence`
 // already, so the tail is read from there rather than written again.
-
-import type { ScenarioBeat } from "../runtime/index.js";
+import type { ScenarioBeat } from "../../../../../../../fixtures/scenario.js";
 import { TERMINAL_SCENARIO_SESSION_ID } from "./cast.js";
 
 /**

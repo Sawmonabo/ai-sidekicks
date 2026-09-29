@@ -3,8 +3,7 @@
 // produce.
 
 import { render } from "@testing-library/react";
-
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";

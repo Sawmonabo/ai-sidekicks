@@ -37,12 +37,9 @@ import {
   createFixture,
   lastScriptedBeatMs,
   subscribeThroughBridge,
-} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+} from "@test/helpers/fixture-bridge.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import {
-  RUN_STATE_EVENT_STREAM,
-  SESSION_EVENT_STREAM,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;

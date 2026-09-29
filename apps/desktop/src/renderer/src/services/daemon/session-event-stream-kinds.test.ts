@@ -34,7 +34,7 @@ import {
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
   subscriptionDeliversEventKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 import {
   ROLLED_BACK_KIND,
   carriedKindsOf,

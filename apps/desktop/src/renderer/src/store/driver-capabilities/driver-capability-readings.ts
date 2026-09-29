@@ -1,13 +1,10 @@
 // The pure readers over one capability readout: which driver a run is bound to, and
 // what this build knows about one flag on it.
 //
-// NONE OF THEM PERFORMS A READ, which is the whole reason they are not in
-// `driver-capability-read.ts` beside the wire. That module owns one call per bridge,
-// the scheduler that refreshes it, the cache that shares it, and the two hooks that
-// wire its triggers — a subject whose cases need a bridge, a frozen clock, and a
-// mounted probe. These need a `Map`. `driver-capability-readings.test.ts` had already
-// been split off for exactly that reason and was driving symbols that still lived
-// next door; this is the other half of that split.
+// NONE OF THEM PERFORMS A READ. `services/driver-capabilities/` owns the one call per
+// bridge, the scheduler that refreshes it, the cache that shares it, and the two hooks that
+// wire its triggers — a subject whose cases need a bridge, a frozen clock, and a mounted
+// probe. These need a `Map`.
 //
 // THE READOUT IS THE PARAMETER AND NEVER A DEPENDENCY. Every function here takes the
 // readout it answers about, so the direction of the import is one-way — the wire does
@@ -17,11 +14,7 @@
 // reading vocabulary below exists to keep apart.
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-
-import type {
-  DeclaredDriverFlags,
-  DriverCapabilityReadout,
-} from "@renderer/console/bridge/driver-capabilities/driver-capability-read.js";
+import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 
 /**
  * The node's declarations, joined to one session's run-to-driver bindings.

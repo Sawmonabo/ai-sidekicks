@@ -7,11 +7,11 @@
 
 import { render } from "@testing-library/react";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { USER_YOU } from "@renderer/console/bridge/scenario/flagship/flagship-cast.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
-import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
 
 export const SESSION_ID = "session-cast";
 

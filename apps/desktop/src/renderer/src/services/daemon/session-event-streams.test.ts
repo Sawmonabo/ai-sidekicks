@@ -23,7 +23,7 @@ import {
   SESSION_EVENT_STREAM,
   sessionEventStreamFor,
   subscriptionDeliversEventKind,
-} from "@renderer/console/bridge/daemon/session-event-streams.js";
+} from "./session-event-streams.js";
 import {
   EVERY_REGISTERED_EVENT_KIND,
   ROLLED_BACK_KIND,

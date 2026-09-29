@@ -41,7 +41,7 @@ import type { ReactElement } from "react";
 import { renderSettled } from "../../../test/console/console-harness.js";
 
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";

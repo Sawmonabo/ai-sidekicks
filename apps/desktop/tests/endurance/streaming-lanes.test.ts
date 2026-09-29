@@ -13,7 +13,7 @@ import {
   FLAGSHIP_SCENARIO,
 } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import type { ScenarioBeat } from "@renderer/console/bridge/scenario/runtime/index.js";
+import type { ScenarioBeat } from "../../fixtures/scenario.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 

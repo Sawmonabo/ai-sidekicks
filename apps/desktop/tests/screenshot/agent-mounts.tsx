@@ -31,8 +31,8 @@ import {
 import { agentConsolePaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
 import type { AgentConsoleCalls } from "@renderer/features/agents/agent-reads.js";
-import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { unscriptedScenario } from "../helpers/fixture-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
