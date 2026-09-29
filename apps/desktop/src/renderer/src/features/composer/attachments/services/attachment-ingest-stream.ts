@@ -2,7 +2,7 @@
 // the ledger entry the stream is about.
 //
 // SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM BETWEEN AN ACT AND A WIRE. That
-// module owns what a user's act does to the carrier's record — attach, retry,
+// module owns what a user's act does to the staged list's record — attach, retry,
 // abandon, remove — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
@@ -51,7 +51,7 @@ export interface AttachmentIngestStreamDriverOptions {
   readonly port: IngestLegs;
   readonly sessionId: SessionId;
   readonly clock: Clock;
-  /** The carrier's own record. Written here, owned next door. */
+  /** The staged list's own record. Written here, owned next door. */
   readonly ledger: AttachmentIngestEntries;
   /** Where a spool this driver opened and could not reach the ledger with is given back. */
   readonly reclaimer: AttachmentSpoolReclaimer;

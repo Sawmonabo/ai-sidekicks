@@ -2,7 +2,7 @@
 //
 // A CHIP AND NOT A CARD, which is the composer's density rather than a lesser version
 // of the artifact pane's row: name, type, and size in one line with progress inline, so
-// a carrier of several does not push the message input off the bottom of the workspace.
+// a staged list of several does not push the message input off the bottom of the workspace.
 // The pane's card is where an upload is READ; this is where it is watched while a
 // person keeps typing.
 //
@@ -51,7 +51,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         <WireFigure value={chip.sizeText} title={chip.sizeTitle} />
         <Chip label={chip.state} mono tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
-          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE, so a carrier of several
+          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE, so a staged list of several
           // announces several distinct bars. `value` and `max` carry the amount, as a
           // fraction of the declaration; the name says whose.
           <progress

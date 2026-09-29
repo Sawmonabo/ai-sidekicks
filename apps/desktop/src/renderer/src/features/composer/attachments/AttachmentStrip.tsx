@@ -4,7 +4,7 @@
 // attachment surface, and an empty row reserving space would be a permanent reminder of a
 // thing nobody has done.
 //
-// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole carrier at
+// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole staged list at
 // acceptance and the bound is operator-tunable, so the running count is a figure a person
 // reads and never a gate this strip closes: the eleventh file is handed to the daemon
 // exactly as the first is.
@@ -21,7 +21,7 @@ import { composeSendAttachmentReference } from "./send-attachment-reference.js";
 
 import "./AttachmentStrip.css";
 
-/** What the strip reads: the session's attachment carrier, and whether a file is being dragged. */
+/** What the strip reads: the session's staged attachments, and whether a file is being dragged. */
 export interface AttachmentStripProps {
   readonly stagedAttachments: StagedAttachmentsBinding;
   /** True while a file drag is over the composer, so the strip can say it will land. */

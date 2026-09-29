@@ -1,4 +1,4 @@
-// The console's own body for the human-form slot: the phase's prompt, the controls its
+// The console's own body for the human-form mount point: the phase's prompt, the controls its
 // schema draws, and the one act that sends them.
 //
 // IT IS ONLY THE COMPOSITION. Everything a body could get WRONG is the channel's and reaches
@@ -25,7 +25,7 @@ import type { HumanFormMount } from "./human-form-mount.js";
 /**
  * The waiting phase's form: its prompt, the controls its schema draws, and the submit.
  *
- * Props are the mount itself, because that is what a slot body IS — the channel renders it
+ * Props are the mount itself, because that is what a mount point body IS — the channel renders it
  * with the mount spread over it, so a body that took a wrapper object would not be one.
  *
  * MOUNTED THROUGH THE SEAT'S LOADER AND NOT AS AN ELEMENT, because the schema form kit

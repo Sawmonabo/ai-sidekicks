@@ -1,8 +1,8 @@
-// The two workflow-engine slots the builder mounts, checked on the two things a slot owes.
+// The two workflow-engine mount points the builder mounts, checked on the two things a mount point owes.
 //
 //   1. **The frame stands while nobody has filled it**, and holds nothing — no copy and
 //      no shape that reads as a broken one.
-//   2. **The mount obligation is delivered.** A slot's props type is a promise
+//   2. **The mount obligation is delivered.** A mount point's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose. Each
 //      case below supplies a body and reads back exactly what arrived.
 //
@@ -37,7 +37,7 @@ function unopenedUiStateStore(): UiStateStore {
   return new UiStateStore({ adapter: new Promise(() => undefined) });
 }
 
-/** Every slot's unfilled rendering, as one table so a third cannot skip a case. */
+/** Every mount point's unfilled rendering, as one table so a third cannot skip a case. */
 function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
   return [
     [
@@ -59,7 +59,7 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
   ];
 }
 
-describe("an unfilled builder slot is an empty frame", () => {
+describe("an unfilled builder mount point is an empty frame", () => {
   it.each(unfilledSlots())("%s stands as its own frame and holds nothing", (_name, element) => {
     const { container } = render(element);
     const frames = container.querySelectorAll(".meridian-workflow__mount-point");
@@ -69,7 +69,7 @@ describe("an unfilled builder slot is an empty frame", () => {
   });
 });
 
-describe("a filled builder slot receives exactly what the mount promised", () => {
+describe("a filled builder mount point receives exactly what the mount promised", () => {
   it("hands the node graph the definition and the durable store, and no draft store", () => {
     const uiStateStore = unopenedUiStateStore();
     const body = vi.fn((_mount: NodeGraphMount) => <p>canvas body</p>);

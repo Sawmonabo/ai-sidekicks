@@ -24,7 +24,7 @@
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { PALETTE_RECENTS_CAP } from "@renderer/styles/palette.js";
+import { COMMAND_PALETTE_RECENTS_CAP } from "./command-palette-caps.js";
 import type { CommandDefinition } from "./command-types.js";
 import {
   compareCommandsForDisplay,
@@ -173,8 +173,8 @@ export class CommandRegistry {
       this.#recentCommandIds.splice(existingIndex, 1);
     }
     this.#recentCommandIds.unshift(commandId);
-    if (this.#recentCommandIds.length > PALETTE_RECENTS_CAP) {
-      this.#recentCommandIds.length = PALETTE_RECENTS_CAP;
+    if (this.#recentCommandIds.length > COMMAND_PALETTE_RECENTS_CAP) {
+      this.#recentCommandIds.length = COMMAND_PALETTE_RECENTS_CAP;
     }
   }
 

@@ -132,7 +132,7 @@ describe("a row body reading its lane", () => {
     expect(probeFor(mounted.container, SECOND_LANE).textContent).toBe("");
   });
 
-  it("renders nothing at all outside a ledger, rather than refusing to mount", () => {
+  it("renders nothing at all outside a transcript, rather than refusing to mount", () => {
     // The lease channel throws here and is right to: a discarded write looks like a
     // row that will not open. An absent reveal channel is the ordinary state of every
     // row in a settled log, so it answers rather than refuses.

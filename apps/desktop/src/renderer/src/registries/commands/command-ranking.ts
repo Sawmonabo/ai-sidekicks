@@ -12,7 +12,7 @@
 // below is type-only and erased, so the runtime edge runs one way: the registry
 // reaches down here, and nothing here reaches back.
 
-import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
+import { COMMAND_PALETTE_RESULT_CAP } from "./command-palette-caps.js";
 import type { CommandDefinition } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
@@ -165,7 +165,7 @@ export function rankCommandsForQuery(
   }
 
   results.sort(compareCommandSearchResults);
-  return results.slice(0, PALETTE_RESULT_CAP);
+  return results.slice(0, COMMAND_PALETTE_RESULT_CAP);
 }
 
 /**
@@ -198,7 +198,7 @@ export function rankCommandsForEmptyQuery(
   // `visibleCommands` already arrives in group-then-title order, so the
   // remainder needs no second sort — and must not get one, or the categories
   // would reshuffle between an empty query and a cleared query.
-  return [...recentResults, ...remainingResults].slice(0, PALETTE_RESULT_CAP);
+  return [...recentResults, ...remainingResults].slice(0, COMMAND_PALETTE_RESULT_CAP);
 }
 
 function compareStrings(left: string, right: string): number {

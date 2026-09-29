@@ -48,7 +48,7 @@ function log(count: number): ProjectedSessionEvent[] {
 
 const LOG_ENTRY_COUNT = 4;
 
-describe("the ledger window's row retention", () => {
+describe("the transcript window's row retention", () => {
   it("publishes the same row objects when the log gained an entry and nothing else moved", () => {
     const retention = new TranscriptRowRetention();
     // ONE array of entries, appended to — which is what the store actually holds: it

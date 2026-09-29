@@ -1,7 +1,7 @@
-// The attachment reference a message could carry, folded from the carrier's ledger.
+// The attachment reference a message could carry, folded from the staged list's ledger.
 //
 // AN ATTACHMENT REFERENCE IS AN ORDERED LIST OF ARTIFACT IDS AND NEVER BYTES, in the
-// user's own order: this fold reads the carrier's ledger as published and never sorts,
+// user's own order: this fold reads the staged list's ledger as published and never sorts,
 // groups, or de-duplicates. The ledger is the record, and a second ordering here would be
 // a second answer to which attachment is first.
 //
@@ -12,7 +12,7 @@
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /**
- * What this carrier would put on a send.
+ * What this staged list would put on a send.
  *
  * A discriminated union rather than a list plus a flag: "nothing is attached" and
  * "something is attached, settled or not" are different facts, and a surface that read
@@ -28,7 +28,7 @@ export type SendAttachmentReference =
       readonly unsettledCount: number;
     };
 
-/** The artifact ids the carrier's settled attachments minted, and how many are not settled. */
+/** The artifact ids the staged list's settled attachments minted, and how many are not settled. */
 export function composeSendAttachmentReference(
   entries: readonly AttachmentIngestEntry[],
 ): SendAttachmentReference {
@@ -41,7 +41,7 @@ export function composeSendAttachmentReference(
     const artifactId = entry.derived?.artifactId;
     if (artifactId === undefined) {
       // `abandoned` is deliberately counted here with `declared`, `ingesting`, and
-      // `refused`: a person who cancelled has still left a chip on the carrier, and a
+      // `refused`: a person who cancelled has still left a chip on the staged list, and a
       // count that excluded it would disagree with what is on screen.
       unsettledCount += 1;
       continue;

@@ -27,8 +27,8 @@ function namedActs(name: string, fired: string[]): TranscriptActs {
   };
 }
 
-describe("mounted ledger — which feed an act reaches", () => {
-  it("performs on the mounted ledger and says so", () => {
+describe("mounted transcript — which feed an act reaches", () => {
+  it("performs on the mounted transcript and says so", () => {
     const fired: string[] = [];
     const seat = new MountedTranscript();
     seat.adopt(namedActs("pane", fired));
@@ -80,7 +80,7 @@ describe("mounted ledger — which feed an act reaches", () => {
   });
 });
 
-describe("mounted ledger — a component holds the seat for its lifetime", () => {
+describe("mounted transcript — a component holds the seat for its lifetime", () => {
   /** A stand-in for the feed: it holds the seat and renders nothing. */
   function LedgerMountProbe(props: {
     readonly name: string;

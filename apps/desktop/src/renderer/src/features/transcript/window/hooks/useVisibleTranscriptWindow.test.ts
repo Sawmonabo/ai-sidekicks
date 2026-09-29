@@ -40,7 +40,7 @@ function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof us
   });
 }
 
-describe("the visible ledger window", () => {
+describe("the visible transcript window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
     const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);

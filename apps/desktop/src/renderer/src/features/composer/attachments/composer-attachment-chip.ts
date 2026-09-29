@@ -1,4 +1,4 @@
-// What one attachment chip says, folded from the entry the carrier published.
+// What one attachment chip says, folded from the entry the staged list published.
 //
 // A FOLD AND NOT A COMPONENT, so the sentence a chip carries is drivable from a test
 // with no DOM and the render below it is a render. Everything here is derived from one
@@ -82,7 +82,7 @@ export interface ComposerAttachmentRefusal {
  *
  * Total over every state: there is no entry this returns nothing for, because a chip
  * that vanished on a state nobody had thought about would drop an attachment from the
- * carrier without saying so.
+ * staged list without saying so.
  */
 export function composerAttachmentChip(
   entry: AttachmentIngestEntry,

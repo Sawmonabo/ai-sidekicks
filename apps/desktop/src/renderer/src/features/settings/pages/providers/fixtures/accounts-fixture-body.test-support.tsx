@@ -22,7 +22,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
   AccountsFixtureBody,
-  type AccountRegistryReading,
+  type AccountListReading,
   type AccountsShellOperations,
 } from "./AccountsFixtureBody.js";
 
@@ -30,7 +30,7 @@ import {
 export interface MountedShell {
   readonly container: HTMLElement;
   /** Re-render the same mount with another registry reading. */
-  readonly showRegistry: (registry: AccountRegistryReading) => void;
+  readonly showRegistry: (registry: AccountListReading) => void;
   /** Called each time the shell asks for a fresh registry read. */
   readonly requestRegistryRead: ReturnType<typeof vi.fn<() => void>>;
 }
@@ -121,7 +121,7 @@ const READINESS: readonly ProviderReadiness[] = [
 ];
 
 /** A registry that has answered: three accounts, two providers, four stored readings. */
-export const ACCOUNT_REGISTRY: AccountRegistryReading = {
+export const ACCOUNT_REGISTRY: AccountListReading = {
   phase: "read",
   accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT],
   readiness: READINESS,
@@ -140,7 +140,7 @@ export const ACCOUNT_REGISTRY: AccountRegistryReading = {
 };
 
 /** A registry whose first read has not landed. */
-export const UNREAD_ACCOUNT_REGISTRY: AccountRegistryReading = {
+export const UNREAD_ACCOUNT_REGISTRY: AccountListReading = {
   phase: "reading",
   accounts: [],
   readiness: [],
@@ -149,7 +149,7 @@ export const UNREAD_ACCOUNT_REGISTRY: AccountRegistryReading = {
 };
 
 /** The registry, reporting the brokered attempt with this id finished. */
-export function registryReportingCompleted(attemptId: string): AccountRegistryReading {
+export function registryReportingCompleted(attemptId: string): AccountListReading {
   return {
     ...ACCOUNT_REGISTRY,
     newestLoginCompletion: {
@@ -168,7 +168,7 @@ export function registryReportingCompleted(attemptId: string): AccountRegistryRe
  * a re-render does not rebuild the sign-in plane.
  */
 export function mountShell(options: {
-  readonly registry: AccountRegistryReading;
+  readonly registry: AccountListReading;
   readonly operations?: Partial<AccountsShellOperations>;
 }): MountedShell {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
@@ -179,7 +179,7 @@ export function mountShell(options: {
     ...options.operations,
   };
   const requestRegistryRead = vi.fn<() => void>();
-  const tree = (registry: AccountRegistryReading): React.JSX.Element => (
+  const tree = (registry: AccountListReading): React.JSX.Element => (
     <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <AccountsFixtureBody

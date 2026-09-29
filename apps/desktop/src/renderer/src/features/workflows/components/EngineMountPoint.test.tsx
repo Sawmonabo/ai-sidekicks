@@ -1,4 +1,4 @@
-// The one composition every slot in this family goes through: whether a body is present,
+// The one composition every mount point in this family goes through: whether a body is present,
 // whether the mount obligation could be met, and how the body becomes a subtree. The
 // wrappers' own suites assert what each of them promises its body; these cases assert
 // what the mount does with a body and a promise once it has them.
@@ -13,7 +13,7 @@ interface ProbeMount {
   readonly sessionId: string;
 }
 
-const PROBE_MOUNT: ProbeMount = { sessionId: "ses-slot-mount" };
+const PROBE_MOUNT: ProbeMount = { sessionId: "ses-mount-point" };
 
 /** Assert the frame stands once and holds nothing: no text and no absence block. */
 function expectEmptyFrame(container: HTMLElement): void {
@@ -23,7 +23,7 @@ function expectEmptyFrame(container: HTMLElement): void {
   expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
 }
 
-describe("a slot's mount", () => {
+describe("a mount point's mount", () => {
   it("draws an empty frame while no body has been supplied", () => {
     const { container } = render(<EngineMountPoint body={undefined} mount={PROBE_MOUNT} />);
     expectEmptyFrame(container);
@@ -32,7 +32,7 @@ describe("a slot's mount", () => {
   it("renders a supplied body, and hands it the mount verbatim", () => {
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
     const { container } = render(<EngineMountPoint body={body} mount={PROBE_MOUNT} />);
-    expect(container.textContent).toContain("probe body for ses-slot-mount");
+    expect(container.textContent).toContain("probe body for ses-mount-point");
     expect(body.mock.calls[0]?.[0]).toStrictEqual(PROBE_MOUNT);
   });
 
@@ -58,6 +58,6 @@ describe("a slot's mount", () => {
     );
     expectEmptyFrame(container);
     rerender(<EngineMountPoint body={StatefulBody} mount={PROBE_MOUNT} />);
-    expect(container.textContent).toContain("held ses-slot-mount");
+    expect(container.textContent).toContain("held ses-mount-point");
   });
 });

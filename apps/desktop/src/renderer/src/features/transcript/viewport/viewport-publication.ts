@@ -38,7 +38,7 @@ export interface ViewportPublicationOptions {
 export class ViewportPublication {
   readonly #clock: Clock;
   readonly #build: () => ViewportSnapshot;
-  readonly #changeEmitter = new Emitter<void>("ledger viewport snapshot");
+  readonly #changeEmitter = new Emitter<void>("transcript viewport snapshot");
 
   #snapshot: ViewportSnapshot;
   #frame: ScheduledHandle | undefined;

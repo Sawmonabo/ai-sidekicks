@@ -15,7 +15,7 @@
 // and the page's loader is one `const` beside the class.
 //
 // ONE MEMO FOR ALL THREE CONSUMERS. Both mounts load through the same instance, and so
-// does the submit path's reading of the attachment carrier, so the chunk is fetched once
+// does the submit path's reading of the staged attachments, so the chunk is fetched once
 // however many of them ask first. Two `LoaderBackedBody` loaders naming the specifier
 // themselves would be two memos over one chunk — correct, because the module registry
 // dedupes the fetch, and still two answers to whether the kit has arrived.

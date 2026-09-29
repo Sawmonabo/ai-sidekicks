@@ -1,6 +1,6 @@
 // What the run pane owes the body that answers a phase parked on a person.
 //
-// A MODULE OF ITS OWN BECAUSE FOUR MODULES NEED IT AND ONE OF THEM IS A BODY. The slot
+// A MODULE OF ITS OWN BECAUSE FOUR MODULES NEED IT AND ONE OF THEM IS A BODY. The mount point
 // wrapper declares the phase it is handed, the submit channel composes the mount, the
 // console's own shell is handed one, and the submit dispatch reads every member
 // of the request off it — so leaving the type in the wrapper would have made the shell
@@ -42,7 +42,7 @@
 // there.
 //
 // THE DRAFT IS NOT THIS MOUNT'S. Autosave is renderer-local and window-scoped; the
-// family's separate draft slot carries it, and a draft that reached the durable store
+// family's separate draft mount point carries it, and a draft that reached the durable store
 // would be user content in a durable home.
 
 /** The phase whose form is open, as the mounting pane resolved it out of the run read. */
@@ -106,7 +106,7 @@ export interface HumanFormMount extends HumanFormPhase {
 }
 
 /**
- * A body that stands in the form slot: a COMPONENT the slot renders, never a function it
+ * A body that stands in the form mount point: a COMPONENT the mount point renders, never a function it
  * calls.
  *
  * The distinction is React's, not a preference: a called body's hooks join the WRAPPER's

@@ -25,7 +25,7 @@ import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepo
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
-export interface LedgerVirtualizerSeamsOptions {
+export interface VirtualizerOptionsInputs {
   readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
   /** The distinct key the measurement ledger projected for a row index. */
@@ -104,7 +104,7 @@ export class VirtualizerOptions {
     return this.#measurements.acceptedHeight(rowKey, observedHeightOf(element, entry));
   };
 
-  public constructor(options: LedgerVirtualizerSeamsOptions) {
+  public constructor(options: VirtualizerOptionsInputs) {
     this.#scroll = options.scroll;
     this.#measurements = options.measurements;
     this.#virtualKeyAt = options.virtualKeyAt;

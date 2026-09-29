@@ -212,7 +212,7 @@ function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): 
   return fastestPass;
 }
 
-describe("endurance — the ledger's fold over a long session", () => {
+describe("endurance — the transcript's fold over a long session", () => {
   it("folds every row of a ten-thousand-row session into one complete window", () => {
     // The control for everything else here. A fold that silently dropped most of the
     // log would be fast, would retain almost nothing, and would satisfy both of the

@@ -356,7 +356,7 @@ export {
 // owns where that act goes and what the daemon said back. The seat is the form; the body
 // is the phase.
 //
-// THE READING BESIDE THEM IS THE ATTACHMENT CARRIER'S — which of an answer's values are
+// THE READING BESIDE THEM IS THE STAGED ATTACHMENTS' — which of an answer's values are
 // artifacts, answered against the schema's own declared members rather than against what
 // the mapper drew, because one member outside the render set sends the whole form to the
 // raw editor and the artifact members beside it are still declared. One answer, for the

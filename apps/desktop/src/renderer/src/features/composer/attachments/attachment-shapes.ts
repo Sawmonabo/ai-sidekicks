@@ -35,7 +35,7 @@
 //     nothing in this module reads it, and no field anywhere holds a whole payload.
 //   • No payload on an entry that cannot send it. A handle is not a copy, but it is a
 //     KEEP: the browser holds those bytes for as long as anything can still reach the
-//     `Blob`, so a carrier that kept every finished upload's source kept every finished
+//     `Blob`, so a staged list that kept every finished upload's source kept every finished
 //     upload — a hundred megabytes each, until the sidebar unmounted. The entry is
 //     therefore a union over its own state: the arms that can still send carry the
 //     payload and the terminal arms carry name, size, media type, and the minted

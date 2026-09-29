@@ -90,7 +90,7 @@ const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
  * life of the window.
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element {
-  const { prefix, readSurface, enumeration, addressed, stepIntoListToken } = props;
+  const { prefix, readCommands, enumeration, addressed, stepIntoListToken } = props;
   const { onDismiss } = props;
   const listId = useId();
   const ledeId = `${listId}-lede`;
@@ -109,7 +109,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       ? selectAddressedBindingGroup(enumeration.groups, addressed)
       : undefined;
   const catalog = composeCommandList({
-    offeredCommands: readSurface().offeredCommands,
+    offeredCommands: readCommands().offeredCommands,
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);
@@ -122,11 +122,11 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const executor = useMemo(
     () =>
       createClientCommandExecutor({
-        readSurface,
-        readDirectiveHandlers: noComposerCommandLineHandlers,
+        readCommands,
+        readCommandLineHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: PICKED_ENTRY_READS_NO_LINE,
       }),
-    [readSurface],
+    [readCommands],
   );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
@@ -272,7 +272,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
 
 interface CommandListPopoverProps {
   readonly prefix: string;
-  readonly readSurface: () => ComposerCommands;
+  readonly readCommands: () => ComposerCommands;
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;

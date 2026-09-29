@@ -45,7 +45,7 @@
 }
 
 /*
- * The slot's opened pane. On a bare route there is no deck to put one in, so the pane stands
+ * The mount point's opened pane. On a bare route there is no deck to put one in, so the pane stands
  * where the destination was, under one control back to it. A column rather than a deck: one
  * pane at a time, no layout, nothing beside it.
  */

@@ -47,7 +47,7 @@ import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
 export function RunParks(props: {
   /**
    * The served run, not its phases: a card's route to its own form is the same mount
-   * the slot below is handed, and that mount names the run as well as the phase.
+   * the mount point below is handed, and that mount names the run as well as the phase.
    */
   readonly run: WorkflowRunSnapshot;
   readonly humanForms: HumanFormSelection;
@@ -99,7 +99,7 @@ export function RunParks(props: {
  * The route one park card offers to its own form, where the card has one.
  *
  * A run that branches parks more than one phase on a person at a time, and the pane
- * mounts ONE form slot — so every addressable wait carries the action that makes its
+ * mounts ONE form mount point — so every addressable wait carries the action that makes its
  * form the open one, and the card whose form is already open says so instead. A wait
  * the run reported without its handle says why it cannot be opened, which is the fact
  * the operator needs and the one a missing control does not give them.

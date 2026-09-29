@@ -1,5 +1,5 @@
 /*
- * The workflows feature's shared chrome: the state strip's column, the slot frame, and the
+ * The workflows feature's shared chrome: the state strip's column, the mount point frame, and the
  * one action treatment the screen's back control and the run graph's retry control wear.
  *
  * EVERY CHUNK ROOT OF THE FEATURE IMPORTS THIS FILE, and it pulls in nothing. A rule that
@@ -34,7 +34,7 @@
 }
 
 /*
- * A slot is a dotted boundary rather than a filled panel, so an empty one does not
+ * A mount point is a dotted boundary rather than a filled panel, so an empty one does not
  * compete with the surfaces around it that hold something.
  */
 .meridian-workflow__mount-point {

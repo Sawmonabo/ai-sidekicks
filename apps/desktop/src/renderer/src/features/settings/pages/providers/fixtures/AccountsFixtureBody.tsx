@@ -46,7 +46,7 @@ export interface AccountsShellOperations {
  * What the shell renders the account list from: the registry's accounts, readiness
  * projection and quota rows, and whether the first read has landed.
  */
-export interface AccountRegistryReading extends Pick<
+export interface AccountListReading extends Pick<
   ProviderAccountReadout,
   "accounts" | "readiness" | "usageWindows" | "newestLoginCompletion"
 > {
@@ -58,7 +58,7 @@ export interface AccountRegistryReading extends Pick<
  * form, drawn from the reading and the verbs it is handed.
  */
 export function AccountsFixtureBody(props: {
-  readonly registry: AccountRegistryReading;
+  readonly registry: AccountListReading;
   /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
   readonly requestRegistryRead: () => void;
   readonly operations: AccountsShellOperations;

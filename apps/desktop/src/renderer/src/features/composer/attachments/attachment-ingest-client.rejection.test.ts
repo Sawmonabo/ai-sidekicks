@@ -90,7 +90,7 @@ describe("ingest client — a subscriber that throws while the ledger publishes"
     client.subscribe(() => {
       publishCount += 1;
       if (publishCount > 1) {
-        throw new Error("a subscriber failed while receiving the carrier");
+        throw new Error("a subscriber failed while receiving the staged list");
       }
     });
     client.attach(SMALL_SOURCE);

@@ -110,12 +110,12 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
   // Contributes the palette entry that types the directive onto the line.
   useWorkflowStartPrefill({ draftStore, draftKey });
 
-  const readSurface = useCallback(() => readComposerCommands(route), [route]);
+  const readCommands = useCallback(() => readComposerCommands(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   return isOpen ? (
     <CommandListPopover
       prefix={discovery.prefix ?? ""}
-      readSurface={readSurface}
+      readCommands={readCommands}
       enumeration={enumeration}
       addressed={addressed}
       stepIntoListToken={discovery.stepIntoListToken}

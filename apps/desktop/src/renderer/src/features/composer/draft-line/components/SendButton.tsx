@@ -46,7 +46,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   // No handler is supplied for a command that reads its arguments off the line, so the
   // executor leaves such a line as typed. The map is stable so the zone's latest-ref is
   // not rewritten on every render.
-  const directiveHandlers = useMemo(noComposerCommandLineHandlers, []);
+  const commandLineHandlers = useMemo(noComposerCommandLineHandlers, []);
   // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
@@ -57,7 +57,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,
-    directiveHandlers,
+    commandLineHandlers,
   });
   const controller = useSendController({
     bridge: props.bridge,

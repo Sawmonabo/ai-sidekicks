@@ -106,7 +106,7 @@ describe("ingest client — abandonment, including mid-call", () => {
 
 describe("ingest client — disposal gives every open spool back", () => {
   /** Two streams held open on their chunk call, and one that ran to completion. */
-  async function carrierWithTwoOpenAndOneComplete(): Promise<{
+  async function stagedWithTwoOpenAndOneComplete(): Promise<{
     readonly port: ScriptedIngestPort;
     readonly client: ReturnType<typeof clientOver>;
   }> {
@@ -133,18 +133,18 @@ describe("ingest client — disposal gives every open spool back", () => {
     // The ingest ids live in the ledger and nowhere else, so a disposal that took the
     // ledger first left these spools and their aggregate reservations standing until
     // the daemon's reaper — long enough for a later upload to fail capacity admission.
-    const { port, client } = await carrierWithTwoOpenAndOneComplete();
+    const { port, client } = await stagedWithTwoOpenAndOneComplete();
 
     client.dispose();
 
     expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
-    // Terminal: a second disposal asks for nothing a second time, so a carrier torn
+    // Terminal: a second disposal asks for nothing a second time, so a staged list torn
     // down twice does not send the daemon two reclaim requests for one spool.
     client.dispose();
     expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
   });
 
-  it("negative control: a carrier holding only completed streams asks for nothing back", async () => {
+  it("negative control: a staged list holding only completed streams asks for nothing back", async () => {
     // Without this the case above would pass against a disposal that aborted every
     // entry it held, which would ask the daemon to reclaim a finished ingest.
     const port = new ScriptedIngestPort();

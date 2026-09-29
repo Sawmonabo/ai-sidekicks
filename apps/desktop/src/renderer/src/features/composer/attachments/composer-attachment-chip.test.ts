@@ -8,7 +8,7 @@ import { INGEST_ABANDON_COPY } from "./attachment-policy.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
-/** The instant a carrier published at. Fixed, so nothing here reads a clock. */
+/** The instant a staged list published at. Fixed, so nothing here reads a clock. */
 const PUBLISHED_AT = 1_000_000;
 
 describe("the composer attachment chip", () => {

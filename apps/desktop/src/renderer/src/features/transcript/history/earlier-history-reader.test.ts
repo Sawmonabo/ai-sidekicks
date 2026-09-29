@@ -136,7 +136,7 @@ function sequencesOf(store: SessionStore): readonly number[] {
   return store.snapshot().timeline.map((event) => event.sequence);
 }
 
-describe("LedgerEarlierWindowReader — three windows, two presses, and then nothing left", () => {
+describe("EarlierHistoryReader — three windows, two presses, and then nothing left", () => {
   it("walks back a page at a time and retires itself on the producer's verdict", async () => {
     const { read } = immediateRead();
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
@@ -242,7 +242,7 @@ function refreshWindowHigherUp(store: SessionStore): void {
   });
 }
 
-describe("LedgerEarlierWindowReader — a refresh lands while a page is in flight", () => {
+describe("EarlierHistoryReader — a refresh lands while a page is in flight", () => {
   it("discards the page and fills the interval from the head the refresh established", async () => {
     const held = heldRead();
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
@@ -295,7 +295,7 @@ describe("LedgerEarlierWindowReader — a refresh lands while a page is in fligh
   });
 });
 
-describe("LedgerEarlierWindowReader — the pane leaves while a page is in flight", () => {
+describe("EarlierHistoryReader — the pane leaves while a page is in flight", () => {
   it("stops the read and installs neither the page nor a refusal", async () => {
     // WHAT THE ABANDONMENT HAS TO BUY, stated as both halves. The page must not land —
     // it belongs to a walk nobody is offering a control for — and the door's own

@@ -164,8 +164,8 @@ describe("useSendController — a command that reads its line and has no handler
     });
     const driven = driveController(
       createClientCommandExecutor({
-        readSurface: () => readComposerCommands(DEFAULT_ROUTE),
-        readDirectiveHandlers: noComposerCommandLineHandlers,
+        readCommands: () => readComposerCommands(DEFAULT_ROUTE),
+        readCommandLineHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
     );

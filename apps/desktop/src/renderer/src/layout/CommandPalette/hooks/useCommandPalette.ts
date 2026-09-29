@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
+import { COMMAND_PALETTE_RESULT_CAP } from "@renderer/registries/commands/command-palette-caps.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   formatCount,
@@ -245,7 +245,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   const resultCountLabel =
     results.length === 1
       ? "1 command"
-      : `${formatCount(results.length)} commands${results.length === PALETTE_RESULT_CAP ? " shown; refine to narrow" : ""}`;
+      : `${formatCount(results.length)} commands${results.length === COMMAND_PALETTE_RESULT_CAP ? " shown; refine to narrow" : ""}`;
 
   return {
     query,

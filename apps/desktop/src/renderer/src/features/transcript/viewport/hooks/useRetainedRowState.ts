@@ -14,7 +14,7 @@ import {
 export function useRetainedRowState(): RetainedRowStateContextValue {
   const channel = useContext(RetainedRowStateContext);
   if (channel === undefined) {
-    throw new Error("a ledger row body was mounted outside a ledger row lease provider");
+    throw new Error("a transcript row body was mounted outside a retained row state provider");
   }
   return channel;
 }

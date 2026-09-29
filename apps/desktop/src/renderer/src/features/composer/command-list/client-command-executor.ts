@@ -37,15 +37,15 @@ import { type ComposerCommandLineHandlers } from "./composer-command-line-handle
 /**
  * Build the executor for one composer.
  *
- * The surface is read through a THUNK rather than captured as a value: the frame
+ * The commands are read through a THUNK rather than captured as a value: the frame
  * registers this window's commands from an effect that runs after the composer
  * mounts, so an executor holding a list captured at construction would refuse every
  * command in the window it was built in. The handlers are read through one for the
  * mirror-image reason: they close over what the composer is addressed at, which moves.
  */
 export function createClientCommandExecutor(options: {
-  readonly readSurface: () => ComposerCommands;
-  readonly readDirectiveHandlers: () => ComposerCommandLineHandlers;
+  readonly readCommands: () => ComposerCommands;
+  readonly readCommandLineHandlers: () => ComposerCommandLineHandlers;
   /**
    * The commands that read their arguments off the typed line. One of these with no
    * handler in the map settles as `not-run` rather than through the argument-free
@@ -54,9 +54,9 @@ export function createClientCommandExecutor(options: {
   readonly lineReadingCommandIds: readonly string[];
 }): CommandExecutor {
   return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
-    const surface = options.readSurface();
+    const commands = options.readCommands();
     const recognitionInput: ClientCommandRecognitionInput = {
-      registeredCommandIds: surface.registeredCommandIds,
+      registeredCommandIds: commands.registeredCommandIds,
     };
     const recognition = recognizeClientCommand(line.commandName, recognitionInput);
     if (recognition.status === "refused") {
@@ -65,7 +65,7 @@ export function createClientCommandExecutor(options: {
     // Preferred over the registry's argument-free `invoke`, and only after the
     // recogniser has claimed the name: an argument-reading command performed through
     // `invoke` would run with the line thrown away.
-    const handler = options.readDirectiveHandlers().get(recognition.commandId);
+    const handler = options.readCommandLineHandlers().get(recognition.commandId);
     if (handler !== undefined) {
       try {
         // CALLED INSIDE THE BOUNDARY rather than awaited from outside it, on
@@ -87,7 +87,7 @@ export function createClientCommandExecutor(options: {
     if (options.lineReadingCommandIds.includes(recognition.commandId)) {
       return { status: "not-run" };
     }
-    return await settleInvocation(surface, recognition.commandId);
+    return await settleInvocation(commands, recognition.commandId);
   };
 }
 

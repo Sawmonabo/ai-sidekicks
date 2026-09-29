@@ -94,7 +94,7 @@ export interface WorkflowRunControls {
   /**
    * Advance that round for a served act this dispatcher did not put.
    *
-   * The pane's parked phases are answered through the human-form slot, which is a body
+   * The pane's parked phases are answered through the human-form mount point, which is a body
    * mounted in a seat and reaches no dispatcher — and a submission the daemon recorded
    * moved the run exactly as a served cancel did. So the advance is offered rather than
    * a second count being kept next door: `served-run-act.ts` is the seam the pane hands

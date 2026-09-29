@@ -184,7 +184,7 @@ describe("browser — the frame lays out", () => {
   });
 });
 
-describe("browser — a pane that changed size reaches the ledger's geometry", () => {
+describe("browser — a pane that changed size reaches the transcript's geometry", () => {
   it("publishes the new viewport height from a real resize observation", async () => {
     // The unit tier drives the measurement pass by hand. Only a real engine has a
     // `ResizeObserver`, a layout, and a box that answers a height at all — and the

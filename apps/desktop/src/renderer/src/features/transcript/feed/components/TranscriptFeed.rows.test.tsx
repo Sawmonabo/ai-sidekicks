@@ -35,7 +35,7 @@ const CHAPTER_DISCLOSURE = ".meridian-run-group-header__disclosure";
 const SEAT_ROW = ".meridian-transcript-viewport__row";
 
 /** A row seat mount with no ledger around it — the refusal case's input. */
-function outsideLedgerSlotProps(): TranscriptRowProps {
+function outsideTranscriptRowProps(): TranscriptRowProps {
   return {
     row: {
       id: "row-with-no-ledger",
@@ -63,7 +63,7 @@ function headerByPosition(feed: HTMLElement): HTMLElement {
   return header;
 }
 
-describe("the ledger feed — a finished run folds to a header and its receipt", () => {
+describe("the transcript feed — a finished run folds to a header and its receipt", () => {
   it("draws one header for the terminal chapter and none for the live one", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
@@ -139,7 +139,7 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
   });
 });
 
-describe("the ledger feed — a seam is the ledger's own row", () => {
+describe("the transcript feed — a seam is the transcript's own row", () => {
   it("draws a compaction as a seam line rather than delegating it to the seat", () => {
     withLaidOutViewport();
     const seatRowSummaries: string[] = [];
@@ -169,7 +169,7 @@ describe("the ledger feed — a seam is the ledger's own row", () => {
   });
 });
 
-describe("the ledger feed — a row's disclosure leaves the row", () => {
+describe("the transcript feed — a row's disclosure leaves the row", () => {
   it("takes a press into the list's lease and hands the answer back", () => {
     // The round trip that used to happen inside the row body's own `useState`. The
     // virtualizer mounts the visible range and nothing else, so a choice kept there
@@ -202,11 +202,11 @@ describe("the ledger feed — a row's disclosure leaves the row", () => {
     expect([...densities]).toStrictEqual(["expanded"]);
   });
 
-  it("refuses a row body mounted outside a ledger rather than swallowing its press", () => {
+  it("refuses a row body mounted outside a transcript rather than swallowing its press", () => {
     // The lease channel has no no-op default: a swallowed write looks exactly like a
     // row that will not open, which is the defect the whole change closes.
-    expect(() => render(<LeasingRowBody {...outsideLedgerSlotProps()} />)).toThrow(
-      /lease provider/,
+    expect(() => render(<LeasingRowBody {...outsideTranscriptRowProps()} />)).toThrow(
+      /retained row state provider/,
     );
   });
 });

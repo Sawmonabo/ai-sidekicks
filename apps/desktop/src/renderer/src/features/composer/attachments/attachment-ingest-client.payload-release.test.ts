@@ -1,7 +1,7 @@
 // When an upload lets go of the user's bytes, and when it may not.
 //
 // A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
-// behind it for as long as anything can reach it. A carrier that held one per attachment
+// behind it for as long as anything can reach it. A staged list that held one per attachment
 // and released none would pin ten files' worth of memory for ten finished uploads until
 // the surface unmounted — invisible, because every figure on the card is a number the
 // ledger already has.

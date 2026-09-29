@@ -1,7 +1,7 @@
 /* The composer's attachment strip and its chips.
 
    ONE-LINE CHIPS AND NOT CARDS, which is the whole reason this surface exists beside
-   the artifact pane's: the composer has a message line under it and a carrier of
+   the artifact pane's: the composer has a message line under it and a staged list of
    several attachments must not push it off the bottom of the workspace. Every rule
    here is in service of that — a row that wraps only when it must, figures at the
    chrome text size, and controls that are text rather than buttons with grounds.

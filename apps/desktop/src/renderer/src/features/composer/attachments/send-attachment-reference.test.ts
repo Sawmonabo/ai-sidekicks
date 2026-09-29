@@ -49,8 +49,8 @@ describe("the send attachment reference", () => {
     });
   });
 
-  it("holds a carrier of nothing but unsettled entries, rather than reporting none", () => {
-    // The `held` arm with an empty id list is the honest reading of a carrier whose
+  it("holds a staged list of nothing but unsettled entries, rather than reporting none", () => {
+    // The `held` arm with an empty id list is the honest reading of a staged list whose
     // every upload is still running: something IS attached, and none of it can be
     // referenced.
     expect(composeSendAttachmentReference([sendingEntry("declared")])).toStrictEqual({

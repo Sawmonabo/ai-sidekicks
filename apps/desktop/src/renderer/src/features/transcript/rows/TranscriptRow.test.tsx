@@ -206,12 +206,12 @@ describe("standing in for the list's density decision", () => {
     expect(disclosureState(container)).toBe("true");
   });
 
-  it("refuses to mount outside a ledger rather than swallowing the press", () => {
+  it("refuses to mount outside a transcript rather than swallowing the press", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
       render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
-    ).toThrow(/lease provider/);
+    ).toThrow(/retained row state provider/);
   });
 });
 

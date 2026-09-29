@@ -70,7 +70,7 @@ export interface ScrollGeometryPublisherOptions {
 export class ScrollGeometryPublisher {
   readonly #clock: Clock;
   readonly #tailTolerancePx: number;
-  readonly #emitter = new Emitter<ScrollGeometry>("ledger geometry");
+  readonly #emitter = new Emitter<ScrollGeometry>("transcript scroll geometry");
 
   #lastGeometry: ScrollGeometry | undefined;
 

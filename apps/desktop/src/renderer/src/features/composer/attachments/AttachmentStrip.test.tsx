@@ -1,4 +1,4 @@
-// The composer's attachment strip, drawn from the carrier binding it is handed.
+// The composer's attachment strip, drawn from the staged list binding it is handed.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

@@ -40,18 +40,6 @@ import type { OklchColor } from "./color.js";
 // so there is no cycle to resolve.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
-// The command palette's list bounds and the keybinding when-clause's parse bounds: the
-// palette renders the ranked list a when-clause decides the membership of.
-
-/** Commands the palette remembers. Enough to cover a working session's rhythm. */
-export const PALETTE_RECENTS_CAP = 8;
-
-/**
- * Ranked results the palette renders at once. The list is keyboard-walked, so
- * past this a person is scrolling rather than choosing and should refine instead.
- */
-export const PALETTE_RESULT_CAP = 40;
-
 /**
  * Rows a bounded enumeration shows before it scrolls.
  *

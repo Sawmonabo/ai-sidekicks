@@ -56,28 +56,28 @@ export function useCommandHandling(options: {
    * composer is addressed at, so they change between renders while the executor built
    * from them does not.
    */
-  readonly directiveHandlers: ComposerCommandLineHandlers;
+  readonly commandLineHandlers: ComposerCommandLineHandlers;
 }): CommandHandling {
-  const { route, commandEnumeration, target, directiveHandlers } = options;
-  const readSurface = useCallback(() => readComposerCommands(route), [route]);
+  const { route, commandEnumeration, target, commandLineHandlers } = options;
+  const readCommands = useCallback(() => readComposerCommands(route), [route]);
   const recognizeName = useCallback<ClientCommandPredicate>(
     (commandName) =>
       recognizeClientCommand(commandName, {
-        registeredCommandIds: readSurface().registeredCommandIds,
+        registeredCommandIds: readCommands().registeredCommandIds,
       }).status === "recognized",
-    [readSurface],
+    [readCommands],
   );
   // The executor is memoised and outlives every render, so it reads the handlers through
   // the latest-ref at call time rather than closing over the ones it was built with.
-  const handlersRef = useLatestRef(directiveHandlers);
+  const handlersRef = useLatestRef(commandLineHandlers);
   const commandExecutor = useMemo(
     () =>
       createClientCommandExecutor({
-        readSurface,
-        readDirectiveHandlers: () => handlersRef.current,
+        readCommands,
+        readCommandLineHandlers: () => handlersRef.current,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
-    [readSurface, handlersRef],
+    [readCommands, handlersRef],
   );
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   const recognizePublished = useCallback<ProviderCommandPredicate>(

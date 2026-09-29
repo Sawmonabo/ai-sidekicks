@@ -25,8 +25,8 @@
 // the entries the ledger already published, so it is not a refresh and does not belong
 // to `store/read/refresh-scheduler.ts`. There is no interval here, and there can be none.
 //
-// THE LOCAL ID IS THE CARRIER'S, NOT THE FILE'S. Two files chosen in one picker can
-// carry one name, and the ledger is keyed by local id — so a carrier that keyed on
+// THE LOCAL ID IS THE STAGED LIST'S, NOT THE FILE'S. Two files chosen in one picker can
+// carry one name, and the ledger is keyed by local id — so a staged list that keyed on
 // the declared name would silently drop the second of two `notes.md`. The counter
 // rises and never repeats, which is the whole requirement.
 
@@ -39,23 +39,23 @@ import { AttachmentIngestClient } from "./attachment-ingest-client.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
 
-/** What the carrier holds, and the instant it last said so. */
+/** What the staged list holds, and the instant it last said so. */
 export interface StagedAttachmentsSnapshot {
   readonly entries: readonly AttachmentIngestEntry[];
   /** The instant of the publish that produced these entries. Never the wall clock at render. */
   readonly publishedAtMilliseconds: number;
 }
 
-/** What a carrier is given to run uploads for one session. */
+/** What a staged list is given to run uploads for one session. */
 export interface StagedAttachmentsOptions {
   /** The four calls of an upload; nothing here reaches for a bridge to make them. */
   readonly port: AttachmentIngestPort;
   readonly sessionId: SessionId;
   /**
-   * The clock every stamp this carrier publishes is taken from.
+   * The clock every stamp this staged list publishes is taken from.
    *
    * REQUIRED, AND THE HOOK READS IT OFF THE BRIDGE. `resolveBridgeClock` is the
-   * one answer to which clock a window runs on: a carrier with a wall clock of its own
+   * one answer to which clock a window runs on: a staged list with a wall clock of its own
    * would stamp its entries from wall time while the rest of the window ran on the
    * fixture's frozen time, and a surface showing an age would disagree with the ledger
    * it was reading. There is no default, so every call site says which clock it means.
@@ -67,7 +67,7 @@ export interface StagedAttachmentsOptions {
 export class StagedAttachments {
   readonly #client: AttachmentIngestClient;
   readonly #clock: Clock;
-  readonly #changes = new Emitter<StagedAttachmentsSnapshot>("attachment carrier publish");
+  readonly #changes = new Emitter<StagedAttachmentsSnapshot>("staged attachments publish");
 
   #snapshot: StagedAttachmentsSnapshot;
   #clientSubscription: Unsubscribe | undefined;
@@ -91,7 +91,7 @@ export class StagedAttachments {
   }
 
   /**
-   * Whether this carrier has been torn down. Read by the hook that owns its lifetime.
+   * Whether this staged list has been torn down. Read by the hook that owns its lifetime.
    *
    * ASKED RATHER THAN REMEMBERED, on `UiStateStore.isClosed`'s reason: the owner
    * deciding whether to re-mint has one question, and a second flag beside it would be
@@ -110,7 +110,7 @@ export class StagedAttachments {
    */
   public start(): void {
     if (this.#disposed) {
-      // A disposed carrier's client refuses every attach, so subscribing to it would
+      // A disposed staged list's client refuses every attach, so subscribing to it would
       // follow a ledger nothing can add to. The owner re-mints instead — see the hook.
       return;
     }
@@ -157,7 +157,7 @@ export class StagedAttachments {
   /**
    * Drop the subscription first, then give the daemon back every spool still open.
    *
-   * The wake-up is cancelled here rather than left to fire against a disposed carrier:
+   * The wake-up is cancelled here rather than left to fire against a disposed staged list:
    * a timeout that outlived its surface would publish into an emitter whose sinks are
    * gone, which is a stamp nobody reads and a handle nobody can cancel.
    */
@@ -181,7 +181,7 @@ export class StagedAttachments {
   /**
    * Arrange the one wake-up the outstanding entries call for, and no other.
    *
-   * ONE TIMER PER CARRIER, at the EARLIEST deadline still ahead of now. A timer per
+   * ONE TIMER PER STAGED LIST, at the EARLIEST deadline still ahead of now. A timer per
    * entry would arm one per upload for a disclosure that is the same sentence on each,
    * and a deadline already behind now needs no wake-up at all — the snapshot being
    * published carries an instant past it, so the card is rendering the stalled arm as
@@ -209,7 +209,7 @@ export class StagedAttachments {
    *
    * WHICH ENTRIES HAVE A DEADLINE IS THIS CLASS'S QUESTION; which of them is next is
    * the console's, and `earliestFutureDeadline` answers it for every surface that
-   * renders against one. A carrier is not a render, so it arms its own single shot
+   * renders against one. A staged list is not a render, so it arms its own single shot
    * rather than taking the hook beside that rule — but a second copy of the rule was
    * the part worth removing, and this is the whole of what is left.
    */

@@ -1,5 +1,5 @@
 // The composer's trailing rail: the context meter. The attachment strip is not mounted
-// until the composer has an ingest port to hand its carrier.
+// until the composer has an ingest port to hand its staged list.
 //
 // The rail selects the session's timeline once and folds it to the newest context reading
 // of the ADDRESSED RUN. The address is an input to the fold, not a session-wide sweep, so

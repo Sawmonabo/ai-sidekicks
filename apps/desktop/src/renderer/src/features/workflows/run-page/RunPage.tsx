@@ -64,7 +64,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
 
     if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
       // The strip's `refused` arm renders the refusal and not the children, so no
-      // control, slot or start affordance stands beside an address this pane will not open.
+      // control, mount point or start affordance stands beside an address this pane will not open.
       return (
         <WorkflowStateStrip
           summary={SUMMARY}

@@ -125,8 +125,8 @@ describe("the documented line, end to end through the recogniser and the router"
       ],
     ]);
     const executor = createClientCommandExecutor({
-      readSurface: () => readComposerCommands(DEFAULT_ROUTE),
-      readDirectiveHandlers: () => handlers,
+      readCommands: () => readComposerCommands(DEFAULT_ROUTE),
+      readCommandLineHandlers: () => handlers,
       lineReadingCommandIds: LINE_READING_COMMAND_IDS,
     });
 

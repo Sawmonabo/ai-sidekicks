@@ -1,8 +1,8 @@
-// The conversational start's slot, on the two things every slot owes and on the one thing that
+// The conversational start's mount point, on the two things every mount point owes and on the one thing that
 // is only true of this one.
 //
 //   1. **The frame stands while nobody has filled it**, empty.
-//   2. **The mount obligation is delivered.** The slot's props type is a promise about what
+//   2. **The mount obligation is delivered.** The mount point's props type is a promise about what
 //      the body receives, and a promise nothing checks is prose.
 //   3. **The session travels even when there is none.** This is the required-carrying-
 //      undefined rule made observable: a surface that could not resolve a session has to

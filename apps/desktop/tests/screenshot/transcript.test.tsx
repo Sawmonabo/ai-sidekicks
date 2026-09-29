@@ -144,7 +144,7 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
   }
 });
 
-describe("screenshot — the ledger's empty state", () => {
+describe("screenshot — the transcript's empty state", () => {
   it("renders a session that has a roster and no log", async () => {
     // One scheme rather than two, on `frame.test.tsx`'s reasoning for the palette:
     // both palettes are already pinned by the pair above, and what this capture
@@ -187,7 +187,7 @@ describe("screenshot — the ledger's empty state", () => {
   });
 });
 
-describe("the ledger mount wait", () => {
+describe("the transcript mount wait", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -205,7 +205,7 @@ describe("the ledger mount wait", () => {
   // has yielded on its first turn, which is what makes this run in a millisecond
   // rather than in the five seconds the deadline names — and what proves it is the
   // DEADLINE that refuses, since no number of turns passed in between.
-  it("refuses a route that mounts no ledger body, on the deadline rather than on a turn count", async () => {
+  it("refuses a route that mounts no transcript body, on the deadline rather than on a turn count", async () => {
     document.location.hash = formatRoute({ kind: "sessions" });
     const { container } = await renderSettled(
       <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,

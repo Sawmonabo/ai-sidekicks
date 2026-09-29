@@ -99,8 +99,8 @@ export function ingestCeilingRemainingMs(
  *
  * The DEADLINE rather than only the predicate, because two callers need it and they
  * need the same one: the card asks whether the instant it was handed is past it, and
- * the carrier asks when to hand the card a fresher instant. Two subtractions against
- * one threshold would be two places for the threshold to be spent, and a carrier that
+ * the staged list asks when to hand the card a fresher instant. Two subtractions against
+ * one threshold would be two places for the threshold to be spent, and a staged list that
  * woke a second early would render a card that was still not stalled.
  */
 export function ingestStallDisclosureAtMs(entry: AttachmentIngestEntry): number | undefined {

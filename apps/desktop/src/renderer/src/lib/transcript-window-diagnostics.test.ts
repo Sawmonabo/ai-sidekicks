@@ -30,7 +30,7 @@ function reading(mountedRowCount: number): TranscriptWindowReading {
   };
 }
 
-describe("the ledger window diagnostics registry", () => {
+describe("the transcript window diagnostics registry", () => {
   it("answers with the reading the mounted viewport takes when it is asked", () => {
     const registry = new TranscriptWindowDiagnosticsRegistry();
     let mountedRowCount = 11;

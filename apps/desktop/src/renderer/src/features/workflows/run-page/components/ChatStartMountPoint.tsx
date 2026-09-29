@@ -1,4 +1,4 @@
-// The conversational start's slot: the way a run begins from where the conversation is
+// The conversational start's mount point: the way a run begins from where the conversation is
 // happening.
 //
 // Owned by the workflow engine. Three callers collapse onto one start operation with no

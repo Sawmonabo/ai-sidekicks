@@ -94,7 +94,7 @@ export interface AnimationFrameCoordinatorOptions {
 /** Per-frame work, ordered by phase and coalesced by task key. */
 export class AnimationFrameCoordinator {
   readonly #clock: Clock;
-  readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("ledger frame diagnostic");
+  readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("animation frame diagnostic");
   /** One insertion-ordered queue per phase; a key holds at most one task. */
   readonly #queueByPhase = new Map<AnimationFramePhase, Map<string, () => void>>(
     ANIMATION_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),

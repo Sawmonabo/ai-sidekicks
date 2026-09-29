@@ -69,7 +69,7 @@ function ComposerCommandZoneHost(props: {
     route: DEFAULT_ROUTE,
     commandEnumeration: props.commandEnumeration,
     target: SESSION_TARGET,
-    directiveHandlers: useWorkflowStartHandlers({
+    commandLineHandlers: useWorkflowStartHandlers({
       operations: props.operations,
       sessionId: props.sessionId,
     }),

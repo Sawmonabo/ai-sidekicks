@@ -18,7 +18,7 @@ describe("workflow run pane — the arms and what each offers", () => {
   it("reports an unaddressed pane as empty and offers the start affordance there", () => {
     const section = renderRunPage(paneContext(undefined));
     expect(section.querySelector(".meridian-nothing--empty")).not.toBeNull();
-    // One slot, and it is the conversational start: an empty pane offers the start
+    // One mount point, and it is the conversational start: an empty pane offers the start
     // affordance, which is the empty state as designed rather than a fallback.
     expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(1);
   });

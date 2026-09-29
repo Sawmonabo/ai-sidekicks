@@ -140,9 +140,9 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("accessibility — the ledger", () => {
+describe("accessibility — the transcript", () => {
   for (const scheme of COLOR_SCHEMES) {
-    it(`has no axe violation over a loaded ledger in the ${scheme} scheme`, async () => {
+    it(`has no axe violation over a loaded transcript in the ${scheme} scheme`, async () => {
       // Through the system preference rather than a stamped attribute, on the frame
       // case's reasoning: the scheme attribute has an owner, and a test that wrote
       // it would have both cases silently measured against one palette.
@@ -161,7 +161,7 @@ describe("accessibility — the ledger", () => {
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
 
-    it(`has no axe violation over the ledger's empty state in the ${scheme} scheme`, async () => {
+    it(`has no axe violation over the transcript's empty state in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const container = await mountLedger(EMPTY_SESSION_SCENARIO);
 
@@ -175,7 +175,7 @@ describe("accessibility — the ledger", () => {
     });
   }
 
-  it("finds a violation planted inside the ledger, so a clean result means something", async () => {
+  it("finds a violation planted inside the transcript, so a clean result means something", async () => {
     // Negative control, planted INSIDE the mounted surface rather than beside it: a
     // run scoped to the wrong root, given the wrong tags, or swallowing an exception
     // returns exactly the same nothing as a clean one, and planting within the

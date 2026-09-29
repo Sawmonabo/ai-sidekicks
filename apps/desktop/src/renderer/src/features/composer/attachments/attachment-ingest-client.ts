@@ -1,7 +1,7 @@
-// The carrier's user-facing acts: what attach, retry, abandon, remove,
+// The staged list's user-facing acts: what attach, retry, abandon, remove,
 // and disposal do to the record of every attachment a person has handed this session.
 //
-// THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The carrier's own record —
+// THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The staged list's own record —
 // which attachments there are, in which order, and where each one stands — is
 // `attachment-ingest-entries.ts`. The wire is `attachment-ingest-stream.ts`, whose
 // middle leg is `attachment-ingest-chunks.ts`. Giving a stopped stream's spool back is
@@ -15,7 +15,7 @@
 // promise it answers with is deliberately discarded — a stream is not a render and a
 // press is not a round trip. The one thing this module awaits is nothing at all.
 //
-// NO TIMER, ANYWHERE. The carrier performs work when a user asks it to — attach,
+// NO TIMER, ANYWHERE. The staged list performs work when a user asks it to — attach,
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
 // no automatic re-drive.
 
@@ -35,7 +35,7 @@ export interface AttachmentIngestClientOptions {
   readonly clock?: Clock;
 }
 
-/** Every attachment a user has handed this carrier, in the order they chose. */
+/** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #ledger = new AttachmentIngestEntries();
   readonly #reclaimer: AttachmentSpoolReclaimer;
@@ -54,7 +54,7 @@ export class AttachmentIngestClient {
     });
   }
 
-  /** The carrier, in declared order. Stable identity between publishes. */
+  /** The staged list, in declared order. Stable identity between publishes. */
   public get snapshot(): readonly AttachmentIngestEntry[] {
     return this.#ledger.snapshot;
   }
@@ -66,7 +66,7 @@ export class AttachmentIngestClient {
   /**
    * Take one attachment and begin its stream.
    *
-   * The count cap is NOT enforced here. The daemon refuses the whole carrier at
+   * The count cap is NOT enforced here. The daemon refuses the whole staged list at
    * acceptance with `artifact.too_many_attachments` and leaves every artifact minted by
    * an earlier ingest untouched, so a client that blocked the eleventh attach would be
    * deriving eligibility the daemon owns — and would be wrong the moment an operator
@@ -129,7 +129,7 @@ export class AttachmentIngestClient {
     this.#reclaimer.request(entry.ingestId);
   }
 
-  /** Take one attachment out of the carrier entirely, position included. */
+  /** Take one attachment out of the staged list entirely, position included. */
   public remove(localId: string): void {
     if (!this.#ledger.holds(localId)) {
       return;
@@ -138,18 +138,18 @@ export class AttachmentIngestClient {
     this.#ledger.remove(localId);
   }
 
-  /** The reference a carrier would carry: artifact ids, ordered, and nothing else. */
+  /** The reference a staged list would carry: artifact ids, ordered, and nothing else. */
   public attachmentArtifactIds(): readonly string[] {
     return this.#ledger.artifactIds();
   }
 
   /**
-   * Stop the carrier, and give the daemon back every spool it is still holding.
+   * Stop the staged list, and give the daemon back every spool it is still holding.
    *
    * THE ABORTS GO FIRST, AND THE ORDER IS THE WHOLE POINT. Disposing the ledger is
    * what stops the continuations, and it is also what makes the open streams
    * unreachable: an ingest id lives in the ledger and nowhere else, so after the
-   * ledger goes nothing in this console can name one. A carrier closed with several
+   * ledger goes nothing in this console can name one. A staged list closed with several
    * uploads open would leave those spools and their aggregate reservations standing until
    * the daemon's abandoned-spool reaper claimed them, and a later upload in the same
    * session could fail capacity admission long after the surface was gone.
@@ -159,7 +159,7 @@ export class AttachmentIngestClient {
    * spool is a duplicate rather than a safeguard. `complete` entries hold a finished
    * stream, which there is nothing to reclaim from.
    *
-   * FIRED AND NOT AWAITED. Disposal is synchronous — a carrier that waited on a
+   * FIRED AND NOT AWAITED. Disposal is synchronous — a staged list that waited on a
    * best-effort abort would hold a closed surface open for an answer no surface is
    * left to render.
    *
@@ -167,7 +167,7 @@ export class AttachmentIngestClient {
    * published snapshot outlives its disposal, so a second call would walk the same
    * entries and send the daemon a second reclaim request for every spool the first
    * one already asked back. React unmounts an effect twice in development strict
-   * mode, which is exactly where a carrier is disposed twice.
+   * mode, which is exactly where a staged list is disposed twice.
    */
   public dispose(): void {
     if (this.#disposed) {

@@ -1,4 +1,4 @@
-// The builder pane's body: the canvas's slots, or the refusal or absence an address earns.
+// The builder pane's body: the canvas's mount points, or the refusal or absence an address earns.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip and the body box for every pane
@@ -15,7 +15,7 @@
 // The node graph itself — the entry node and the four phase classes, the gate on a
 // phase's outgoing shoulder, the one sequence edge kind, and the connection-validity
 // predicate that refuses a shape DURING the drag rather than at save — is the
-// workflow engine's body, mounted through this directory's typed slots. What this
+// workflow engine's body, mounted through this directory's typed mount points. What this
 // file owns is the frame around them and the answer to the question a builder pane
 // asks before it can draw anything: which definition am I editing?
 //
@@ -23,7 +23,7 @@
 // nothing to pick or start from, so the arm renders one absence and no browser.
 //
 // THE ADDRESSED ARM SAYS `ready`. The strip's `ready` arm is the one that renders
-// children, so a pane that handed it any other state would have its two slots dropped
+// children, so a pane that handed it any other state would have its two mount points dropped
 // silently.
 //
 // AN ADDRESS IS CHECKED BEFORE IT IS USED. A pane carries a `EntityRef`, and
@@ -70,7 +70,7 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
   // parsed value is data rather than a proof, so the two guards below stay live and
   // this annotation is what keeps the compiler from calling them dead.
   const entity: EntityRef | undefined = props.context.entity;
-  // The definition the trail reads, and the one the slots are composed for: an entity
+  // The definition the trail reads, and the one the mount points are composed for: an entity
   // of another kind names neither, so both are absent on exactly the arm that refuses.
   const definition = entity?.kind === WORKFLOW_BUILDER_SUBJECT_KIND ? entity : undefined;
 
@@ -85,7 +85,7 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
   function renderBody(): React.JSX.Element {
     if (entity === undefined) {
       // The strip's `empty` arm, which renders the absence and NOT the children — so
-      // no slot is mounted for a definition that was never named.
+      // no mount point is mounted for a definition that was never named.
       return <WorkflowStateStrip summary={SUMMARY} state={unaddressedBuilderPane()} />;
     }
 

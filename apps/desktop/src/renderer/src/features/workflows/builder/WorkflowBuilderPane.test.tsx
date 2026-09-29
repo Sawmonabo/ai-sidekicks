@@ -3,7 +3,7 @@
 //
 // The addressed arm is asserted on the REGIONS it mounts rather than on its copy, which
 // is this family's to reword. Two of them are the reason the arm exists: an addressed
-// pane that dropped its slots would look identical to one that had them and be useless
+// pane that dropped its mount points would look identical to one that had them and be useless
 // the day a body lands.
 
 import { render } from "@testing-library/react";
@@ -30,7 +30,7 @@ type AddressedEntity = EntityRef | undefined;
  * Cast rather than constructed, the idiom `RunPage.test-support.tsx`
  * established: a real pane context carries three stores, one of which opens a database
  * on construction. The two stores travel as markers because this pane only hands them
- * on — the slots' own tests are where what a body receives is checked.
+ * on — the mount points' own tests are where what a body receives is checked.
  *
  * THE CAST IS ALSO WHAT LETS THE MISADDRESSED CASES EXIST. `PaneContextOf` declares
  * this arm's entity as a definition reference, and the addresses below are exactly the
@@ -77,7 +77,7 @@ describe("workflow builder pane — with no definition to open", () => {
 });
 
 describe("workflow builder pane — with a definition to open", () => {
-  it("mounts the node-graph and drafts slots inside the ready strip", () => {
+  it("mounts the node-graph and drafts mount points inside the ready strip", () => {
     // The strip renders children on its `ready` arm alone, so a pane that handed it
     // another state would drop these two silently.
     const section = renderPane(paneContext(ADDRESSED));
@@ -97,7 +97,7 @@ describe("workflow builder pane — with an address it does not author", () => {
 
   it("mounts no body for a subject it will not open", () => {
     // The refusal has to be the whole surface: a pane that refused in a banner and still
-    // mounted its two slots would have composed the read the banner says it did not.
+    // mounted its two mount points would have composed the read the banner says it did not.
     const section = renderPane(paneContext(MISADDRESSED));
     expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(0);
   });

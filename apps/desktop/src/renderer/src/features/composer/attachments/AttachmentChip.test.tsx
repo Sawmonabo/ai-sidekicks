@@ -14,7 +14,7 @@ import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
-/** The instant a carrier published at. Fixed, so nothing here reads a clock. */
+/** The instant a staged list published at. Fixed, so nothing here reads a clock. */
 const PUBLISHED_AT = 1_000_000;
 
 /** One chip, rendered over the real fold rather than over a hand-built model. */
@@ -31,7 +31,7 @@ function renderChip(entry: Parameters<typeof composerAttachmentChip>[0]): HTMLEl
 
 describe("the attachment chip's progress bar", () => {
   it("names the file whose upload it measures", () => {
-    // A carrier of several files announces several bars, so each is named for its file.
+    // A staged list of several files announces several bars, so each is named for its file.
     const container = renderChip(
       sendingEntry("ingesting", {
         declaredName: "notes.md",

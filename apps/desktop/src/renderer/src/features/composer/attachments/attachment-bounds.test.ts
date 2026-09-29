@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
 import { stagedAttachmentsFill, exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 
-describe("attachment bounds — the carrier's count against its allowance", () => {
+describe("attachment bounds — the staged list's count against its allowance", () => {
   it("reports both halves, from the shipped bound rather than a figure of its own", () => {
     expect(stagedAttachmentsFill(3)).toStrictEqual({
       attached: 3,
@@ -18,9 +18,9 @@ describe("attachment bounds — the carrier's count against its allowance", () =
   });
 
   it("still reports a count past the allowance rather than clamping it", () => {
-    // The daemon refuses the whole carrier at acceptance and the console does not
+    // The daemon refuses the whole staged list at acceptance and the console does not
     // stop the eleventh attach — so the eleventh has to be countable. A reading that
-    // clamped would report ten attached over a carrier holding eleven, which is the
+    // clamped would report ten attached over a staged list holding eleven, which is the
     // one number a user would use to work out what to take off.
     const past = stagedAttachmentsFill(ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT + 1);
     expect(past.attached).toBe(ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT + 1);

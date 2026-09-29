@@ -55,7 +55,7 @@ async function mountViewportSurface(withErrorSlot: boolean): Promise<HTMLElement
   return surface;
 }
 
-describe("browser — the ledger's scroll surface takes the viewport's height", () => {
+describe("browser — the transcript's scroll surface takes the viewport's height", () => {
   it("fills the box when it is the only child in flow, which is the ordinary case", async () => {
     const surface = await mountViewportSurface(false);
 

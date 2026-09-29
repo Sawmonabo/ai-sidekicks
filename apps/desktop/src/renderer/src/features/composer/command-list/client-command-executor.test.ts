@@ -47,14 +47,14 @@ function executorOverConsoleRegistry(
   handlers: ComposerCommandLineHandlers = noComposerCommandLineHandlers(),
 ) {
   return createClientCommandExecutor({
-    readSurface: () => readComposerCommands(DEFAULT_ROUTE),
-    readDirectiveHandlers: () => handlers,
+    readCommands: () => readComposerCommands(DEFAULT_ROUTE),
+    readCommandLineHandlers: () => handlers,
     lineReadingCommandIds: LINE_READING_COMMAND_IDS,
   });
 }
 
 /** One line as the router builds it: the name, and the trimmed text it came from. */
-function directiveLine(commandName: string) {
+function commandLine(commandName: string) {
   return { commandName, text: `/${commandName}` };
 }
 
@@ -75,7 +75,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(RAN_COMMAND_ID));
+    const outcome = await executor(commandLine(RAN_COMMAND_ID));
 
     expect(outcome).toEqual({ status: "applied" });
     expect(ranCount).toBe(1);
@@ -96,7 +96,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const pending = executor(directiveLine(RAN_COMMAND_ID));
+    const pending = executor(commandLine(RAN_COMMAND_ID));
     expect(settled).toBe(false);
     release?.();
 
@@ -111,7 +111,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(FAILING_COMMAND_ID));
+    const outcome = await executor(commandLine(FAILING_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -133,7 +133,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(HIDDEN_COMMAND_ID));
+    const outcome = await executor(commandLine(HIDDEN_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -162,7 +162,7 @@ describe("createClientCommandExecutor", () => {
     // offered for discovery and nothing else.
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine("compact"));
+    const outcome = await executor(commandLine("compact"));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -173,7 +173,7 @@ describe("createClientCommandExecutor", () => {
 
   it("reads the registry at run time, so a late registration is reachable", async () => {
     const executor = executorOverConsoleRegistry();
-    const beforeRegistration = await executor(directiveLine(RAN_COMMAND_ID));
+    const beforeRegistration = await executor(commandLine(RAN_COMMAND_ID));
     expect(beforeRegistration.status).toBe("refused");
 
     let ranCount = 0;
@@ -184,7 +184,7 @@ describe("createClientCommandExecutor", () => {
       },
     });
 
-    expect(await executor(directiveLine(RAN_COMMAND_ID))).toEqual({
+    expect(await executor(commandLine(RAN_COMMAND_ID))).toEqual({
       status: "applied",
     });
     expect(ranCount).toBe(1);
@@ -217,7 +217,7 @@ describe("a command that reads arguments off its own line", () => {
     registerCommand({ id: "test.withoutArguments", run: invoked });
 
     await executorOverConsoleRegistry(new Map([["test.other", vi.fn()]]))(
-      directiveLine("test.withoutArguments"),
+      commandLine("test.withoutArguments"),
     );
 
     expect(invoked).toHaveBeenCalledTimes(1);
@@ -229,7 +229,7 @@ describe("a command that reads arguments off its own line", () => {
     const handled = vi.fn();
 
     const outcome = await executorOverConsoleRegistry(new Map([["test.unregistered", handled]]))(
-      directiveLine("test.unregistered"),
+      commandLine("test.unregistered"),
     );
 
     expect(outcome.status).toBe("refused");
@@ -249,7 +249,7 @@ describe("a directive handler that fails", () => {
       new Map([["test.rejectingHandler", () => Promise.reject(new Error("the wire went away"))]]),
     );
 
-    const outcome = await executor(directiveLine("test.rejectingHandler"));
+    const outcome = await executor(commandLine("test.rejectingHandler"));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -275,7 +275,7 @@ describe("a directive handler that fails", () => {
       ]),
     );
 
-    const outcome = await executor(directiveLine("test.throwingHandler"));
+    const outcome = await executor(commandLine("test.throwingHandler"));
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" ? outcome.refusal.detail : "").toContain(
@@ -295,6 +295,6 @@ describe("a directive handler that fails", () => {
       new Map([["test.refusingHandler", async () => handlerRefusal]]),
     );
 
-    expect(await executor(directiveLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
+    expect(await executor(commandLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
   });
 });
