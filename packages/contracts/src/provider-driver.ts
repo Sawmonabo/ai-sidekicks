@@ -2889,49 +2889,48 @@ export const ProviderCommandListResultSchema: z.ZodType<
 // event, and naming that schema here would import the event module, which
 // itself imports this file.
 
-// Each entry names its procedure type, so the daemon can bind it as a query or a
-// mutation.
+/** The driver methods a client calls, each a query or a mutation. */
 export interface DriverMethodDescriptors {
   readonly "driver.listCapabilities": MethodDescriptor<
     "driver.listCapabilities",
     DriverReadParams,
     ListCapabilitiesResult
-  > & { readonly procedureType: "query" };
+  >;
   readonly "driver.listModels": MethodDescriptor<
     "driver.listModels",
     DriverReadParams,
     ListModelsResult
-  > & { readonly procedureType: "query" };
+  >;
   readonly "driver.listModes": MethodDescriptor<
     "driver.listModes",
     DriverReadParams,
     ListModesResult
-  > & { readonly procedureType: "query" };
+  >;
   readonly "driver.interruptRun": MethodDescriptor<
     "driver.interruptRun",
     InterruptRunParams,
     DriverAckResult
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "driver.applyIntervention": MethodDescriptor<
     "driver.applyIntervention",
     ApplyInterventionParams,
     DriverInterventionResult
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "driver.respondToRequest": MethodDescriptor<
     "driver.respondToRequest",
     RespondToRequestParams,
     DriverAckResult
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "driver.compactContext": MethodDescriptor<
     "driver.compactContext",
     CompactContextRequest,
     DriverCompactionResult
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "driver.listProviderCommands": MethodDescriptor<
     "driver.listProviderCommands",
     ListProviderCommandsRequest,
     ProviderCommandListResult
-  > & { readonly procedureType: "query" };
+  >;
 }
 
 /** The driver methods a client calls: their names, how each answers, and their shapes. */
