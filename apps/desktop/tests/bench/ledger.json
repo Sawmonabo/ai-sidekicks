@@ -200,7 +200,7 @@
     },
     {
       "benchmarkId": "streaming-layer.own",
-      "label": "Own layer — incremental segmentation with a memoised settled-block parse",
+      "label": "Own layer — incremental segmentation with a memoized settled-block parse",
       "unit": "ms/delta",
       "gitCommitSha": "16b51a3b05fd678278321161e7023ec798db63ba",
       "recordedAt": "2026-09-07T12:08:40.697Z",

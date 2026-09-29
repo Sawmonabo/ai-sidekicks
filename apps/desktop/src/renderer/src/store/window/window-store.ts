@@ -67,7 +67,7 @@ export interface WindowStoreState {
    * nothing is open — the registry is fresh — so a restored id would offer a way
    * back into a session this window is not in, which may since have been deleted,
    * archived, or moved to another node; the frame would be promising something only
-   * the daemon can honour. The window re-seeds this from the hash it opens at, which
+   * the daemon can honor. The window re-seeds this from the hash it opens at, which
    * is the one session a reload genuinely does restore.
    */
   readonly lastOpenedSessionId: string | undefined;
@@ -317,7 +317,7 @@ export class WindowStore {
  * IT IS READ RATHER THAN ASSUMED, which is the whole of why it exists. The cell was
  * seeded `true` and moved only on a later transition, so a window that opened WITHOUT
  * focus — an auxiliary window placed behind the one a person is in, a main window
- * restored minimised, any window opened while the person was in another application —
+ * restored minimized, any window opened while the person was in another application —
  * never received the `blur` that would have corrected it and spent its whole life
  * claiming an audience it did not have. That is not cosmetic: the attention emitter
  * withholds a banner about the session a FOCUSED window is already showing, so every
@@ -326,7 +326,7 @@ export class WindowStore {
  * BOTH READINGS, CONJOINED, because neither implies the other and the audience rule
  * means both. `hasFocus()` answers whether this document holds the keyboard —
  * a visible window beside a focused one does not — and `visibilityState` answers
- * whether it is on screen at all, which a minimised window that had focus when it went
+ * whether it is on screen at all, which a minimized window that had focus when it went
  * down is not. The conjunction also fails in the safer direction: a banner about
  * something already on screen is a smaller harm than silence about something that is
  * not.

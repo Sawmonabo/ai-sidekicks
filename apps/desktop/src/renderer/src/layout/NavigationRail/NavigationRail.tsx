@@ -78,7 +78,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
  * rendered nowhere — the exact failure `RAIL_DESTINATIONS` is a walkable tuple to
  * prevent, left open on the one table that consumes it.
  *
- * ORDER IS NOT HERE. A record's key order is an artefact of how it was written; the
+ * ORDER IS NOT HERE. A record's key order is an artifact of how it was written; the
  * rail's order is a design decision, so it is read from the `RAIL_DESTINATIONS`
  * tuple where the entries are built (`rail-navigation.ts`), not from this literal.
  */

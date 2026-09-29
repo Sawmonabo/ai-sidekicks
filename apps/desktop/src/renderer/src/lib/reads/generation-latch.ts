@@ -18,7 +18,7 @@
 // anybody still waiting", which is an OWNERSHIP question and has an answer only where
 // the act has an owner who may leave — reads, and reads only. A mutation that reached
 // the daemon has happened, so a superseded reply is IGNORED and never stopped, and
-// claiming otherwise would be a claim this console cannot honour. Every claim takes a
+// claiming otherwise would be a claim this console cannot honor. Every claim takes a
 // serial from one counter that never reissues a number, and a settlement is admitted
 // only while the key it holds still names that serial.
 //

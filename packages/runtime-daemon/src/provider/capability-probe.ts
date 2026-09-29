@@ -33,7 +33,7 @@
 // `DRIVER_CAPABILITY_FLAGS` and not answered here is a MISSING-PROPERTY compile
 // error in this file, which is exactly the loud failure a union growth needs
 // (grows it by three). The annotation is preferred over a bare `satisfies`
-// because `isolatedDeclarations` is on repo-wide and the neighbours
+// because `isolatedDeclarations` is on repo-wide and the neighbors
 // (`CODEX_CAPABILITY_FLAGS`, `CLAUDE_CAPABILITY_FLAGS`) already carry the
 // annotated form.
 //
@@ -51,7 +51,7 @@
 // attached.
 //
 // The seam's implementer carries one further obligation, and it is what makes
-// **non-mutating** structural rather than behavioural: probes run on a
+// **non-mutating** structural rather than behavioral: probes run on a
 // DEDICATED PROBE CONNECTION — the one already spawns to read the version
 // in-band — which has never started a thread (Codex `thread/start`) and never
 // sent a user message (Claude).
@@ -974,7 +974,7 @@ export async function readCapabilityDetection(
   const table = CAPABILITY_DETECTION_TABLES[driverName];
   const violations = findCapabilityDetectionTableViolations(driverName, table);
   if (violations.length > 0) {
-    // A malformed table is a daemon wiring fault, not provider misbehaviour.
+    // A malformed table is a daemon wiring fault, not provider misbehavior.
     throw new Error(
       `capability detection table for driver '${driverName}' is inadmissible: ${violations
         .map((violation) => `${violation.flag}: ${violation.reason}`)

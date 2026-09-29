@@ -410,7 +410,7 @@ describe("desktop main process boot", () => {
       expect(result.timedOut).toBe(true);
 
       // THE structural claim, asserted against a measurement of itself: the
-      // collection honoured its own bound.
+      // collection honored its own bound.
       //
       // Deliberately not asserted as "total elapsed < deadline + budget +
       // grace". That form is arithmetically equivalent only if teardown is

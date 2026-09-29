@@ -25,7 +25,7 @@
 // `role="status"`, so the element around it carries none — two nested status regions
 // announce the same sentence twice.
 //
-// AND IT NAMES THE CAUSE RATHER THAN SUMMARISING IT. The five causes are five
+// AND IT NAMES THE CAUSE RATHER THAN SUMMARIZING IT. The five causes are five
 // different things to know — a stream this store could not follow at all is not a read
 // that failed — so the cause is rendered as itself, in mono, beside one sentence that
 // says what is being done about it.

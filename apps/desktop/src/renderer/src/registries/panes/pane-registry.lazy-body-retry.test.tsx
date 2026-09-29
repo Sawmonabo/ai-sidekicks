@@ -122,7 +122,7 @@ describe("a rejected body load — the registration does not keep the failure", 
 
   it("negative control: a load that succeeded is never asked for again", async () => {
     // Without this, every case above would pass over a registration that had simply
-    // stopped memoising — one fetch per caller, per arrow-key press, forever, which is
+    // stopped memoizing — one fetch per caller, per arrow-key press, forever, which is
     // the defect the memo exists to prevent and the reason the release is scoped to the
     // rejected arm alone.
     const registry = new PaneRegistry();

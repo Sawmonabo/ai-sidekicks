@@ -98,7 +98,7 @@ pub enum FrameReadOutcome {
 /// the future mid-call leaves partial state in the underlying `BufReader`
 /// (and the in-progress body `Vec<u8>`) and will desync every subsequent
 /// frame. Callers MUST drive this future to completion; do NOT use it as
-/// the cancellable arm of `tokio::select!`. Implement cancellation via a
+/// the cancelable arm of `tokio::select!`. Implement cancellation via a
 /// separate signal checked between frames, not mid-frame.
 pub async fn read_frame<R>(reader: &mut R) -> std::io::Result<FrameReadOutcome>
 where

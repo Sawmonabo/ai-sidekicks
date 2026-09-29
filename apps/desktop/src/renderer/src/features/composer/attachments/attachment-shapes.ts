@@ -52,7 +52,7 @@ import type { IngestRefusalDisposition, UnresolvedAttachmentCause } from "./atta
 /**
  * Where one attachment's ingest stands. Closed.
  *
- * `abandoned` is its own member and not a flavour of `refused`: nobody refused it, the
+ * `abandoned` is its own member and not a flavor of `refused`: nobody refused it, the
  * user stopped sending and the daemon's reaper claims the spool. Rendering the
  * two the same way would tell a user their cancellation was an error.
  */
@@ -252,7 +252,7 @@ export function isSendingAttachmentIngestEntry(
  * would carry that entry's `payload` straight through into a `complete` one — which is
  * the leak this exists to close, dressed as a one-line convenience.
  *
- * `undefined` for the one move that cannot be honoured: a record putting a settled
+ * `undefined` for the one move that cannot be honored: a record putting a settled
  * entry back into a sending state, whose bytes are already gone. The ledger writes
  * nothing rather than minting an entry that claims a payload it does not have.
  */

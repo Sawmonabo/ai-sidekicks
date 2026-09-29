@@ -238,7 +238,7 @@ export function getCodexCapabilities(
 ): GetCapabilitiesResult {
   // A reading taken from ANOTHER driver's build would compose this driver's
   // flags against a foreign version — a daemon wiring fault, not provider
-  // misbehaviour, so it is an internal-invariant `Error` rather than a typed
+  // misbehavior, so it is an internal-invariant `Error` rather than a typed
   // provider refusal.
   if (reading.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(

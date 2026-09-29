@@ -1324,12 +1324,12 @@ describe("CodexTerminalEmissionGate", () => {
     });
   });
 
-  it("stamps `intendedClose: true` once a daemon-initiated close is signalled", () => {
+  it("stamps `intendedClose: true` once a daemon-initiated close is signaled", () => {
     const gate = new CodexTerminalEmissionGate();
 
     gate.signalIntendedClose();
 
-    expect(gate.intendedCloseSignalled()).toBe(true);
+    expect(gate.intendedCloseSignaled()).toBe(true);
     expect(gate.admitTerminalFrame(terminalFrame())).toMatchObject({
       emit: true,
       intendedClose: true,

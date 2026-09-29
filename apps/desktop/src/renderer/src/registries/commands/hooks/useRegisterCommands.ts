@@ -12,7 +12,7 @@
 // that is the whole point rather than a preference. The palette re-reads the
 // registry once per `commandRevision`, and the only thing that moves the revision
 // is a contribution signal: a surface that called `registerCommands`
-// directly would add its rows to a registry the open palette has already memoised
+// directly would add its rows to a registry the open palette has already memoized
 // against, and the commands would be invisible until something unrelated bumped
 // it. The frame gets away with the plural call because it bumps the revision
 // itself, in the same effect; a pane has no revision to bump.
@@ -49,7 +49,7 @@ const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
  * `commands` MUST BE REFERENTIALLY STABLE while its contents are unchanged: the
  * effect re-contributes whenever the list's identity changes, and a list rebuilt
  * per render would re-register the owner's rows — and bump the palette's revision
- * — on every keystroke and every streamed run event. Callers memoise on a
+ * — on every keystroke and every streamed run event. Callers memoize on a
  * signature of what the rows SAY and read everything that moves underneath them
  * through a ref, so a run version advancing does not rewrite the palette.
  */

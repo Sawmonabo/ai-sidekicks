@@ -22,11 +22,11 @@ export interface CommandSearchResult {
   /** Higher is better. Comparable only within one `search` call. */
   readonly score: number;
   /**
-   * Character positions in `command.title` to emphasise, when the match was on the
+   * Character positions in `command.title` to emphasize, when the match was on the
    * title. Deliberately a required member typed `| undefined` rather than an
    * optional one: `exactOptionalPropertyTypes` makes those two different types,
    * and a required-but-absent value is the honest shape for "there is no title
-   * match to emphasise".
+   * match to emphasize".
    */
   readonly titleMatch: SubsequenceMatch | undefined;
   /** 0 = most recently invoked. `undefined` when the command is not in recents. */

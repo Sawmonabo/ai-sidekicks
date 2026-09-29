@@ -13,7 +13,7 @@ const UTF8_ENCODER = new TextEncoder();
  * every cap. It is published rather than module-private because a second cap now exists —
  * the run controls bound a cancellation reason exactly as the engine bounds a park cause
  * — and the two measured the same sentence through two functions until this line. They
- * agreed on ASCII, which is the whole hazard: the first surrogate-pair or normalisation
+ * agreed on ASCII, which is the whole hazard: the first surrogate-pair or normalization
  * rule either of them grew would have moved one cap and not the other.
  *
  * UTF-8 bytes rather than `String.length`, which counts UTF-16 code units — a cap

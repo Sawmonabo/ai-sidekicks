@@ -54,7 +54,7 @@ import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
  *   for silence.
  */
 export function useSettlementAnnouncement(sentence: string | undefined): void {
-  // Memoised on the sentence, so the latch's effect re-runs when the settlement moves
+  // Memoized on the sentence, so the latch's effect re-runs when the settlement moves
   // and not once per render — which is what depending on a string gave before.
   const sentences = useMemo(() => (sentence === undefined ? undefined : [sentence]), [sentence]);
   useAnnounceOncePerSentence(sentences);

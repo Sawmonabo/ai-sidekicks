@@ -27,7 +27,7 @@ export const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
  * in them. The measured ratio is 21.5x, and one mebibyte of retained tokens divided by it
  * is about 48,771 source bytes; 48,000 is that rounded down, so the tokens stay INSIDE
  * the mebibyte rather than a little past it. It is a screenful of fenced blocks in
- * scrollback, and far below the point where retaining them costs more than re-tokenising
+ * scrollback, and far below the point where retaining them costs more than re-tokenizing
  * them.
  *
  * THE CONSEQUENCE, NAMED RATHER THAN LEFT TO BE FOUND: a block between this cap and
@@ -42,7 +42,7 @@ export const CODE_TOKEN_CACHE_BYTE_CAP = 48_000;
  *
  * Highlighting runs in a Worker above about 4 kB of source. The measurement is the
  * reason — the JavaScript engine costs about 8.1 ms per 2,700 bytes, so 4,096 bytes is
- * the last size whose tokenisation still fits inside one 16.7 ms frame beside the
+ * the last size whose tokenization still fits inside one 16.7 ms frame beside the
  * layout it has to leave room for.
  */
 export const CODE_WORKER_THRESHOLD_BYTES = 4096;

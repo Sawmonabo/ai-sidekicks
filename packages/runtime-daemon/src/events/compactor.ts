@@ -2133,7 +2133,7 @@ function readNullableString(value: unknown, column: string): string | null {
  * The two must not disagree. The values that reach here are sequences and byte
  * counts read out of the same rows the probing reader measures, and they flow
  * into arithmetic (`sequence + 1`, byte subtraction) and into signed stub
- * payloads. A bare `Number(value)` past 2^53 silently yields a NEIGHBOURING
+ * payloads. A bare `Number(value)` past 2^53 silently yields a NEIGHBORING
  * integer — which as a sequence names a DIFFERENT row than the one the database
  * returned, and as a byte count gets signed into a stub retained indefinitely.
  * Refusing is the only honest answer at that magnitude.

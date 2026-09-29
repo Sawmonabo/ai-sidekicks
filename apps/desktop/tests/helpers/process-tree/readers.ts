@@ -230,7 +230,7 @@ export function runBoundedHostQuery(
  * and that is not tidiness: `ps -o lstart=` emits `Sun Sep  7 02:25:10 2026`,
  * five whitespace-separated tokens for one value. It is kept VERBATIM apart from
  * the surrounding whitespace — re-joining split tokens would collapse the double
- * space a single-digit day is padded with, and a stamp normalised on one read and
+ * space a single-digit day is padded with, and a stamp normalized on one read and
  * not on the other compares unequal and reports every descendant as reissued.
  *
  * A line whose first two fields are not integers is a header or a warning and

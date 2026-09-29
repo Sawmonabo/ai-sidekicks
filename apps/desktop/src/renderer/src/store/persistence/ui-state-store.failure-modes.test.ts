@@ -62,7 +62,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     expect(outcome).toStrictEqual({ outcome: "unavailable", reason: "no-indexeddb-global" });
   });
 
-  it("honours an EXPLICITLY absent factory on a host that has an ambient one", async () => {
+  it("honors an EXPLICITLY absent factory on a host that has an ambient one", async () => {
     // The arm a `??` coalesce cannot reach. On a host that HAS a global — every
     // browser, and this case — `options.indexedDbFactory ?? indexedDB` substitutes
     // the ambient factory for the caller's explicit `undefined` and opens durable
@@ -122,7 +122,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
 
   it("trims once and then surfaces the refusal when the quota is exhausted", async () => {
     // The ceiling admits the first record (43 bytes by the adapter's estimator:
-    // partition + key + value class + serialised value) and cannot admit the
+    // partition + key + value class + serialized value) and cannot admit the
     // second (88) even with the first evicted. That is the case worth pinning:
     // the trim runs, frees a whole partition, and the write STILL fails — so the
     // refusal reaches the caller instead of being retried forever.

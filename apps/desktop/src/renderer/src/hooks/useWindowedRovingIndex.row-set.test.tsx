@@ -230,7 +230,7 @@ describe("useWindowedRovingIndex — a move belongs to the sequence it was made 
     // Identical to the case above but for the one fact under test — the second render
     // is the SAME sequence — and the claim is spent the way a move that is still the
     // move on screen must be. Without it, "focus went nowhere" would be satisfied by a
-    // hook that had stopped honouring pending claims at all, and by a fixture whose
+    // hook that had stopped honoring pending claims at all, and by a fixture whose
     // rerender never mounted row 39.
     const oneDrawing = drawnSequence();
     const { container, rerender } = render(

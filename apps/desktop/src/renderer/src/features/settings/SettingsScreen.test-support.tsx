@@ -62,7 +62,7 @@ async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
  * it fails against a document the aborted one left behind — a dozen failures reported as
  * a dozen defects, none of them real, green standalone and red in the suite.
  *
- * So the fetch is memoised in a holder, and a suite that renders the shipped arm awaits
+ * So the fetch is memoized in a holder, and a suite that renders the shipped arm awaits
  * it once in `beforeAll`, where the budget belongs to a hook rather than to an assertion.
  * A class with a private field rather than a module-level `let`, per
  * `apps/desktop/AGENTS.md`.

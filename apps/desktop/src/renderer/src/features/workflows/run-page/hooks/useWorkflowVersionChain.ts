@@ -12,7 +12,7 @@
 // to the SAME empty reading, and that is the honest one rather than a collapse: the
 // control's contract is that an empty chain means no target can be named, so the
 // picker is absent rather than empty and the resume travels with no re-pin.
-// Synthesising a chain from the one id in hand would offer the operator a target
+// Synthesizing a chain from the one id in hand would offer the operator a target
 // nobody read, which is the "no server-resolved latest" rule with the server swapped
 // out for the renderer.
 //

@@ -25,7 +25,7 @@
 // KIND IS WHAT IS ABSENT; PLACEMENT IS WHERE THE ABSENCE IS MOUNTED. Those are two
 // questions and this component used to answer both with one: the kind picked the
 // shape, so `not-checked` was a badge everywhere. It is the right shape beside a
-// value it qualifies and the wrong one in place of a whole pane — a badge centred
+// value it qualifies and the wrong one in place of a whole pane — a badge centered
 // in a 1440 px window is a strip of text a reader takes for a paint that did not
 // finish, and its `detail` reaches nobody, because a badge can only carry its second
 // line as a hover tooltip. So the caller names the placement and the placement picks

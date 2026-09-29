@@ -461,7 +461,7 @@ export class RendererHeapProbe {
   }
 
   /**
-   * Collect, and let pending finalisation run.
+   * Collect, and let pending finalization run.
    *
    * The loop is this process's own — it collects over a DevTools session rather than
    * through a resolved collector — but the ROUND COUNT is `heap-sampling.ts`'s, which
@@ -488,7 +488,7 @@ export class RendererHeapProbe {
     }
   }
 
-  /** Collect, let finalisation run, and read the settled heap. */
+  /** Collect, let finalization run, and read the settled heap. */
   public async readSettledBytes(): Promise<number> {
     await this.collectGarbage();
     return readSettledHeapBytes(this.#consoleApplication);
@@ -515,7 +515,7 @@ export class RendererHeapProbe {
    * What the named constructors retained in a snapshot this probe wrote.
    *
    * A method rather than a bare import at the case, so the capture and the reading are
-   * reached through one door and a case cannot analyse a snapshot no probe here took.
+   * reached through one door and a case cannot analyze a snapshot no probe here took.
    */
   public async readRetainedByConstructor(
     snapshotPath: string,

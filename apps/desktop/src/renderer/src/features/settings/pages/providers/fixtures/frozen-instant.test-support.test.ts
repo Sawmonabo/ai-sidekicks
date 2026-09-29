@@ -20,7 +20,7 @@ describe("the frozen start instant", () => {
     );
   });
 
-  it("refuses a calendar day that does not exist rather than normalising it", () => {
+  it("refuses a calendar day that does not exist rather than normalizing it", () => {
     // The negative control for the two tiers this hoist retired. Both spelled the
     // stamp `Date.parse(…)`, which answers a NUMBER for February 30 — March 2, one
     // day the wire never named — so a mistyped fixture instant read clean and the

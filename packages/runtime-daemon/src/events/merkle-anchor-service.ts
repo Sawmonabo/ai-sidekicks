@@ -68,7 +68,7 @@
 // duplication", and carried the same parenthetical. That prescription was
 // self-contradictory: while odd-leaf duplication is the Bitcoin construction,
 // which admits the CVE-2012-2459 root collapse the RFC exists to avoid. Resolved
-// in favour of the cited RFC — the citation was the intent, the wording was the
+// in favor of the cited RFC — the citation was the intent, the wording was the
 // defect. No production anchors existed, so the signed format was free.
 //
 // A FOURTH surface carried a DIFFERENT wrong construction and was repaired in
@@ -382,7 +382,7 @@ function largestPowerOfTwoBelow(width: number): number {
  * An INTERFACE rather than an inlined `fetch` call, for two reasons. It keeps
  * the exact tRPC request/response envelope out of the service's own logic (the
  * service cares that the anchor landed, not how), and it lets the queue-drain
- * behaviour be exercised without a live HTTP server.
+ * behavior be exercised without a live HTTP server.
  */
 export interface AnchorUploadTransport {
   upload(anchor: AnchorPayload): Promise<EventAnchorUploadResponse>;
@@ -580,7 +580,7 @@ export interface MerkleAnchorServiceDeps {
   readonly signingKeySource: DaemonSigningKeySource;
   /**
    * Optional control-plane transport. ABSENT means anchors queue and never
-   * flush, which is the correct behaviour before a credential provider is wired
+   * flush, which is the correct behavior before a credential provider is wired
    * provider — and is indistinguishable, by design, from an indefinite
    * partition.
    */

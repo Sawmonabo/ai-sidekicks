@@ -8,7 +8,7 @@
 // index to build, no tokenizer, no options object, no per-keystroke allocation
 // beyond four small typed arrays. A matching library buys none of that back and
 // costs bytes on a measured budget. It also cannot give us the one output the
-// palette actually needs — `matchedIndices`, so the renderer can emphasise the
+// palette actually needs — `matchedIndices`, so the renderer can emphasize the
 // characters the person typed — without reaching into its internals.
 //
 // WHAT IT SCORES. A candidate matches when the query is a case-insensitive
@@ -96,7 +96,7 @@ const SUBSEQUENCE_LEADING_GAP_PENALTY_PER_CHARACTER = 1;
 
 /**
  * Charged per character left over AFTER the last match. Lighter still. Its only
- * job is to break the tie between two titles that match identically, in favour
+ * job is to break the tie between two titles that match identically, in favor
  * of the shorter one, because the shorter one is the more exact answer.
  */
 const SUBSEQUENCE_TRAILING_PENALTY_PER_CHARACTER = 0.5;
@@ -271,7 +271,7 @@ function isUppercaseLetter(character: string): boolean {
  *
  * `String.prototype.toLowerCase` is not length-preserving for every code point
  * (the Turkish dotted capital I folds to two code units), and a single such
- * character in a repo path would desynchronise `matchedIndices` from the original
+ * character in a repo path would desynchronize `matchedIndices` from the original
  * string — the renderer would then embolden the wrong characters. So the fold is
  * per character and declines to apply itself when it would change the length,
  * which costs nothing and keeps every index honest.

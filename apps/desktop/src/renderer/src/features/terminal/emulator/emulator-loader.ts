@@ -13,7 +13,7 @@
 // — the library, the addons, the sheet, the renderer pool — is emitted as its own
 // chunk and fetched the first time a terminal host mounts.
 //
-// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoised: two
+// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
 // terminal surfaces mounting in one frame must not start two fetches, and a
 // remount must not re-enter the module. A module-level `let` holding that promise
 // is the state `apps/desktop/AGENTS.md` rejects, and it would also be untestable —
@@ -60,7 +60,7 @@ export class TerminalEmulatorLoader {
       return { XtermTerminalAdapter };
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoising the rejection would leave every later mount for the
+      // transiently. Memoizing the rejection would leave every later mount for the
       // life of the window holding a failure that a second request would not have
       // reproduced, so the memo is dropped and the caller that asked still sees
       // this attempt's error.

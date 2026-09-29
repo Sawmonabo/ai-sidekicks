@@ -55,8 +55,8 @@ export interface SessionPaneSlotProps {
 /**
  * One pane's frame, and the body resolved through the pane layout's single mount door.
  *
- * Memoised on purpose: the console's frame budgets are written against a four-lane
- * streaming session, and an unmemoised map re-renders four pane bodies for every
+ * Memoized on purpose: the console's frame budgets are written against a four-lane
+ * streaming session, and an unmemoized map re-renders four pane bodies for every
  * event that touches one of them.
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(

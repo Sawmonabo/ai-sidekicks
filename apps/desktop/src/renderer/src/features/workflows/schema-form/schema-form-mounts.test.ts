@@ -38,7 +38,7 @@ describe("the schema form chunk's loader", () => {
     expect(loader.isLoadStarted).toBe(true);
   });
 
-  it("memoises: a run pane and a definition row mounting together share one fetch", () => {
+  it("memoizes: a run pane and a definition row mounting together share one fetch", () => {
     const loader = new SchemaFormChunk();
     // Promise identity is the observable. Two distinct promises would mean two entries
     // into the module, which is the race the memo exists to prevent.

@@ -10,7 +10,7 @@
 //     entities and a partitioned one about 57 µs.
 //   • **A store never caches a flag another store owns.** Each partition names
 //     what it OWNS; a projection that needs two kinds composes them at read time
-//     rather than denormalising one into the other, because a denormalised copy is
+//     rather than denormalizing one into the other, because a denormalized copy is
 //     a second source of truth that the reconnect path cannot heal.
 //   • **Projections never persist.** Nothing here is durable. `persistence/` holds
 //     UI state only, and every entity in this module is re-derived from the

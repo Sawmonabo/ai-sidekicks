@@ -1,4 +1,4 @@
-// Contract coverage for `MerkleAnchorService` — SERVICE behaviour
+// Contract coverage for `MerkleAnchorService` — SERVICE behavior
 // only.
 //
 // TWO SIBLING FILES ALREADY OWN THE OTHER HALVES and are deliberately not

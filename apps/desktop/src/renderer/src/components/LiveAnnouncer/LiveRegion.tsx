@@ -13,7 +13,7 @@
 // `role="alert"` already imply `aria-live="polite"` / `"assertive"` and
 // `aria-atomic="true"`, so the attributes are redundant on paper. They are written
 // anyway because the redundancy is free and the failure it covers is silent: the
-// pairing is honoured unevenly across screen-reader and browser combinations, and a
+// pairing is honored unevenly across screen-reader and browser combinations, and a
 // region that is not announced looks exactly like a region nothing was sent to.
 // `aria-atomic="true"` is the part that is NOT safely left implicit — without it a
 // reader may speak only the changed text node, which for a message replacing a

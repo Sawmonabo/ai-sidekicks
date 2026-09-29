@@ -19,7 +19,7 @@
 // states and nothing it does not, so a beat naming a kind the census does not
 // register composes with no `category` — which is exactly the shape
 // `EventEnvelopeSchema` refuses. Substituting a category here would let the fixture
-// deliver a frame no daemon can send; refusing here would move the wire's judgement
+// deliver a frame no daemon can send; refusing here would move the wire's judgment
 // into the composer and give the fixture a second refusal vocabulary for a defect
 // the registered schema already names. The judges are those schemas, and both of
 // them run: `tests/helpers/scenario-contract-check/contract-check.ts` parses every beat of every scenario before it

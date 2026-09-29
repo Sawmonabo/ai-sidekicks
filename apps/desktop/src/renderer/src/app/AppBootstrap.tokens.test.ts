@@ -52,7 +52,7 @@ describe("AppProviders — every state it can render sits on the Meridian tokens
     // otherwise. It is also the state a person is most likely to be reading when
     // something has gone wrong, and it used to arrive in browser defaults: no
     // custom properties, and none of the `html, body { height: 100% }` rules the
-    // card is centred against.
+    // card is centered against.
     vi.mocked(useBridgeResolution).mockReturnValue({
       status: "unavailable",
       unavailable: {

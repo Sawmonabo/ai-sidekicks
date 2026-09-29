@@ -1,4 +1,4 @@
-// The highlight scheduler — where a block is tokenised, and where the answer is kept.
+// The highlight scheduler — where a block is tokenized, and where the answer is kept.
 //
 // Three decisions, each of them a constraint on the adopted highlighter:
 //
@@ -72,10 +72,10 @@ export class CodeHighlightScheduler {
   }
 
   /**
-   * Tokenise a block, or say why not.
+   * Tokenize a block, or say why not.
    *
    * The cache is consulted first even here, so a component whose effect re-runs after a
-   * re-mount does not re-tokenise what it already has.
+   * re-mount does not re-tokenize what it already has.
    */
   public async requestTokens(
     source: string,
@@ -227,7 +227,7 @@ export class CodeHighlightScheduler {
 /**
  * The cache key: language and source, in one place.
  *
- * The language is part of it because the same text tokenises differently under two
+ * The language is part of it because the same text tokenizes differently under two
  * grammars, and a key that dropped it would serve a JSON block's tokens for a YAML one.
  */
 function cacheKey(source: string, language: HighlightableLanguage): string {

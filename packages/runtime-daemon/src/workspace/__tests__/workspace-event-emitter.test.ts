@@ -1,8 +1,8 @@
-// WorkspaceEventEmitter behaviour.
+// WorkspaceEventEmitter behavior.
 //
 // Exercises the single seam every repo-mount / workspace state transition
 // appends its `session_lifecycle` event through, over a real test SQLite DB
-// (same lifecycle as the neighbouring emitter suite: `openDatabase` factory →
+// (same lifecycle as the neighboring emitter suite: `openDatabase` factory →
 // per-test tmp file → `afterEach` close + unlink), with the `EventLogService`
 // as the durable append path. A structural block at the bottom drives the
 // same emitter through a plain-object log to pin the parts of the seam

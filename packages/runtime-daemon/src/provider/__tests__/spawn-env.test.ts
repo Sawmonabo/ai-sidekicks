@@ -12,7 +12,7 @@
  *     stays stripped after the builder runs, and the opt-out survives a policy
  *     that names it.
  *   * Every fold — the mandated map, the deny set, and the base pruning —
- *     honours THIS HOST's name-match mode, which is a property of the operating
+ *     honors THIS HOST's name-match mode, which is a property of the operating
  *     system and not of a policy. The negative control is the same input under
  *     the other mode: if both modes agreed, the mode would not be doing
  *     anything. A supplied policy that disagrees with the host is REFUSED,
@@ -177,7 +177,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     expect(valueOf(built, "ANTHROPIC_API_KEY")).toBe("sk-live");
   });
 
-  it("honours a case-insensitive host's match mode", () => {
+  it("honors a case-insensitive host's match mode", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: [...CURATED_BASE, ["Anthropic_Api_Key", "sk-live"]],
@@ -366,9 +366,9 @@ describe("provider spawn environment — host name-matching semantics", () => {
     { host: "case-insensitive", policy: "case-sensitive" },
   ] as const)("REFUSES a policy declaring $policy matching on a $host host", ({ host, policy }) => {
     // A policy authored for another host's semantics is a wiring fault, and
-    // both reconciliations are wrong: honouring the policy would let a
+    // both reconciliations are wrong: honoring the policy would let a
     // case-sensitive artifact leave `path` in a child on a case-insensitive
-    // host, and silently honouring the host would apply a deny list under
+    // host, and silently honoring the host would apply a deny list under
     // semantics its author never assumed.
     expect.assertions(3);
     try {

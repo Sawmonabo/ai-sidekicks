@@ -8,7 +8,7 @@
 //   * `NodePtyHost`           — in-process `node-pty` wrapper (Phase 2,
 //                                primary on macOS/Linux at every phase,
 //                                Phase 5 Windows-fallback).
-//   * `RustSidecarPtyHost`    — out-of-process Rust binary marshalled
+//   * `RustSidecarPtyHost`    — out-of-process Rust binary marshaled
 //                                over Content-Length framing (Phase 3+,
 //                                Phase 5 Windows-primary).
 //

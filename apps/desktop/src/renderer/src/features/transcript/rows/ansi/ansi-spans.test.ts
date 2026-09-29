@@ -74,7 +74,7 @@ describe("parsing ANSI output", () => {
 
   it("undoes the library's own default substitution, leaving the unset channel unset", () => {
     // Anser fills a missing channel with white/black before it swaps. Rendered, that pair
-    // is muted grey on faint grey in this console — a substitution that reverses nothing.
+    // is muted gray on faint gray in this console — a substitution that reverses nothing.
     const bare = parseAnsiSpans(`${ESCAPE}[7mbare`);
     expect(bare.spans[0]?.foreground).toBeUndefined();
     expect(bare.spans[0]?.background).toBeUndefined();

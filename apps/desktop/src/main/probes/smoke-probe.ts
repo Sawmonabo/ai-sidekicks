@@ -148,9 +148,9 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     })()
   `;
 
-  let serialisedReadings: string;
+  let serializedReadings: string;
   try {
-    serialisedReadings = (await browserWindow.webContents.executeJavaScript(
+    serializedReadings = (await browserWindow.webContents.executeJavaScript(
       rendererReadings,
     )) as string;
   } catch (error: unknown) {
@@ -176,7 +176,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     `${SMOKE_PROBE_TAG} ${JSON.stringify({
       ok: true,
       windowMs,
-      probe: JSON.parse(serialisedReadings) as Record<string, unknown>,
+      probe: JSON.parse(serializedReadings) as Record<string, unknown>,
       contentSecurityPolicy,
     })}`,
   );

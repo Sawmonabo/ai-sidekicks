@@ -80,7 +80,7 @@ export function resolveAddressedRun(
   let addressed: StoredEntity | undefined;
   for (const run of Object.values(runs)) {
     // The binding is read off the run's own body, wire-verbatim and compared as
-    // received — the store holds the daemon's string and this module normalises
+    // received — the store holds the daemon's string and this module normalizes
     // nothing, so a run bound to another agent simply does not match.
     const boundAgentId: unknown = run.body?.["agentId"];
     if (boundAgentId !== agentId || !stateAdmitsSteer(run.state)) {

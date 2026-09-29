@@ -398,7 +398,7 @@ export class DriverCapabilitiesWriter {
     //
     // A NON-object report is passed through UNCOPIED, deliberately: this copy
     // makes no admission decision — it only decides what is read once — so the
-    // validator remains the SOLE owner of the accept/reject judgement and still
+    // validator remains the SOLE owner of the accept/reject judgment and still
     // refuses an absent/null/primitive report on its own terms (`cliVersion`).
     // The property reads themselves are part of the getter/Proxy threat model:
     // a throwing accessor would otherwise escape as the provider's OWN

@@ -1,7 +1,7 @@
 // The pane layout's width arithmetic and its address identity, checked without
 // constructing a layout.
 //
-// The claim under test is the one `normalise` makes in its own name: whatever was on
+// The claim under test is the one `normalize` makes in its own name: whatever was on
 // disk, the row it returns sums to a whole pane layout. Rounding each pane independently
 // does not give that — three equal saved widths round to `333 + 333 + 333 = 999` —
 // and the widths come from the explicitly untrusted persisted snapshot, so the
@@ -40,7 +40,7 @@ function sumOf(panes: readonly SessionPane[]): number {
   return panes.reduce((total, pane) => total + pane.sizePermille, 0);
 }
 
-describe("normalise", () => {
+describe("normalize", () => {
   it.each([
     { what: "three equal saved widths", saved: [333, 333, 333] },
     { what: "seven equal saved widths", saved: [10, 10, 10, 10, 10, 10, 10] },
@@ -48,9 +48,9 @@ describe("normalise", () => {
     { what: "widths that do not add up to a layout at all", saved: [1, 1, 1] },
     { what: "widths far larger than a layout", saved: [4000, 4000, 4001] },
   ])("makes $what sum to exactly one layout", ({ saved }) => {
-    const normalised = normalize(panesWithWidths(saved));
-    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
-    expect(normalised).toHaveLength(saved.length);
+    const normalized = normalize(panesWithWidths(saved));
+    expect(sumOf(normalized)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
+    expect(normalized).toHaveLength(saved.length);
   });
 
   it("gives the remainder to the widest pane, and to the first of equals", () => {
@@ -69,9 +69,9 @@ describe("normalise", () => {
   it("keeps every pane at a permille or more", () => {
     // A pane that rounds to nothing would come back as a column with no width for a
     // person to grab, which is a pane lost rather than a pane restored.
-    const normalised = normalize(panesWithWidths([100_000, 1, 1]));
-    expect(Math.min(...widthsOf(normalised))).toBeGreaterThanOrEqual(1);
-    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
+    const normalized = normalize(panesWithWidths([100_000, 1, 1]));
+    expect(Math.min(...widthsOf(normalized))).toBeGreaterThanOrEqual(1);
+    expect(sumOf(normalized)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   // The negative control: a row whose rounding already lands on the total is
@@ -175,7 +175,7 @@ describe("carveSplitFrom", () => {
   it("takes the arriving pane's width from the source alone", () => {
     // The claim the split act rests on: splitting the middle of a pane layout a person
     // arranged leaves the panes on either side of it exactly as they were. The rule
-    // `distributeEvenly` applies — equalise everything — would answer [333,333,333,
+    // `distributeEvenly` applies — equalize everything — would answer [333,333,333,
     // 333] here and destroy the arrangement while the sum stayed right, so the sum
     // alone is not the assertion.
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);

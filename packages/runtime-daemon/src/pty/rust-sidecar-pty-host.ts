@@ -6,7 +6,7 @@
 // Ships two backends behind the `PtyHost` interface published from
 // `@ai-sidekicks/contracts`: an in-process `node-pty` wrapper (Phase
 // 2, primary on macOS/Linux, fallback on Windows) and this
-// out-of-process Rust sidecar binary marshalled over Content-Length
+// out-of-process Rust sidecar binary marshaled over Content-Length
 // framing on the binary's stdio (Phase 3, primary on Windows once the
 // Phase 5 selector default-flip lands). `node-pty` ConPTY bug cluster
 // (`microsoft/node-pty#904`, `microsoft/node-pty#887`,

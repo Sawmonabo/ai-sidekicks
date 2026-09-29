@@ -87,7 +87,7 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
  * shared-code rules in `apps/desktop/AGENTS.md` say where the single copy goes: the lowest
  * module that owns the concern, which is the hook's own mount.
  *
- * Awaiting the loader rather than the module map: the loader memoises nothing itself, but
+ * Awaiting the loader rather than the module map: the loader memoizes nothing itself, but
  * the registry behind it does, so a caller arriving after the module has landed awaits a
  * settled promise and costs nothing.
  */

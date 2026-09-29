@@ -357,7 +357,7 @@ export class TranscriptWindow {
 
   /**
    * Every key from the reader's row to the end of the window — the set the drop
-   * may not touch — and empty when there is no floor to honour.
+   * may not touch — and empty when there is no floor to honor.
    *
    * Empty for a floor naming a row the window no longer holds, too: the row the
    * reader was on is already gone, so there is nothing above it left to protect,

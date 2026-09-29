@@ -189,7 +189,7 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
         // Every automated launch asks for an unobtrusive window: on macOS an
         // ordinary reveal activates the application, steals focus, and switches
         // the operator to the Space the window opened on — a dozen times per
-        // aggregate run. A fixture build honours this; a release build cannot
+        // aggregate run. A fixture build honors this; a release build cannot
         // (see `src/main/window-reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,

@@ -8,7 +8,7 @@
 // runtime edge into the chunk is the `import()` inside {@link SchemaFormChunk}.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE, on `run-graph-loader.ts`'s reasoning and
-// for its reason: the promise has to be memoised so a run pane and a definition row
+// for its reason: the promise has to be memoized so a run pane and a definition row
 // mounting in one frame start one fetch rather than two, and a module-level `let`
 // holding it is the state `apps/desktop/AGENTS.md` rejects — untestable, because there
 // would be no second instance to compare a first against. The memo is a private field,
@@ -75,7 +75,7 @@ export class SchemaFormChunk {
       return await import("./schema-form-body.js");
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoising the rejection would leave every later mount for the life
+      // transiently. Memoizing the rejection would leave every later mount for the life
       // of the window holding a failure a second request would not have reproduced, so
       // the memo is dropped and the caller that asked still sees this attempt's error.
       this.#modulePromise = undefined;

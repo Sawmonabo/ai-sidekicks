@@ -664,7 +664,7 @@ function captureReadPathThrow(database: DatabaseType): unknown {
  *
  * `Uint8Array.from` rather than the raw better-sqlite3 `Buffer`, because these
  * values are compared with `toEqual` and a `Buffer` compares
- * equal to a `Uint8Array` of different contents under some matchers. Normalising
+ * equal to a `Uint8Array` of different contents under some matchers. Normalizing
  * at the read keeps the comparison about the BYTES.
  */
 function readStoredCiphertext(database: DatabaseType): Uint8Array | null {
@@ -2209,7 +2209,7 @@ describe("a misordered PII write path is refused at runtime", () => {
   it("refuses a daemon signing key that is not 32 bytes BEFORE spending the nonce", async () => {
     // HOISTED OUT OF A LIBRARY GUARD RATHER THAN A SIBLING MODULE'S, which is
     // what makes this the last refusal to move: `signRow` guards `prevHash` and
-    // NOTHING ELSE, so an ill-shaped key travelled un-inspected from the
+    // NOTHING ELSE, so an ill-shaped key traveled un-inspected from the
     // parameter all the way down to `ed25519.sign`'s `abytes(key, 32)` at recipe
     // step 6. The throw was always correct and the TIMING never was — it landed
     // past the encrypt, and on a `manual_reconcile_only` codec a burnt nonce is
@@ -2222,7 +2222,7 @@ describe("a misordered PII write path is refused at runtime", () => {
     // validates byte-ness and width), so a mis-shaped key reaching production
     // arrived through precisely this assertion at a custody or routing site that
     // went around that mint. The cast here is this suite standing in for the
-    // same licence the key-material block at the top of the file documents.
+    // same license the key-material block at the top of the file documents.
     const truncatedDaemonSigningKey: Ed25519PrivateKey = new Uint8Array(31) as Ed25519PrivateKey;
     const encryptor = new DeterministicTestPiiEncryptor();
 
@@ -2390,7 +2390,7 @@ describe("a misordered PII write path is refused at runtime", () => {
     // the row holds PII sealed against an AAD no decrypt can rebuild, under a
     // stamp that names no owner.
     //
-    // An EMPTY string is the case with no type-system defence at all: it
+    // An EMPTY string is the case with no type-system defense at all: it
     // satisfies `PiiCarryingEventInput` completely and names no key holder.
     const encryptor = new DeterministicTestPiiEncryptor();
 

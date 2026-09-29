@@ -90,11 +90,11 @@ export interface IngestHaltSource {
  * The vacuous `IngestHaltSource`: nothing is ever halted.
  *
  * This is the DEFAULT the append service falls back to when no registry is
- * wired, and the choice of default is a security judgement worth stating.
+ * wired, and the choice of default is a security judgment worth stating.
  * Fail-OPEN is correct here specifically: halting is an exceptional,
  * externally-published state, and a daemon with no key-reuse observer running
  * (every deployment before Phase 4 lands, plus every unit test of an unrelated
- * append behaviour) has no evidence any session is compromised. A fail-CLOSED
+ * append behavior) has no evidence any session is compromised. A fail-CLOSED
  * default would refuse every write in that configuration — turning "the observer
  * is not wired" into "the daemon cannot record anything", including the events
  * an operator would need to diagnose it.
@@ -405,7 +405,7 @@ export class IngestHaltRegistry implements IngestHaltSource {
         // and the reset cannot strand a comparison. Outside rest state the map
         // is bounded by |halted sessions| + |in-flight clears|.
         //
-        // The still-halted RETENTION guard below is DEFENCE IN DEPTH, and worth
+        // The still-halted RETENTION guard below is DEFENSE IN DEPTH, and worth
         // being honest about rather than overclaiming: no false-equality
         // construction needs it today. Absent reads as 0; a bump from absent
         // yields 1, never the 0 a fresh capture would read; a bump always

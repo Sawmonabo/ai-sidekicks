@@ -560,7 +560,7 @@ export function resolveCostUpdateProvenance(options: {
       kind: "usage_cross_check_mismatch",
       rawWireType: null,
       dispositionReason:
-        "provider-reported cost failed the sanity bound (non-finite, negative, or at/above the absurdity ceiling); discarded in favour of the derivation ladder and surfaced rather than dropped",
+        "provider-reported cost failed the sanity bound (non-finite, negative, or at/above the absurdity ceiling); discarded in favor of the derivation ladder and surfaced rather than dropped",
       details: {
         providerReportedCostCents: Number.isFinite(reportedCents) ? reportedCents : null,
         reportedCostIsFinite: Number.isFinite(reportedCents),

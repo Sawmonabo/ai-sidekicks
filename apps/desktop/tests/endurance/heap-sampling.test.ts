@@ -41,7 +41,7 @@ describe("the collector's memo belongs to the instance that holds it", () => {
     collector.collect();
     collector.available();
 
-    // The whole reason the resolution is memoised: it mutates a process-wide V8
+    // The whole reason the resolution is memoized: it mutates a process-wide V8
     // flag, and a sample-time resolution would flip that flag once per round for
     // the length of the run.
     expect(resolutionCount).toBe(1);

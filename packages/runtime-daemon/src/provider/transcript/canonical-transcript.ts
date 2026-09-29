@@ -283,7 +283,7 @@ function unkeyedToolResultSegment(
  * result to whichever occurrence the fold happened to read last. A private
  * block followed by a summary block reusing its id therefore erased the private
  * resolution, and an export bounded between the answer and the reasoning — the
- * one case where the stamp is the only surviving defence, since the bound cuts
+ * one case where the stamp is the only surviving defense, since the bound cuts
  * away the in-turn floor the strip otherwise applies — shipped the enclosed
  * body.
  *
@@ -488,7 +488,7 @@ export interface CanonicalTranscriptFoldRequest {
    * segments it already holds: it opens no log, and mints no second record of the
    * session's order. A projection this fold already bounded filters to itself.
    *
-   * Honoured by running {@link boundProjectionToPosition} over the FINISHED fold
+   * Honored by running {@link boundProjectionToPosition} over the FINISHED fold
    * rather than by skipping over-bound rows as the log is walked, so a bounded
    * build is the bound of the unbounded one by construction. The reason the
    * distinction matters — enclosure resolution being a property of the whole turn
@@ -769,7 +769,7 @@ export class CanonicalTranscriptFold {
       builtAtPosition: newestLoggedPosition,
       turns,
     };
-    // The one place the request's bound is honoured, and it runs over the
+    // The one place the request's bound is honored, and it runs over the
     // FINISHED fold. `builtAtPosition` rides through untouched — it records where
     // the fold was taken, not where this projection was cut; see
     // {@link boundProjectionToPosition}.

@@ -137,8 +137,8 @@ export type DriverProviderName = "codex" | "claude";
  *     reading either of those refusals needs this record to explain them.
  *   - `callback_tool_registry_release_ignored` — a superseded spawn's teardown
  *     ran after its registry had been replaced. The replacement is left
- *     installed and the release is recorded rather than silently honoured,
- *     because honouring it would tear down the LIVE spawn's registry.
+ *     installed and the release is recorded rather than silently honored,
+ *     because honoring it would tear down the LIVE spawn's registry.
  *   - `subagent_definition_disabled` — leg 4's fail-closed spawn rule: a
  *     subagent definition the daemon cannot boundary-mediate is disabled at
  *     spawn rather than admitted unenforceable.

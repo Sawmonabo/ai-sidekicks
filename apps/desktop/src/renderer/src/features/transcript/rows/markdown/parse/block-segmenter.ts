@@ -44,7 +44,7 @@ import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-bounds.js";
 export interface MarkdownSegmentation {
   /**
    * Complete blocks far enough behind the tail to be final. Each is parsed once and
-   * memoised by its own text.
+   * memoized by its own text.
    */
   readonly settledBlocks: readonly string[];
   /**

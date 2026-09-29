@@ -41,7 +41,7 @@ describe("the theme", () => {
     expect(serialized).not.toContain("rgb(");
   });
 
-  it("is built fresh per call, because a highlighter normalises it in place", () => {
+  it("is built fresh per call, because a highlighter normalizes it in place", () => {
     expect(buildCodeTheme()).not.toBe(buildCodeTheme());
   });
 

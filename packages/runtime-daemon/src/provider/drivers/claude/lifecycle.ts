@@ -2250,7 +2250,7 @@ export interface ClaudeSessionLifecycleDependencies {
    * turns into the `transcript_replay` flag — a composed daemon binds this as a
    * closure over that probe and the executable path the capability read
    * resolved. One reading serving both is what keeps the declared flag and this
-   * driver's behaviour from disagreeing about one build.
+   * driver's behavior from disagreeing about one build.
    *
    * OPTIONAL, and absent means every replay refuses — the honest state at this
    * pin, where no published build carries a seeding surface.
@@ -2429,7 +2429,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
   // The intended-close producer half. One gate per session, installed at establishment
-  // and signalled at the top of `closeSession`; the terminal-emission boundary
+  // and signaled at the top of `closeSession`; the terminal-emission boundary
   // in `event-normalizer.ts` is the CONSUMER that stamps the flag, because that
   // is the module that owns the terminal frame.
   //
@@ -2684,7 +2684,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return this.#buildResumeFailure(classifyRecoveryCondition(error), describeFailure(error));
     }
 
-    // The identity gate. Claude answers a resume it cannot honour (a
+    // The identity gate. Claude answers a resume it cannot honor (a
     // working-directory mismatch is the documented case) by starting a FRESH
     // session, which announces its own id. Adopting that session would be the
     // silent replacement.
@@ -4888,7 +4888,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // Base registers and the session's own thread identity, established before
     // any frame can be metered against them.
     this.#bindSessionThread(band, live.sessionId, live.providerSessionId, live.establishment);
-    // Through the same accessor `closeSession` uses, so a close signalled while
+    // Through the same accessor `closeSession` uses, so a close signaled while
     // this establishment was in flight finds its latch still set rather than
     // replaced by a fresh gate.
     this.#intendedCloseGateFor(live.sessionId);

@@ -154,7 +154,7 @@ export interface RunGroupFold {
  * A class rather than a function because the fold is read several times per frame
  * — the header wants counts, the body wants row ids, the collapse state wants
  * lifecycles — and it is lean by construction: cached row-id
- * arrays, a lazy completion index, memoised fold inputs. The instance IS the
+ * arrays, a lazy completion index, memoized fold inputs. The instance IS the
  * memo: it is built once per loaded-window identity by the caller's `useMemo` and
  * computes nothing until something is read.
  */

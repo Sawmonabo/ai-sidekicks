@@ -77,7 +77,7 @@ export interface ProviderQuotaReading {
 export function remainingPercentOf(reading: ProviderQuotaReading): number {
   // Floored at zero for the same reason the used figure is NOT clamped: the wire may
   // report over-consumption against a soft limit, which is a true reading to show,
-  // while a negative remainder is an arithmetic artefact rather than a quota.
+  // while a negative remainder is an arithmetic artifact rather than a quota.
   return Math.max(0, 100 - reading.usedPercent);
 }
 

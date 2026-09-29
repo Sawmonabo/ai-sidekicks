@@ -1204,7 +1204,7 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
   for (const vector of OCCURRED_AT_REFUSALS) {
     it(`refuses ${vector.input} — ${vector.why}`, () => {
       // Assert BOTH directions: the expected refusal class fires AND the
-      // neighbouring class does not. A bare "it threw" would still pass if two
+      // neighboring class does not. A bare "it threw" would still pass if two
       // refusal messages were merged, which is exactly the regression that
       // would make the precedence test below vacuous.
       const message = captureThrownMessage(() => normalizeOccurredAt(vector.input));

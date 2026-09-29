@@ -32,8 +32,8 @@
 
 .command-palette__popup {
   position: fixed;
-  /* Sits above centre: the eye is already high on the screen when the chord is
-     pressed, and a centred dialog would drop the first result below the gaze. */
+  /* Sits above center: the eye is already high on the screen when the chord is
+     pressed, and a centered dialog would drop the first result below the gaze. */
   top: 12vh;
   left: 50%;
   transform: translateX(-50%);

@@ -85,7 +85,7 @@ export interface CompactionWaitSettlement {
 }
 
 /**
- * Schedules a one-shot callback and returns its canceller.
+ * Schedules a one-shot callback and returns its canceler.
  *
  * Injected rather than closed over `setTimeout` for the reason every timer in
  * this band is: a test that has to wait a real declared bound to observe an
@@ -97,10 +97,10 @@ export type CompactionWaitScheduler = (callback: () => void, delayMs: number) =>
 /**
  * One registered waiter, as the registry's own key-wide paths see it.
  *
- * Carries `settle` alone: the timer canceller and the withdrawal both belong to
+ * Carries `settle` alone: the timer canceler and the withdrawal both belong to
  * the ONE caller that armed this wait and are handed back to it on its
  * `ArmedCompactionWait`, never published on the shared registration a key-wide
- * pass iterates. A canceller reachable from `#settleAll` would be an invitation
+ * pass iterates. A canceler reachable from `#settleAll` would be an invitation
  * to cancel a sibling's bound from a pass that has no business ending it.
  */
 interface RegisteredCompactionWait {
@@ -217,7 +217,7 @@ export class PendingCompactionRegistry {
           return;
         }
         // CLOSED FIRST, canceled second. The flag is what makes the withdrawal
-        // total: a scheduler whose canceller does not really stop its timer —
+        // total: a scheduler whose canceler does not really stop its timer —
         // every injected test double, and any host whose clear raced the fire —
         // would otherwise deliver `wait_expired` into a promise whose caller had
         // withdrawn, and `settled` would settle after all.
