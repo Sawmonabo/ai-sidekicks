@@ -27,7 +27,7 @@ export function registerCommands(commands: readonly CommandDefinition[]): void {
 export const WHEN_CLAUSE_KEYS = [
   "sessionActive",
   "onSessions",
-  "onWorkspace",
+  "onSession",
   "onWorkflows",
   "onSettings",
 ] as const;

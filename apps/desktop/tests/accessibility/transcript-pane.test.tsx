@@ -80,7 +80,7 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Trans
   return {
     kind: "transcript",
     paneId: "ledger-timeline",
-    frameStore: new WindowStore({ initialRoute: { kind: "workspace", sessionId } }),
+    frameStore: new WindowStore({ initialRoute: { kind: "session", sessionId } }),
     sessionStore,
     focusHue: undefined,
   } as unknown as TranscriptPaneContext;

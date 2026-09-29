@@ -277,7 +277,7 @@ describe("the session a settings page is handed", () => {
     const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     act(() => {
-      settingsWindow.frameStore.navigate({ kind: "workspace", sessionId: "session-beta" });
+      settingsWindow.frameStore.navigate({ kind: "session", sessionId: "session-beta" });
     });
     expect(echoedSession(container)).toBe("session-beta");
   });

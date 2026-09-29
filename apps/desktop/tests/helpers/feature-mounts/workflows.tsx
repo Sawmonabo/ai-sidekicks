@@ -192,7 +192,7 @@ async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: Scre
  */
 function surfaceContext(bridge: PlatformBridge): ScreenContext {
   const frameStore = new WindowStore({
-    initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
+    initialRoute: { kind: "session", sessionId: PROBE_SESSION_ID },
   });
   frameStore.navigate({ kind: "workflows" });
   return {

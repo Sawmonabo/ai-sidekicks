@@ -88,7 +88,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
-  registerTranscriptScreens(surfaces, { workspace: SessionScreen });
+  registerTranscriptScreens(surfaces, { sessionScreen: SessionScreen });
   registerSessionsFlyout(surfaces);
   registerSettingsScreen(surfaces);
   registerWorkflowScreens(surfaces);

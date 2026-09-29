@@ -48,7 +48,7 @@ const SETTINGS_ROUTE_HASH = "#/settings";
 describe("WindowStore — the session a window has in hand outlives the route", () => {
   it("is seeded from the route the window opened at", () => {
     const store = new WindowStore({
-      initialRoute: { kind: "workspace", sessionId: "session-alpha" },
+      initialRoute: { kind: "session", sessionId: "session-alpha" },
     });
 
     expect(store.lastOpenedSessionId).toBe("session-alpha");
@@ -61,7 +61,7 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   it("survives a navigation to a route that names no session", () => {
     const store = new WindowStore();
 
-    store.navigate({ kind: "workspace", sessionId: "session-alpha" });
+    store.navigate({ kind: "session", sessionId: "session-alpha" });
     store.navigate({ kind: "settings", page: undefined });
 
     expect(store.lastOpenedSessionId).toBe("session-alpha");
@@ -81,8 +81,8 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   it("moves to the newer session when one is opened", () => {
     const store = new WindowStore();
 
-    store.navigate({ kind: "workspace", sessionId: "session-alpha" });
-    store.navigate({ kind: "workspace", sessionId: "session-beta" });
+    store.navigate({ kind: "session", sessionId: "session-alpha" });
+    store.navigate({ kind: "session", sessionId: "session-beta" });
 
     expect(store.lastOpenedSessionId).toBe("session-beta");
   });
@@ -93,7 +93,7 @@ describe("WindowStore — the session a window has in hand outlives the route", 
     // session would put that message over Settings for as long as the window lived.
     const store = new WindowStore();
 
-    store.navigate({ kind: "workspace", sessionId: "session-alpha" });
+    store.navigate({ kind: "session", sessionId: "session-alpha" });
     expect(store.activeSessionId).toBe("session-alpha");
 
     store.navigate({ kind: "settings", page: undefined });

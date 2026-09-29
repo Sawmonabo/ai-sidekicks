@@ -21,7 +21,7 @@ import { registerTranscriptScreens } from "./screens.js";
  */
 function surfaceContext(sessionId = "session-7"): ScreenContext {
   return {
-    route: { kind: "workspace", sessionId },
+    route: { kind: "session", sessionId },
     bridge: { source: "fixture" },
     frameStore: {},
     sessionStore: undefined,
@@ -39,13 +39,13 @@ function surfaceContext(sessionId = "session-7"): ScreenContext {
  * workspace opens stores to render. Its identity is asserted below, so a slot that
  * mounted something else would fail here rather than render a plausible frame.
  */
-function TestWorkspaceBody(): null {
+function TestSessionScreenBody(): null {
   return null;
 }
 
 function registeredLedger(): ScreenRegistry {
   const registry = new ScreenRegistry();
-  registerTranscriptScreens(registry, { workspace: TestWorkspaceBody });
+  registerTranscriptScreens(registry, { sessionScreen: TestSessionScreenBody });
   return registry;
 }
 
@@ -69,7 +69,7 @@ function renderedElement(node: ReactNode): {
  * on every arm but the refused one and a fixed index would read that `null` as the
  * body on exactly the ordinary case.
  */
-function workspaceBodyIn(shell: { props: Record<string, unknown> }): {
+function sessionScreenBodyIn(shell: { props: Record<string, unknown> }): {
   type: unknown;
   key: string | null;
   props: Record<string, unknown>;
@@ -85,7 +85,7 @@ describe("the ledger — which slots it holds", () => {
     const claims = registry
       .registeredSlots()
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
-    expect(claims).toStrictEqual([["workspace", "ledger"]]);
+    expect(claims).toStrictEqual([["session", "ledger"]]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {
@@ -97,7 +97,7 @@ describe("the ledger — which slots it holds", () => {
   it("survives being composed twice, as a hot reload does it", () => {
     const registry = registeredLedger();
     const afterFirst = registry.registeredSlots();
-    registerTranscriptScreens(registry, { workspace: TestWorkspaceBody });
+    registerTranscriptScreens(registry, { sessionScreen: TestSessionScreenBody });
     expect(registry.registeredSlots()).toStrictEqual(afterFirst);
   });
 });
@@ -105,11 +105,11 @@ describe("the ledger — which slots it holds", () => {
 describe("the ledger — what it mounts", () => {
   it("mounts the session workspace — the session header, the deck, and the composer's seat", () => {
     const registry = registeredLedger();
-    const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
+    const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
     expect(shell.type).toBe(TranscriptSurface);
-    const workspace = workspaceBodyIn(shell);
-    expect(workspace.type).toBe(TestWorkspaceBody);
-    expect(workspace.props["route"]).toStrictEqual({ kind: "workspace", sessionId: "session-7" });
+    const workspace = sessionScreenBodyIn(shell);
+    expect(workspace.type).toBe(TestSessionScreenBody);
+    expect(workspace.props["route"]).toStrictEqual({ kind: "session", sessionId: "session-7" });
   });
 });
 
@@ -126,8 +126,8 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
 
   it("keys the workspace subtree on the route's session", () => {
     const registry = registeredLedger();
-    const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
-    expect(workspaceBodyIn(shell).key).toBe("session-7");
+    const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
+    expect(sessionScreenBodyIn(shell).key).toBe("session-7");
   });
 
   it("negative control: a re-render of the SAME session keys identically, so it is not a remount", () => {
@@ -135,11 +135,11 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
     // which remounts the workspace on every keystroke and loses the state the key
     // exists to scope.
     const registry = registeredLedger();
-    const workspace = registry.descriptorFor("workspace");
-    const firstWorkspaceKey = workspaceBodyIn(
+    const workspace = registry.descriptorFor("session");
+    const firstWorkspaceKey = sessionScreenBodyIn(
       renderedElement(workspace?.render(surfaceContext())),
     ).key;
-    expect(workspaceBodyIn(renderedElement(workspace?.render(surfaceContext()))).key).toBe(
+    expect(sessionScreenBodyIn(renderedElement(workspace?.render(surfaceContext()))).key).toBe(
       firstWorkspaceKey,
     );
   });
@@ -147,11 +147,11 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
   it("falls back to a named key rather than an absent one when the route names no session", () => {
     const registry = registeredLedger();
     const shell = renderedElement(
-      registry.descriptorFor("workspace")?.render({
+      registry.descriptorFor("session")?.render({
         ...surfaceContext(),
         route: { kind: "settings" },
       } as unknown as ScreenContext),
     );
-    expect(workspaceBodyIn(shell).key).toBe("no-session");
+    expect(sessionScreenBodyIn(shell).key).toBe("no-session");
   });
 });

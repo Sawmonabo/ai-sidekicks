@@ -29,7 +29,7 @@ import type { WhenClauseContext } from "@renderer/registries/commands/when-claus
 const ON_WORKSPACE: WhenClauseContext = {
   sessionActive: true,
   onSessions: false,
-  onWorkspace: true,
+  onSession: true,
   onWorkflows: false,
   onSettings: false,
 };
@@ -47,7 +47,7 @@ function pauseCommand(ran: string[], unavailable: string | undefined): CommandDe
     id: COMMAND_ID,
     title: COMMAND_TITLE,
     group: "Run",
-    when: "onWorkspace",
+    when: "onSession",
     ...(unavailable === undefined ? {} : { unavailable }),
     run: () => {
       ran.push(COMMAND_ID);

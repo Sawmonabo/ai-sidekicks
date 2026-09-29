@@ -87,13 +87,13 @@ describe("surface registry — the slot set is one declaration", () => {
     // half: every slot the route table can produce is a slot the registry knows.
     const routes: readonly ConsoleRoute[] = [
       { kind: "sessions" },
-      { kind: "workspace", sessionId: "s-1" },
+      { kind: "session", sessionId: "s-1" },
       { kind: "workflows" },
       { kind: "settings", page: undefined },
       { kind: "pane-harness", paneKind: "terminal", sessionId: "s-1" },
     ];
     const slots = routes.map((route) => findScreenNameForRoute(route));
-    expect(slots).toStrictEqual(["sessions", "workspace", "workflows", "settings", "pane-harness"]);
+    expect(slots).toStrictEqual(["sessions", "session", "workflows", "settings", "pane-harness"]);
     for (const slot of slots) {
       expect(SCREEN_NAMES).toContain(slot);
     }

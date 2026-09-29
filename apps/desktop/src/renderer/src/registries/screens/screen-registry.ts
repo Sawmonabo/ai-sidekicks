@@ -39,7 +39,7 @@ import { type ScreenContext } from "./screen-context.js";
  */
 export const SCREEN_NAMES = [
   "sessions",
-  "workspace",
+  "session",
   "workflows",
   "settings",
   // Reached only by the fixture-gated `#/pane-harness/…` address, so a release
@@ -181,8 +181,8 @@ export function findScreenNameForRoute(route: ConsoleRoute): ScreenName | undefi
   switch (route.kind) {
     case "sessions":
       return "sessions";
-    case "workspace":
-      return "workspace";
+    case "session":
+      return "session";
     case "workflows":
       return "workflows";
     case "settings":

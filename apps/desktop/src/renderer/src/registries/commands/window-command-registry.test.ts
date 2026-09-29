@@ -17,7 +17,7 @@ import {
 const NO_CONTEXT: WindowWhenClauseContext = {
   sessionActive: false,
   onSessions: false,
-  onWorkspace: false,
+  onSession: false,
   onWorkflows: false,
   onSettings: false,
 };

@@ -226,7 +226,7 @@ export async function mountComposer(options: {
   const sessionStore = composerSessionStore();
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   const frameStore = new WindowStore();
-  const route = { kind: "workspace", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId } as const;
+  const route = { kind: "session", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId } as const;
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(

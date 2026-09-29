@@ -18,7 +18,7 @@ import { SESSIONS_HASH, mountApp, settleRegisteredBodies } from "@test/helpers/m
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /** A window opened straight into a session, the way a saved link does. */
-const WORKSPACE_HASH = "#/session/session-alpha";
+const SESSION_HASH = "#/session/session-alpha";
 
 const WORKFLOWS_HASH = "#/workflows";
 
@@ -43,7 +43,7 @@ function currentRailDestination(mounted: RenderResult): string | null {
 
 describe("AppProviders — the rail's three destinations, and where the window is", () => {
   beforeEach(() => {
-    window.location.hash = WORKSPACE_HASH;
+    window.location.hash = SESSION_HASH;
   });
 
   afterEach(() => {

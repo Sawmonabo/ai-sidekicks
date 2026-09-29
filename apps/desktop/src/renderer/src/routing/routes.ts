@@ -37,7 +37,7 @@ export type ConsoleRoute =
   // Without a written-down address the phase is reachable only by somebody who has
   // already navigated to it, which is the one person who does not need the link.
   | {
-      readonly kind: "workspace";
+      readonly kind: "session";
       readonly sessionId: string;
       /**
        * The phase this address is focused on, where it names one.
@@ -128,7 +128,7 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   if (head === "session") {
-    return workspaceRoute(hash, rest);
+    return sessionRoute(hash, rest);
   }
 
   if (head === "workflows") {
@@ -184,15 +184,15 @@ export function formatRoute(route: ConsoleRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
-    case "workspace": {
-      const workspaceAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
+    case "session": {
+      const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
       // The keywords are written literally on both sides of one grammar, three lines
       // from the parse that reads them, so the pair cannot drift into a link that
       // opens the workspace with its focus quietly dropped.
       const { workflowPhase } = route;
       return workflowPhase === undefined
-        ? workspaceAddress
-        : `${workspaceAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
+        ? sessionAddress
+        : `${sessionAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
     }
     case "workflows":
       return "#/workflows";
@@ -248,7 +248,7 @@ function decodeSegment(segment: string): string | undefined {
  * silently missing its focus. Every id still goes through {@link decodeSegment}, which
  * is what keeps {@link parseRoute} total over a malformed percent-escape.
  */
-function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
+function sessionRoute(hash: string, rest: readonly string[]): ConsoleRoute {
   const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
   if (sessionSegment === undefined) {
     return notFound(hash);
@@ -261,7 +261,7 @@ function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
     // The key is OMITTED rather than set to `undefined`: this is the arm
     // `#/session/<id>` has to give back, and the two are different values under
     // `exactOptionalPropertyTypes`.
-    return { kind: "workspace", sessionId };
+    return { kind: "session", sessionId };
   }
   if (
     rest.length !== 5 ||
@@ -276,7 +276,7 @@ function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
   const phaseId = decodeSegment(phaseSegment);
   return workflowRunId === undefined || phaseId === undefined
     ? notFound(hash)
-    : { kind: "workspace", sessionId, workflowPhase: { workflowRunId, phaseId } };
+    : { kind: "session", sessionId, workflowPhase: { workflowRunId, phaseId } };
 }
 
 function notFound(attempted: string): ConsoleRoute {

@@ -24,7 +24,7 @@ import type { WhenClauseContext } from "@renderer/registries/commands/when-claus
 const CONTEXT: WhenClauseContext = {
   sessionActive: false,
   onSessions: false,
-  onWorkspace: false,
+  onSession: false,
   onWorkflows: false,
   onSettings: false,
 };

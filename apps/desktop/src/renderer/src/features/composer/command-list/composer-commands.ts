@@ -84,7 +84,7 @@ function composerWhenContext(route: ConsoleRoute): WindowWhenClauseContext {
   return {
     sessionActive: true,
     onSessions: false,
-    onWorkspace: route.kind === "workspace",
+    onSession: route.kind === "session",
     onWorkflows: false,
     onSettings: false,
   };

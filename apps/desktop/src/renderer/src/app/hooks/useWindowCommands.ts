@@ -68,7 +68,7 @@ export function useWindowCommands(
     () => ({
       sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",
-      onWorkspace: route.kind === "workspace",
+      onSession: route.kind === "session",
       onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
     }),

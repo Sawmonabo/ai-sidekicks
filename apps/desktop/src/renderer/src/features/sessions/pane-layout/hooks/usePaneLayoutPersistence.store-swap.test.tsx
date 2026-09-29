@@ -25,7 +25,7 @@ import {
   saveLayout,
   sessionStore,
   workspaceFor,
-  type WorkspaceSession,
+  type SessionWithStore,
 } from "../../SessionScreen.test-support.js";
 
 /** One arrangement the probe below files, in the shape the `layout` class admits. */
@@ -50,7 +50,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     const liveAdapter = new GatedPersistenceAdapter();
     const retiredStore = storeOver(retiredAdapter);
     await saveLayout(retiredStore, SESSION_ID, ["transcript", "runs"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, because that is the shape the defect lives in: the same session with a
     // replaced store re-renders this subtree rather than remounting it.
@@ -122,7 +122,7 @@ describe("Workspace — the restore runs once for the session on screen", () => 
     await saveLayout(firstStore, SESSION_ID, ["transcript", "runs"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
     await saveLayout(secondStore, SESSION_ID, ["transcript"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container, rerender } = render(workspaceFor(session, firstStore, false));
     await waitFor(() => {
@@ -141,7 +141,7 @@ describe("Workspace — the restore runs once for the session on screen", () => 
     // thing, and the assertion would be about nothing.
     const secondStore = storeOver(new GatedPersistenceAdapter());
     await saveLayout(secondStore, SESSION_ID, ["transcript"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container } = render(workspaceFor(session, secondStore, false));
     await waitFor(() => {

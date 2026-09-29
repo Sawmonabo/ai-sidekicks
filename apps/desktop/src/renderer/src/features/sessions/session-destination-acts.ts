@@ -48,7 +48,7 @@ export function sessionDestinationActs(
   recheckDirectory: () => void,
 ): SessionDestinationActs {
   const openSession = (sessionId: string): void => {
-    context.frameStore.navigate({ kind: "workspace", sessionId });
+    context.frameStore.navigate({ kind: "session", sessionId });
   };
   return {
     openSession,

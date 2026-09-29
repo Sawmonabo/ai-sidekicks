@@ -114,7 +114,7 @@ export function windowAt(
 ): SettingsWindow {
   const frameStore = new WindowStore();
   for (const sessionId of openedSessionIds) {
-    frameStore.navigate({ kind: "workspace", sessionId });
+    frameStore.navigate({ kind: "session", sessionId });
   }
   frameStore.navigate({ kind: "settings", page });
   return {

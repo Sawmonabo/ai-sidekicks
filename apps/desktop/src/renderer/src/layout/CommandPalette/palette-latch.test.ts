@@ -18,16 +18,16 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import { PALETTE_INVOCATION_REFUSAL_ORIGIN, runLatchedCommand } from "./palette-latch.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-const ON_WORKSPACE: WhenClauseContext = { onWorkspace: true, onSettings: false };
+const ON_SESSION: WhenClauseContext = { onSession: true, onSettings: false };
 const COMMAND_ID = "test.interruptTheRun";
 
 /** A command offered exactly where the reading below says it is. */
-function commandOfferedOnWorkspace(ran: string[]): CommandDefinition {
+function commandOfferedOnSession(ran: string[]): CommandDefinition {
   return {
     id: COMMAND_ID,
     title: "Interrupt the run",
     group: "Run",
-    when: "onWorkspace",
+    when: "onSession",
     run: () => {
       ran.push(COMMAND_ID);
     },
@@ -40,19 +40,19 @@ describe("running a latched command", () => {
     // unconditionally would satisfy both of them.
     const ran: string[] = [];
     const registry = new CommandRegistry();
-    registry.register(commandOfferedOnWorkspace(ran));
+    registry.register(commandOfferedOnSession(ran));
 
-    expect(runLatchedCommand(registry, COMMAND_ID, ON_WORKSPACE)).toBeUndefined();
+    expect(runLatchedCommand(registry, COMMAND_ID, ON_SESSION)).toBeUndefined();
     expect(ran).toStrictEqual([COMMAND_ID]);
   });
 
   it("names the command that left the registry, and runs nothing", () => {
     const ran: string[] = [];
     const registry = new CommandRegistry();
-    registry.register(commandOfferedOnWorkspace(ran));
+    registry.register(commandOfferedOnSession(ran));
     registry.unregister(COMMAND_ID);
 
-    const refusal = runLatchedCommand(registry, COMMAND_ID, ON_WORKSPACE);
+    const refusal = runLatchedCommand(registry, COMMAND_ID, ON_SESSION);
 
     expect(refusal?.code).toBe("unknown-command");
     expect(refusal?.origin).toBe(PALETTE_INVOCATION_REFUSAL_ORIGIN);
@@ -64,11 +64,11 @@ describe("running a latched command", () => {
     // family does when what its commands close over changes while the palette is open.
     const ran: string[] = [];
     const registry = new CommandRegistry();
-    registry.register(commandOfferedOnWorkspace(ran));
+    registry.register(commandOfferedOnSession(ran));
     registry.unregister(COMMAND_ID);
-    registry.register({ ...commandOfferedOnWorkspace(ran), when: "onSettings" });
+    registry.register({ ...commandOfferedOnSession(ran), when: "onSettings" });
 
-    const refusal = runLatchedCommand(registry, COMMAND_ID, ON_WORKSPACE);
+    const refusal = runLatchedCommand(registry, COMMAND_ID, ON_SESSION);
 
     expect(refusal?.code).toBe("hidden-in-context");
     expect(refusal?.origin).toBe(PALETTE_INVOCATION_REFUSAL_ORIGIN);

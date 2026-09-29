@@ -59,7 +59,7 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
  * one, on `ledger.test.ts`' reasoning: a case that registered into the singleton would
  * be asserting over a board production also fills.
  */
-async function renderWorkspaceSurface(input: {
+async function renderSessionScreen(input: {
   readonly reads: readonly (SessionSnapshot | { readonly rejectWith: unknown })[];
   readonly refreshes: number;
 }): Promise<void> {
@@ -82,8 +82,10 @@ async function renderWorkspaceSurface(input: {
   });
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
   const surfaces = new ScreenRegistry();
-  registerTranscriptScreens(surfaces, { workspace: () => <div data-testid="workspace-body" /> });
-  const descriptor = surfaces.descriptorFor("workspace");
+  registerTranscriptScreens(surfaces, {
+    sessionScreen: () => <div data-testid="workspace-body" />,
+  });
+  const descriptor = surfaces.descriptorFor("session");
   if (descriptor === undefined) {
     throw new Error("the ledger family registered no workspace surface");
   }
@@ -103,7 +105,7 @@ async function renderWorkspaceSurface(input: {
   render(
     <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {descriptor.render({
-        route: { kind: "workspace", sessionId: SESSION_ID },
+        route: { kind: "session", sessionId: SESSION_ID },
         bridge: { source: "fixture" },
         frameStore: {},
         sessionStore,
@@ -127,7 +129,7 @@ const REFUSES_THE_POSITION = {
 
 describe("the workspace surface renders the refused resume position", () => {
   it("says the remembered position could not be resumed", async () => {
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
@@ -141,7 +143,7 @@ describe("the workspace surface renders the refused resume position", () => {
     // the beginning of the window, which `admitsSnapshotAt` refuses for arriving
     // behind the store's cursor — so no store transition happens and a surface
     // subscribed to the projection's revision alone would render nothing at all.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
@@ -152,7 +154,7 @@ describe("the workspace surface renders the refused resume position", () => {
   it("negative control: an honoured position renders no notice at all", async () => {
     // Without this, a surface that rendered the sentence unconditionally would pass
     // both cases above — and would tell every session its position was lost.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), snapshotAt(9, "9_1723291500000000000")],
       refreshes: 2,
     });
@@ -164,7 +166,7 @@ describe("the workspace surface renders the refused resume position", () => {
     // The arm the retired rule refused on: nothing acknowledged is the ordinary first
     // read, not a failure, and it is what every scripted scenario answers with. A
     // surface that treated it as a refusal put a band above every workspace.
-    await renderWorkspaceSurface({ reads: [snapshotAt(0)], refreshes: 1 });
+    await renderSessionScreen({ reads: [snapshotAt(0)], refreshes: 1 });
 
     expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
   });
@@ -173,7 +175,7 @@ describe("the workspace surface renders the refused resume position", () => {
     // The notice renders ABOVE the room and never in place of it. Without this, a
     // surface that replaced the workspace with the refusal would satisfy the first
     // case while reporting an outage the daemon is not having.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
@@ -184,7 +186,7 @@ describe("the workspace surface renders the refused resume position", () => {
   it("clears once a later read settles a position of its own", async () => {
     // Not a permanent band. The decision is the newest completed read's, so the next
     // ordinary refresh replaces the refusal and this renders nothing.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [
         snapshotAt(7, ACKNOWLEDGED),
         REFUSES_THE_POSITION,

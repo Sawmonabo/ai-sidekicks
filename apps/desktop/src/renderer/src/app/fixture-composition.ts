@@ -36,7 +36,7 @@ export function composeFixtureLaunch(): BridgeComposition | undefined {
     return undefined;
   }
   if (launch.sessionId !== undefined) {
-    history.replaceState(null, "", formatRoute({ kind: "workspace", sessionId: launch.sessionId }));
+    history.replaceState(null, "", formatRoute({ kind: "session", sessionId: launch.sessionId }));
   }
   registerPaneHarnessScreen(screenRegistry, paneRegistry);
   return createFixtureComposition(launch.scenarioId);

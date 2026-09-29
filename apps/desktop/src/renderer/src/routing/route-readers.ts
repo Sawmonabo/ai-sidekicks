@@ -38,7 +38,7 @@ export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
  * reports neither.
  */
 export type WorkflowPhaseFocus = NonNullable<
-  Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"]
+  Extract<ConsoleRoute, { kind: "session" }>["workflowPhase"]
 >;
 
 /**
@@ -53,7 +53,7 @@ export type WorkflowPhaseFocus = NonNullable<
 export function railDestinationFor(route: ConsoleRoute): RailDestination | undefined {
   switch (route.kind) {
     case "sessions":
-    case "workspace":
+    case "session":
       return "sessions";
     case "workflows":
       return "workflows";
@@ -102,7 +102,7 @@ export function settingsRoute(page: string, selection: string | undefined): Cons
  */
 export function routeSessionId(route: ConsoleRoute): string | undefined {
   switch (route.kind) {
-    case "workspace":
+    case "session":
     case "pane-harness":
       return route.sessionId;
     case "sessions":
@@ -129,7 +129,7 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
  * holding a `ConsoleRoute` is exactly the caller that does not yet know which arm it is.
  */
 export function routeWorkflowPhase(route: ConsoleRoute): WorkflowPhaseFocus | undefined {
-  return route.kind === "workspace" ? route.workflowPhase : undefined;
+  return route.kind === "session" ? route.workflowPhase : undefined;
 }
 
 /** Structural route comparison, so an unchanged hash costs no transition. */
@@ -141,9 +141,9 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "sessions":
     case "workflows":
       return true;
-    case "workspace":
+    case "session":
       return (
-        right.kind === "workspace" &&
+        right.kind === "session" &&
         left.sessionId === right.sessionId &&
         workflowPhaseFocusesAreEqual(left.workflowPhase, right.workflowPhase)
       );

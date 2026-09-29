@@ -56,7 +56,7 @@ describe("failure matrix — the router is handed a malformed percent-escape", (
     // Without this, a parser that answered not-found for every escaped segment
     // would satisfy the two refusals above and break every id that needs escaping.
     expect(parseRoute("#/session/session%2Fone")).toStrictEqual({
-      kind: "workspace",
+      kind: "session",
       sessionId: "session/one",
     });
     expect(parseRoute("#/settings/provider%20accounts")).toStrictEqual({
@@ -85,7 +85,7 @@ describe("failure matrix — the router is handed an empty path segment", () => 
   it("negative control: the same routes without the empty segment still parse", () => {
     // Without this, refusing every hash would pass both refusals above.
     expect(parseRoute("#/sessions").kind).toBe("sessions");
-    expect(parseRoute("#/session/foo")).toStrictEqual({ kind: "workspace", sessionId: "foo" });
+    expect(parseRoute("#/session/foo")).toStrictEqual({ kind: "session", sessionId: "foo" });
     expect(parseRoute("#/settings")).toStrictEqual({ kind: "settings", page: undefined });
   });
 

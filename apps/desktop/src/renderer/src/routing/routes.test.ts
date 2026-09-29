@@ -23,7 +23,7 @@ describe("routes — every main-window route renders to a hash that parses back 
   }
 
   it("round-trips a session id that needs escaping", () => {
-    const route: ConsoleRoute = { kind: "workspace", sessionId: "session/with#awkward chars" };
+    const route: ConsoleRoute = { kind: "session", sessionId: "session/with#awkward chars" };
     expect(parseRoute(formatRoute(route))).toStrictEqual(route);
   });
 
@@ -109,7 +109,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
 
   it("negative control: a well-formed hash of each main-window kind is NOT not-found", () => {
     expect(parseRoute("#/sessions").kind).toBe("sessions");
-    expect(parseRoute("#/session/session-1").kind).toBe("workspace");
+    expect(parseRoute("#/session/session-1").kind).toBe("session");
     expect(parseRoute("#/workflows").kind).toBe("workflows");
     expect(parseRoute("#/settings").kind).toBe("settings");
     expect(parseRoute("#/pane-harness/terminal/session-1").kind).toBe("pane-harness");

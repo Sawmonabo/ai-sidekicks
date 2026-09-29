@@ -28,7 +28,7 @@ import {
   saveLayout,
   sessionStore,
   workspaceFor,
-  type WorkspaceSession,
+  type SessionWithStore,
 } from "./SessionScreen.test-support.js";
 
 /** How many panes a saved deck record holds. Its one non-pane key is `$paneLayout`. */
@@ -123,7 +123,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
     await saveLayout(store, SESSION_B_ID, ["transcript"]);
 
-    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
@@ -166,7 +166,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
 
-    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, true));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
@@ -186,7 +186,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
 
-    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);

@@ -114,7 +114,7 @@ function surfaceNameFor(route: ConsoleRoute): string {
   switch (route.kind) {
     case "sessions":
       return "The sessions list";
-    case "workspace":
+    case "session":
       return "The session workspace";
     case "workflows":
       return "Workflows";

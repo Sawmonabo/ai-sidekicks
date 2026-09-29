@@ -83,7 +83,7 @@ interface LedgerMount {
  * needs it to observe.
  */
 async function openLedgerSession(scenarioId: string, sessionId: string): Promise<LedgerMount> {
-  document.location.hash = formatRoute({ kind: "workspace", sessionId });
+  document.location.hash = formatRoute({ kind: "session", sessionId });
   const { container } = await renderSettled(
     <AppProviders composition={createFixtureComposition(scenarioId)} />,
   );

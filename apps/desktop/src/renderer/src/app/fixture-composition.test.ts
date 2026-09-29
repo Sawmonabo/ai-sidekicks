@@ -59,7 +59,7 @@ describe("composeFixtureLaunch — the launch the preload exposed", () => {
       CONCURRENT_STREAMING_SCENARIO_ID,
     );
     expect(window.location.hash).toBe(
-      formatRoute({ kind: "workspace", sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId }),
+      formatRoute({ kind: "session", sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId }),
     );
   });
 

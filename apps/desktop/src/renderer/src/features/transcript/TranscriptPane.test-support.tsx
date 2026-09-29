@@ -41,7 +41,7 @@ export function paneContext(
     kind: "transcript",
     paneId: "ledger-timeline",
     frameStore: new WindowStore({
-      initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "workspace", sessionId },
+      initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "session", sessionId },
     }),
     focusHue: undefined,
     ...overrides,

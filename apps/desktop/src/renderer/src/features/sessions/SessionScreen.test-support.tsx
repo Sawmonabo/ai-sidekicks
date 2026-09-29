@@ -26,12 +26,12 @@ import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { SessionScreen } from "./SessionScreen.js";
 
-export const SESSION_ID = "session-workspace";
+export const SESSION_ID = "session-screen";
 
 export const SCENARIO: Scenario = {
-  id: "workspace",
-  label: "Workspace",
-  purpose: "Drives the workspace surface's composition.",
+  id: "session-screen",
+  label: "Session screen",
+  purpose: "Drives the session screen's composition.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T09:00:00.000Z",
@@ -39,8 +39,8 @@ export const SCENARIO: Scenario = {
   replies: [],
 };
 
-/** One session the workspace can be pointed at, with the store it renders. */
-export interface WorkspaceSession {
+/** One session the session screen can be pointed at, with the store it renders. */
+export interface SessionWithStore {
   readonly sessionId: string;
   readonly store: SessionStore;
 }
@@ -75,7 +75,7 @@ function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
   return <p data-body={props.kind}>{props.kind} body</p>;
 }
 
-export const SESSION_B_ID = "session-workspace-b";
+export const SESSION_B_ID = "session-screen-b";
 
 /** One gate a test opens and closes. Open by default, so nothing waits by accident. */
 class SettlementGate {
@@ -166,7 +166,7 @@ export function memoryStore(): UiStateStore {
 }
 
 /** A second session, with a store of its own — never the first one's. */
-export function otherSession(): WorkspaceSession {
+export function otherSession(): SessionWithStore {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
   store.initialize({ cursor: 0, entities: [] });
   return { sessionId: SESSION_B_ID, store };
@@ -180,7 +180,7 @@ export function otherSession(): WorkspaceSession {
  * that clock for its rect tracker.
  */
 export function workspaceFor(
-  session: WorkspaceSession,
+  session: SessionWithStore,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
   bridge: PlatformBridge = createFixtureBridge({ scenario: SCENARIO }),
@@ -192,12 +192,12 @@ export function workspaceFor(
           {...(isKeyed ? { key: session.sessionId } : {})}
           bridge={bridge}
           frameStore={
-            new WindowStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+            new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })
           }
           sessionStore={session.store}
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-          route={{ kind: "workspace", sessionId: session.sessionId }}
+          route={{ kind: "session", sessionId: session.sessionId }}
           paneRegistry={testRegistry()}
         />
       </LiveAnnouncerProvider>

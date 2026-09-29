@@ -11,7 +11,7 @@ export function describePaletteScope(route: ConsoleRoute): string {
   switch (route.kind) {
     case "sessions":
       return "All sessions";
-    case "workspace":
+    case "session":
       return `Session ${route.sessionId}`;
     case "workflows":
       return "Workflows";

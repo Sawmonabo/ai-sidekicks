@@ -20,7 +20,7 @@ import { TranscriptSurface } from "../TranscriptSurface.js";
  * the slot renders, which is long after the root registered it.
  */
 export interface TranscriptComposition {
-  readonly workspace: ComponentType<WorkspaceMountProps>;
+  readonly sessionScreen: ComponentType<SessionScreenMountProps>;
 }
 
 /**
@@ -36,9 +36,9 @@ export function registerTranscriptScreens(
   composition: TranscriptComposition,
 ): void {
   registry.register({
-    slot: "workspace",
+    slot: "session",
     owner: TRANSCRIPT_OWNER,
-    render: (context) => mountWorkspace(context, composition.workspace),
+    render: (context) => mountSessionScreen(context, composition.sessionScreen),
   });
 }
 
@@ -61,7 +61,7 @@ export const TRANSCRIPT_OWNER = "ledger";
  * sessions reads the registry, and this one is handed the session it is a view of — and
  * `chooseScheme` because nothing in a session chooses the color scheme.
  */
-type WorkspaceMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
+type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
  * Mount the session workspace: the session header, the deck, and the composer's seat.
@@ -79,9 +79,9 @@ type WorkspaceMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseS
  * state about; the alternative is a reset effect per piece, which is the same rule
  * written once per field and forgotten on the next one.
  */
-function mountWorkspace(
+function mountSessionScreen(
   context: ScreenContext,
-  Workspace: ComponentType<WorkspaceMountProps>,
+  SessionScreenBody: ComponentType<SessionScreenMountProps>,
 ): ReactNode {
   const sessionId = routeSessionId(context.route);
   return createElement(
@@ -99,7 +99,7 @@ function mountWorkspace(
           registry: context.sessionStoreRegistry,
           sessionId,
         }),
-    createElement(Workspace, {
+    createElement(SessionScreenBody, {
       key: sessionId ?? "no-session",
       bridge: context.bridge,
       frameStore: context.frameStore,

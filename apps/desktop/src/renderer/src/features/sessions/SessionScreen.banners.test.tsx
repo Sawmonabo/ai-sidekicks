@@ -26,7 +26,7 @@ import {
   saveLayout,
   sessionStore,
   workspaceFor,
-  type WorkspaceSession,
+  type SessionWithStore,
 } from "./SessionScreen.test-support.js";
 
 /**
@@ -94,10 +94,10 @@ async function commitArrangement(container: HTMLElement): Promise<void> {
  */
 function renderRoutableSession(store: UiStateStore): {
   readonly container: HTMLElement;
-  readonly routeTo: (session: WorkspaceSession) => void;
+  readonly routeTo: (session: SessionWithStore) => void;
 } {
   const bridge = createFixtureBridge({ scenario: SCENARIO });
-  const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+  const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
   const { container, rerender } = render(workspaceFor(first, store, false, bridge));
   return {
     container,
