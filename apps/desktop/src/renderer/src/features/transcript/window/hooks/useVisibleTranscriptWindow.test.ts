@@ -21,7 +21,7 @@ import {
   NO_ROWS_REMOVED,
   deriveLedgerWindow,
   type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+} from "../transcript-window.js";
 
 /**
  * The find state over one visible window, with the upstream stages left unnarrowed.

@@ -34,10 +34,8 @@ import {
   useLedgerJumpReach,
 } from "@renderer/console/ledger/pane/find/ledger-jump.js";
 import { type LedgerFindState, useLedgerFind } from "../../find/hooks/useTranscriptFind.js";
-import {
-  type LedgerWindowModel,
-  type VisibleLedgerWindow,
-} from "@renderer/console/ledger/pane/window/index.js";
+import { type LedgerWindowModel } from "../../window/transcript-window.js";
+import { type VisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** Everything the find field and the jump notice need, over one ledger. */
 export interface LedgerFindAndJump {

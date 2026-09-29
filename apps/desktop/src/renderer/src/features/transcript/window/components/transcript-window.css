@@ -1,7 +1,6 @@
-/* `ledger/pane/window/`'s styles — what a window says about its own read: the shells
- * it draws before the first one lands, and the mark it carries while it is behind.
- *
- * ONE SHEET PER DIRECTORY, imported from this directory's door and nowhere else.
+/* What a window says about its own read: the shells it draws before the first one lands,
+ * and the mark it carries while it is behind. Shared by the components in this folder and
+ * imported by the transcript's chunk root.
  */
 
 /* --- The window's read state --------------------------------------------- */

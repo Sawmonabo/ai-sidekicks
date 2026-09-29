@@ -1,77 +1,43 @@
-// One loaded ledger window, derived from this window's session store.
+// One loaded transcript window, derived from a session's log.
 //
-// WHAT THIS MODULE IS FOR. `TimelinePane.tsx` renders; every derivation it renders
-// is made here, once per store revision, so the component body holds no fold and no
-// allocation. That split is `apps/desktop/AGENTS.md`'s rule about render bodies, and
-// it is also what makes the pane cheap: the frame's budget is spent on the
-// virtualizer's measurement pass, not on re-folding a ten-thousand-row log because
-// a find field took a keystroke.
+// Every derivation the pane renders is made here, once per store revision, so the render
+// body holds no fold and no allocation and the frame's budget goes to the virtualizer's
+// measurement pass.
 //
-// WHY THE VIEWPORT ROW AND THE ROW BODY ARE TWO THINGS. The virtualizer's row is
-// three identity members (`key`, `parentKey`, `rootCursor`) and no content — it
-// decides placement, measurement, and pruning, and a viewport that also carried the
-// body would re-measure every row whenever any body changed. So this module
-// produces the identity list AND a lookup from key to the projected row, and the
-// pane's renderer joins them at the one point a row is actually drawn.
+// The viewport row and the row body are two things: the virtualizer's row is three identity
+// members (`key`, `parentKey`, `rootCursor`) and no content, so a body change never
+// re-measures every row. This module produces the identity list and a lookup from key to
+// the projected row, and the pane's renderer joins them where a row is drawn.
 //
-// THE THREE THINGS THE LIST DECIDES AND A ROW NEVER KNOWS, which is the timeline row
-// seat's own contract:
+// Three things the list decides and a row never knows: `actorHue`, read from the session
+// store's hue allocator (which admits the read's join log first, then each actor the log
+// attributes a row to); `isSuperseded`, a rollback ranking over the rows around a row
+// (`SupersededIndex`); and `density`, the list's collapse state, where a terminal run's
+// group folds and the live one stays open.
 //
-//   • `actorHue` — allocated over a join order, and NOT here. The session
-//     store owns the wheel (`SessionStore.hueAllocator`): it admits the read's
-//     user join log first and then every actor the log attributes a row to,
-//     which is the order rule 2 fixes. A second allocator over first-event
-//     appearance was the same algorithm over a different order, so a user
-//     who joined early and spoke late wore one hue on their cast chip and another
-//     on their rows — which defeats hue as an identity channel exactly where it is
-//     supposed to work. The feed reads the store's assignment at the row it draws.
-//   • `isSuperseded` — a rollback ranking over the rows AROUND a row, which is
-//     `SupersededIndex`'s answer and never a member the row carries.
-//   • `density` — the list's collapse state: a terminal run's chapter folds and the
-//     live one stays open.
+// What this module produces is the unfurled window, every member row of every run group,
+// before any fold: the fold (`feed/run-group-fold.ts`) runs after the narrowing, which could
+// otherwise neither count nor admit a folded group's rows. `chapterKeyFor` is exported for
+// the fold, which re-keys rows under their headers, so a row's parent key has one answer.
 //
-// WHAT THIS MODULE PRODUCES IS THE UNFURLED WINDOW — every member row of every
-// chapter, before any fold. The fold is `ledger-chapter-fold.ts`', and it is a
-// separate module because a narrowing runs BETWEEN the two. It has to: a fold
-// performed first hands the narrowing a window in which a closed chapter is one
-// receipt, and a narrowing over that window can neither count nor admit the
-// chapter's messages, its tools, or the people in it.
-//
-// One of this module's identity rules is exported for the fold, which re-keys rows
-// under their chapter headers: `chapterKeyFor`. It is exported rather than duplicated
-// because a fold that decided a row's parent key for itself would be a second answer
-// to a question this derivation already settled — and the retention table beside it
-// is exported from its own module for that same reason.
-//
-// AND THE OBJECTS THIS DERIVATION PUBLISHES ARE HELD ACROSS PASSES, by
-// `ledger-row-retention.ts` — see its own doc for the measurement that put it there.
-// Every memo below the feed keys on those identities, so a derivation that minted a
-// fresh object for every unchanged row re-rendered the whole mounted window on every
-// admitted event for a change none of the rows could see.
-
-import { useMemo } from "react";
+// The objects this derivation publishes are held across passes by `row-retention.ts`, so an
+// unchanged row keeps its identity and the memos below the feed do not re-render the whole
+// mounted window on every admitted event.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
-import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
-import { type LedgerViewportRow } from "@renderer/features/transcript/viewport/viewport-snapshot.js";
-import { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
+import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import {
   ChildRunIndex,
-  LedgerChapterIndex,
-  LedgerSeamIndex,
-  SupersededIndex,
   type ChildRunEntry,
   type HandoffEntry,
-  type LedgerChapter,
-  type LedgerSeam,
-  type SupersededBand,
-} from "../../structure/index.js";
-import { useSessionScopedState } from "../../../seats/index.js";
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "../dispatches/child-run-entries.js";
+import { projectFixtureShellRows } from "../projection/transcript-row-projection.js";
+import { LedgerChapterIndex, type LedgerChapter } from "../run-groups/run-groups.js";
+import { SupersededIndex, type SupersededBand } from "../superseded/superseded-bands.js";
+import { LedgerSeamIndex, type LedgerSeam } from "../system-messages/system-message-classifier.js";
+import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
+import { LedgerRowRetention } from "./row-retention.js";
 
 /**
  * What one pipeline stage admitted, and the rows it removed on the way.
@@ -161,10 +127,9 @@ export interface LedgerWindowModel {
   /**
    * Whether the store recorded sequences it never received.
    *
-   * A HOLE in what arrived, which is not the same fact as "rows exist before this
-   * window's head" and is deliberately no longer used as one: the console holds one
-   * live subscription and no range read, so the head of the window is the head of
-   * everything it can reach. The feed names the hole in words instead.
+   * A hole in what arrived, not "rows exist before this window's head": the console
+   * holds one live subscription and no range read, so the head of the window is the head
+   * of everything it can reach. The feed names the hole in words.
    */
   readonly hasUnreceivedEntries: boolean;
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
@@ -241,40 +206,7 @@ export function deriveLedgerWindow(
     hasActiveTurn: chapterIndex.chapters().length > chapterIndex.terminalChapters().length,
   };
 }
-/**
- * Subscribe to one session's log and project it, UNFURLED.
- *
- * The subscription is the store's `timeline` and its gap list and nothing else, so a
- * change to an entity partition — a run transition the ledger already saw as a row —
- * does not re-project the log. The store replaces the log's identity only when it
- * admits an event, which is what makes the memo fire exactly then.
- *
- * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed chapter will fold
- * away. This is the window a narrowing is applied to, so a facet count and a
- * narrowing both see a finished run's messages, tools and users rather than
- * only the receipt its fold would have left.
- */
-export function useLedgerProjection(sessionStore: SessionStore): LedgerWindowModel {
-  const timeline = useSessionStore(sessionStore, readTimeline);
-  const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
-  // One table per SESSION, so a pass has a predecessor to retain from — and so a
-  // pane that follows a navigation to another session starts that session with an
-  // empty table rather than with the rows of the one it left. Seeded during the
-  // render for the subject-scoped holder's reason: the pass that first sees a new
-  // session already reads that session's own table, which a ref written in the body
-  // could not promise and an effect would deliver one commit late.
-  const bridge = useConsoleBridge();
-  const retention = useSessionScopedState(
-    bridge,
-    sessionStore.sessionId,
-    () => new LedgerRowRetention(),
-  );
-  const heldRetention = retention.value;
-  return useMemo(
-    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention),
-    [timeline, hasUnreceivedEntries, heldRetention],
-  );
-}
+
 /**
  * Which rows are collapsed: every row of a chapter that has reached a terminal.
  *
@@ -291,15 +223,4 @@ function collapsedRowIdsOf(chapterIndex: LedgerChapterIndex): ReadonlySet<string
     }
   }
   return collapsed;
-}
-/** The log this window holds. A named function, so the selector identity is stable. */
-function readTimeline(state: {
-  readonly timeline: readonly ConsoleSessionEvent[];
-}): readonly ConsoleSessionEvent[] {
-  return state.timeline;
-}
-
-/** Whether the store knows of sequences it never received. */
-function readHasGaps(state: { readonly gaps: readonly unknown[] }): boolean {
-  return state.gaps.length > 0;
 }

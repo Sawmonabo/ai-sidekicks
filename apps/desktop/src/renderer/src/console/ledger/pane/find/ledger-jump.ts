@@ -34,7 +34,8 @@ import {
   type LedgerJumpOutcome,
   type LedgerJumpStages,
 } from "../../structure/index.js";
-import { type LedgerWindowModel, type VisibleLedgerWindow } from "../window/index.js";
+import { type LedgerWindowModel } from "@renderer/features/transcript/window/transcript-window.js";
+import { type VisibleLedgerWindow } from "@renderer/features/transcript/window/hooks/useVisibleTranscriptWindow.js";
 
 /** What one arm offers, when there is an act that reaches the row. */
 export interface LedgerJumpReach {

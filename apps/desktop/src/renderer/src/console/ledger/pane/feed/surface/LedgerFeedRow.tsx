@@ -52,7 +52,7 @@ import {
 } from "../../../../seats/index.js";
 import { TimelineRowFooter } from "@renderer/features/transcript/feed/components/TranscriptRowFooter.js";
 import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { type LedgerWindowModel } from "../../window/index.js";
+import { type LedgerWindowModel } from "@renderer/features/transcript/window/transcript-window.js";
 
 /** Everything the dispatch below reads. Each member is stable except the window. */
 export interface LedgerRowRendererOptions {

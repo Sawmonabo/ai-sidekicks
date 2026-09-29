@@ -20,7 +20,7 @@ import { useMemo } from "react";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type LedgerViewportRow } from "../../viewport/viewport-snapshot.js";
-import { type LedgerWindowModel } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { type LedgerWindowModel } from "../transcript-window.js";
 
 /** The window the viewport is showing, and what fell outside it. */
 export interface VisibleLedgerWindow {

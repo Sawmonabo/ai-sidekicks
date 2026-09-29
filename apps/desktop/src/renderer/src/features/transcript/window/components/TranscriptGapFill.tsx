@@ -25,7 +25,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import type { TimelineSubscribeCall } from "@renderer/services/daemon/session-reads.js";
-import { useLedgerGapFill } from "@renderer/console/ledger/pane/window/ledger-gap-fill.js";
+import { useLedgerGapFill } from "../hooks/useTranscriptGapFill.js";
 
 /** The stores the hole and the kept position are read from, and the call that asks. */
 export interface LedgerGapFillProps {

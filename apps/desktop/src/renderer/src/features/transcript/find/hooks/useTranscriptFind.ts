@@ -25,7 +25,7 @@ import {
   type FindStepDirection,
   type LedgerFindResult,
 } from "@renderer/console/ledger/structure/index.js";
-import { type VisibleLedgerWindow } from "@renderer/console/ledger/pane/window/index.js";
+import { type VisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */
 export interface LedgerFindState {

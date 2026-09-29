@@ -56,7 +56,7 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import { createLedgerEnduranceScenario } from "./transcript-endurance.test-support.js";
-import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow } from "@renderer/features/transcript/window/transcript-window.js";
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 
 /**

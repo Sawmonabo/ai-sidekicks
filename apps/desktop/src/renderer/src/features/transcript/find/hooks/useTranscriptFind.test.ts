@@ -11,16 +11,13 @@ import { describe, expect, it } from "vitest";
 
 import { UNFILTERED_LEDGER, type LedgerFilter } from "@renderer/console/ledger/structure/index.js";
 import { useLedgerFind, type LedgerFindState } from "./useTranscriptFind.js";
-import {
-  NO_ROWS_REMOVED,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { NO_ROWS_REMOVED, type LedgerWindowModel } from "../../window/transcript-window.js";
 import { useFilteredLedgerWindow } from "@renderer/console/ledger/pane/find/ledger-narrowing.js";
 import {
   useVisibleLedgerWindow,
   type VisibleLedgerWindow,
 } from "../../window/hooks/useVisibleTranscriptWindow.js";
-import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow } from "../../window/transcript-window.js";
 import {
   EVERY_ROW_QUERY,
   LOG_EVENT_COUNT,

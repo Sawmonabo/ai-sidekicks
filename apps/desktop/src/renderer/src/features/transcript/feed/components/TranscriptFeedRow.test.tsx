@@ -30,10 +30,7 @@ import {
   openSessionStoreWithTerminalChapter,
 } from "../../run-group-logs.test-support.js";
 import { LedgerRowRetention } from "../../window/row-retention.js";
-import {
-  deriveLedgerWindow,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "../../window/transcript-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
 function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerViewportRow {

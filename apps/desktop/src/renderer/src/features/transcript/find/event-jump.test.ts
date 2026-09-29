@@ -28,10 +28,7 @@ import {
   useDeferredRowJump,
   useLedgerJumpReach,
 } from "@renderer/console/ledger/pane/find/ledger-jump.js";
-import {
-  deriveLedgerWindow,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
 
 /** The loaded projection of a finished chapter beside a live run. */
 const LOADED_WINDOW: LedgerWindowModel = deriveLedgerWindow(foldedMessageChapterLog(), false);

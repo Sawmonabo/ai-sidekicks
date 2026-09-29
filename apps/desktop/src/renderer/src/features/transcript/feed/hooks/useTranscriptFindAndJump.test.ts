@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { type LedgerChapter } from "@renderer/console/ledger/structure/index.js";
 import { useVisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
-import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow } from "../../window/transcript-window.js";
 import { foldChapterHeaders } from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
 import { foldedMessageChapterLog } from "../../run-group-logs.test-support.js";
 import { TERMINAL_RUN_ID } from "../../transcript-logs.test-support.js";

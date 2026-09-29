@@ -28,10 +28,10 @@ import { useSessionScopedState, type TimelineRowDensity } from "../../../../seat
 import {
   NO_ROWS_REMOVED,
   chapterKeyFor,
-  LedgerRowRetention,
   type LedgerPipelineStage,
   type LedgerWindowModel,
-} from "../../window/index.js";
+} from "@renderer/features/transcript/window/transcript-window.js";
+import { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
 
 /** What one mount remembers about which finished chapters a person opened. */
 export interface LedgerChapterDisclosure {

@@ -27,10 +27,7 @@ import {
   type LedgerChapterDisclosure,
 } from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
 import { ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
-import {
-  deriveLedgerWindow,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
 
 const SESSION_ID = "session-chapter-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";

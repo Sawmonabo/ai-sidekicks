@@ -14,10 +14,9 @@ import type {
 import {
   ledgerGapFillSubjectKey,
   resolveLedgerGapFill,
-  useLedgerGapFill,
   type LedgerGapFillInput,
-  type LedgerGapFillState,
-} from "@renderer/console/ledger/pane/window/ledger-gap-fill.js";
+} from "./transcript-gap-fill.js";
+import { useLedgerGapFill, type LedgerGapFillState } from "./hooks/useTranscriptGapFill.js";
 
 const SESSION_ID = "session-gap-fill";
 const KEPT_CURSOR = "cursor-kept-by-the-last-read";

@@ -88,10 +88,8 @@ import { LedgerRowLeaseProvider } from "../../viewport/components/RetainedRowSta
 import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { LedgerViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LedgerFeedHeader } from "./TranscriptFeedHeader.js";
-import {
-  LedgerWindowAbsences,
-  LedgerWindowReadState,
-} from "@renderer/console/ledger/pane/window/index.js";
+import { LedgerWindowAbsences } from "../../window/components/TranscriptWindowNotices.js";
+import { LedgerWindowReadState } from "../../window/components/TranscriptReadState.js";
 import { useLedgerRowRenderer } from "@renderer/console/ledger/pane/feed/surface/LedgerFeedRow.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";

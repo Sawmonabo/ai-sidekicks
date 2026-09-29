@@ -67,6 +67,7 @@ import "../rows/rows.css";
 import "../rows/bodies/bodies.css";
 import "../rows/markdown/markdown.css";
 import "../viewport/components/transcript-viewport.css";
+import "../window/components/transcript-window.css";
 
 registerFixtureShellRows();
 

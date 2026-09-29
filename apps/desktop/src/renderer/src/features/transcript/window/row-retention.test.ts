@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { ledgerFixtureEventId, ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
 import { LedgerRowRetention } from "./row-retention.js";
-import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { deriveLedgerWindow } from "./transcript-window.js";
 
 const SESSION_ID = "session-ledger-row-retention";
 

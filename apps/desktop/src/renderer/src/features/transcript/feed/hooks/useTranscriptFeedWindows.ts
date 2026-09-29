@@ -63,14 +63,16 @@ import {
   useFilteredLedgerWindow,
   type LedgerFilterState,
 } from "@renderer/console/ledger/pane/find/ledger-narrowing.js";
+import { useLedgerFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
+import { useLedgerProjection } from "../../window/hooks/useTranscriptProjection.js";
 import {
-  useLedgerFirstReadSettled,
-  useLedgerProjection,
   useVisibleLedgerWindow,
+  type VisibleLedgerWindow,
+} from "../../window/hooks/useVisibleTranscriptWindow.js";
+import {
   type LedgerPipelineStage,
   type LedgerWindowModel,
-  type VisibleLedgerWindow,
-} from "@renderer/console/ledger/pane/window/index.js";
+} from "../../window/transcript-window.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   useChapterDisclosure,

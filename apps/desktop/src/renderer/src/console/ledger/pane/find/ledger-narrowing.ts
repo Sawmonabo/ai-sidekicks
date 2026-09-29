@@ -23,7 +23,7 @@ import {
   NO_ROWS_REMOVED,
   type LedgerPipelineStage,
   type LedgerWindowModel,
-} from "../window/index.js";
+} from "@renderer/features/transcript/window/transcript-window.js";
 
 /** What a person has narrowed this ledger to, and what the bar may offer them. */
 export interface LedgerFilterState {
