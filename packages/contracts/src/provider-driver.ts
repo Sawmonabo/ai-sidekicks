@@ -1769,7 +1769,7 @@ export interface CompactContextParams {
 //   * `applied` is reachable ONLY after the provider's typed compaction frame is
 //     observed, and `boundaryPosition` is REQUIRED there, typed `number | null`
 //     so a frame carrying no position is representable without being
-//     synthesized (the `RollbackDegradedResult` shape).
+//     synthesized.
 //   * `refused` means NOTHING WAS SENT.
 //   * `failed` means something WAS sent and no boundary was witnessed.
 //

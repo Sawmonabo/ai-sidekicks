@@ -20,10 +20,10 @@
 //
 // AND SO DOES THE BARE PRODUCER. A loader-backed body that is not a PANE and not a ROUTE
 // — a card inside an overlay a person opened, a walkthrough behind a command — has no
-// chrome of its own to reserve, so its fallback is the marker and nothing else. Three
-// callers wanted that and the first of them wrote it privately; `reservedBodyRegion`
-// below is the one construction, beside the attribute it stamps, so a fourth caller
-// cannot spell the element differently from the sweep that looks for it.
+// chrome of its own to reserve, so its fallback is the marker and nothing else. Two
+// modules draw one today, the provider import panel's mount and the schema form's two
+// mounts; `reservedBodyRegion` below is the one construction, beside the attribute it
+// stamps, so no caller spells the element differently from the sweep that looks for it.
 
 import { createElement } from "react";
 

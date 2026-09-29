@@ -72,11 +72,6 @@ import "@renderer/components/ScreenNotice/ScreenNotice.css";
 import "@renderer/components/ErrorBoundary/ErrorBoundary.css";
 import "@renderer/components/Refusal/Refusal.css";
 import "@renderer/components/PartialRead/PartialRead.css";
-// `restore/restore.css` is NOT here, and its absence is the stylesheet rule rather than
-// an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
-// its own and its sheet enters through `restore/file-restore-disclosure-body.js`. A line
-// here would put a rewind's working-tree rules on every launch to dress a surface only a
-// settled rollback draws.
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than

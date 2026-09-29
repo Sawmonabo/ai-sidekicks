@@ -1,36 +1,22 @@
-// Run-control contracts — the queue, intervention, pause/resume, and run-read
-// surface.
+// Run-control contracts: the message queue, interventions on a running run
+// (steer, interrupt, cancel), pause and resume, what an undo reports, the run
+// state stream and the run read.
 //
-// Every shape here and verbatim: adding, removing, or renaming a member is a
-// contract break and requires the doc edit first (all name that section as their
-// byte-for-byte mirror source, and the three shapes no Phase-1 task names —
-// `RunRolledBackEvent` plus the two `run.subscribe*` request shapes — are homed
-// here by that same section's closing sentence, which places the canonical Zod
-// schemas for the request/response shapes of its own method registry in this
-// file; the `driver_ask` interface sharing that fence is NOT one of them, its
-// payload schemas living elsewhere).
+// This module owns the branded `QueueItemId` and `InterventionId`, and it
+// declares four closed sets that every other module imports from here rather
+// than restating: `RunState`, `RunFailureCategory`, `QueueItemState` and
+// `InterventionState`.
 //
-// This module owns the branded `QueueItemId` / `InterventionId`, the queue
-// and intervention wire shapes, `RunPauseRequest` / `RunResumeRequest` /
-// `RunControlAck`, the forward `RunRolledBackEvent`, the two session-scoped
-// `run.subscribe*` request shapes, and the run-read accessor contract. It
-// also DECLARES four enums that the canonical doc lists `RunState`,
-// `RunFailureCategory`, `QueueItemState`, and `InterventionState`. do not
-// redefine", and there is nothing to import — a repo-wide search of
-// `packages/` and `apps/` finds no declaration of any of the four. A later
-// plan MUST import from here, never restate.
+// It imports downward only. The shapes below compose `./provider-driver.js`,
+// `./session.js` and `./repo.js`, each an eager module-scope Zod initializer,
+// so a back-import from any of them would throw `ReferenceError` at import
+// time rather than fail to compile (the `repo.ts` header works the case). Its
+// one in-package consumer is `./timeline/`, which takes `RunState` and
+// `RunRolledBackEventSchema` from here and which nothing here imports.
 //
-// This module imports downward only, so no cycle is reachable through it
-// today. Its one in-package consumer is the `./timeline/` subdirectory (take
-// `RunState` and `RunRolledBackEventSchema` from here), which nothing below
-// imports back. Keep it that way: the shapes below compose
-// `./provider-driver.js`, `./session.js`, and `./repo.js`, and every one of those is an eager
-// module-scope Zod initializer, so a back-import from any of them would throw `ReferenceError` at
-// import time rather than fail to compile (see the `repo.ts` header for the worked case).
-//
-// Request schemas use the double-T `z.ZodType<T, T>` form and response /
-// event schemas the single-T `z.ZodType<T>` form, matching `session.ts`:
-// only request schemas reach tRPC's Standard Schema V1 input inference.
+// Request schemas use the double-T `z.ZodType<T, T>` form and response and
+// event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
+// request schemas reach tRPC's Standard Schema V1 input inference.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -381,43 +367,59 @@ export const InterventionRequestPayloadSchema: z.ZodType<
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
-// The result shapes a settled rollback reports. The disposition class is
-// ENCODED in the arm types: `applied` admits exactly `RollbackAppliedResult`
-// and `degraded` exactly `RollbackDegradedResult`.
+// What an undo reports. A person asks to put back the conversation and the
+// files together, the conversation alone, or the files alone, and one undo
+// has one result: what was asked, what went back, and the daemon's reason for
+// each asked-for part that did not. An undo can land in part — the
+// conversation cut can apply while the files cannot go back, or the reverse —
+// and `restored: "nothing"` means the conversation and the files are as they
+// were.
 //
-// `resendDisposition` is a separate axis: it reports the replacement leg's
-// outcome, and each class admits only its own literal (`applied` =>
-// "admitted", `degraded` => "unapplied").
+// Edit and resend is the same undo followed by a send, as one operation. When
+// the undo applied and the send did not, the result says so, with the send's
+// reason, so the conversation is never left cut with nothing sent unremarked.
 
-/** What an applied rollback restored: files and the conversation, or the conversation only. */
-export type RollbackAppliedResult =
-  | { disposition: "files-restored" }
-  | { disposition: "conversation-only" };
+/** What an undo is asked to put back. */
+export type SessionRestoreScope = "conversation-and-files" | "conversation" | "files";
 
-/** Why a rollback degraded: nothing was applied, or the replacement message was not sent. */
-export type RollbackDegradedResult =
-  | { disposition: "nothing-applied" }
-  | { disposition: "resend-unapplied"; resendDisposition: "unapplied" };
+/** One part an undo puts back on its own. */
+export type SessionRestorePart = Exclude<SessionRestoreScope, "conversation-and-files">;
 
-export interface RollbackAppliedResendOutcome {
-  resendDisposition?: "admitted" | undefined;
+/** Why one asked-for part did not go back, in the daemon's words. */
+export interface SessionRestoreFailure {
+  reason: string;
 }
-export interface RollbackDegradedResendOutcome {
-  resendDisposition?: "unapplied" | undefined;
+
+/** A finished undo: what was asked, what went back, and why each other asked-for part did not. */
+export interface SessionRestoreFinished {
+  outcome: "restore-finished";
+  requested: SessionRestoreScope;
+  restored: SessionRestoreScope | "nothing";
+  failures?: { [Part in SessionRestorePart]?: SessionRestoreFailure | undefined } | undefined;
 }
+
+/** An edit and resend whose undo applied and whose send failed, with the send's reason. */
+export interface SessionResendUnapplied {
+  outcome: "resend-unapplied";
+  reason: string;
+}
+
+/** What an undo, or an edit and resend, reports. */
+export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnapplied;
+
+/**
+ * Why the daemon refuses an edit and resend before anything goes back: the
+ * message is not one the person sent. A closed set, so a new guard fails to
+ * compile at every reader that must give it words.
+ */
+export type SessionResendRejectionGuard = "user-authored-target";
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
-// `rejectionReason` is a machine-readable cause carried on a `rejected`
-// OUTCOME — a normal response, NOT a JSON-RPC transport error.
-//
-// `RollbackCompositeRejectionGuard` names the edit-and-resend composite's
-// structural refusal guard. It is a closed union so a new guard breaks
-// compilation at every exhaustive reader.
-
-/** The guard that refuses an edit-and-resend rollback before anything is applied. */
-export type RollbackCompositeRejectionGuard = "user-authored-target";
+// The daemon's answer to an intervention. A refused intervention is a normal
+// response with state `rejected` and a machine-readable cause in
+// `rejectionReason`, not a JSON-RPC error.
 
 export interface InterventionResponseBase {
   interventionId: InterventionId;

@@ -5,11 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compositeGuardReading } from "./composite-guard.js";
+import { resendGuardReading } from "./resend-guard.js";
 
 describe("the user-authored-target guard", () => {
   it("answers a reading that names the guard back, with a refusal and a move", () => {
-    const reading = compositeGuardReading("user-authored-target");
+    const reading = resendGuardReading("user-authored-target");
 
     expect(reading?.guard).toBe("user-authored-target");
     expect(reading?.refused.length ?? 0).toBeGreaterThan(20);
@@ -18,6 +18,6 @@ describe("the user-authored-target guard", () => {
 
   it("negative control: a rejection carrying no guard gets no reading", () => {
     // Inventing a nearest guard would tell a person to fix something that is not wrong.
-    expect(compositeGuardReading(undefined)).toBeUndefined();
+    expect(resendGuardReading(undefined)).toBeUndefined();
   });
 });
