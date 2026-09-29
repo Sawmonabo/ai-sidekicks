@@ -30,7 +30,11 @@ import type { FileRestoreDisclosureProps } from "../components/FileRestoreDisclo
  */
 const FILE_RESTORE_DISCLOSURE_PENDING_BODY = "file-restore-disclosure";
 
-/** The disclosure, mounted from its chunk. The rollback settlement's one reader. */
+/**
+ * The disclosure, mounted from its chunk. The rollback settlement's one reader.
+ *
+ * @consumedBy the composer's undo readout
+ */
 export const fileRestoreDisclosureMount: LoadedLazyBody<FileRestoreDisclosureProps> =
   new LoadedLazyBody(
     () => import("../components/FileRestoreDisclosure/file-restore-disclosure-body.js"),

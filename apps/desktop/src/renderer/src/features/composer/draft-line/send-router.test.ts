@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  CHANNEL_TARGET,
+  SESSION_TARGET,
   PINNED_REQUEST_UUID,
   QUEUE_CREATED,
   RUN_ID,
@@ -18,11 +18,11 @@ import {
 } from "./send-router.test-support.js";
 
 describe("ComposerSendRouter — Send is a router, not a verb", () => {
-  it("routes a channel-addressed message to the queue-create call", async () => {
+  it("routes a session-addressed message to the queue-create call", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
+    const outcome = await routerWith(call).send("ship the fix", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       payload: { content: "ship the fix" },
@@ -64,7 +64,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
     // in a refusal, on both targets: the running turn adds no rule of its own.
     const router = routerWith(vi.fn(), ["compact"], ["review"]);
     for (const line of ["/compact now", "/review"]) {
-      expect(router.resolve(line, RUN_TARGET)).toStrictEqual(router.resolve(line, CHANNEL_TARGET));
+      expect(router.resolve(line, RUN_TARGET)).toStrictEqual(router.resolve(line, SESSION_TARGET));
     }
   });
 
@@ -84,9 +84,9 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
   it("sends a slash word on no list as typed on a new turn", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    const outcome = await routerWith(call).send("/compact now", CHANNEL_TARGET);
+    const outcome = await routerWith(call).send("/compact now", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       payload: { content: "/compact now" },
@@ -95,7 +95,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
   it("intercepts a registered command and composes it into nothing", async () => {
     const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call, ["compact"]).send("/compact now", CHANNEL_TARGET);
+    const outcome = await routerWith(call, ["compact"]).send("/compact now", SESSION_TARGET);
 
     expect(outcome).toStrictEqual({ status: "intercepted", commandName: "compact" });
     expect(call).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
   it("sends a doubled slash exactly as typed, spacing included", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    await routerWith(call, ["not-a-command"]).send("//not-a-command  \n", CHANNEL_TARGET);
+    await routerWith(call, ["not-a-command"]).send("//not-a-command  \n", SESSION_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
@@ -135,7 +135,7 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
   });
 
   it("names a published entry on a new turn too, rather than sending it", () => {
-    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/review", CHANNEL_TARGET);
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/review", SESSION_TARGET);
 
     expect(resolution.outcome === "refused" && resolution.refusal.code).toBe(
       "provider-command-discovery-only",
@@ -148,7 +148,7 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, ["compact"], ["compact"]).send(
       "/compact",
-      CHANNEL_TARGET,
+      SESSION_TARGET,
     );
 
     expect(outcome).toStrictEqual({ status: "intercepted", commandName: "compact" });
@@ -156,13 +156,13 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
   });
 
   it("sends an unpublished, unregistered name as typed", () => {
-    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/nothing", CHANNEL_TARGET);
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/nothing", SESSION_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
   });
 
   it("does not read a doubled slash as the name the provider published", () => {
-    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("//review", CHANNEL_TARGET);
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("//review", SESSION_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
   });
@@ -175,9 +175,9 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   // because two routers can resolve to the same arm and send different bytes.
   const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
 
-  it("queues a channel message byte-identical, indentation and blank line included", async () => {
+  it("queues a session message byte-identical, indentation and blank line included", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    await routerWith(call).send(INDENTED_BODY, CHANNEL_TARGET);
+    await routerWith(call).send(INDENTED_BODY, SESSION_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
@@ -200,7 +200,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
 
   it("still refuses a body that is only whitespace, because blankness is a test", async () => {
     const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).send("  \n\t ", CHANNEL_TARGET);
+    const outcome = await routerWith(call).send("  \n\t ", SESSION_TARGET);
 
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("empty-message");
     expect(call).not.toHaveBeenCalled();
@@ -210,9 +210,9 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
     // A command opens its line, so pasted code whose first non-blank character is a
     // slash is prose.
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    const outcome = await routerWith(call, ["help"]).send("  /help me read this", CHANNEL_TARGET);
+    const outcome = await routerWith(call, ["help"]).send("  /help me read this", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       payload: { content: "  /help me read this" },
@@ -221,7 +221,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
 
   it("negative control: the same name at the first byte is still a command", async () => {
     const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call, ["help"]).send("/help me read this", CHANNEL_TARGET);
+    const outcome = await routerWith(call, ["help"]).send("/help me read this", SESSION_TARGET);
 
     expect(outcome).toStrictEqual({ status: "intercepted", commandName: "help" });
     expect(call).not.toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe("ComposerSendRouter — one router, and identifiers the wire would acce
   it("refuses an identifier the registered schema rejects rather than round-tripping it", async () => {
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call).send("hello", {
-      ...CHANNEL_TARGET,
+      ...SESSION_TARGET,
       sessionId: "session-composer",
     });
 
@@ -243,8 +243,8 @@ describe("ComposerSendRouter — one router, and identifiers the wire would acce
   it("resolves and sends through the same decision, so no second router can disagree", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const router = routerWith(call);
-    const resolution = router.resolve("one message", CHANNEL_TARGET);
-    await router.send("one message", CHANNEL_TARGET);
+    const resolution = router.resolve("one message", SESSION_TARGET);
+    await router.send("one message", SESSION_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
     // The negative control for "one router": the request the pure resolution built

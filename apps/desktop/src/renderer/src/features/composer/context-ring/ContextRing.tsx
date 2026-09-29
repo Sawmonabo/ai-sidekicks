@@ -25,16 +25,16 @@
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import type { ContextWindowReading } from "./context-window-reading.js";
-import { ContextMeterReading } from "./ContextRingReading.js";
+import { ContextRingReading } from "./ContextRingReading.js";
 
 /** What the meter draws. */
-export interface ContextMeterProps {
+export interface ContextRingProps {
   /** The newest reading, or `undefined` while the daemon has sent none. */
   readonly reading: ContextWindowReading | undefined;
 }
 
 /** The newest context reading as a bar and figures, or the not-checked absence. */
-export function ContextMeter(props: ContextMeterProps): React.JSX.Element {
+export function ContextRing(props: ContextRingProps): React.JSX.Element {
   if (props.reading === undefined) {
     return (
       <Nothing
@@ -44,5 +44,5 @@ export function ContextMeter(props: ContextMeterProps): React.JSX.Element {
       />
     );
   }
-  return <ContextMeterReading reading={props.reading} />;
+  return <ContextRingReading reading={props.reading} />;
 }

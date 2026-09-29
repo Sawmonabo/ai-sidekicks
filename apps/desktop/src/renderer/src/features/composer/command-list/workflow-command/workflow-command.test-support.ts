@@ -6,10 +6,7 @@
 
 import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
 import type { ReadWorkflowDefinitionPage } from "./definition-enumeration.js";
-import type {
-  WorkflowStartOperations,
-  WorkflowStartRequest,
-} from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
+import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-workflow-from-line.js";
 
 /** The session every case in this suite addresses. */
 export const WORKFLOW_TEST_SESSION_ID = "session-workflow-start";

@@ -12,7 +12,7 @@ import {
   approvalCommandRows,
   performApprovalCommand,
   type ApprovalCommandInput,
-} from "@renderer/console/approvals/pane/approval-commands.js";
+} from "./approval-commands.js";
 
 const FIRST_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
 const SECOND_REQUEST = "4a7c2d3e-5f60-4172-8384-0b5c6d7e8f90";

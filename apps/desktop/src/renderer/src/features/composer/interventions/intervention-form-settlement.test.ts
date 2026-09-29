@@ -7,7 +7,10 @@
 import { describe, expect, it } from "vitest";
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts";
 
-import { admissionRefusal, readComposerSettlement } from "./intervention-form-settlement.js";
+import {
+  admissionRefusal,
+  readInterventionFormSettlement,
+} from "./intervention-form-settlement.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
 
 /** One settled dispatch, at one daemon state. */
@@ -30,12 +33,12 @@ function settledAt(
 
 describe("only a settlement that landed closes the form", () => {
   it("reads the two landed states as landed", () => {
-    expect(readComposerSettlement(settledAt("applied")).kind).toBe("landed");
-    expect(readComposerSettlement(settledAt("degraded")).kind).toBe("landed");
+    expect(readInterventionFormSettlement(settledAt("applied")).kind).toBe("landed");
+    expect(readInterventionFormSettlement(settledAt("degraded")).kind).toBe("landed");
   });
 
   it("keeps the form open on a rejection, under the daemon's own reason", () => {
-    const settlement = readComposerSettlement(settledAt("rejected", "run_not_paused"));
+    const settlement = readInterventionFormSettlement(settledAt("rejected", "run_not_paused"));
     expect(settlement.kind).toBe("refused");
     expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe(
       "run_not_paused",
@@ -43,19 +46,19 @@ describe("only a settlement that landed closes the form", () => {
   });
 
   it("falls back to the wire state where a rejection named no reason", () => {
-    const settlement = readComposerSettlement(settledAt("rejected"));
+    const settlement = readInterventionFormSettlement(settledAt("rejected"));
     expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe("rejected");
   });
 
   it("keeps the form open on an expiry", () => {
-    expect(readComposerSettlement(settledAt("expired")).kind).toBe("refused");
+    expect(readInterventionFormSettlement(settledAt("expired")).kind).toBe("refused");
   });
 
   it("latches the confirm on an intervention recorded and not yet applied", () => {
     // Confirming twice there would raise a SECOND intervention, so this arm is
     // neither landed nor retryable — it is the one that leaves cancel as the way out.
-    expect(readComposerSettlement(settledAt("requested")).kind).toBe("recorded");
-    expect(readComposerSettlement(settledAt("accepted")).kind).toBe("recorded");
+    expect(readInterventionFormSettlement(settledAt("requested")).kind).toBe("recorded");
+    expect(readInterventionFormSettlement(settledAt("accepted")).kind).toBe("recorded");
   });
 
   it("negative control: the arms are not all one answer", () => {
@@ -63,7 +66,7 @@ describe("only a settlement that landed closes the form", () => {
     // to everything, which would leave a landed intervention's form open forever.
     const kinds = new Set(
       (["applied", "rejected", "requested"] as const).map(
-        (state) => readComposerSettlement(settledAt(state)).kind,
+        (state) => readInterventionFormSettlement(settledAt(state)).kind,
       ),
     );
     expect(kinds).toStrictEqual(new Set(["landed", "refused", "recorded"]));
@@ -72,7 +75,7 @@ describe("only a settlement that landed closes the form", () => {
 
 describe("what the form says beside a rejected settlement", () => {
   it("keeps the general sentence for a rejected steer, which names no guard", () => {
-    const settlement = readComposerSettlement(settledAt("rejected", "no_active_turn"));
+    const settlement = readInterventionFormSettlement(settledAt("rejected", "no_active_turn"));
 
     expect(settlement.kind === "refused" ? settlement.notice.detail : "").toContain(
       "change what it asks for",

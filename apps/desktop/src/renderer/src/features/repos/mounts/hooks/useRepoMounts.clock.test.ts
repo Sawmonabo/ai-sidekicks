@@ -16,7 +16,7 @@ import { ManualClock, RealClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { useRepoMounts } from "./useRepoMounts.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import {
@@ -38,7 +38,7 @@ const WINDOW_START_MILLISECONDS = 1_000;
 describe("useRepoMounts — the reading is stamped on the window's own clock", () => {
   it("stamps the reading with the window's instant and not the wall clock", async () => {
     const clock = new ManualClock(WINDOW_START_MILLISECONDS);
-    const bridge = bridgeOnClock(clock);
+    const bridge = bridgeOnClock("repos", clock);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const operations = sessionOperations();
     const { result } = renderHook(() => useRepoMounts(bridge, sessionStore, operations));

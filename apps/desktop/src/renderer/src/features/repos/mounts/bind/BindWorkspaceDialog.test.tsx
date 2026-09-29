@@ -18,7 +18,8 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
 
@@ -66,7 +67,7 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
  */
 class CapabilitiesUnderTest {
   #capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
-  readonly bridge: ConsoleBridge = bridgeOnClock();
+  readonly bridge: ConsoleBridge = bridgeOnClock("repos");
   readonly operations: RepoOperations;
 
   public constructor(capabilities: WorkspaceExecutionModeCapabilitiesReadResponse) {

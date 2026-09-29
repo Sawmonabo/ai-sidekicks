@@ -40,7 +40,7 @@ import {
   NO_COMPOSER_REFUSALS,
   renderableRefusal,
   withSettledRefusal,
-  type ComposerRefusalSlots,
+  type ComposerRefusalsByOperation,
   type ComposerSettlementIdentity,
 } from "../send-settlement.js";
 import type { SettlementIdentities } from "./useSettlementIdentities.js";
@@ -89,7 +89,11 @@ export function useComposerActState(
     () => "idle",
   );
   const { value: refusalSlots, publish: publishRefusalSlots } =
-    useSubjectScopedState<ComposerRefusalSlots>(bridge, draftKey, () => NO_COMPOSER_REFUSALS);
+    useSubjectScopedState<ComposerRefusalsByOperation>(
+      bridge,
+      draftKey,
+      () => NO_COMPOSER_REFUSALS,
+    );
 
   const clearRefusals = useCallback((): void => {
     publishRefusalSlots(NO_COMPOSER_REFUSALS);

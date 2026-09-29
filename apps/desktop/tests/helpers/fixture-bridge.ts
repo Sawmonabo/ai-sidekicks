@@ -6,14 +6,13 @@
 // holds nothing a single suite uses: the scripts each concern re-writes, and the
 // constants only one of them reads, stay beside their reader.
 //
-// The macrotask drain the settling cases wait on is deliberately NOT here. It is a
-// timing helper rather than a fixture one, and two families below `bridge/` wait on
-// it, so it lives at `core/macrotask-boundary.test-support.ts` — the lowest family all
-// three of its readers may reach.
+// The macrotask wait the settling cases use is a timing helper, so it lives in
+// `macrotask-boundary.ts`.
 
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
@@ -262,4 +261,19 @@ export function unscriptedScenario(id: string): ConsoleScenario {
     replies: [],
     startedAtIso: "2026-01-01T10:05:00.000Z",
   };
+}
+
+/**
+ * A bridge over a scenario that scripts nothing, whose window runs on this clock.
+ *
+ * `consoleClockFor` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
+ * clock, so the engine member is replaced by hand. The scenario id is the caller's for the
+ * reason `unscriptedScenario` gives.
+ */
+export function bridgeOnClock(scenarioId: string, clock?: ConsoleClock): ConsoleBridge {
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario(scenarioId) });
+  if (clock === undefined) {
+    return bridge;
+  }
+  return { ...bridge, scenarioEngine: { clock } } as ConsoleBridge;
 }

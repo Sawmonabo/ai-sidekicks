@@ -15,7 +15,7 @@ import { StrictMode, createElement, type ReactElement } from "react";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import type { ArtifactOperations } from "@renderer/features/inspector/artifacts/services/artifact-reads.js";
 import { ArtifactPayloadSection } from "./ArtifactPayloadSection.js";
 import { SESSION_ID } from "@test/helpers/artifact-list-readers.js";
@@ -49,7 +49,7 @@ export function hostSubject(
 ): PayloadHostSubject {
   const clock = new ManualClock();
   return {
-    bridge: bridgeOnClock(clock),
+    bridge: bridgeOnClock("repos", clock),
     sessionStore: reached.sessionStore ?? new SessionStore({ sessionId: SESSION_ID }),
     operations,
     clock,

@@ -10,10 +10,7 @@
 // own `index.ts`. What this module composes is what a session paints without opening
 // anything: the three inline ledger cards.
 
-import {
-  registerInlineArtifactCardBody,
-  registerInlineAttachmentCardBody,
-} from "./artifact-pane/index.js";
+import { registerInlineArtifactCardBody } from "./artifact-pane/index.js";
 import { registerInlineDiffCardBody } from "./diff-pane/index.js";
 import { type InlineCardSeatRegistry } from "../seats/index.js";
 
@@ -40,5 +37,4 @@ export const REPOS_FAMILY_OWNER = "repos";
 export function registerRepos(inlineCardSeats: InlineCardSeatRegistry): void {
   registerInlineDiffCardBody(inlineCardSeats);
   registerInlineArtifactCardBody(inlineCardSeats);
-  registerInlineAttachmentCardBody(inlineCardSeats);
 }

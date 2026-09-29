@@ -14,7 +14,7 @@ import {
 } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
 // The declaring modules rather than the door: both names are read only from this
 // suite, and a door line no production module imports is a dead export.
-import { foldRunDriverBindings } from "@renderer/console/bridge/driver-capabilities/run-driver-binding.js";
+import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type {
   ConsoleEntity,
   ConsoleSessionEvent,

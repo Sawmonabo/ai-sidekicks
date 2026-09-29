@@ -18,6 +18,7 @@
 import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
 import { Nothing, PartialRead } from "@renderer/console/primitives/index.js";
 import { workflowDefinitionCandidates } from "../definition-match.js";
+import "./WorkflowStartCandidates.css";
 
 /** What the workflow candidate list is given: the enumeration and the name typed so far. */
 export interface WorkflowStartCandidatesProps {

@@ -65,7 +65,7 @@ function namesUnderGroup(container: HTMLElement, labelText: string): readonly st
 const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
 const CONSOLE_GROUP_LABEL = "This console's commands — these run here";
 
-describe("CommandDiscoveryPopover — the list is two labelled groups", () => {
+describe("CommandListPopover — the list is two labelled groups", () => {
   it("names the provider half 'discovery, not runnable' and the console half its own", async () => {
     registerConsoleCommand();
     const mounted = await mountComposer({

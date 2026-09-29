@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DirectiveLine } from "../../types.js";
-import { startWorkflowFromLine } from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
+import type { ComposerCommandLine } from "../../types.js";
+import { startWorkflowFromLine } from "./start-workflow-from-line.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
@@ -14,7 +14,7 @@ import {
 } from "./workflow-command.test-support.js";
 
 /** One line as the router hands it over. */
-function line(text: string): DirectiveLine {
+function line(text: string): ComposerCommandLine {
   return { commandName: "workflow", text };
 }
 

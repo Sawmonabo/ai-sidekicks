@@ -38,11 +38,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import { readDirectiveName } from "../../slash-command-syntax.js";
+import { readSlashCommandName } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 
 /** What the composer's line is currently asking the discovery surface for. */
-export interface DirectiveLineDiscovery {
+export interface CommandListTrigger {
   /** The typed name after the trigger, or `undefined` while the surface is closed. */
   readonly prefix: string | undefined;
   /** Bumped when the person asks the list to take the arrow keys. */
@@ -52,7 +52,7 @@ export interface DirectiveLineDiscovery {
 }
 
 /** Where the composer's unsent body lives, and under which address. */
-export interface DirectiveLineSource {
+export interface DraftLineSource {
   /** The window-lifetime store the composer seat is handed. */
   readonly draftStore: DraftStore;
   /** This composer's address key, so the surface watches its own line. */
@@ -67,10 +67,10 @@ export interface DirectiveLineSource {
  * send clears the line. A boolean would need someone to remember to clear it, and the
  * arm nobody remembers is the one a person meets.
  */
-export function useDirectiveLineDiscovery(
+export function useCommandListTrigger(
   region: React.RefObject<HTMLElement | null>,
-  source: DirectiveLineSource,
-): DirectiveLineDiscovery {
+  source: DraftLineSource,
+): CommandListTrigger {
   const { draftStore, draftKey } = source;
   // The same reading the send bar takes of the same key, through the same hook.
   const { text: lineText, read: readLineText } = useComposerDraftText(draftStore, draftKey);
@@ -78,7 +78,7 @@ export function useDirectiveLineDiscovery(
   const [dismissedAtText, setDismissedAtText] = useState<string | undefined>(undefined);
   const [stepIntoListToken, setStepIntoListToken] = useState(0);
 
-  const typedPrefix = readDirectiveName(lineText);
+  const typedPrefix = readSlashCommandName(lineText);
   const isOpen = typedPrefix !== undefined && dismissedAtText !== lineText;
 
   const dismiss = useCallback(() => {

@@ -43,7 +43,7 @@ import {
   readChunkAcknowledgement,
 } from "./attachment-ingest-acknowledgement.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
-import { writeIngestRefusal, type AttachmentIngestLedger } from "../attachment-ingest-entries.js";
+import { writeIngestRefusal, type AttachmentIngestEntries } from "../attachment-ingest-entries.js";
 import { isSendingAttachmentIngestEntry } from "../attachment-shapes.js";
 
 /** The refusal a payload that can no longer be read leaves on its entry. */
@@ -52,14 +52,14 @@ export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";
 export interface AttachmentChunkStreamOptions {
   readonly port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly clock: ConsoleClock;
-  readonly ledger: AttachmentIngestLedger;
+  readonly ledger: AttachmentIngestEntries;
 }
 
 /** One open stream's bytes, sent cap-sized slice by cap-sized slice. */
 export class AttachmentChunkStream {
   readonly #port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly #clock: ConsoleClock;
-  readonly #ledger: AttachmentIngestLedger;
+  readonly #ledger: AttachmentIngestEntries;
 
   public constructor(options: AttachmentChunkStreamOptions) {
     this.#port = options.port;

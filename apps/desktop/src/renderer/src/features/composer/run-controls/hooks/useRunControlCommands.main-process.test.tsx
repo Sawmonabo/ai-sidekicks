@@ -7,14 +7,14 @@ import { describe, expect, it } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
-import { useRunControlCommands } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import { useRunControlCommands } from "./useRunControlCommands.js";
 import {
   RUN_ID,
   commandRun,
-  recordingRunControlSurface,
+  recordingRunControlDispatch,
   type RecordedRunControlCall,
 } from "../run-control-commands.test-support.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { type RunControlDispatchState } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${RUN_ID}`;
 
@@ -27,7 +27,9 @@ const CONTRIBUTED_COMMAND_IDS = ["pause", "interrupt", "steer"].map(
 );
 
 /** The hook under a tree that contributes for one running run and nothing else. */
-function RunControlCommandsHost(props: { readonly surface: RunControlSurface }): React.JSX.Element {
+function RunControlCommandsHost(props: {
+  readonly surface: RunControlDispatchState;
+}): React.JSX.Element {
   useRunControlCommands({
     runs: [commandRun(RUN_ID)],
     driverCapabilities: CAPABLE,
@@ -39,7 +41,7 @@ function RunControlCommandsHost(props: { readonly surface: RunControlSurface }):
 
 describe("the run-control palette rows are always open", () => {
   it("lists every contributed row carrying no unavailable sentence", () => {
-    render(<RunControlCommandsHost surface={recordingRunControlSurface().surface} />);
+    render(<RunControlCommandsHost surface={recordingRunControlDispatch().surface} />);
 
     for (const commandId of CONTRIBUTED_COMMAND_IDS) {
       expect(consoleCommands.has(commandId)).toBe(true);
@@ -48,7 +50,7 @@ describe("the run-control palette rows are always open", () => {
   });
 
   it("runs the row, which dispatches through the pane's own surface", () => {
-    const { surface, calls } = recordingRunControlSurface();
+    const { surface, calls } = recordingRunControlDispatch();
     render(<RunControlCommandsHost surface={surface} />);
 
     const outcome = consoleCommands.invoke(PAUSE_COMMAND_ID, { sessionActive: true });

@@ -14,4 +14,3 @@
 import "./artifact.css";
 
 export { registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
-export { registerInlineAttachmentCardBody } from "./InlineAttachmentCard.js";

@@ -17,7 +17,8 @@ import { describe, expect, it } from "vitest";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { ReattachControl } from "./ReattachControl.js";
 
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -47,7 +48,7 @@ function operationsAnsweringTheCall(): RepoOperations {
 function renderControl(operations: RepoOperations): ReturnType<typeof render> {
   return render(
     <ReattachControl
-      bridge={bridgeOnClock()}
+      bridge={bridgeOnClock("repos")}
       operations={operations}
       sessionId={SESSION_ID}
       localPath={LOCAL_PATH}

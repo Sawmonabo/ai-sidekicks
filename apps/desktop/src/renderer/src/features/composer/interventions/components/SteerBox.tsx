@@ -27,7 +27,7 @@
 //
 // THE COMPOSER OUTLIVES ITS DISPATCH. The surface record keeps a refusal and nothing
 // keeps the text, so the form does not close when a dispatch STARTS. The settlement is
-// read off `RunControlSurface.records`, and only one that LANDED (`applied` or
+// read off `RunControlDispatchState.records`, and only one that LANDED (`applied` or
 // `degraded`) closes the form; everything else keeps the body on screen beside the
 // daemon's own code.
 
@@ -39,18 +39,18 @@ import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,
-  readComposerSettlement,
+  readInterventionFormSettlement,
 } from "../intervention-form-settlement.js";
-import type { ComposerSettlement } from "../intervention-form-settlement.js";
-import type { RunControlCommandRun } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import type { InterventionFormSettlement } from "../intervention-form-settlement.js";
+import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
 import type {
   RunControlDispatcher,
   RunControlOutcome,
 } from "../../run-controls/services/run-control-dispatch.js";
-import type { RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import type { RunControlDispatchState } from "../../run-controls/hooks/useRunControlDispatch.js";
 
 /** What the steer form is given: the run it addresses and the surface it dispatches through. */
-export interface RunInterventionComposerProps {
+export interface SteerBoxProps {
   /**
    * The transport this form's state belongs to, and the surface's own subject.
    *
@@ -60,7 +60,7 @@ export interface RunInterventionComposerProps {
    */
   readonly bridge: ConsoleBridge;
   readonly run: RunControlCommandRun;
-  readonly surface: RunControlSurface;
+  readonly surface: RunControlDispatchState;
   /** Close the composer. Raised on cancel, and on a settlement that landed. */
   readonly onDismiss: () => void;
 }
@@ -110,7 +110,7 @@ const EMPTY_FORM: ComposedForm = Object.freeze({
 });
 
 /** The form that sends a steer to one run. */
-export function RunInterventionComposer(props: RunInterventionComposerProps): React.JSX.Element {
+export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   const { bridge, run, surface, onDismiss } = props;
   const bodyId = useId();
   const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
@@ -133,12 +133,12 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   // dispatch. The token is what makes that exact: it is minted at admission and is
   // the record's own id, so a record carrying another token is another request's
   // settlement and this form is still waiting.
-  const settlement = useMemo((): ComposerSettlement | undefined => {
+  const settlement = useMemo((): InterventionFormSettlement | undefined => {
     if (pendingDispatch === undefined || pendingDispatch.composedIdentity !== composedIdentity) {
       return undefined;
     }
     const own = surface.records.find((record) => record.recordId === pendingDispatch.dispatchToken);
-    return own === undefined ? undefined : readComposerSettlement(own.outcome);
+    return own === undefined ? undefined : readInterventionFormSettlement(own.outcome);
   }, [pendingDispatch, surface.records, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;

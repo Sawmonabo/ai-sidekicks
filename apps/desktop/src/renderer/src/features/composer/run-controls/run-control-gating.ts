@@ -31,7 +31,7 @@
 // client read, and `run.running` carries the execution posture rather than the
 // binding. The AGENT does — `agent.attached` registers `driverName` on the persona,
 // and `run.queued` names the agent a run was created for — so the pair is joined
-// through the agent by `bridge/driver-capabilities/run-driver-binding.ts` and reaches
+// through the agent by `run-driver-bindings.ts` and reaches
 // this module as `driverNameByRunId`. That join is what makes a node with two drivers
 // installed answerable at all.
 //

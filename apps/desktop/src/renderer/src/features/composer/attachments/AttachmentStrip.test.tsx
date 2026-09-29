@@ -3,8 +3,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AttachmentCarrierBinding } from "@renderer/console/repos/index.js";
-import { ComposerAttachmentBar } from "./AttachmentStrip.js";
+import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
+import { AttachmentStrip } from "./AttachmentStrip.js";
 import { sendingEntry } from "./ingest-entry.test-support.js";
 
 /** A binding holding `entries`, whose acts do nothing: the strip only draws it. */
@@ -23,15 +23,17 @@ function bindingHolding(
 describe("the composer's attachment strip", () => {
   it("is absent while the message carries nothing", () => {
     const { container } = render(
-      <ComposerAttachmentBar carrier={bindingHolding([])} isDraggingFiles={false} />,
+      <AttachmentStrip stagedAttachments={bindingHolding([])} isDraggingFiles={false} />,
     );
     expect(container.querySelector(".meridian-composer-attachments")).toBeNull();
   });
 
   it("puts an attached file on the strip under the name it was declared with", () => {
     const { container } = render(
-      <ComposerAttachmentBar
-        carrier={bindingHolding([sendingEntry("ingesting", { declaredName: "notes.md" })])}
+      <AttachmentStrip
+        stagedAttachments={bindingHolding([
+          sendingEntry("ingesting", { declaredName: "notes.md" }),
+        ])}
         isDraggingFiles={false}
       />,
     );
@@ -48,8 +50,8 @@ describe("the composer's attachment strip", () => {
     // cannot stand in for this case: `aria-prohibited-attr` is outside the WCAG A/AA tag
     // set that tier runs.
     const { container } = render(
-      <ComposerAttachmentBar
-        carrier={bindingHolding([sendingEntry("ingesting")])}
+      <AttachmentStrip
+        stagedAttachments={bindingHolding([sendingEntry("ingesting")])}
         isDraggingFiles={false}
       />,
     );

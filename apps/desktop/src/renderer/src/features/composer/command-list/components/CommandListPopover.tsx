@@ -1,6 +1,6 @@
 // The popover that shows what this run's provider can be asked to do.
 //
-// Split from `ProviderCommandAutocomplete.tsx`, which owns the composer-side
+// Split from `CommandList.tsx`, which owns the composer-side
 // trigger — when a popover is open at all, and what a selection sends — while this
 // owns what an open one renders and how it is moved through.
 //
@@ -9,7 +9,7 @@
 // did not carry.
 //
 // THE LIST IS TWO LABELLED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
-// are acts this window performs; the provider's are names it will not send. `CatalogGroup`
+// are acts this window performs; the provider's are names it will not send. `CommandListGroup`
 // carries the heading and the `role="group"` that states the difference before a press;
 // what stays here is the partition, which preserves each row's position in the single
 // key sequence the cursor walks across both halves.
@@ -17,19 +17,19 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
 import type { CommandOutcome } from "../../types.js";
-import { CatalogGroup, type CatalogGroupRow } from "./CommandListGroup.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
-import { noDirectiveLineHandlers } from "../composer-command-line-handlers.js";
-import { type ComposerCommandSurface } from "../composer-commands.js";
+import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
+import { createClientCommandExecutor } from "../client-command-executor.js";
+import { noComposerCommandLineHandlers } from "../composer-command-line-handlers.js";
+import { type ComposerCommands } from "../composer-commands.js";
 import {
-  composeCatalog,
-  filterCatalog,
+  composeCommandList,
+  filterCommandList,
   isDeclaredUnavailable,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
-  type CommandCatalogEntry,
+  type CommandListEntry,
 } from "../command-list-entries.js";
-import { useProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandReadState } from "../provider-command-read.js";
 import { EnumerationState } from "./EnumerationState.js";
 
@@ -89,7 +89,7 @@ const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
  * after a child mounts, so a list captured once would be the empty registry for the
  * life of the window.
  */
-export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX.Element {
+export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element {
   const { prefix, readSurface, enumeration, addressed, stepIntoListToken } = props;
   const { onDismiss } = props;
   const listId = useId();
@@ -108,11 +108,11 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
     enumeration.phase === "served"
       ? selectAddressedBindingGroup(enumeration.groups, addressed)
       : undefined;
-  const catalog = composeCatalog({
+  const catalog = composeCommandList({
     offeredCommands: readSurface().offeredCommands,
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
-  const entries = filterCatalog(catalog, prefix);
+  const entries = filterCommandList(catalog, prefix);
   // A group whose tail the cap dropped answers no question about what is missing, so
   // the search over it never finished and the empty claim is withheld under it.
   const isEnumerationTruncated = addressedGroup !== undefined && !addressedGroup.complete;
@@ -123,7 +123,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
     () =>
       createClientCommandExecutor({
         readSurface,
-        readDirectiveHandlers: noDirectiveLineHandlers,
+        readDirectiveHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: PICKED_ENTRY_READS_NO_LINE,
       }),
     [readSurface],
@@ -226,7 +226,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
               catalog does not have. Nothing is filtered by being in a group — every
               entry reaches exactly one of the two. */}
           {consoleRows.length === 0 ? null : (
-            <CatalogGroup
+            <CommandListGroup
               rows={consoleRows}
               labelText={CONSOLE_GROUP_LABEL}
               labelElementId={`${listId}-group-console`}
@@ -237,7 +237,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
             />
           )}
           {providerRows.length === 0 ? null : (
-            <CatalogGroup
+            <CommandListGroup
               rows={providerRows}
               labelText={PROVIDER_GROUP_LABEL}
               labelElementId={`${listId}-group-provider`}
@@ -270,9 +270,9 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
   );
 }
 
-interface CommandDiscoveryPopoverProps {
+interface CommandListPopoverProps {
   readonly prefix: string;
-  readonly readSurface: () => ComposerCommandSurface;
+  readonly readSurface: () => ComposerCommands;
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
@@ -299,10 +299,10 @@ function rowId(listId: string, index: number): string {
  * function's.
  */
 function groupRowsOf(
-  entries: readonly CommandCatalogEntry[],
-  source: CommandCatalogEntry["source"],
-): readonly CatalogGroupRow[] {
-  const rows: CatalogGroupRow[] = [];
+  entries: readonly CommandListEntry[],
+  source: CommandListEntry["source"],
+): readonly CommandListGroupRow[] {
+  const rows: CommandListGroupRow[] = [];
   entries.forEach((entry, flatIndex) => {
     if (entry.source === source) {
       rows.push({ entry, flatIndex });

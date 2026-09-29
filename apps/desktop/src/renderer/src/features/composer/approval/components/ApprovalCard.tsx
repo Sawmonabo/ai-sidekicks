@@ -49,10 +49,12 @@ import {
   type ApprovalResolveRequest,
 } from "@renderer/services/approvals/approval-records.js";
 import {
-  IDLE_REMEMBERED_GRANT_INTENT,
+  IDLE_REMEMBERED_RULE_INTENT,
   RememberDecision,
   rememberedScopeFor,
 } from "./RememberDecision.js";
+
+import "./ApprovalCard.css";
 
 export interface ApprovalCardProps {
   readonly record: ApprovalRecord;
@@ -121,14 +123,14 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const { record, onResolve } = props;
   const titleId = useId();
   const actionRowRef = useRef<HTMLDivElement>(null);
-  const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_GRANT_INTENT);
+  const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_RULE_INTENT);
 
   const state = asApprovalState(record.state);
   const category = asApprovalCategory(record.category);
   // The one offer reading, shared with this pane's palette rows: a refusal that
   // SETTLED this request takes the two actions off the card rather than leaving them
   // pressable, and takes the same two rows out of the palette in the same breath.
-  // See `approvals/pane/approval-offer.ts` for why it is one function and not two.
+  // See `approval/approval-offer.ts` for why it is one function and not two.
   const answerable = isApprovalAnswerable(record, props.refusal);
 
   const answer = useCallback(

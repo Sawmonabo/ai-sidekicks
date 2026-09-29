@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  CHANNEL_TARGET,
+  SESSION_TARGET,
   RUN_TARGET,
   STEER_APPLIED,
   interventionResponse,
@@ -146,6 +146,6 @@ describe("ComposerSendRouter — a rejected call is not caught", () => {
     const rejection = new Error("socket closed");
     const call = vi.fn().mockRejectedValue(rejection);
 
-    await expect(routerWith(call).send("go", CHANNEL_TARGET)).rejects.toBe(rejection);
+    await expect(routerWith(call).send("go", SESSION_TARGET)).rejects.toBe(rejection);
   });
 });

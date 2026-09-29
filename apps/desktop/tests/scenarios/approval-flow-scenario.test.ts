@@ -1,16 +1,11 @@
-// The fold against the shipped store: the scenario's own beats, and what the family
-// may claim on a board it is handed.
+// The fold against the shipped store: the scenario's own beats.
 //
 // Its own file because these cases run the fold through the SHIPPED store rather
-// than over it — the beats are the scenario's, the projection is the store's, and
-// what is asserted is the board a family is handed rather than the fold in isolation.
+// than over it — the beats are the scenario's and the projection is the store's.
 
 import { describe, expect, it } from "vitest";
 import { APPROVAL_FLOW_EVENT_KINDS } from "@renderer/store/session-events/approval-flow-projection.js";
-import { RUN_LIFECYCLE_EVENT_KINDS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { APPROVALS_SCENARIO } from "../../fixtures/scenarios/approval-request.js";
-import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { registerComposerFamily } from "@renderer/shell/index.js";
 import {
   storeDrivenByScenario,
   storeOver,
@@ -58,39 +53,5 @@ describe("the scenario's approval beats, folded through the shipped store", () =
     const store = storeOver(undefined);
     expect(store.snapshot().timeline.length).toBeGreaterThan(0);
     expect(store.snapshot().partitions.approval).toStrictEqual({});
-  });
-});
-
-describe("the composer family's claim on the board it is handed", () => {
-  it("registers exactly the approval kinds, under its own name", () => {
-    const projectors = new ConsoleEntityProjectorRegistry();
-
-    registerComposerFamily(projectors);
-
-    expect(Object.keys(projectors.snapshot()).toSorted()).toStrictEqual(
-      [...APPROVAL_FLOW_EVENT_KINDS].toSorted(),
-    );
-    for (const eventKind of APPROVAL_FLOW_EVENT_KINDS) {
-      expect(projectors.ownerOf(eventKind)).toBe("composer");
-    }
-  });
-
-  it("claims none of the run kinds the frame owns", () => {
-    // The registry refuses a second owner on one kind, so a family that reached one
-    // kind too far would break the whole composition at import time in a running
-    // window. Named here, by kind, instead.
-    const projectors = new ConsoleEntityProjectorRegistry();
-
-    registerComposerFamily(projectors);
-
-    for (const eventKind of RUN_LIFECYCLE_EVENT_KINDS) {
-      expect(projectors.ownerOf(eventKind)).toBeUndefined();
-    }
-  });
-
-  it("negative control: a board no family composed into claims nothing", () => {
-    // Without it the two cases above would pass over a registry that reported
-    // ownership nobody registered.
-    expect(new ConsoleEntityProjectorRegistry().snapshot()).toStrictEqual({});
   });
 });

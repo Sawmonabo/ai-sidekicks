@@ -46,7 +46,7 @@ import {
   WireFigure,
   formatDuration,
 } from "@renderer/console/primitives/index.js";
-import { AskFreeTextArm } from "./TypedAnswerField.js";
+import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
   DriverAskDelivery,
   DriverAskReading,
@@ -55,7 +55,7 @@ import type {
 import "./question-card.css";
 
 /** What the row hands a supplied body. */
-export interface InputAskBodyProps {
+export interface QuestionCardBodyProps {
   readonly ask: DriverAskReading;
   /** Where the answer this card last dispatched has got to. */
   readonly delivery: DriverAskDelivery;
@@ -63,7 +63,7 @@ export interface InputAskBodyProps {
 }
 
 /** What a mount hands the input-ask card. */
-export interface InputAskCardProps {
+export interface QuestionCardProps {
   /**
    * A body that replaces the built-in card, or `undefined` while the card draws itself.
    *
@@ -71,7 +71,7 @@ export interface InputAskCardProps {
    * compile error at the construction site rather than an absent key that renders
    * identically to a deliberate "none".
    */
-  readonly body: ((props: InputAskBodyProps) => React.ReactNode) | undefined;
+  readonly body: ((props: QuestionCardBodyProps) => React.ReactNode) | undefined;
   readonly ask: DriverAskReading;
   /**
    * The mount's reading of now, in epoch milliseconds.
@@ -93,7 +93,7 @@ export interface InputAskCardProps {
 }
 
 /** The ask card: the built-in one, or the supplied `body` when the mount passes one. */
-export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
+export function InputAskCard(props: QuestionCardProps): React.JSX.Element {
   if (props.body !== undefined) {
     return (
       <div className="meridian-input-ask">
@@ -224,7 +224,7 @@ function renderAnswerArms(
           ))}
         </ul>
       )}
-      <AskFreeTextArm delivery={delivery} isClosed={isSettling} onAnswer={onAnswer} />
+      <TypedAnswerField delivery={delivery} isClosed={isSettling} onAnswer={onAnswer} />
       {renderDelivery(delivery)}
     </div>
   );

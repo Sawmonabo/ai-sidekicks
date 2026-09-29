@@ -28,7 +28,7 @@ import type {
 
 import { interventionNotApplied } from "./send-refusals.js";
 import type { ComposerSendOutcome } from "./send-resolutions.js";
-import type { RunVersionLedger } from "./answered-run-versions.js";
+import type { AnsweredRunVersions } from "./answered-run-versions.js";
 
 /** The two daemon calls a send makes, supplied by whoever holds the wire. */
 export interface ComposerSendCalls {
@@ -48,7 +48,7 @@ export async function dispatchQueuedTurn(
   request: QueueItemCreateRequest,
 ): Promise<ComposerSendOutcome> {
   await calls.queueCreate(request);
-  return { status: "sent", path: "channel-message" };
+  return { status: "sent", path: "session-message" };
 }
 
 /**
@@ -61,7 +61,7 @@ export async function dispatchQueuedTurn(
 export async function dispatchIntervention(
   calls: ComposerSendCalls,
   request: InterventionRequestPayload,
-  runVersions: RunVersionLedger,
+  runVersions: AnsweredRunVersions,
 ): Promise<ComposerSendOutcome> {
   const response = await calls.intervene(request);
   runVersions.record(request.targetRunId, response.runVersion);

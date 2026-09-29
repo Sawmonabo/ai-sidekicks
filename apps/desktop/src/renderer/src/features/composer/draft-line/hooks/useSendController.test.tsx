@@ -15,13 +15,13 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerChannelTarget } from "@renderer/shell/composer/chips/chip-models.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import type { ComposerSessionTarget } from "../../composer-target.js";
+import { createClientCommandExecutor } from "../../command-list/client-command-executor.js";
 import {
   LINE_READING_COMMAND_IDS,
-  noDirectiveLineHandlers,
+  noComposerCommandLineHandlers,
 } from "../../command-list/composer-command-line-handlers.js";
-import { composerCommandSurface } from "../../command-list/composer-commands.js";
+import { readComposerCommands } from "../../command-list/composer-commands.js";
 import { WORKFLOW_COMMAND_ROOT } from "../../command-list/workflow-command/workflow-command-grammar.js";
 import type { CommandExecutor } from "../../types.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -29,8 +29,8 @@ import type { SendController } from "../send-controller-contract.js";
 import { useSendController } from "./useSendController.js";
 import { SESSION_ID, sendCallsAnswering } from "../send-router.test-support.js";
 
-const CHANNEL_TARGET: ComposerChannelTarget = {
-  path: "channel-message",
+const SESSION_TARGET: ComposerSessionTarget = {
+  path: "session-message",
   sessionId: SESSION_ID,
 };
 
@@ -57,7 +57,7 @@ function ControllerProbe(props: {
   const controller = useSendController({
     bridge: BRIDGE,
     calls: UNREACHABLE_CALLS,
-    target: CHANNEL_TARGET,
+    target: SESSION_TARGET,
     draftStore: props.draftStore,
     recognizeClientCommand: (commandName) =>
       commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
@@ -89,7 +89,7 @@ function driveController(commandExecutor: CommandExecutor | undefined): DrivenCo
   );
   return {
     draftStore,
-    draftKey: composerDraftKey(CHANNEL_TARGET),
+    draftKey: composerDraftKey(SESSION_TARGET),
     latest: () => {
       if (latest === undefined) {
         throw new Error("the probe reported no controller");
@@ -164,8 +164,8 @@ describe("useSendController — a command that reads its line and has no handler
     });
     const driven = driveController(
       createClientCommandExecutor({
-        readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
-        readDirectiveHandlers: noDirectiveLineHandlers,
+        readSurface: () => readComposerCommands(DEFAULT_ROUTE),
+        readDirectiveHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
     );

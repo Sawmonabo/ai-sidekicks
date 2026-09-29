@@ -11,7 +11,7 @@
 // whole-room notice inside one pane. The remedy's `banner` rendering therefore
 // draws the CARD here — the refusal still reaches the surface that produced it —
 // and the escalation is a separate, explicit act by a surface that holds a frame
-// store (`store/shell/refusal-escalation.ts`). Splitting it that way is what keeps this a
+// store (`hooks/useRefusalBannerEscalation.ts`). Splitting it that way is what keeps this a
 // pure component and keeps the escalation somewhere a reader can find it.
 //
 // A CODE WITH NO REMEDY RENDERS EXACTLY AS IT DOES WITHOUT THIS COMPONENT: inline,
@@ -24,7 +24,7 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 
-export interface RemediedRefusalProps {
+export interface RefusalWithRemedyProps {
   readonly refusal: ConsoleRefusal;
   /**
    * Rendered after the console's own next move, for a surface that can say
@@ -35,7 +35,7 @@ export interface RemediedRefusalProps {
 }
 
 /** The daemon's words, with the console's next move in the action slot. */
-export function RemediedRefusal(props: RemediedRefusalProps): React.JSX.Element {
+export function RemediedRefusal(props: RefusalWithRemedyProps): React.JSX.Element {
   const { refusal, detailAction } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const action =

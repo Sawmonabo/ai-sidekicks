@@ -17,7 +17,6 @@ import {
   type ConsolePaneContext,
 } from "../seats/index.js";
 import { paneContext } from "./pane-contexts.test-support.js";
-import * as reposDoorModule from "./index.js";
 import { registerRepos, registerReposPanes } from "./index.js";
 
 /** The kinds this family owns. */
@@ -39,9 +38,9 @@ describe("repos family — the inline cards", () => {
   it("writes the card board it is given and never the process-wide one", () => {
     const cards = new InlineCardSeatRegistry();
     registerRepos(cards);
-    // All three kinds, because every card the ledger row declares is this family's:
-    // a door that filled the handed board partially would leave the rest reserved.
-    expect(cards.registeredCardKinds()).toStrictEqual(["diff", "attachment", "artifact"]);
+    // Both of this family's kinds: a door that filled the handed board partially would
+    // leave the rest reserved.
+    expect(cards.registeredCardKinds()).toStrictEqual(["diff", "artifact"]);
     expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 
@@ -63,7 +62,7 @@ describe("repos family — the inline cards", () => {
     const first = new InlineCardSeatRegistry();
     const second = new InlineCardSeatRegistry();
     registerRepos(first);
-    expect(first.registeredCardKinds()).toHaveLength(3);
+    expect(first.registeredCardKinds()).toHaveLength(2);
     expect(second.registeredCardKinds()).toStrictEqual([]);
   });
 });
@@ -106,22 +105,5 @@ describe("repos family — the deck's pane kinds", () => {
     // name, so a body that stopped passing its address to the chrome fails here rather
     // than passing on the kind noun alone.
     expect(region.textContent).toContain("workspace-sidekicks");
-  });
-});
-
-describe("repos door — the bodies a sibling family mounts", () => {
-  it("publishes the attachment carrier through the door", () => {
-    // The composer's attachment affordance is a sibling view family, so the door is
-    // the only way across — and it publishes the BINDING rather than the raw ingest
-    // client, so a second carrier over one session cannot be constructed by hand.
-    expect(typeof reposDoorModule.useAttachmentCarrier).toBe("function");
-  });
-
-  it("negative control: the door publishes no body the family does not own", () => {
-    // Without this the case above would pass over a barrel that re-exported the whole
-    // family, which is what the one-door rule exists to prevent.
-    const doorExports = Object.keys(reposDoorModule);
-    expect(doorExports).not.toContain("RestorePathList");
-    expect(doorExports).not.toContain("AttachmentCard");
   });
 });

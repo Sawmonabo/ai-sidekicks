@@ -8,7 +8,8 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { SESSION_ID } from "../repo-mounts.test-support.js";
 import { AttachRepositoryDialog } from "./AttachRepositoryDialog.js";
 
@@ -41,7 +42,7 @@ function openDialog(): void {
   const { container } = render(
     <LiveAnnouncerProvider>
       <AttachRepositoryDialog
-        bridge={bridgeOnClock()}
+        bridge={bridgeOnClock("repos")}
         operations={scriptedRepoOperations()}
         sessionId={SESSION_ID}
         onAttached={() => undefined}

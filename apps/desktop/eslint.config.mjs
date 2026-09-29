@@ -472,10 +472,6 @@ const STYLESHEET_HELD_FILES = [
   "src/renderer/src/console/workflows/pane/run/index.ts",
   "src/renderer/src/console/workspace/index.ts",
   "src/renderer/src/features/sessions/contributions/screens.ts",
-  "src/renderer/src/shell/composer/accessories/index.ts",
-  "src/renderer/src/shell/composer/commands/index.ts",
-  "src/renderer/src/shell/composer/commands/workflow-start/index.ts",
-  "src/renderer/src/shell/index.ts",
 ];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */

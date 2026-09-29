@@ -22,14 +22,12 @@ import { capabilityReadout } from "../driver-capability-readout.test-support.js"
 import {
   RUN_ID as TARGET_RUN,
   commandRun,
-  recordingRunControlSurface,
+  recordingRunControlDispatch,
   type RecordedRunControlCall,
 } from "../run-control-commands.test-support.js";
-import {
-  useRunControlCommands,
-  type RunControlCommandInput,
-} from "@renderer/console/runs/pane/controls/run-control-commands.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { type RunControlCommandInput } from "../contributions/run-control-commands.js";
+import { useRunControlCommands } from "./useRunControlCommands.js";
+import { type RunControlDispatchState } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${TARGET_RUN}`;
 
@@ -43,8 +41,8 @@ const CAPABLE = capabilityReadout([["claude", []]], [[TARGET_RUN, "claude"]]);
  * would be a fresh identity on every pass rather than two distinguishable ones.
  */
 function RunControlCommandsHost(props: {
-  readonly committedSurface: RunControlSurface;
-  readonly abandonedSurface: RunControlSurface;
+  readonly committedSurface: RunControlDispatchState;
+  readonly abandonedSurface: RunControlDispatchState;
   readonly readdress: { current: (() => void) | undefined };
 }): React.JSX.Element {
   const [addressedToAbandoned, setAddressedToAbandoned] = useState(false);
@@ -68,8 +66,8 @@ function RunControlCommandsHost(props: {
 
 describe("the run-control palette rows dispatch through the committed render", () => {
   it("dispatches through the on-screen render's surface after a discarded re-address", async () => {
-    const committed = recordingRunControlSurface();
-    const abandoned = recordingRunControlSurface();
+    const committed = recordingRunControlDispatch();
+    const abandoned = recordingRunControlDispatch();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <RunControlCommandsHost
@@ -96,8 +94,8 @@ describe("the run-control palette rows dispatch through the committed render", (
   it("negative control: a committed re-address DOES move the row onto the new surface", async () => {
     // Without this the case above would pass over a hook that ignored its input
     // entirely, or over a driver whose transition never re-ran this component at all.
-    const committed = recordingRunControlSurface();
-    const later = recordingRunControlSurface();
+    const committed = recordingRunControlDispatch();
+    const later = recordingRunControlDispatch();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     const { rerender } = render(
       <RunControlCommandsHost

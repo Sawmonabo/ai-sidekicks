@@ -9,7 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
 import { CANONICAL_ROOT, ENTERED_PATH, mount, workspaceRow } from "../repo-mounts.test-support.js";
@@ -38,7 +39,7 @@ function renderCard(
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
         pendingModeByWorkspaceId={{}}
-        bridge={bridgeOnClock()}
+        bridge={bridgeOnClock("repos")}
         operations={scriptedRepoOperations()}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}

@@ -16,10 +16,7 @@ import { useMemo } from "react";
 import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
-import {
-  resolveComposerTarget,
-  type ComposerTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import { resolveComposerTarget, type ComposerTarget } from "../composer-target.js";
 
 /** Everything the composer's zones read off one address. */
 export interface ComposerAddress {

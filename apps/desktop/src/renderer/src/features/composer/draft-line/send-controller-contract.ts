@@ -11,9 +11,9 @@
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 import type { CommandExecutor } from "../types.js";
-import type { DirectiveCaret } from "@renderer/shell/composer/router/directive-line.js";
+import type { DraftCaret } from "./draft-line.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
@@ -68,7 +68,7 @@ export interface SendController {
   changeText(next: string): void;
   send(): Promise<void>;
   /** Walk one message older. `false` when the caret is not at the start edge. */
-  recallOlder(caret: DirectiveCaret): boolean;
+  recallOlder(caret: DraftCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
-  recallNewer(caret: DirectiveCaret): boolean;
+  recallNewer(caret: DraftCaret): boolean;
 }

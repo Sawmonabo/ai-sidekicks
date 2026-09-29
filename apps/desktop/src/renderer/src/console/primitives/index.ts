@@ -66,6 +66,12 @@
 
 import "@renderer/features/composer/accent-fill.css";
 import "@renderer/features/composer/components/ExecutionPostureCard/ExecutionPostureCard.css";
+import "@renderer/styles/visually-hidden.css";
+import "@renderer/components/ChordHint/ChordHint.css";
+import "@renderer/components/ScreenNotice/ScreenNotice.css";
+import "@renderer/components/ErrorBoundary/ErrorBoundary.css";
+import "@renderer/components/Refusal/Refusal.css";
+import "@renderer/components/PartialRead/PartialRead.css";
 // `restore/restore.css` is NOT here, and its absence is the stylesheet rule rather than
 // an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
 // its own and its sheet enters through `restore/file-restore-disclosure-body.js`. A line
@@ -75,7 +81,7 @@ import "@renderer/features/composer/components/ExecutionPostureCard/ExecutionPos
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than
 // spelled at each of them.
-export { ACCENT_FILL_CLASS } from "./accent-fill.js";
+export { ACCENT_FILL_CLASS } from "@renderer/features/composer/accent-fill.js";
 
 export type { GlyphName } from "@renderer/components/Glyph/Glyph.js";
 export { Glyph } from "@renderer/components/Glyph/Glyph.js";

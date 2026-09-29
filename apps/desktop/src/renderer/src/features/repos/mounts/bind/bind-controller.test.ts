@@ -17,7 +17,8 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import {
   BindWorkspaceController,
   useBindController,
@@ -205,7 +206,7 @@ describe("useBindController — the store is the axis the resource key cannot ca
     // The defect: the seam holds one controller per `(bridge, mount id)`, and a projection
     // rebuilt across a reconnect carries that whole address — so the controller stayed,
     // armed on a store nothing else reads.
-    const bridge = bridgeOnClock();
+    const bridge = bridgeOnClock("repos");
     const operations = scriptedDaemon();
     const rendered = renderHook(
       ({ sessionStore }) => useBindController(bridge, OPEN_MOUNT_ID, sessionStore, operations),
@@ -227,7 +228,7 @@ describe("useBindController — the store is the axis the resource key cannot ca
     // the bind below.
     const disposals = vi.spyOn(BindWorkspaceController.prototype, "dispose");
     try {
-      const bridge = bridgeOnClock();
+      const bridge = bridgeOnClock("repos");
       const operations = scriptedDaemon();
       const rendered = renderHook(
         ({ sessionStore }) => useBindController(bridge, OPEN_MOUNT_ID, sessionStore, operations),
@@ -249,7 +250,7 @@ describe("useBindController — the store is the axis the resource key cannot ca
   it("negative control: a store standing still rebinds nothing", async () => {
     // Without this the case above would pass against a binding that re-opened a
     // controller on every render, which would lose the settlement on each pass.
-    const bridge = bridgeOnClock();
+    const bridge = bridgeOnClock("repos");
     const operations = scriptedDaemon();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const rendered = renderHook(

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { foldRunDriverBindings } from "@renderer/console/bridge/driver-capabilities/run-driver-binding.js";
+import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type {
   ConsoleEntity,
   ConsoleSessionEvent,

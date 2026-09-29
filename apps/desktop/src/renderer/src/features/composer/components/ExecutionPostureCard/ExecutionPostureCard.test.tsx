@@ -14,7 +14,7 @@ import { type ExecutionPosture } from "@ai-sidekicks/contracts";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ExecutionPostureChip } from "./ExecutionPostureCard.js";
+import { ExecutionPostureCard } from "./ExecutionPostureCard.js";
 import { BROAD_ALLOW_LIST_THRESHOLD } from "./posture-caps.js";
 
 const TRUSTED: ExecutionPosture = {
@@ -31,15 +31,15 @@ const SANDBOXED: ExecutionPosture = {
 };
 
 describe("an absent posture is unknown, never trusted", () => {
-  it("names the absence and what it is not", () => {
-    render(<ExecutionPostureChip posture={undefined} reading="stamped" />);
+  it("names the absence", () => {
+    render(<ExecutionPostureCard posture={undefined} reading="stamped" />);
     expect(screen.getByText("Execution boundary unknown")).not.toBeNull();
   });
 
   it("negative control: it renders no mode at all, least of all the permissive one", () => {
     // The failure this guards is a component that defaulted an absent posture to
     // the most permissive mode, which would read on screen exactly like a real one.
-    const { container } = render(<ExecutionPostureChip posture={undefined} reading="stamped" />);
+    const { container } = render(<ExecutionPostureCard posture={undefined} reading="stamped" />);
     expect(container.querySelector(".meridian-chip")).toBeNull();
     expect(screen.queryByText("trusted")).toBeNull();
   });
@@ -47,21 +47,21 @@ describe("an absent posture is unknown, never trusted", () => {
 
 describe("writable roots are never shown without their mode", () => {
   it("says an empty list under a sandboxed mode means nothing is writable", () => {
-    render(<ExecutionPostureChip posture={SANDBOXED} reading="stamped" />);
+    render(<ExecutionPostureCard posture={SANDBOXED} reading="stamped" />);
     expect(screen.getByText(/nothing is writable under this mode/u)).not.toBeNull();
   });
 
   it("says an empty list under trusted means no OS-enforced constraint", () => {
     // The same empty array, the opposite fact. A single sentence for both would be
     // wrong in one of the two cases and unfalsifiable in this test.
-    render(<ExecutionPostureChip posture={TRUSTED} reading="stamped" />);
+    render(<ExecutionPostureCard posture={TRUSTED} reading="stamped" />);
     expect(screen.getByText(/no OS-enforced write constraint/u)).not.toBeNull();
     expect(screen.queryByText(/nothing is writable under this mode/u)).toBeNull();
   });
 
   it("lists the roots verbatim when there are any", () => {
     render(
-      <ExecutionPostureChip
+      <ExecutionPostureCard
         posture={{ ...SANDBOXED, writableRoots: ["/repo/src", "/tmp/scratch"] }}
         reading="stamped"
       />,
@@ -73,7 +73,7 @@ describe("writable roots are never shown without their mode", () => {
 
 describe("the network axis", () => {
   it("shows allowed domains only under the mode that has them", () => {
-    render(<ExecutionPostureChip posture={SANDBOXED} reading="stamped" />);
+    render(<ExecutionPostureCard posture={SANDBOXED} reading="stamped" />);
     expect(screen.queryByText("Allowed domains")).toBeNull();
   });
 
@@ -83,7 +83,7 @@ describe("the network axis", () => {
       (_unused, index) => `host-${String(index)}.example`,
     );
     render(
-      <ExecutionPostureChip
+      <ExecutionPostureCard
         posture={{
           mode: "workspace-sandboxed",
           networkAccess: "allowed-domains",
@@ -100,7 +100,7 @@ describe("the network axis", () => {
 
   it("negative control: a narrow allow-list carries no such warning", () => {
     render(
-      <ExecutionPostureChip
+      <ExecutionPostureCard
         posture={{
           mode: "workspace-sandboxed",
           networkAccess: "allowed-domains",
@@ -118,25 +118,25 @@ describe("the network axis", () => {
 
 describe("the credential policy is a reference", () => {
   it("shows the ref itself on a sandboxed mode", () => {
-    render(<ExecutionPostureChip posture={SANDBOXED} reading="stamped" />);
+    render(<ExecutionPostureCard posture={SANDBOXED} reading="stamped" />);
     expect(screen.getByText("policy/default-deny")).not.toBeNull();
   });
 
   it("renders no credential row under trusted, where the contract forbids one", () => {
-    render(<ExecutionPostureChip posture={TRUSTED} reading="stamped" />);
+    render(<ExecutionPostureCard posture={TRUSTED} reading="stamped" />);
     expect(screen.queryByText("Credential policy")).toBeNull();
   });
 });
 
 describe("a stamped boundary and an intended one are visibly different", () => {
   it("marks an intent as an intent, and says which run it is not", () => {
-    const { container } = render(<ExecutionPostureChip posture={TRUSTED} reading="intent" />);
+    const { container } = render(<ExecutionPostureCard posture={TRUSTED} reading="intent" />);
     expect(container.querySelector(".meridian-posture--intent")).not.toBeNull();
     expect(screen.getByText(/not a stamped boundary/u)).not.toBeNull();
   });
 
   it("negative control: a stamped reading claims neither", () => {
-    const { container } = render(<ExecutionPostureChip posture={TRUSTED} reading="stamped" />);
+    const { container } = render(<ExecutionPostureCard posture={TRUSTED} reading="stamped" />);
     expect(container.querySelector(".meridian-posture--intent")).toBeNull();
     expect(screen.queryByText(/not a stamped boundary/u)).toBeNull();
   });
@@ -144,7 +144,7 @@ describe("a stamped boundary and an intended one are visibly different", () => {
 
 describe("no composite security score", () => {
   it("renders the axes independently and never a single level", () => {
-    const { container } = render(<ExecutionPostureChip posture={SANDBOXED} reading="stamped" />);
+    const { container } = render(<ExecutionPostureCard posture={SANDBOXED} reading="stamped" />);
     const chipLabels = [...container.querySelectorAll(".meridian-chip__label")].map(
       (label) => label.textContent,
     );

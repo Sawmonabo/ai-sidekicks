@@ -12,7 +12,7 @@ import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
 import type { ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.js";
-import { bridgeOnClock } from "@renderer/features/repos/repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
@@ -27,7 +27,7 @@ import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
  */
 export function scenarioBridgeAndStore(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
   return {
-    bridge: bridgeOnClock(),
+    bridge: bridgeOnClock("repos"),
     sessionStore: new SessionStore({
       sessionId: SESSION_ID,
       projectors: COMPOSED_ENTITY_PROJECTORS,

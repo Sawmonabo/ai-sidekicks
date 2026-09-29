@@ -1,6 +1,6 @@
 // What an answer to one dispatch MEANS to the form that raised it.
 //
-// Split from `RunInterventionComposer.tsx` because it is a second job: that file
+// Split from `SteerBox.tsx` because it is a second job: that file
 // renders a form and decides what to send, and this one reads the two answers the
 // form can get back — the surface's admission verdict at dispatch time, and the
 // daemon's own settled state afterwards — into the three things the form does with
@@ -9,7 +9,7 @@
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
-import type { RunControlAdmissionRefusal } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunControlDispatch.js";
 
 /** The subsystem name every refusal this form raises carries. */
 export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
@@ -23,7 +23,7 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
  * intervention if it were confirmed twice — so that arm latches the confirm and
  * leaves cancel as the way out.
  */
-export type ComposerSettlement =
+export type InterventionFormSettlement =
   | { readonly kind: "landed" }
   | { readonly kind: "refused"; readonly notice: ConsoleRefusal }
   | { readonly kind: "recorded"; readonly notice: ConsoleRefusal };
@@ -37,7 +37,9 @@ export type ComposerSettlement =
  * sees is the daemon's own: `rejectionReason` where the wire sent one, and the wire's
  * state otherwise. Nothing here paraphrases a wire code into console prose.
  */
-export function readComposerSettlement(outcome: RunControlOutcome): ComposerSettlement {
+export function readInterventionFormSettlement(
+  outcome: RunControlOutcome,
+): InterventionFormSettlement {
   if (outcome.kind === "acknowledged") {
     // Only pause and resume are acknowledged, and this form sends neither; an
     // acknowledgment reads as landed.
@@ -103,7 +105,7 @@ const REJECTED_DETAIL =
  * The `satisfies never` tail. A seventh intervention state fails to compile here
  * rather than falling through to a form that neither closes nor says why.
  */
-function unreadableSettlement(state: never): ComposerSettlement {
+function unreadableSettlement(state: never): InterventionFormSettlement {
   const unreadable = state satisfies never;
   return {
     kind: "refused",

@@ -12,10 +12,7 @@
 import type { InterventionRequestResponse, QueueItemCreateResponse } from "@ai-sidekicks/contracts";
 import type { Mock } from "vitest";
 import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import type {
-  ComposerChannelTarget,
-  ComposerRunTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerSessionTarget, ComposerRunTarget } from "../composer-target.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
 import { ComposerSendRouter } from "./send-router.js";
 
@@ -61,8 +58,8 @@ export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
   createdAt: "2026-09-02T09:00:00.000Z",
 };
 
-export const CHANNEL_TARGET: ComposerChannelTarget = {
-  path: "channel-message",
+export const SESSION_TARGET: ComposerSessionTarget = {
+  path: "session-message",
   sessionId: SESSION_ID,
 };
 

@@ -8,7 +8,7 @@
 // module rather than a duplicated type: one map shape, read the same way by the
 // producer and the consumer, so neither can drift into a shape the other refuses.
 
-import type { CommandOutcome, DirectiveLine } from "../types.js";
+import type { CommandOutcome, ComposerCommandLine } from "../types.js";
 import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/workflow-command-grammar.js";
 
 /**
@@ -25,9 +25,9 @@ import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/workflow-command-gramm
  * deliberate — a second registry that could claim a name the console has never heard
  * of is the thing `client-command-recognizer.ts` exists to prevent.
  */
-export type DirectiveLineHandlers = ReadonlyMap<
+export type ComposerCommandLineHandlers = ReadonlyMap<
   string,
-  (line: DirectiveLine) => Promise<CommandOutcome>
+  (line: ComposerCommandLine) => Promise<CommandOutcome>
 >;
 
 /**
@@ -50,6 +50,6 @@ export const LINE_READING_COMMAND_IDS: readonly string[] = [WORKFLOW_COMMAND_ROO
  * not an exported constant: an exported collection is one runtime object every
  * importer shares, whatever its annotation hides, and each executor reads its own.
  */
-export function noDirectiveLineHandlers(): DirectiveLineHandlers {
+export function noComposerCommandLineHandlers(): ComposerCommandLineHandlers {
   return new Map();
 }

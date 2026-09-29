@@ -1,0 +1,91 @@
+/* The rollback settlement and the box a steer is written in.
+
+   The classes `SteerBox` and `RollbackDisclosure` draw. The composer's top view,
+   `Composer.tsx`, imports it, because it styles two components in two folders.
+
+   Every value here is a Meridian token: no color literal, no font stack, and no
+   spacing number. */
+
+/* --- The rollback settlement ------------------------------------------------ */
+
+.meridian-rollback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rollback__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-rollback__summary,
+.meridian-rollback__resend {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__summary {
+  color: var(--meridian-text);
+}
+
+.meridian-rollback__resend {
+  color: var(--meridian-text-muted);
+}
+
+/* The working-tree half is `FileRestoreDisclosure`'s, and so are its rules: this is
+   the slot it sits in and nothing more. */
+.meridian-rollback__files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* --- The steer composer ---------------------------------------------------- */
+
+.meridian-run-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-run-composer__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-run-composer__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__body {
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  resize: vertical;
+}
+
+.meridian-run-composer__body:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-run-composer__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}

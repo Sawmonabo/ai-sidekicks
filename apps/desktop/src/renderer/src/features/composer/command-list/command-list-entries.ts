@@ -30,10 +30,10 @@
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "@renderer/console/palette/index.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 
 /** One act this console performs, offered where the composer is mounted. */
-export interface ConsoleCatalogEntry {
+export interface ConsoleCommandEntry {
   readonly source: "console";
   readonly key: string;
   /** The command's id, which is both what it is called and what a person types. */
@@ -44,7 +44,7 @@ export interface ConsoleCatalogEntry {
 }
 
 /** One command or skill the bound provider published, for discovery only. */
-export interface ProviderCatalogEntry {
+export interface ProviderCommandEntry {
   readonly source: "provider";
   readonly key: string;
   readonly name: string;
@@ -58,7 +58,7 @@ export interface ProviderCatalogEntry {
   readonly providerAccountId: string | null;
 }
 
-export type CommandCatalogEntry = ConsoleCatalogEntry | ProviderCatalogEntry;
+export type CommandListEntry = ConsoleCommandEntry | ProviderCommandEntry;
 
 /**
  * The binding the composer is addressed to, as much of it as the console holds.
@@ -121,18 +121,18 @@ export function selectAddressedBindingGroup(
 }
 
 /** Compose the two sources into one list, console acts first. */
-export function composeCatalog(input: {
+export function composeCommandList(input: {
   readonly offeredCommands: readonly ConsoleCommand[];
   readonly providerGroups: readonly ProviderCommandBindingGroup[];
-}): readonly CommandCatalogEntry[] {
-  const consoleEntries: CommandCatalogEntry[] = input.offeredCommands.map((command) => ({
+}): readonly CommandListEntry[] {
+  const consoleEntries: CommandListEntry[] = input.offeredCommands.map((command) => ({
     source: "console",
     key: `console:${command.id}`,
     name: command.id,
     description: command.title,
     commandId: command.id,
   }));
-  const providerEntries: CommandCatalogEntry[] = [];
+  const providerEntries: CommandListEntry[] = [];
   for (const group of input.providerGroups) {
     for (const entry of group.entries) {
       providerEntries.push({
@@ -169,7 +169,7 @@ export function composeCatalog(input: {
  * handler answers a press on one, and two spellings of one three-valued test is the
  * pair that drifts.
  */
-export function isDeclaredUnavailable(entry: CommandCatalogEntry): boolean {
+export function isDeclaredUnavailable(entry: CommandListEntry): boolean {
   return entry.source === "provider" && entry.enabled === false;
 }
 
@@ -181,10 +181,10 @@ export function isDeclaredUnavailable(entry: CommandCatalogEntry): boolean {
  * through typing into a line that will be parsed by its first word, so an entry that
  * matched loosely would be an entry the send path then refuses.
  */
-export function filterCatalog(
-  entries: readonly CommandCatalogEntry[],
+export function filterCommandList(
+  entries: readonly CommandListEntry[],
   prefix: string,
-): readonly CommandCatalogEntry[] {
+): readonly CommandListEntry[] {
   if (prefix.length === 0) {
     return entries;
   }

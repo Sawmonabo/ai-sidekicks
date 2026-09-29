@@ -41,7 +41,7 @@ import {
 import { type ApprovalResolveRequest } from "@renderer/services/approvals/approval-records.js";
 
 /** What the user has said about remembering this answer, so far. */
-export interface RememberedGrantIntent {
+export interface RememberedRuleIntent {
   /** False until the opt-in is checked. An unengaged intent sends nothing. */
   readonly isRemembering: boolean;
   readonly kind: RememberedScopeKind;
@@ -50,15 +50,15 @@ export interface RememberedGrantIntent {
 }
 
 /** The intent a card starts with: remembering nothing, narrowed to nothing. */
-export const IDLE_REMEMBERED_GRANT_INTENT: RememberedGrantIntent = {
+export const IDLE_REMEMBERED_RULE_INTENT: RememberedRuleIntent = {
   isRemembering: false,
   kind: "run",
   pattern: "",
 };
 
 export interface RememberDecisionProps {
-  readonly intent: RememberedGrantIntent;
-  readonly onChange: (intent: RememberedGrantIntent) => void;
+  readonly intent: RememberedRuleIntent;
+  readonly onChange: (intent: RememberedRuleIntent) => void;
 }
 
 /**
@@ -69,7 +69,7 @@ export interface RememberDecisionProps {
  * different requests and only the first is one the daemon has a meaning for.
  */
 export function rememberedScopeFor(
-  intent: RememberedGrantIntent,
+  intent: RememberedRuleIntent,
 ): ApprovalResolveRequest["rememberedScope"] {
   if (!intent.isRemembering) {
     return undefined;

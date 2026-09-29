@@ -5,6 +5,8 @@ import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
+import "./FileRestoreDisclosure.css";
+
 /** The rollback results this disclosure draws, as the contract's own arms name them. */
 type DisclosedRollbackResult = RollbackAppliedResult | RollbackDegradedResult;
 

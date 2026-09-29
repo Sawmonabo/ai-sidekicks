@@ -1,6 +1,6 @@
 // What the command popover says about its own enumeration.
 //
-// Split from `ProviderCommandAutocomplete.tsx`. The enumeration is a live read, and
+// Split from `CommandList.tsx`. The enumeration is a live read, and
 // its state — reading, refused, cut short — is a fact about the READ rather than
 // about the commands, which is why it renders as its own line above the list rather
 // than as an entry in it. An entry would be selectable, and there is nothing there
@@ -13,7 +13,7 @@ import {
   PartialRead,
   type ReadingState,
 } from "@renderer/console/primitives/index.js";
-import { useProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 
 /**
  * What the provider half of the list is, when it is not the whole list.

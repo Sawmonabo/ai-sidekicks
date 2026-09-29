@@ -17,15 +17,15 @@
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "@renderer/console/primitives/index.js";
 import { subscribeToComposerFocus, type ComposerSeatProps } from "@renderer/console/seats/index.js";
-import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../../composer-bounds.js";
+import { COMPOSER_DRAFT_MAX_ROWS } from "../../composer-bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
-import { composeDirectivePlaceholder } from "@renderer/shell/composer/router/directive-line.js";
+import { composeDraftPlaceholder } from "../draft-line.js";
 import { composerDraftKey } from "../draft-key.js";
 
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */
-export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
+export function DraftLine(props: ComposerSeatProps): React.JSX.Element {
   const { draftStore } = props;
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   const draftKey = composerDraftKey(address.target);
@@ -67,12 +67,12 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         ref={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
-        placeholder={composeDirectivePlaceholder()}
+        placeholder={composeDraftPlaceholder()}
         value={text}
         rows={1}
         // The growth cap: the line grows to it and then scrolls inside its own box,
         // so the ledger above keeps its room.
-        style={{ maxHeight: `calc(${String(COMPOSER_DIRECTIVE_LINE_MAX_ROWS)} * 1.5em)` }}
+        style={{ maxHeight: `calc(${String(COMPOSER_DRAFT_MAX_ROWS)} * 1.5em)` }}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />

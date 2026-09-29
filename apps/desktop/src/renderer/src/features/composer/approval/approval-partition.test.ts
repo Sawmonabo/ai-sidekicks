@@ -1,14 +1,14 @@
 // The folds over this pane's reads: what each section renders from, and how far each
 // read got.
 //
-// One sharp claim. `partitionRecords` answers empty for every phase that has not
+// One sharp claim. `partitionApprovalRecords` answers empty for every phase that has not
 // answered, which is safe only while its callers render the phase beside it — the
 // cases below pin that emptiness as a NON-answer so a caller cannot read it as one.
 
 import { describe, expect, it } from "vitest";
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
-import { partitionRecords } from "./approval-partition.js";
+import { partitionApprovalRecords } from "./approval-partition.js";
 
 /** A record in the state named, in the shape the console holds. */
 function record(approvalRequestId: string, state: ApprovalRecord["state"]): ApprovalRecord {
@@ -25,9 +25,9 @@ function record(approvalRequestId: string, state: ApprovalRecord["state"]): Appr
   };
 }
 
-describe("partitionRecords — one answered read, split in two", () => {
+describe("partitionApprovalRecords — one answered read, split in two", () => {
   it("puts every returned record in exactly one list", () => {
-    const partitioned = partitionRecords({
+    const partitioned = partitionApprovalRecords({
       status: "answered",
       rows: [record("a", "pending"), record("b", "approved"), record("c", "pending")],
       unreadableCount: 0,
@@ -40,6 +40,9 @@ describe("partitionRecords — one answered read, split in two", () => {
     // The emptiness a caller may NOT read as an answer: only an answered read with no
     // rows means "the daemon returned nothing", which is why every caller renders the
     // phase this was folded from beside the arrays.
-    expect(partitionRecords({ status: "loading" })).toStrictEqual({ pending: [], history: [] });
+    expect(partitionApprovalRecords({ status: "loading" })).toStrictEqual({
+      pending: [],
+      history: [],
+    });
   });
 });

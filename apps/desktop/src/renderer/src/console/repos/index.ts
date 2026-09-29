@@ -1,9 +1,9 @@
 // The repos family's door.
 //
-// The family is repos and worktrees, the diff pane and its inline cards, the artifacts
-// list and attachments, in one directory tree with a sub-module per subject. The diff
-// pane body lives here and not under `console/panes/`, which holds composition files
-// only. Everything the family registers is registered from this module.
+// The family is repos and worktrees, the diff pane, its inline cards and the artifacts
+// list, in one directory tree with a sub-module per subject. The diff pane body lives
+// here and not under `console/panes/`, which holds composition files only. Everything
+// the family registers is registered from this module.
 //
 // THE SHEETS THIS DIRECTORY OWNS ARE IMPORTED HERE. `apps/desktop/AGENTS.md` keys that
 // rule on the directory that owns a sheet: a sub-directory without a barrel of its own
@@ -48,7 +48,6 @@ import "@renderer/features/repos/mounts/attach/attach.css";
 import "@renderer/features/repos/mounts/execution-roots/execution-roots.css";
 import "@renderer/features/repos/mounts/bind/bind.css";
 import "@renderer/features/inspector/artifacts/components/artifacts.css";
-import "@renderer/features/composer/attachments/components/attachments.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { REPOS_FAMILY_OWNER, registerRepos } from "./family-bodies.js";
@@ -78,42 +77,3 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
     body: () => import("@renderer/features/repos/contributions/diff-pane-body.js"),
   });
 }
-
-// The attachment carrier, published as the binding that owns it rather than as the client.
-//
-// THE CARRIER AND NOT THE CLIENT, deliberately. `AttachmentIngestClient` is a stream
-// with a lifecycle — constructed, subscribed, disposed — and the composer handed the
-// raw class would own three of those and get one of them wrong. `useAttachmentCarrier`
-// is that seam done once: it constructs the client, publishes the entries with the
-// instant they were published at, and gives the daemon back every open spool on
-// unmount.
-//
-// Consumed by the composer's attachment affordance.
-export {
-  useAttachmentCarrier,
-  type AttachmentCarrierBinding,
-} from "./attachments/attachment-carrier.js";
-
-// WHAT THE COMPOSER'S AFFORDANCE TAKES BESIDE THE BINDING, and why each of these and
-// nothing more. The composer renders attachment CHIPS — one line each, at the density
-// the send bar has room for — where this family renders cards, so the COMPONENT is not
-// shared and every one of these is a READING or a SENTENCE the two surfaces must not
-// answer differently: which name an entry goes by and whose it is, which media-type
-// readings it has, what cancelling actually does, what each refusal disposition
-// recommends, where a carrier stands against the count bound, whether one file is past
-// the byte bound, and whether an upload has gone quiet.
-export {
-  attachmentCarrierFill,
-  exceedsAttachmentByteAllowance,
-} from "@renderer/features/composer/attachments/attachment-bounds.js";
-export {
-  INGEST_ABANDON_COPY,
-  INGEST_DISPOSITION_COPY,
-} from "@renderer/features/composer/attachments/attachment-policy.js";
-export { isIngestStalled } from "@renderer/features/composer/attachments/attachment-presentation.js";
-export {
-  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
-  attachmentMediaTypeReadings,
-  attachmentNameReading,
-} from "@renderer/features/composer/attachments/attachment-provenance.js";
-export type { AttachmentIngestEntry } from "@renderer/features/composer/attachments/attachment-shapes.js";

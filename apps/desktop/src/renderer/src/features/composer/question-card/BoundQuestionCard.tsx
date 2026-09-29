@@ -1,22 +1,11 @@
-// The ask row's own component, and the reason it is one.
+// A provider-raised question bound to its answer path, its settlement and its countdown.
 //
-// A HOOK ARMED ON EVERY ROW IS PAID FOR BY EVERY ROW. The shell used to call the
-// answer dispatcher, the clock, and the deadline wake in its own body — under a
-// comment saying the rules of hooks left it no choice — and then branch to the ask
-// card. The rules of hooks say a COMPONENT may not call a hook conditionally; they
-// say nothing about which component renders. So the machinery an ask needs lives in
-// the component that draws an ask, and a row that is not one arms none of it.
+// Its own component so that only a row that is a question arms this machinery: the answer
+// dispatcher, the clock, and a deadline wake-up, which holds a subject-scoped timer. A row
+// that is not a question renders something else and arms none of it.
 //
-// WHAT THAT COST, MEASURED. `useDeadlineWake` holds a subject-scoped holder with its
-// own emitter and disposal, a ref, and an effect, and every mounted row was building
-// one to hand it an empty deadline list. On a mounted window that is one holder per
-// row per mount, re-created on every navigation back into the pane — the frame time a
-// streaming lane spends and the heap a console left open keeps, both for a countdown
-// almost no row has.
-//
-// THE DEADLINE IS STILL THE CONSOLE'S ONE WAKE-UP, unchanged: one timeout for the
-// soonest instant still ahead, re-asked of the clock at every step so a host that
-// slept moves the wake-up nowhere.
+// The deadline is one timeout for the soonest instant still ahead, re-asked of the clock at
+// every step, so a host that slept moves the wake-up nowhere.
 
 import { useMemo } from "react";
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
@@ -28,10 +17,10 @@ import {
 } from "@renderer/store/session-events/question-reading.js";
 import { useQuestionSettlement } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useQuestionAnswer } from "./hooks/useQuestionAnswer.js";
 import { InputAskCard } from "./QuestionCard.js";
-import { useDriverAskAnswer } from "./hooks/useQuestionAnswer.js";
 
-export interface FixtureShellAskRowProps {
+export interface BoundQuestionCardProps {
   /**
    * The ask this row is blocked on, read off the row by the shell that dispatched here.
    *
@@ -49,8 +38,8 @@ export interface FixtureShellAskRowProps {
  *
  * @consumedBy the composer's question card
  */
-export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.Element {
-  const askAnswer = useDriverAskAnswer(props.ask.runId, props.ask.askId);
+export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Element {
+  const askAnswer = useQuestionAnswer(props.ask.runId, props.ask.askId);
   const clock = useConsoleClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
@@ -62,7 +51,8 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.
   const deadlines = useMemo(
-    () => (ask.state === "requested" ? askDeadlineMillisecondsOf(ask.expiresAt) : NO_DEADLINES),
+    () =>
+      ask.state === "requested" ? readQuestionDeadlineMilliseconds(ask.expiresAt) : NO_DEADLINES,
     [ask.expiresAt, ask.state],
   );
   const nowEpochMilliseconds = useDeadlineWake(clock, deadlines);
@@ -86,7 +76,7 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
  * read arms nothing rather than firing a timer forever, and the card renders it as
  * the named absence it is.
  */
-function askDeadlineMillisecondsOf(expiresAt: string | undefined): readonly number[] {
+function readQuestionDeadlineMilliseconds(expiresAt: string | undefined): readonly number[] {
   if (expiresAt === undefined) {
     return NO_DEADLINES;
   }

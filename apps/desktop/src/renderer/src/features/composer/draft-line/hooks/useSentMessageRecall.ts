@@ -20,22 +20,17 @@
 import { useCallback, useState } from "react";
 
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import {
-  AddressedDirectiveHistories,
-  caretAtEnd,
-  caretAtStart,
-  DirectiveHistory,
-  type DirectiveCaret,
-} from "@renderer/shell/composer/router/directive-line.js";
+import { SentMessageHistories, SentMessageHistory } from "../sent-message-history.js";
+import { caretAtEnd, caretAtStart, type DraftCaret } from "../draft-line.js";
 
 /** The walk, and the record the dispatcher writes a sent body into. */
-export interface DirectiveRecall {
+export interface SentMessageRecall {
   /** This address's own record. The dispatcher calls `recordSent` on a settled send. */
-  readonly history: DirectiveHistory;
+  readonly history: SentMessageHistory;
   /** Walk one message older. `false` when the caret is not at the start edge. */
-  recallOlder(caret: DirectiveCaret): boolean;
+  recallOlder(caret: DraftCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
-  recallNewer(caret: DirectiveCaret): boolean;
+  recallNewer(caret: DraftCaret): boolean;
 }
 
 /**
@@ -46,20 +41,20 @@ export interface DirectiveRecall {
  * value-stable reader for `useSyncExternalStore`, and a second read written here
  * would be a second answer to the same question.
  */
-export function useDirectiveRecall(
+export function useSentMessageRecall(
   draftStore: DraftStore,
   draftKey: string,
   readDraftText: () => string,
-): DirectiveRecall {
+): SentMessageRecall {
   // `useState` with an INITIALIZER, which is the console's shape for a per-mount object
   // (`store/read/generation-latch.ts`, `store/subject-scoped/subject-scoped-state.ts`)
-  // and the only one that constructs once: `useRef(new AddressedDirectiveHistories())`
+  // and the only one that constructs once: `useRef(new SentMessageHistories())`
   // would evaluate the constructor on every render and throw the result away.
-  const [histories] = useState(() => new AddressedDirectiveHistories());
+  const [histories] = useState(() => new SentMessageHistories());
   const history = histories.forAddress(draftKey);
 
   const recallOlder = useCallback(
-    (caret: DirectiveCaret) => {
+    (caret: DraftCaret) => {
       if (!caretAtStart(caret)) {
         return false;
       }
@@ -74,7 +69,7 @@ export function useDirectiveRecall(
   );
 
   const recallNewer = useCallback(
-    (caret: DirectiveCaret) => {
+    (caret: DraftCaret) => {
       if (!caretAtEnd(caret)) {
         return false;
       }

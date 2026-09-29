@@ -1,6 +1,6 @@
 // The four conditional members of a stamped posture, as one definition list.
 //
-// Split from `ExecutionPostureChip.tsx` so the two presentations share one reading
+// Split from `ExecutionPostureCard.tsx` so the two presentations share one reading
 // of the wire rather than one of them growing a shorter copy. A run row's
 // disclosure and a pane's card render the SAME facts; what differs between them is
 // how much of that is visible before a person asks, and that is the caller's

@@ -9,8 +9,8 @@
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ComposerSendPath } from "@renderer/shell/composer/chips/chip-models.js";
-import type { ProviderCatalogEntry } from "../command-list/command-list-entries.js";
+import type { ComposerSendPath } from "../composer-target.js";
+import type { ProviderCommandEntry } from "../command-list/command-list-entries.js";
 
 /** The new-turn arm: a message addressed to the session. */
 export interface ComposerNewTurnResolution {
@@ -71,7 +71,7 @@ export type ClientCommandPredicate = (commandName: string) => boolean;
  * Narrowed from the catalog's own entry rather than restated, so the three members
  * the refusal reads can never disagree with the list a person read them off.
  */
-export type EnumeratedProviderCommand = Pick<ProviderCatalogEntry, "name" | "kind" | "driverName">;
+export type EnumeratedProviderCommand = Pick<ProviderCommandEntry, "name" | "kind" | "driverName">;
 
 /**
  * Whether a name is one the addressed agent's provider published, for discovery.

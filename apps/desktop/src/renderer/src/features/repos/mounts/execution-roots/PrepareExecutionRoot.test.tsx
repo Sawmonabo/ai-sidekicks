@@ -18,7 +18,8 @@ import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/cont
 
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
@@ -42,7 +43,7 @@ interface FormUnderTest {
 }
 
 function renderForm(): FormUnderTest {
-  const bridge = bridgeOnClock();
+  const bridge = bridgeOnClock("repos");
   // Held outside the element factory: a fresh bridge, store or call set per re-render
   // would re-mint everything beneath the row, so the mode-switch case would be pinning
   // two first mounts rather than one switch.

@@ -2,15 +2,15 @@
 //
 // The rule that would rot silently: a provider entry keeps its own binding rather
 // than borrowing the group's by position. When the surface opens at all is the
-// family's own grammar and is asserted beside it, in `directive-syntax.test.ts`.
+// family's own grammar and is asserted beside it, in `slash-command-syntax.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "@renderer/console/palette/index.js";
 import {
-  composeCatalog,
-  filterCatalog,
+  composeCommandList,
+  filterCommandList,
   selectAddressedBindingGroup,
 } from "./command-list-entries.js";
 
@@ -46,9 +46,9 @@ const GROUPS: readonly ProviderCommandBindingGroup[] = [
   },
 ];
 
-describe("composeCatalog", () => {
+describe("composeCommandList", () => {
   it("carries each provider entry's own binding rather than a shared one", () => {
-    const catalog = composeCatalog({ offeredCommands: [], providerGroups: GROUPS });
+    const catalog = composeCommandList({ offeredCommands: [], providerGroups: GROUPS });
 
     expect(catalog).toHaveLength(2);
     expect(catalog.map((entry) => (entry.source === "provider" ? entry.driverName : ""))).toEqual([
@@ -58,44 +58,44 @@ describe("composeCatalog", () => {
   });
 
   it("negative control: two bindings publishing one name stay two rows", () => {
-    const catalog = composeCatalog({ offeredCommands: [], providerGroups: GROUPS });
+    const catalog = composeCommandList({ offeredCommands: [], providerGroups: GROUPS });
 
     expect(new Set(catalog.map((entry) => entry.key)).size).toBe(2);
   });
 
   it("leaves a provider-published description absent rather than inventing one", () => {
-    const catalog = composeCatalog({ offeredCommands: [], providerGroups: [GROUPS[1]!] });
+    const catalog = composeCommandList({ offeredCommands: [], providerGroups: [GROUPS[1]!] });
 
     expect(catalog[0]?.description).toBeUndefined();
   });
 
   it("offers console acts with the command id a person types", () => {
-    const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: [] });
+    const catalog = composeCommandList({ offeredCommands: OFFERED, providerGroups: [] });
 
     expect(catalog[0]).toMatchObject({ source: "console", name: "frame.goToSettings" });
   });
 });
 
-describe("filterCatalog", () => {
+describe("filterCommandList", () => {
   it("keeps only entries whose name begins with what has been typed", () => {
-    const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
+    const catalog = composeCommandList({ offeredCommands: OFFERED, providerGroups: GROUPS });
 
-    expect(filterCatalog(catalog, "comp").map((entry) => entry.name)).toEqual([
+    expect(filterCommandList(catalog, "comp").map((entry) => entry.name)).toEqual([
       "compact",
       "compact",
     ]);
   });
 
   it("negative control: a mid-name match is not a prefix match", () => {
-    const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
+    const catalog = composeCommandList({ offeredCommands: OFFERED, providerGroups: GROUPS });
 
-    expect(filterCatalog(catalog, "pact")).toHaveLength(0);
+    expect(filterCommandList(catalog, "pact")).toHaveLength(0);
   });
 
   it("returns everything on the trigger alone", () => {
-    const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
+    const catalog = composeCommandList({ offeredCommands: OFFERED, providerGroups: GROUPS });
 
-    expect(filterCatalog(catalog, "")).toHaveLength(3);
+    expect(filterCommandList(catalog, "")).toHaveLength(3);
   });
 });
 
@@ -151,14 +151,14 @@ describe("selectAddressedBindingGroup", () => {
   });
 
   it("negative control: composing the selected group alone drops the sibling's entries", () => {
-    // Without the selection every group reached `composeCatalog`, which is exactly
+    // Without the selection every group reached `composeCommandList`, which is exactly
     // what put one binding's commands under another binding's address.
-    const merged = composeCatalog({ offeredCommands: OFFERED, providerGroups: RUN_ATTRIBUTED });
+    const merged = composeCommandList({ offeredCommands: OFFERED, providerGroups: RUN_ATTRIBUTED });
     const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
       runId: CODEX_RUN,
       driverName: "codex",
     });
-    const scoped = composeCatalog({
+    const scoped = composeCommandList({
       offeredCommands: OFFERED,
       providerGroups: selected === undefined ? [] : [selected],
     });

@@ -7,7 +7,7 @@ import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekick
 import type { ChipTone } from "@renderer/console/primitives/index.js";
 
 /** What one settled rollback says, in the console's words. */
-export interface RollbackDispositionReading {
+export interface RestoreResultReading {
   /** The wire literal, rendered verbatim in mono. */
   readonly disposition: string;
   /** `applied` or `degraded`, from the response's own state. */
@@ -23,7 +23,7 @@ export interface RollbackDispositionReading {
  * The class is the daemon's answer, taken from the response's state rather than guessed from
  * the disposition name.
  */
-export function readAppliedRollback(result: RollbackAppliedResult): RollbackDispositionReading {
+export function readAppliedRestore(result: RollbackAppliedResult): RestoreResultReading {
   const shared = {
     disposition: result.disposition,
     settlementClass: "applied",
@@ -48,7 +48,7 @@ export function readAppliedRollback(result: RollbackAppliedResult): RollbackDisp
 }
 
 /** Read a settled `degraded` rollback. */
-export function readDegradedRollback(result: RollbackDegradedResult): RollbackDispositionReading {
+export function readPartialRestore(result: RollbackDegradedResult): RestoreResultReading {
   const shared = {
     disposition: result.disposition,
     settlementClass: "degraded",

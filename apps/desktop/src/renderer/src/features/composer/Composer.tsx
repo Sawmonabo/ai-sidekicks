@@ -44,10 +44,12 @@ import { useId, useRef } from "react";
 import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { ComposerAccessoryRail } from "@renderer/shell/composer/accessories/index.js";
-import { ProviderCommandAutocomplete } from "@renderer/shell/composer/commands/index.js";
-import { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
-import { ComposerSendBar } from "./draft-line/components/DraftLine.js";
+import { ComposerToolbar } from "./components/ComposerToolbar.js";
+import { CommandList } from "./command-list/components/CommandList.js";
+import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
+import { DraftLine } from "./draft-line/components/DraftLine.js";
+import "./Composer.css";
+import "./run-interventions.css";
 
 /** Declared rather than an arrow, so the resource holder is handed a stable pair. */
 function openEnumeration(): ProviderCommandEnumeration {
@@ -107,13 +109,9 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
-      <ComposerSendBar {...props} />
-      <ProviderCommandAutocomplete
-        {...props}
-        region={regionRef}
-        commandEnumeration={commandEnumeration}
-      />
-      <ComposerAccessoryRail {...props} />
+      <DraftLine {...props} />
+      <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
+      <ComposerToolbar {...props} />
     </section>
   );
 }

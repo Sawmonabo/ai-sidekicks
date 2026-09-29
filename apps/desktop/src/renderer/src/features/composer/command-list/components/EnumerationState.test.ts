@@ -18,7 +18,7 @@ import {
   typeIntoLine,
 } from "../command-list.test-support.js";
 
-describe("ProviderCommandAutocomplete — a cut enumeration is said, not treated as all of it", () => {
+describe("CommandList — a cut enumeration is said, not treated as all of it", () => {
   /** The scenario's own addressed group, with the reply's cap flag as the case wants it. */
   async function addressedGroupWith(
     overrides: Partial<ProviderCommandBindingGroup>,

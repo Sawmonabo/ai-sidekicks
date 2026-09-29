@@ -1,11 +1,15 @@
 /*
- * The attachment card.
- *
- * `repos/index.ts` imports this sheet because this directory has no door of its own. The
- * card is drawn here and by `repos/artifact-pane/InlineAttachmentCard.tsx`, so both draw
- * it styled. `.meridian-attachment-card`, the pane's outer wrapper around it, is in that
- * pane's `artifact.css`.
+ * The attachment card and the wrapper `InlineAttachmentCard.tsx` draws around it.
+ * `AttachmentCard.tsx` imports this sheet, so every surface that draws the card draws
+ * it styled.
  */
+
+/* The attachment card's wrapper. It owns the card's outer spacing so the composer and
+   the timeline row can space it differently without two cards. */
+.meridian-attachment-card {
+  display: block;
+  margin-block-start: var(--meridian-space-2);
+}
 
 .meridian-attachment {
   display: flex;

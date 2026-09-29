@@ -9,9 +9,14 @@ import { describe, expect, it } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { sendCallsAnswering } from "../send-router.test-support.js";
-import { mountBar, openSessionStore, pressSend, sendButton } from "./draft-line.test-support.js";
+import {
+  mountDraftLine,
+  openSessionStore,
+  pressSend,
+  sendButton,
+} from "./draft-line.test-support.js";
 
-describe("ComposerSendBar — one send in flight", () => {
+describe("DraftLine — one send in flight", () => {
   it("dispatches once for two Send presses inside one frame", async () => {
     // Both presses run before React re-renders, so both read `status === "idle"`.
     // The controller's synchronous latch is the only thing that can separate them,
@@ -25,7 +30,7 @@ describe("ComposerSendBar — one send in flight", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     });
-    const { line, result } = mountBar({
+    const { line, result } = mountDraftLine({
       calls: sendCallsAnswering(async ({ method }) => {
         settleCalls.push(method);
         await pending;
@@ -58,7 +63,7 @@ describe("ComposerSendBar — one send in flight", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     });
-    const { line, result } = mountBar({
+    const { line, result } = mountDraftLine({
       calls: sendCallsAnswering(async ({ method }) => {
         settleCalls.push(method);
         await pending;
@@ -98,7 +103,7 @@ describe("ComposerSendBar — one send in flight", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     });
-    const { line, result } = mountBar({
+    const { line, result } = mountDraftLine({
       calls: sendCallsAnswering(async ({ method }) => {
         settleCalls.push(method);
         return undefined;

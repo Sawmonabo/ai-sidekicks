@@ -23,10 +23,12 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  * landing the caret on an older card's button describes one request and hands over
  * another. Both the pane root and the record are named rather than assumed: a
  * document-wide query for the first action in DOM order answers with neither.
+ *
+ * @consumedBy the approval card's arrival focus
  */
-export function useArrivalAnnouncement(
+export function useApprovalArrivalAnnouncement(
   pending: readonly ApprovalRecord[],
-  paneRootRef: React.RefObject<HTMLElement | null>,
+  cardRootRef: React.RefObject<HTMLElement | null>,
 ): string {
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
@@ -56,9 +58,9 @@ export function useArrivalAnnouncement(
     }
     // Scoped to this pane, because a deck may hold a second one and its cards are
     // no more this arrival's than an older card of this pane's is.
-    const action = findApprovalCardAction(paneRootRef.current ?? document, first.approvalRequestId);
+    const action = findApprovalCardAction(cardRootRef.current ?? document, first.approvalRequestId);
     action?.focus();
-  }, [pending, paneRootRef]);
+  }, [pending, cardRootRef]);
 
   return announcement;
 }

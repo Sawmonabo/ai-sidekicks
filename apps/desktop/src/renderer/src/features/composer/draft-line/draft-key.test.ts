@@ -7,10 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ComposerChannelTarget,
-  ComposerRunTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerSessionTarget, ComposerRunTarget } from "../composer-target.js";
 import { composerDraftKey } from "./draft-key.js";
 
 /**
@@ -26,9 +23,9 @@ interface TargetAxes {
   readonly targetRunId?: string;
 }
 
-function channelTarget(axes: TargetAxes = {}): ComposerChannelTarget {
+function sessionTarget(axes: TargetAxes = {}): ComposerSessionTarget {
   return {
-    path: "channel-message",
+    path: "session-message",
     sessionId: axes.sessionId ?? "session-1",
   };
 }
@@ -66,14 +63,14 @@ describe("composerDraftKey — the address the chip names", () => {
   });
 
   it("gives two sessions on the session path different keys", () => {
-    expect(composerDraftKey(channelTarget())).not.toBe(
-      composerDraftKey(channelTarget({ sessionId: "session-2" })),
+    expect(composerDraftKey(sessionTarget())).not.toBe(
+      composerDraftKey(sessionTarget({ sessionId: "session-2" })),
     );
   });
 
   it("never gives a session address and a run address the same key", () => {
     // The discriminator leads the key, so the two arms' key spaces are disjoint by
     // construction rather than by the identifiers happening to differ.
-    expect(composerDraftKey(channelTarget())).not.toBe(composerDraftKey(runTarget()));
+    expect(composerDraftKey(sessionTarget())).not.toBe(composerDraftKey(runTarget()));
   });
 });

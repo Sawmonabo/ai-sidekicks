@@ -20,8 +20,8 @@ import {
   type ComposerSettlementIdentity,
 } from "./send-settlement.js";
 
-const ADDRESS_A = "channel-message|session-1";
-const ADDRESS_B = "channel-message|session-2";
+const ADDRESS_A = "session-message|session-1";
+const ADDRESS_B = "session-message|session-2";
 
 const SEND_REFUSAL = refuse("composer-send", "queue.full", "That session's queue is full.");
 

@@ -18,7 +18,7 @@
 // rather than an absent name, because the two have different remedies: one is a
 // spelling a person can fix and the other is a workflow that does not exist.
 
-import { readDirectiveName } from "../../slash-command-syntax.js";
+import { readSlashCommandName } from "../../slash-command-syntax.js";
 
 /** The console command id this family registers, recognises, and is listed under. */
 export const WORKFLOW_COMMAND_ROOT = "workflow";
@@ -35,7 +35,7 @@ export const WORKFLOW_COMMAND_VERBS = ["start"] as const;
 export type WorkflowCommandVerb = (typeof WORKFLOW_COMMAND_VERBS)[number];
 
 /** What the palette entry types for somebody who found the command there. */
-export const WORKFLOW_START_DIRECTIVE_PREFILL: string = `/${WORKFLOW_COMMAND_ROOT} ${WORKFLOW_COMMAND_VERBS[0]} `;
+export const WORKFLOW_START_COMMAND_PREFILL: string = `/${WORKFLOW_COMMAND_ROOT} ${WORKFLOW_COMMAND_VERBS[0]} `;
 
 /**
  * What a line naming the workflow root reads as.
@@ -63,7 +63,7 @@ export type WorkflowCommandReading =
  * the line this grammar parses are one decision.
  */
 export function readWorkflowCommandLine(lineText: string): WorkflowCommandReading | undefined {
-  if (readDirectiveName(lineText) !== WORKFLOW_COMMAND_ROOT) {
+  if (readSlashCommandName(lineText) !== WORKFLOW_COMMAND_ROOT) {
     return undefined;
   }
   const afterRoot = lineText.slice(`/${WORKFLOW_COMMAND_ROOT}`.length).trimStart();
@@ -85,7 +85,7 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
  * @consumedBy the composer's workflow candidate list
  */
 export function workflowStartLineFor(definitionName: string): string {
-  return `${WORKFLOW_START_DIRECTIVE_PREFILL}${definitionName}`;
+  return `${WORKFLOW_START_COMMAND_PREFILL}${definitionName}`;
 }
 
 /** Whether one word is a verb this root takes. Narrows, so no caller re-tests it. */

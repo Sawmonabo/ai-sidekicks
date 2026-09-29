@@ -12,8 +12,10 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { useComposerAddress } from "../hooks/useComposerAddress.js";
-import { ContextMeter } from "../context-ring/ContextRing.js";
+import { ContextRing } from "../context-ring/ContextRing.js";
 import { newestContextWindowReading } from "../context-ring/context-window-reading.js";
+
+import "./ComposerToolbar.css";
 
 /**
  * The one selector, at module scope so its identity is stable across renders.
@@ -26,7 +28,7 @@ import { newestContextWindowReading } from "../context-ring/context-window-readi
 const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[] => state.timeline;
 
 /** The composer's trailing rail: how full the conversation is. */
-export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Element {
+export function ComposerToolbar(props: ComposerSeatProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   // Folded AFTER the address, because the address is an input: the reading this
@@ -42,7 +44,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     <div className="meridian-composer__rail">
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
-          <ContextMeter reading={contextReading} />
+          <ContextRing reading={contextReading} />
         </div>
       </div>
     </div>

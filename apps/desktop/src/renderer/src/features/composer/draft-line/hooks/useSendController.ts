@@ -38,7 +38,7 @@
 // THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. A single history for the life
 // of the mounted button would carry an address's sent messages, and any walk in
 // progress, into the next address the button is rebound to.
-// `AddressedDirectiveHistories` keys them on the same draft key, so the composer walks
+// `SentMessageHistories` keys them on the same draft key, so the composer walks
 // the history of the target it is addressed to and no other.
 //
 // WHAT THE SURFACE READS WHILE AN ACT TRAVELS IS ITS OWN MODULE. The status and the
@@ -72,11 +72,11 @@ import { useComposerActState } from "./useComposerActState.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { useSettlementIdentities } from "./useSettlementIdentities.js";
 import { composerRefusal } from "../send-refusals.js";
-import { composeDirectivePlaceholder } from "@renderer/shell/composer/router/directive-line.js";
-import { useDirectiveRecall } from "./useSentMessageRecall.js";
+import { composeDraftPlaceholder } from "../draft-line.js";
+import { useSentMessageRecall } from "./useSentMessageRecall.js";
 import { addressedOperationKey } from "../send-settlement.js";
 import { ComposerSendRouter } from "../send-router.js";
-import { RunVersionLedger } from "../answered-run-versions.js";
+import { AnsweredRunVersions } from "../answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../send-controller-contract.js";
 
 /**
@@ -102,8 +102,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   } = dependencies;
   // Allocated on first use rather than on every render, which a bare initialiser
   // would do and then discard.
-  const runVersionsRef = useRef<RunVersionLedger | null>(null);
-  const runVersions = (runVersionsRef.current ??= new RunVersionLedger());
+  const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
+  const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
   const router = useMemo(
     () =>
       new ComposerSendRouter({
@@ -141,7 +141,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // The walk back through what was sent from this address, and the record a settled
   // send writes into. Its own module because it is a different job with a different
   // lifetime — nothing there reaches the wire and nothing there can refuse.
-  const { history, recallOlder, recallNewer } = useDirectiveRecall(
+  const { history, recallOlder, recallNewer } = useSentMessageRecall(
     draftStore,
     draftKey,
     readDraftText,
@@ -248,7 +248,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   return {
     text,
-    placeholder: composeDirectivePlaceholder(),
+    placeholder: composeDraftPlaceholder(),
     status,
     refusal,
     changeText,

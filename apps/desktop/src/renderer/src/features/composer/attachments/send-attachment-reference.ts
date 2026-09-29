@@ -9,7 +9,7 @@
 // to say how many settled artifacts are ready to reference; nothing here puts them on a
 // request.
 
-import type { AttachmentIngestEntry } from "@renderer/console/repos/index.js";
+import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /**
  * What this carrier would put on a send.
@@ -29,7 +29,7 @@ export type SendAttachmentReference =
     };
 
 /** The artifact ids the carrier's settled attachments minted, and how many are not settled. */
-export function sendAttachmentReference(
+export function composeSendAttachmentReference(
   entries: readonly AttachmentIngestEntry[],
 ): SendAttachmentReference {
   // Completed entries only: an artifact exists once `AttachmentIngestComplete` has settled,

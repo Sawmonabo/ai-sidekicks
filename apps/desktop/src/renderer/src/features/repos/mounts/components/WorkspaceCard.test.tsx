@@ -10,7 +10,8 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 
 import { bindControlPosture } from "../mount-health.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
@@ -30,7 +31,7 @@ function renderRow(
       capabilities={undefined}
       pendingMode={undefined}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
-      bridge={bridgeOnClock()}
+      bridge={bridgeOnClock("repos")}
       operations={scriptedRepoOperations()}
       sessionStore={new SessionStore({ sessionId: "session-repos" })}
       onSelectExecutionMode={() => undefined}

@@ -20,7 +20,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { COMPOSER_FOCUS_CHORD } from "@shared/composer-chord.js";
+import { COMPOSER_FOCUS_CHORD } from "@renderer/features/composer/contributions/keybindings.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
 import {
   COMPOSER_FOCUS_COMMAND_ID,

@@ -13,7 +13,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { ConsolePaneOpener } from "@renderer/console/seats/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../repo-operations.js";
-import { bridgeOnClock } from "../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { RepoSection } from "./RepoSection.js";
 import { SESSION_ID } from "./repo-mounts.test-support.js";
 
@@ -39,7 +39,7 @@ export function renderSection(
   operations: RepoOperations,
   openPane: ConsolePaneOpener = () => {},
 ): SectionUnderTest {
-  const bridge = bridgeOnClock();
+  const bridge = bridgeOnClock("repos");
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       <RepoSection

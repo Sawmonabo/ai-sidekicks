@@ -13,14 +13,14 @@
 // out of a hook would assert this file's own import against itself.
 //
 // THE MODIFIER IS RESOLVED, NOT GUESSED. `$mod` is command on macOS and control
-// everywhere else, and the resolution here goes through the same shared function the
-// main process uses — so a case that passed by trying both modifiers, and would have
-// gone on passing if the table had bound the wrong one, is not what this is.
+// everywhere else, and the resolution here goes through the renderer's one table for it
+// — so a case that passed by trying both modifiers, and would have gone on passing if
+// the table had bound the wrong one, is not what this is.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { composerChordPrimaryModifier } from "@shared/composer-chord.js";
+import { PLATFORM_MODIFIER_TOKEN } from "@renderer/lib/chord-format.js";
 import { CONSOLE_CHORD_PLATFORM } from "@renderer/console/palette/index.js";
 import { subscribeToComposerFocus } from "@renderer/console/seats/index.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
@@ -40,7 +40,7 @@ function listenForComposerFocus(takeFocus: () => void): void {
  * something else there.
  */
 function pressKey(code: string, options: { readonly withPrimaryModifier: boolean }): void {
-  const usesMeta = composerChordPrimaryModifier(CONSOLE_CHORD_PLATFORM) === "meta";
+  const usesMeta = PLATFORM_MODIFIER_TOKEN[CONSOLE_CHORD_PLATFORM] === "Meta";
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       code,

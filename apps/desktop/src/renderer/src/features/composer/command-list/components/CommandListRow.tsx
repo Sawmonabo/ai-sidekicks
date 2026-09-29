@@ -24,10 +24,10 @@
 // this console wrote about a decision the provider made.
 
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
-import { isDeclaredUnavailable, type CommandCatalogEntry } from "../command-list-entries.js";
+import { isDeclaredUnavailable, type CommandListEntry } from "../command-list-entries.js";
 
-export interface CatalogRowProps {
-  readonly entry: CommandCatalogEntry;
+export interface CommandListRowProps {
+  readonly entry: CommandListEntry;
   readonly rowElementId: string;
   readonly isActive: boolean;
   readonly onSelect: () => void;
@@ -37,7 +37,7 @@ export interface CatalogRowProps {
 /** The declared state, in the row's own words. Rendered only where it was declared. */
 const UNAVAILABLE_LABEL = "unavailable — the provider published this entry as disabled";
 
-export function CatalogRow(props: CatalogRowProps): React.JSX.Element {
+export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
   const { entry, rowElementId, isActive, onSelect, onRun } = props;
   const isUnavailable = isDeclaredUnavailable(entry);
   return (

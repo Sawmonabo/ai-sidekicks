@@ -71,7 +71,7 @@ export interface HeldComposerRefusal {
  * A record keyed by the operation and not a list, because the question every reader
  * asks is "what did THIS act settle as".
  */
-export type ComposerRefusalSlots = Readonly<
+export type ComposerRefusalsByOperation = Readonly<
   Record<ComposerSendOperation, HeldComposerRefusal | undefined>
 >;
 
@@ -140,7 +140,7 @@ export function attemptIdsAtAddress(
 }
 
 /** Nothing has been refused. Frozen, so no caller writes a slot in place. */
-export const NO_COMPOSER_REFUSALS: ComposerRefusalSlots = Object.freeze({
+export const NO_COMPOSER_REFUSALS: ComposerRefusalsByOperation = Object.freeze({
   send: undefined,
 });
 
@@ -180,10 +180,10 @@ export function isSettlementCurrent(
  * own slot and nothing else.
  */
 export function withSettledRefusal(
-  slots: ComposerRefusalSlots,
+  slots: ComposerRefusalsByOperation,
   identity: ComposerSettlementIdentity,
   refusal: ConsoleRefusal | undefined,
-): ComposerRefusalSlots {
+): ComposerRefusalsByOperation {
   return {
     ...slots,
     [identity.operation]: refusal === undefined ? undefined : { identity, refusal },
@@ -198,6 +198,6 @@ export function withSettledRefusal(
  * status is, which re-seeds on the render that first sees a new subject: the holder is
  * the guard, and a guard beside it would be a second answer to the same question.
  */
-export function renderableRefusal(slots: ComposerRefusalSlots): ConsoleRefusal | undefined {
+export function renderableRefusal(slots: ComposerRefusalsByOperation): ConsoleRefusal | undefined {
   return slots.send?.refusal;
 }

@@ -42,12 +42,17 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
-import { registerComposerFamily } from "../shell/index.js";
+import { registerComposerFamily } from "@renderer/features/composer/contributions/composer-view.js";
+import { registerComposerInlineCards } from "@renderer/features/composer/contributions/inline-cards.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
+import {
+  APPROVAL_FLOW_PROJECTOR_OWNER,
+  APPROVAL_FLOW_PROJECTORS,
+} from "@renderer/store/session-events/approval-flow-projection.js";
 import { registerLedger } from "@renderer/features/transcript/contributions/screens.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
@@ -96,6 +101,9 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   projectors.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
+  // The approval-flow fold, whose entities the approval card reads. Without it the
+  // `approval` partition has no producer at all.
+  projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   // The fixture-only pane harness, which is the one surface that mounts a
   // REGISTERED pane body in a running window. It takes both boards because it
   // resolves its body out of the pane board this composition owns, and it decides
@@ -130,7 +138,8 @@ export function registerConsoleFamilies(
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions.
   registerLedger(surfaces, ledgerComposition); // ledger
-  registerComposerFamily(projectors); // composer
+  registerComposerFamily(); // composer
+  registerComposerInlineCards(inlineCardSeats); // composer
   registerSessionSurfacesFamily(surfaces); // session surfaces
   registerRepos(inlineCardSeats); // repos
   registerWorkflowSurfaces(surfaces); // workflows

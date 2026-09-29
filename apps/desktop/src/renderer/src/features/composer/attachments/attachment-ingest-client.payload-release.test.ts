@@ -17,7 +17,7 @@ import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { AttachmentIngestLedger } from "./attachment-ingest-entries.js";
+import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import {
   SMALL_SOURCE,
   ScriptedIngestPort,
@@ -144,7 +144,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // it directly. Those bytes are gone, so an entry claiming a payload it does not
     // have would fail at its next slice instead of here — a write refused now is a
     // state no card ever renders.
-    const ledger = new AttachmentIngestLedger();
+    const ledger = new AttachmentIngestEntries();
     ledger.declare(
       attachmentSourceFrom({
         localId: "attachment-1",

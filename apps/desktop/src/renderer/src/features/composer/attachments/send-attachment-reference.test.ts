@@ -3,16 +3,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { sendAttachmentReference } from "./send-attachment-reference.js";
+import { composeSendAttachmentReference } from "./send-attachment-reference.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
 describe("the send attachment reference", () => {
   it("reports nothing where nothing is attached, which is not the same as nothing ready", () => {
-    expect(sendAttachmentReference([])).toStrictEqual({ disposition: "none" });
+    expect(composeSendAttachmentReference([])).toStrictEqual({ disposition: "none" });
   });
 
   it("carries the settled artifacts in the ledger's own order", () => {
-    const reference = sendAttachmentReference([
+    const reference = composeSendAttachmentReference([
       settledEntry("complete", {
         localId: "local-1",
         derived: derivedTruth({ artifactId: "artifact-first" }),
@@ -30,7 +30,7 @@ describe("the send attachment reference", () => {
   });
 
   it("counts every entry that has minted nothing rather than shortening the list silently", () => {
-    const reference = sendAttachmentReference([
+    const reference = composeSendAttachmentReference([
       sendingEntry("ingesting", { localId: "local-1" }),
       sendingEntry("refused", {
         localId: "local-2",
@@ -53,7 +53,7 @@ describe("the send attachment reference", () => {
     // The `held` arm with an empty id list is the honest reading of a carrier whose
     // every upload is still running: something IS attached, and none of it can be
     // referenced.
-    expect(sendAttachmentReference([sendingEntry("declared")])).toStrictEqual({
+    expect(composeSendAttachmentReference([sendingEntry("declared")])).toStrictEqual({
       disposition: "held",
       artifactIds: [],
       unsettledCount: 1,

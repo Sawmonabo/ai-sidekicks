@@ -11,10 +11,6 @@
 // both sandboxed modes and forbidden under `trusted`) are encoded structurally there,
 // so this component renders them rather than re-checking them.
 //
-// IT LIVES IN `primitives/` because its inputs are the contract's posture shape, this
-// family's own figures, and one `core/` threshold — nothing above `core/` — so this is
-// the lowest family that owns them.
-//
 // FIVE NEVERS, EACH ONE A LINE OF CODE THAT IS ABSENT:
 //
 //   • No composite "security level". A posture satisfies a floor only if every axis
@@ -40,11 +36,13 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { PostureFacts } from "./PostureFacts.js";
-import { POSTURE_ABSENT_DETAIL, POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";
+import { POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";
 import type { PostureReading } from "./posture-reading.js";
 
+import "./ExecutionPostureCard.css";
+
 /** What the card shows: a posture, and whether it was stamped on a run or is an intent. */
-export interface ExecutionPostureProps {
+export interface ExecutionPostureCardProps {
   readonly posture: WireExecutionPosture | undefined;
   readonly reading: PostureReading;
   /** The run this posture was stamped on, where the reading is `stamped`. */
@@ -52,16 +50,9 @@ export interface ExecutionPostureProps {
 }
 
 /** The execution boundary as an open card, or an inline notice when the posture is unknown. */
-export function ExecutionPostureChip(props: ExecutionPostureProps): React.JSX.Element {
+export function ExecutionPostureCard(props: ExecutionPostureCardProps): React.JSX.Element {
   if (props.posture === undefined) {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="inline"
-        title="Execution boundary unknown"
-        detail={POSTURE_ABSENT_DETAIL}
-      />
-    );
+    return <Nothing kind="not-checked" placement="inline" title="Execution boundary unknown" />;
   }
   const posture = props.posture;
   const line = (

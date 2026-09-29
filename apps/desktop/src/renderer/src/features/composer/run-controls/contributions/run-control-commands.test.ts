@@ -11,15 +11,15 @@ import {
   RUN_ID as FIRST_RUN,
   SECOND_RUN_ID as SECOND_RUN,
   commandRun,
-  recordingRunControlSurface,
+  recordingRunControlDispatch,
 } from "../run-control-commands.test-support.js";
 import {
   dispatchRunControlCommand,
   runControlCommandRows,
   type RunControlCommandInput,
   type RunControlCommandRun,
-} from "@renderer/console/runs/pane/controls/run-control-commands.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+} from "./run-control-commands.js";
+import { type RunControlDispatchState } from "../hooks/useRunControlDispatch.js";
 
 const CAPABLE = capabilityReadout(
   [["claude", ["steer"]]],
@@ -31,7 +31,7 @@ const CAPABLE = capabilityReadout(
 
 function inputFor(
   runs: readonly RunControlCommandRun[],
-  surface: RunControlSurface,
+  surface: RunControlDispatchState,
   overrides: Partial<RunControlCommandInput> = {},
 ): RunControlCommandInput {
   return {
@@ -74,7 +74,7 @@ describe("the rows the runs pane contributes", () => {
 
 describe("what running a contributed row does", () => {
   it("dispatches through the pane's own surface, carrying the run's comparand", () => {
-    const { surface, calls } = recordingRunControlSurface();
+    const { surface, calls } = recordingRunControlDispatch();
 
     dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "interrupt", title: "Stop the run" },
@@ -85,7 +85,7 @@ describe("what running a contributed row does", () => {
   });
 
   it("opens the composer for steer rather than sending an empty body", () => {
-    const { surface, calls } = recordingRunControlSurface();
+    const { surface, calls } = recordingRunControlDispatch();
     const onRequestSteer = vi.fn();
     const input = inputFor([commandRun(FIRST_RUN)], surface, { onRequestSteer });
 
@@ -99,7 +99,7 @@ describe("what running a contributed row does", () => {
   });
 
   it("sends nothing for a run the stream no longer describes", () => {
-    const { surface, calls } = recordingRunControlSurface();
+    const { surface, calls } = recordingRunControlDispatch();
 
     dispatchRunControlCommand(
       { runId: SECOND_RUN, control: "interrupt", title: "Stop the run" },

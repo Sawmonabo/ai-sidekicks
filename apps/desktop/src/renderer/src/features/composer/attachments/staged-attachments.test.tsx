@@ -21,13 +21,13 @@ import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
+import { StagedAttachments } from "./staged-attachments.js";
 import {
-  AttachmentCarrier,
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
-} from "@renderer/console/repos/attachments/attachment-carrier.js";
+} from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { bridgeOnClock } from "@renderer/features/repos/repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import {
   INGEST_SESSION_ID,
   ScriptedIngestPort,
@@ -46,8 +46,8 @@ function pickedFile(byteLength: number): File {
 }
 
 /** One started carrier over one scripted port, on a clock the case advances by hand. */
-function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCarrier {
-  const carrier = new AttachmentCarrier({
+function carrierOver(port: ScriptedIngestPort, clock: ManualClock): StagedAttachments {
+  const carrier = new StagedAttachments({
     port: port.asPort(),
     sessionId: INGEST_SESSION_ID,
     clock,
@@ -63,7 +63,7 @@ function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCa
  * them: the whole claim is that the instant a card is handed moves, so a case that
  * asserted on the snapshot alone would be checking the stamp and not the disclosure.
  */
-function cardTextFor(carrier: AttachmentCarrier): string {
+function cardTextFor(carrier: StagedAttachments): string {
   const [entry] = carrier.snapshot.entries;
   expect(entry).toBeDefined();
   if (entry === undefined) {
@@ -211,7 +211,7 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
     // window with the wall one always winning.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
-    const bridge = bridgeOnClock(clock);
+    const bridge = bridgeOnClock("composer", clock);
     let binding: AttachmentCarrierBinding | undefined;
     render(
       <CarrierProbe
@@ -235,7 +235,7 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
     let binding: AttachmentCarrierBinding | undefined;
     render(
       <CarrierProbe
-        bridge={bridgeOnClock(new ManualClock(laterStart))}
+        bridge={bridgeOnClock("composer", new ManualClock(laterStart))}
         port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
@@ -270,7 +270,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     render(
       <StrictMode>
         <CarrierProbe
-          bridge={bridgeOnClock()}
+          bridge={bridgeOnClock("composer")}
           port={port.asPort()}
           onBinding={(taken) => {
             binding = taken;
@@ -299,14 +299,14 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     let binding: AttachmentCarrierBinding | undefined;
     const { rerender } = render(
       <CarrierProbe
-        bridge={bridgeOnClock()}
+        bridge={bridgeOnClock("composer")}
         port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
         }}
       />,
     );
-    const bridge = bridgeOnClock();
+    const bridge = bridgeOnClock("composer");
     rerender(
       <CarrierProbe
         bridge={bridge}
@@ -333,12 +333,16 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // replacement, and the value-change cleanup disposed the corpse a second time.
     // `AttachmentIngestClient.dispose` guards on its own flag, so nothing broke and
     // nothing could fail — which is why the CALL is counted and not its effect.
-    const disposals = vi.spyOn(AttachmentCarrier.prototype, "dispose");
+    const disposals = vi.spyOn(StagedAttachments.prototype, "dispose");
     try {
       const port = new ScriptedIngestPort();
       const { unmount } = render(
         <StrictMode>
-          <CarrierProbe bridge={bridgeOnClock()} port={port.asPort()} onBinding={() => {}} />
+          <CarrierProbe
+            bridge={bridgeOnClock("composer")}
+            port={port.asPort()}
+            onBinding={() => {}}
+          />
         </StrictMode>,
       );
       await act(async () => {

@@ -11,7 +11,7 @@
 // carrier can never publish. The split is taken STRUCTURALLY off the union rather than
 // by naming the states again, so a state that changes arms changes these with it.
 
-import type { AttachmentIngestEntry } from "@renderer/console/repos/index.js";
+import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** What a case varies. Everything omitted takes the quiet default below. */
 export interface IngestEntryOptions {

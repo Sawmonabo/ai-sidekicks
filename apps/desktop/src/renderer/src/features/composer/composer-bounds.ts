@@ -41,7 +41,7 @@ export const COMPOSER_RETAINED_ADDRESS_CAP = 12;
  * the ledger it is addressed within: past this the input scrolls inside its own box and
  * the session above it keeps its room.
  */
-export const COMPOSER_DIRECTIVE_LINE_MAX_ROWS = 8;
+export const COMPOSER_DRAFT_MAX_ROWS = 8;
 
 /**
  * Pages of the workflow definition enumeration one composer read walks.

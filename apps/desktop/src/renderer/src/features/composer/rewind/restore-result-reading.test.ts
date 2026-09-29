@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
 import {
-  readAppliedRollback,
-  readDegradedRollback,
+  readAppliedRestore,
+  readPartialRestore,
   resendSettlementSentence,
 } from "./restore-result-reading.js";
 
@@ -31,25 +31,25 @@ describe("the two settlement classes", () => {
 
   it("reads every applied arm as applied and every degraded arm as degraded", () => {
     for (const arm of APPLIED_ARMS) {
-      expect(readAppliedRollback(arm).settlementClass).toBe("applied");
+      expect(readAppliedRestore(arm).settlementClass).toBe("applied");
     }
     for (const arm of DEGRADED_ARMS) {
-      expect(readDegradedRollback(arm).settlementClass).toBe("degraded");
+      expect(readPartialRestore(arm).settlementClass).toBe("degraded");
     }
   });
 
   it("renders the disposition verbatim, never a reworded one", () => {
     for (const arm of APPLIED_ARMS) {
-      expect(readAppliedRollback(arm).disposition).toBe(arm.disposition);
+      expect(readAppliedRestore(arm).disposition).toBe(arm.disposition);
     }
     for (const arm of DEGRADED_ARMS) {
-      expect(readDegradedRollback(arm).disposition).toBe(arm.disposition);
+      expect(readPartialRestore(arm).disposition).toBe(arm.disposition);
     }
   });
 
   it("negative control: a degraded arm is never reported as a success", () => {
     for (const arm of DEGRADED_ARMS) {
-      expect(readDegradedRollback(arm).settlementClass).not.toBe("applied");
+      expect(readPartialRestore(arm).settlementClass).not.toBe("applied");
     }
   });
 });

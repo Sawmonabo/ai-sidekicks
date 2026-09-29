@@ -256,7 +256,7 @@ export async function mountComposer(options: {
     writeDraft: async (text) => {
       await act(async () => {
         draftStore.write(
-          composerDraftKey({ path: "channel-message", sessionId: route.sessionId }),
+          composerDraftKey({ path: "session-message", sessionId: route.sessionId }),
           text,
         );
         await crossMacrotaskBoundary();

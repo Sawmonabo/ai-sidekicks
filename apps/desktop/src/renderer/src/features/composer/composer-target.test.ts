@@ -3,10 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
-import {
-  resolveComposerTarget,
-  type ComposerTargetInput,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import { resolveComposerTarget, type ComposerTargetInput } from "./composer-target.js";
 
 const AGENT: ConsoleEntity = {
   kind: "agent",
@@ -68,7 +65,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
         agents: { [AGENT.id]: AGENT },
       }),
     );
-    expect(target.path).toBe("channel-message");
+    expect(target.path).toBe("session-message");
   });
 
   it("takes the newest run when an agent has several", () => {
@@ -113,6 +110,6 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
         runs: { [settled.id]: settled },
       }),
     );
-    expect(target.path).toBe("channel-message");
+    expect(target.path).toBe("session-message");
   });
 });

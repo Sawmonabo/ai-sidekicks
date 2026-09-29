@@ -1,25 +1,14 @@
-// The macrotask boundary a settling case waits on, at the bottom of the family DAG.
+// The macrotask boundary a settling case waits on.
 //
-// A TIMING HELPER, WHICH IS WHY IT IS HERE. It lived beside the fixture bridge
-// because the first suites that needed it were that family's, and the name a module
-// is first written next to is not its home: `store/`, `frame/` and `bridge/` all
-// wait on this boundary, and the two lower families reaching into `bridge/` for it
-// is an upward edge on the console's own DAG. `core/` is the lowest family every one
-// of them may reach, and it is where the clock seam already lives — this is the
-// clock's test-tier sibling, not the fixture's.
+// A timing helper rather than a fixture one, so it sits on its own: the store, frame and
+// bridge suites all wait on it.
 //
-// It arms a platform timer directly rather than through `ConsoleClock`, which is the
-// one thing a console module may not do. That is legal here for the reason the timer
-// chokepoint's own header records: its walk excludes `.test-support.*`, because a
-// suite that has to let a real turn elapse cannot do it on a clock it also controls.
+// It arms a platform timer directly rather than through `ConsoleClock`, which shipped code
+// may not do: a suite that has to let a real turn elapse cannot do it on a clock it also
+// controls.
 //
-// AND IT IS NAMED FOR THE BOUNDARY IT ARMS. It was `drainMicrotasks`, in
-// `microtask-drain.test-support.ts`, which is the opposite of what `setTimeout` waits
-// for — and it was imported beside a settle that really did count microtask turns, so
-// the two helpers' names were each the other's meaning one line apart and repairing
-// either in the obvious direction broke a suite. `core/settle.test-support.ts` waits
-// on this boundary now, inside React's scope, so the two are one vocabulary with one
-// difference between them: whether the wait happens inside `act`.
+// Named for the boundary it arms: `setTimeout` waits for a macrotask. `settle.ts` waits on
+// this boundary inside React's `act`, which is the one difference between the two.
 
 /**
  * Wait until the platform has run a task of its own.

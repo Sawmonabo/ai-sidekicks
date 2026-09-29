@@ -7,10 +7,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
-import {
-  ProviderCommandEnumeration,
-  useProviderCommandEnumeration,
-} from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import { useProviderCommandEnumeration } from "./useProviderCommandEnumeration.js";
 import {
   FIRST_AGENT,
   SECOND_AGENT,
@@ -132,7 +130,7 @@ describe("useProviderCommandEnumeration", () => {
         enumeration,
         bridge,
         target: {
-          path: "channel-message",
+          path: "session-message",
           sessionId: COMPOSER_SCENARIO.sessionId,
         },
         isOpen: true,

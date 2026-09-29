@@ -17,7 +17,7 @@
 // readers get that same answer, which is the property this module exists to hold.
 
 /** The prefix that opens the discovery surface and claims a line for a command. */
-export const DISCOVERY_TRIGGER = "/";
+export const SLASH_COMMAND_TRIGGER = "/";
 
 /** Splits a directive line on its first run of whitespace, to read the name. */
 const FIRST_WHITESPACE = /\s/u;
@@ -30,16 +30,16 @@ const FIRST_WHITESPACE = /\s/u;
  * The empty string is a real answer and not an absence — the trigger alone has been
  * typed, which opens the list with nothing filtered and names no command to run.
  */
-export function readDirectiveName(lineText: string): string | undefined {
-  if (!opensDirectiveLine(lineText)) {
+export function readSlashCommandName(lineText: string): string | undefined {
+  if (!opensCommandLine(lineText)) {
     return undefined;
   }
-  const afterTrigger = lineText.slice(DISCOVERY_TRIGGER.length);
+  const afterTrigger = lineText.slice(SLASH_COMMAND_TRIGGER.length);
   const firstSpace = afterTrigger.search(FIRST_WHITESPACE);
   return firstSpace === -1 ? afterTrigger : afterTrigger.slice(0, firstSpace);
 }
 
 /** Whether this line is claimed by the reserved prefix at all. */
-function opensDirectiveLine(lineText: string): boolean {
-  return lineText.startsWith(DISCOVERY_TRIGGER);
+function opensCommandLine(lineText: string): boolean {
+  return lineText.startsWith(SLASH_COMMAND_TRIGGER);
 }

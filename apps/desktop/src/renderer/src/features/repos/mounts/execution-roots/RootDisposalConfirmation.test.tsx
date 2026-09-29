@@ -14,7 +14,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RootDisposalConfirmation } from "./RootDisposalConfirmation.js";
 
@@ -38,7 +39,7 @@ function daemonAnsweringTheCall(): RepoOperations {
 function renderConfirmation(operations: RepoOperations): ReturnType<typeof render> {
   return render(
     <RootDisposalConfirmation
-      bridge={bridgeOnClock()}
+      bridge={bridgeOnClock("repos")}
       operations={operations}
       rootId={WORKTREE_ID}
       onSettled={() => undefined}

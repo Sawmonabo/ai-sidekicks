@@ -24,7 +24,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { useRepoMounts, type RepoMountsBinding } from "./useRepoMounts.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
@@ -41,7 +41,7 @@ interface BindingUnderTest {
 
 function renderBinding(options: { readonly strict: boolean }): BindingUnderTest {
   const clock = new ManualClock();
-  const bridge = bridgeOnClock(clock);
+  const bridge = bridgeOnClock("repos", clock);
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   const base = sessionOperations();
   let listReads = 0;
@@ -140,7 +140,7 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
 describe("useRepoMounts — the calls are part of what the reader is keyed on", () => {
   it("reads through the new calls when the section is handed a different set", async () => {
     const clock = new ManualClock();
-    const bridge = bridgeOnClock(clock);
+    const bridge = bridgeOnClock("repos", clock);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const listReads = { first: 0, second: 0 };
     const countingOperations = (which: "first" | "second"): RepoOperations => {

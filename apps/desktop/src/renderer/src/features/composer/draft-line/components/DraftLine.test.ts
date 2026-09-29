@@ -16,13 +16,13 @@ import {
   SECOND_AGENT_ID,
   answerSteer,
   mountAddressable,
-  mountBar,
+  mountDraftLine,
   mountLine,
   openSessionStore,
   pressSend,
 } from "./draft-line.test-support.js";
 
-describe("ComposerSendBar — the unsent body lives in the supplied draft store", () => {
+describe("DraftLine — the unsent body lives in the supplied draft store", () => {
   it("restores the text a remount would otherwise have thrown away", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
@@ -30,11 +30,11 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     const sessionStore = openSessionStore();
     const calls = sendCallsAnswering(async () => undefined);
 
-    const first = mountBar({ calls, draftStore, sessionStore });
+    const first = mountDraftLine({ calls, draftStore, sessionStore });
     fireEvent.change(first.line, { target: { value: "half a thought" } });
     first.result.unmount();
 
-    const second = mountBar({ calls, draftStore, sessionStore });
+    const second = mountDraftLine({ calls, draftStore, sessionStore });
     expect(second.line.value).toBe("half a thought");
   });
 
@@ -58,7 +58,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     const sessionStore = openSessionStore();
     const settle = vi.fn(async () => QUEUE_CREATED);
 
-    const { line, result } = mountBar({
+    const { line, result } = mountDraftLine({
       calls: sendCallsAnswering(settle),
       draftStore,
       sessionStore,
@@ -74,12 +74,12 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     // The negative control for the persistence claim above: a settled send leaves
     // nothing for the next mount to restore.
     expect(
-      mountBar({ calls: sendCallsAnswering(settle), draftStore, sessionStore }).line.value,
+      mountDraftLine({ calls: sendCallsAnswering(settle), draftStore, sessionStore }).line.value,
     ).toBe("");
   });
 });
 
-describe("ComposerSendBar — the line without Send", () => {
+describe("DraftLine — the line without Send", () => {
   it("takes typing into the draft store, and Enter keeps it as typed and draws nothing", () => {
     const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
     const { line, result } = mountLine({ draftStore, sessionStore: openSessionStore() });
@@ -94,7 +94,7 @@ describe("ComposerSendBar — the line without Send", () => {
   });
 });
 
-describe("ComposerSendBar — a rejected steer keeps the message in the line", () => {
+describe("DraftLine — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
     // The finding at the surface: fulfilment was treated as success, so the line
     // emptied and the user's words were gone for an intervention the run had
@@ -140,7 +140,7 @@ describe("ComposerSendBar — a rejected steer keeps the message in the line", (
   });
 });
 
-describe("ComposerSendBar — a refusal about the whole session leaves the bar", () => {
+describe("DraftLine — a refusal about the whole session leaves the bar", () => {
   /** Calls whose steer is rejected with one daemon reason. */
   function callsRejectingWith(rejectionReason: string): ReturnType<typeof sendCallsAnswering> {
     return sendCallsAnswering(async () => ({

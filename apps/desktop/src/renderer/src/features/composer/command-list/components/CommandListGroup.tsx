@@ -24,18 +24,18 @@
 // answers keys over one sequence spanning both groups, and an index counted inside a
 // group would name a different row from the one `aria-activedescendant` points at.
 
-import { CatalogRow } from "./CommandListRow.js";
-import type { CommandCatalogEntry } from "../command-list-entries.js";
+import { CommandListRow } from "./CommandListRow.js";
+import type { CommandListEntry } from "../command-list-entries.js";
 
 /** One entry, carrying the position it holds in the popover's single key sequence. */
-export interface CatalogGroupRow {
-  readonly entry: CommandCatalogEntry;
+export interface CommandListGroupRow {
+  readonly entry: CommandListEntry;
   /** The index in the popover's flat entry list, which is what the cursor counts. */
   readonly flatIndex: number;
 }
 
-export interface CatalogGroupProps {
-  readonly rows: readonly CatalogGroupRow[];
+export interface CommandListGroupProps {
+  readonly rows: readonly CommandListGroupRow[];
   /** What the group is called, in the words the surface offers it under. */
   readonly labelText: string;
   /** The id the heading carries, spent by this group's `aria-labelledby`. */
@@ -48,7 +48,7 @@ export interface CatalogGroupProps {
   readonly onRun: (commandId: string) => void;
 }
 
-export function CatalogGroup(props: CatalogGroupProps): React.JSX.Element {
+export function CommandListGroup(props: CommandListGroupProps): React.JSX.Element {
   const { rows, activeFlatIndex, rowElementId, onSelect, onRun } = props;
   return (
     <li
@@ -68,7 +68,7 @@ export function CatalogGroup(props: CatalogGroupProps): React.JSX.Element {
           option's own ancestry may not have. */}
       <ul className="meridian-command-discovery__group-rows" role="none">
         {rows.map((row) => (
-          <CatalogRow
+          <CommandListRow
             key={row.entry.key}
             entry={row.entry}
             rowElementId={rowElementId(row.flatIndex)}

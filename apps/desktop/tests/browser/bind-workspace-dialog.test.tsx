@@ -27,10 +27,8 @@ import { pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { advanceScenarioUntil } from "../helpers/scenario-manual-clock.js";
-import {
-  bridgeOnClock,
-  scriptedRepoOperations,
-} from "@renderer/features/repos/repo-operations.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
 import { BindWorkspaceDialog } from "@renderer/features/repos/mounts/bind/BindWorkspaceDialog.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -62,7 +60,7 @@ async function openBindDialog(): Promise<{
   readonly container: HTMLElement;
   readonly bridge: ReturnType<typeof bridgeOnClock>;
 }> {
-  const bridge = bridgeOnClock();
+  const bridge = bridgeOnClock("repos");
   const operations = scriptedRepoOperations({
     readMountExecutionModes: () => Promise.resolve(BOUND_ROOT_ONLY_MODES),
   });

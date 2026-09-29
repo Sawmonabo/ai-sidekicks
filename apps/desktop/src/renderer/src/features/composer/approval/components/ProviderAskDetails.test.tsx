@@ -8,12 +8,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ProviderAskFraming } from "./ProviderAskDetails.js";
+import { ProviderAskDetails } from "./ProviderAskDetails.js";
 
 describe("what the framing says beyond the card", () => {
   it("names the ask and shows the requested resource inline", () => {
     const { container } = render(
-      <ProviderAskFraming
+      <ProviderAskDetails
         ask={{ askId: "ask-force-push" }}
         requestedResource={{ command: "git push --force origin feature/rebased" }}
       />,
@@ -30,7 +30,7 @@ describe("what the framing says beyond the card", () => {
   });
 
   it("says an empty descriptor is empty rather than rendering a blank panel", () => {
-    render(<ProviderAskFraming ask={{ askId: "ask-force-push" }} requestedResource={{}} />);
+    render(<ProviderAskDetails ask={{ askId: "ask-force-push" }} requestedResource={{}} />);
 
     expect(screen.getByText(/descriptor with nothing in it/u)).not.toBeNull();
   });

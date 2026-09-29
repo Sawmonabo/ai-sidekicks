@@ -11,14 +11,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { CHANNEL_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
+import { SESSION_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import { createClientCommandExecutor } from "../client-command-executor.js";
 import { recognizeClientCommand } from "../client-command-recognizer.js";
-import { composerCommandSurface } from "../composer-commands.js";
+import { readComposerCommands } from "../composer-commands.js";
 import {
   LINE_READING_COMMAND_IDS,
-  type DirectiveLineHandlers,
+  type ComposerCommandLineHandlers,
 } from "../composer-command-line-handlers.js";
 import {
   fixtureWorkflowStartOperations,
@@ -26,7 +26,7 @@ import {
   WORKFLOW_TEST_SESSION_ID,
 } from "./workflow-command.test-support.js";
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./workflow-command-grammar.js";
-import { startWorkflowFromLine } from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
+import { startWorkflowFromLine } from "./start-workflow-from-line.js";
 
 /** A dotted id that names no root, registered only as a foil. */
 const DOTTED_ID = "workflow.start";
@@ -50,7 +50,7 @@ function routerOverRegistry(): ComposerSendRouter {
     calls: sendCallsAnswering(async () => undefined),
     recognizeClientCommand: (commandName) =>
       recognizeClientCommand(commandName, {
-        registeredCommandIds: composerCommandSurface(DEFAULT_ROUTE).registeredCommandIds,
+        registeredCommandIds: readComposerCommands(DEFAULT_ROUTE).registeredCommandIds,
       }).status === "recognized",
   });
 }
@@ -102,7 +102,7 @@ describe("the documented line, end to end through the recogniser and the router"
   it("intercepts `/workflow start <name>` and starts the named definition", async () => {
     registerRoot(WORKFLOW_COMMAND_ROOT);
     const calls = recordedWorkflowCalls();
-    const resolution = routerOverRegistry().resolve("/workflow start nightly", CHANNEL_TARGET);
+    const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);
 
     expect(resolution).toStrictEqual({
       outcome: "client-command",
@@ -111,7 +111,7 @@ describe("the documented line, end to end through the recogniser and the router"
     if (resolution.outcome !== "client-command") {
       throw new Error("the documented line must be intercepted as a client command");
     }
-    const handlers: DirectiveLineHandlers = new Map([
+    const handlers: ComposerCommandLineHandlers = new Map([
       [
         WORKFLOW_COMMAND_ROOT,
         async (line) =>
@@ -125,7 +125,7 @@ describe("the documented line, end to end through the recogniser and the router"
       ],
     ]);
     const executor = createClientCommandExecutor({
-      readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
+      readSurface: () => readComposerCommands(DEFAULT_ROUTE),
       readDirectiveHandlers: () => handlers,
       lineReadingCommandIds: LINE_READING_COMMAND_IDS,
     });
@@ -147,7 +147,7 @@ describe("the documented line, end to end through the recogniser and the router"
     // and the line goes on as a new turn rather than reaching the workflow handler.
     registerRoot(DOTTED_ID);
 
-    const resolution = routerOverRegistry().resolve("/workflow start nightly", CHANNEL_TARGET);
+    const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
   });
