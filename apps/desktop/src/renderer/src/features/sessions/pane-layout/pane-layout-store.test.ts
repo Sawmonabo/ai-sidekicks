@@ -200,7 +200,7 @@ describe("PaneLayoutStore — the split act", () => {
   });
 
   it("negative control: an open naming no source re-divides the whole pane layout", () => {
-    // Without this the case above would pass over a pane layout that never equalised at
+    // Without this the case above would pass over a pane layout that never equalized at
     // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });

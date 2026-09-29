@@ -1,7 +1,7 @@
 // Preserving a reader's selection across a block migration.
 //
 // WHAT MIGRATION MEANS HERE. A streaming message's blocks settle behind the tail: a
-// block that was live prose becomes a memoised static subtree, which is a REMOUNT —
+// block that was live prose becomes a memoized static subtree, which is a REMOUNT —
 // the nodes the reader's selection was anchored in are replaced by different nodes
 // holding the same characters. The browser has no opinion about that; it drops the
 // selection. Mid-stream, that is a reader who highlighted a sentence watching it

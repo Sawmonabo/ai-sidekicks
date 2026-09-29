@@ -232,7 +232,7 @@ describe("WindowStore — window focus is seeded from the window's own document"
   });
 
   it("opens unfocused where the document is not on screen at all", () => {
-    // The second reading, and it is not the first one twice: a minimised window that
+    // The second reading, and it is not the first one twice: a minimized window that
     // had focus when it went down reports hidden, and a main process that creates a window
     // without showing it reports hidden before anything is ever focused.
     const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new WindowStore());

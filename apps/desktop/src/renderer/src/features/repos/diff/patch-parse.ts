@@ -16,7 +16,7 @@
 // paid more than the whole rest of the patch (a single 18,889-character pair inside a
 // 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
 // carries ONE whole-line segment, which is its text; `intraline-segment-cache.ts` derives
-// the split when a row is materialised, memoised and size-bounded. `intralineSegments`
+// the split when a row is materialized, memoized and size-bounded. `intralineSegments`
 // below is still this module's, because it is the adopted library's seam and parse
 // and intraline compute sit on one side of it.
 //
@@ -35,7 +35,7 @@
 //   • `DiffHunk.precedingContext` — the hidden context a gap row reveals — has no
 //     representation in a unified patch at all: a patch's context lines are INSIDE
 //     its hunks. A parsed hunk therefore carries an empty `precedingContext`, and a
-//     caller that has the surrounding file supplies it. Synthesising one from the
+//     caller that has the surrounding file supplies it. Synthesizing one from the
 //     hunk's own leading context would move lines a reader can already see into a
 //     collapsed gap and claim the gap had revealed them.
 //   • The compared refs are the caller's own answer, so they are parameters here rather

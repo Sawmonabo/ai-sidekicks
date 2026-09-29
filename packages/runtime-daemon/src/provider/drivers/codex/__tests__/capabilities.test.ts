@@ -381,7 +381,7 @@ describe("Codex composition is bound to the spawned build", () => {
   });
 
   it("refuses a reading taken from ANOTHER driver's build", async () => {
-    // A wiring fault, not provider misbehaviour: composing Codex's flags against
+    // A wiring fault, not provider misbehavior: composing Codex's flags against
     // a Claude build's version would declare capabilities for a binary that is
     // not the one this driver spawns. It refuses as an internal-invariant Error
     // rather than as a typed provider refusal.

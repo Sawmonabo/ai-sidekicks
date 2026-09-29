@@ -224,7 +224,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
 
   it("refuses at construction when it has no way to read an owner", () => {
     // At construction rather than at the first duplicate: a registry that discovers
-    // it cannot honour its policy only when a conflict arrives has already admitted
+    // it cannot honor its policy only when a conflict arrives has already admitted
     // the conflicting registration.
     const constructWithoutOwnerReader = (): KeyedRegistry<string, OwnedCommand> =>
       new KeyedRegistry<string, OwnedCommand>({

@@ -1,4 +1,4 @@
-// RepoMountService behaviour.
+// RepoMountService behavior.
 //
 // Drives the real service against a real temp-file SQLite database (canonical
 // `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
@@ -134,7 +134,7 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
  *
  * Drives the post-commit failure path. It has to fail the FIRST of two so the
  * arm can tell "the loop continued past a failure" from "the loop stopped" —
- * failing the last one would leave both behaviours indistinguishable.
+ * failing the last one would leave both behaviors indistinguishable.
  */
 class FirstArchiveAppendFailingEmitter extends WorkspaceEventEmitter {
   #failuresRemaining: number = 1;

@@ -13,7 +13,7 @@
 // row below it. Measured on the committed set — every capture taller than the
 // 900 px window carried real content to row 899 and pure white to the bottom edge,
 // in the dark scheme as well as the light one, which is what makes it a capture
-// artefact rather than a surface that happens to end.
+// artifact rather than a surface that happens to end.
 //
 // SO THE FIX IS A WINDOW AND NOT A CAPTURE OPTION. There is no option on either side
 // that paints beyond the iframe: Playwright already asks Chromium for
@@ -230,7 +230,7 @@ function nonClosingRunLength(overhangsPx: readonly number[]): number {
  * an overhang no smaller after a grow than before it is a surface being sized BY the
  * window rather than one that simply needed a bigger one — and the arm waits for that
  * to hold twice, for `CONFIRMING_NON_CLOSING_PASSES`' reason. The history is passed
- * rather than a verdict the caller reached, so the whole judgement is owned here and
+ * rather than a verdict the caller reached, so the whole judgment is owned here and
  * the loop that drives it owns none of it.
  *
  * It throws rather than returning a wider window in the two cases where no window

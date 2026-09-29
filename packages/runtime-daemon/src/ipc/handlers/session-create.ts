@@ -85,7 +85,7 @@ export interface SessionCreateDeps {
    * true rather than aspirational. The wire schemas still accept any UUID
    * version on purpose, because control-plane-assigned ids are Postgres
    * `gen_random_uuid()` v4; that tolerance is for the OTHER side of the
-   * boundary and is not a licence for a daemon id to be v4. It MUST also
+   * boundary and is not a license for a daemon id to be v4. It MUST also
    * emit the canonical `session.created` event before returning.
    */
   readonly createSession: (request: SessionCreateRequest) => Promise<SessionCreateResponse>;

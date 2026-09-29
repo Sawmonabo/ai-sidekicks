@@ -15,7 +15,7 @@
 // THE INCIDENT: `require` was reachable from the console.
 //
 // The hardening that keeps Node out of the renderer is a property of the BUILD, and a
-// build flavour is exactly the axis along which it regresses: the smoke probe
+// build flavor is exactly the axis along which it regresses: the smoke probe
 // asserts this against the smoke bundle through stdout, and this asserts it against
 // the fixtures bundle the console tiers run. The two cover two artifacts and neither
 // substitutes for the other.

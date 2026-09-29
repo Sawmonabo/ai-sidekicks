@@ -33,7 +33,7 @@ describe("the viewport controller — reconcile", () => {
 
   it("hands back the same snapshot reference until something changes", () => {
     // `useSyncExternalStore` tears the tree if the getter returns a fresh object
-    // per call, so this is a contract rather than an optimisation.
+    // per call, so this is a contract rather than an optimization.
     const { controller } = attachedController();
     controller.reconcile({ rows: syntheticRows(4), ...CALM });
     expect(controller.snapshot()).toBe(controller.snapshot());

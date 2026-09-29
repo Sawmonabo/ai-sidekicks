@@ -16,7 +16,7 @@
  * seen — a blank line after a paragraph becomes the inside of a list the moment the
  * next line starts with a marker, and a setext underline turns the paragraph above it
  * into a heading. One block of lag closes the setext case and not the list case; two
- * closes both, and a third would only delay memoisation without closing anything the
+ * closes both, and a third would only delay memoization without closing anything the
  * commonmark block grammar can still reinterpret.
  */
 export const MARKDOWN_SETTLE_LAG_BLOCKS = 2;

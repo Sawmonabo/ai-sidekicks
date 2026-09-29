@@ -837,7 +837,7 @@ describe("list", () => {
     expect(failure).toBeInstanceOf(WorkspaceServiceInvariantError);
     const invariantFailure = failure as WorkspaceServiceInvariantError;
     // NOT `workspace_row_unprojectable`. The row projected perfectly; the WRITE
-    // of that projection failed. Labelling it the other way sends an operator
+    // of that projection failed. Labeling it the other way sends an operator
     // to inspect a healthy row for what is a locked database.
     expect(invariantFailure.kind).toBe("stale_transition_durability_failure");
     expect(invariantFailure.workspaceId).toBe(workspaceId);
@@ -1128,7 +1128,7 @@ describe("lastError normalization", () => {
     const wrongOrder = scrubCredentials(truncateWorkspaceLastError(raw));
 
     // The truncation removed the `@` that anchors the userinfo pattern, so the
-    // scrubber no longer recognises what is left — and what is left is a live
+    // scrubber no longer recognizes what is left — and what is left is a live
     // prefix of the secret.
     expect(wrongOrder).toContain(OPAQUE_SECRET.slice(0, 6));
     // Paired with the production order over the identical input, which does not.
@@ -1189,7 +1189,7 @@ describe("lastError normalization", () => {
     const splitToken = `fatal: remote rejected gh${NUL_CHARACTER}p_0123456789abcdefgh`;
 
     // Production order (strip, then scrub): the halves rejoin into a token the
-    // scrubber recognises, and it is redacted.
+    // scrubber recognizes, and it is redacted.
     const normalized = normalizeWorkspaceLastError(splitToken);
     expect(normalized).not.toContain("ghp_");
     expect(normalized).not.toContain("0123456789abcdefgh");

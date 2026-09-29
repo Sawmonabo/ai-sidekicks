@@ -39,7 +39,7 @@ describe("pane registry — one owner per kind", () => {
     registry.register(afterEdit);
     expect(registry.registeredPaneKinds()).toStrictEqual(["diff"]);
     // Identity of the BODY, not shape and not of the descriptor object: the registry
-    // normalises both registration forms into a descriptor of its own, so what says
+    // normalizes both registration forms into a descriptor of its own, so what says
     // which body the pane layout mounts is the `render` it kept. The two registrations are
     // structurally identical, so a registry that kept the FIRST would satisfy every
     // shape assertion while the pane layout went on rendering the pre-edit body.

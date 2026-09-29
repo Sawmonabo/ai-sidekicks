@@ -38,7 +38,7 @@
 // `CodexInterventionRuntime` is a structural port satisfied by
 // `CodexLifecycleManager`. The dispatcher does not import the manager: the two
 // are composed in `index.ts`, which keeps the module graph acyclic (the manager
-// routes steering INTO this dispatcher's neighbour operations) and lets the
+// routes steering INTO this dispatcher's neighbor operations) and lets the
 // dispatcher be tested against a two-method fake rather than a live transport.
 //
 // Result shapes are produced through `DriverInterventionResultSchema.parse`, so

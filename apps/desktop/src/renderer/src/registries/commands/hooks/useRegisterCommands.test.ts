@@ -3,7 +3,7 @@
 // Two claims, and the second is the one a hand-written effect gets wrong. The first
 // is the ordinary lifecycle: rows are in the registry while the surface is mounted
 // and gone when it is not. The second is that a contribution SIGNALS — the palette
-// memoises its search against a revision, so a registration nothing announces is a
+// memoizes its search against a revision, so a registration nothing announces is a
 // command a person cannot find — and that a stale mount's teardown never clears a
 // live one's rows.
 
@@ -65,7 +65,7 @@ describe("a surface's command seat", () => {
 
     // The contribution itself is the signal: `registerCommands` would have
     // put the row in the registry and told nobody, which is a command the open
-    // palette has already memoised past.
+    // palette has already memoized past.
     expect(signals).toBeGreaterThan(0);
 
     mounted.unmount();

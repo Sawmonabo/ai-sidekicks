@@ -98,7 +98,7 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * about a lifetime. A ledger row that expires forty seconds in was a fixed `pending`
  * for the life of the window: every re-read past the expiry answered the state the
  * scenario had at tick zero, so the one thing that room was written to show — a row
- * ageing out — was unreachable from it. The instant comes off the engine's
+ * aging out — was unreachable from it. The instant comes off the engine's
  * own frozen clock, so it is the SAME timeline the beats are due on rather than a
  * second one a reply could drift from, and a computation that ignores it settles
  * exactly where it always did.

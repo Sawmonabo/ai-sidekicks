@@ -245,7 +245,7 @@ describe("ReplayTargetLedger", () => {
     expect(ledger.abandonmentCauseFor("target")).toBe("interior-refusal");
   });
 
-  it("burns one target without burning its neighbours", () => {
+  it("burns one target without burning its neighbors", () => {
     const ledger = new ReplayTargetLedger();
     ledger.abandon("target-a", "target-not-fresh");
     expect(() => ledger.assertUsable("target-b")).not.toThrow();

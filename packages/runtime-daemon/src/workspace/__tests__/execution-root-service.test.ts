@@ -40,7 +40,7 @@
 // the sweep retires worktrees whose MOUNT detached and cleans rows already
 // retired, and an orphan on an attached mount is in neither set.
 //
-// Also pinned here, each as a negative control for a neighbouring claim: a
+// Also pinned here, each as a negative control for a neighboring claim: a
 // supplied `branchName` is NOT re-derived (without which "the fallback fired"
 // does not discriminate), an empty `runId` does not unlock the fallback, and a
 // first bind does not double-begin.

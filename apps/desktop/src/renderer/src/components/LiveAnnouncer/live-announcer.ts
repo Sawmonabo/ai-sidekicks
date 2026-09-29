@@ -17,7 +17,7 @@
 //      speak through. This is why the announcer is a long-lived object with a
 //      `dispose()` rather than a function that renders something.
 //
-//   2. **Announcements are serialised, not overwritten.** A reader speaks one
+//   2. **Announcements are serialized, not overwritten.** A reader speaks one
 //      message at a time. Replacing a region's text a frame after setting it means
 //      the first message was never heard, so a second announcement arriving inside
 //      the hold window is QUEUED behind the standing one and published when it

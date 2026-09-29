@@ -155,7 +155,7 @@ export interface WorkflowDefinitionImportTarget {
  */
 export function serializeDefinitionFile(body: WorkflowVersionBody): string {
   const fileDocument = new Document({}, { version: "1.2", schema: "core" });
-  // Double-quoted deliberately and not left to the writer's own judgement: the value is
+  // Double-quoted deliberately and not left to the writer's own judgment: the value is
   // a string, and the quoting is what keeps it one on the way back in.
   const marker = new Scalar(body.schemaVersion);
   marker.type = Scalar.QUOTE_DOUBLE;

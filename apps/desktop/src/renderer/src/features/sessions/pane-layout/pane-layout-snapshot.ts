@@ -18,7 +18,7 @@
 //     is on disk; without a cap a corrupted or hand-edited record mounts an
 //     unbounded number of panes before anything can say no.
 //
-// AND ONE THE PANE LAYOUT'S OWN STORE STATES AND THIS FILE HAS TO HONOUR: **one entity,
+// AND ONE THE PANE LAYOUT'S OWN STORE STATES AND THIS FILE HAS TO HONOR: **one entity,
 // one pane**. `open()` enforces it by focusing the pane that already shows an
 // address, which repairs nothing it did not create — a record holding two pane ids
 // at one address would mount both bodies, consume two cap slots, and be written

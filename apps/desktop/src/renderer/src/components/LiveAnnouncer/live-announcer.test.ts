@@ -77,7 +77,7 @@ describe("LiveAnnouncer — the two lanes are independent speech channels", () =
   });
 });
 
-describe("LiveAnnouncer — announcements are serialised, never overwritten", () => {
+describe("LiveAnnouncer — announcements are serialized, never overwritten", () => {
   it("holds the second announcement until the first has had its window", () => {
     const { announcer, clock } = announcerOnManualClock();
 

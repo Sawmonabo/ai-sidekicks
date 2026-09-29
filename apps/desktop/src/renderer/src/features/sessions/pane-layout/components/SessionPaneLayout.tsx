@@ -17,9 +17,9 @@
 //     would then have two places to write. This component subscribes and dispatches.
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
 //     Rects are `rect/rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
-//   • **Rows are memoised.** A pane layout of four panes under a streaming session re-renders
+//   • **Rows are memoized.** A pane layout of four panes under a streaming session re-renders
 //     the pane whose store changed and not its neighbors, which is what the
-//     partitioned store buys and what an unmemoised map would give straight back.
+//     partitioned store buys and what an unmemoized map would give straight back.
 //   • **Keyboard before pointer.** Focus, move, and close are chords; resize is on
 //     the separator, which is focusable and operable with the arrow keys. A pane layout
 //     reachable only by dragging is a pane layout half the people using it cannot arrange.

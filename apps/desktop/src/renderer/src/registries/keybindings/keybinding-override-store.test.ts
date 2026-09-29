@@ -16,7 +16,7 @@ import { KEYBINDING_OVERRIDES_KEY } from "./keybinding-override-types.js";
  * This file's shipped table, authored on `Alt` rather than on `$mod`.
  *
  * `$mod` is resolved by tinykeys against the HOST at import time, and a press this
- * file synthesises has to name the modifier that resolution picked. Rather than
+ * file synthesizes has to name the modifier that resolution picked. Rather than
  * re-deriving that rule here — a second platform reading, which is exactly what the
  * console keeps to one place — the dispatch cases use a modifier that means the same
  * thing everywhere. What is under test is which command a chord runs, not which key

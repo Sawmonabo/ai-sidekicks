@@ -487,7 +487,7 @@ export function spawnElectron(): Promise<SpawnResult> {
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the application: an ordinary
           // reveal on macOS steals focus and switches the operator's Space on
-          // every spawn. Honoured by the smoke build only (see
+          // every spawn. Honored by the smoke build only (see
           // `src/main/window-reveal.ts`).
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
           // Give Chromium a session-bus address that fails FAST rather than

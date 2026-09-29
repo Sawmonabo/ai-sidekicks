@@ -60,7 +60,7 @@ const REPLACEMENT_CHARACTER = "�";
  *      `Array.from` iterates by CODE POINT, so a pair is one element and the
  *      cut can never fall inside it.
  *   2. The SOURCE message may already contain an unpaired surrogate, which no
- *      truncation strategy can fix because it was never a boundary artefact.
+ *      truncation strategy can fix because it was never a boundary artifact.
  *
  * Both matter because `encodeURIComponent` throws `URIError` on a lone
  * surrogate, and the one caller of {@link buildLoadFailureUrl} is a rejected

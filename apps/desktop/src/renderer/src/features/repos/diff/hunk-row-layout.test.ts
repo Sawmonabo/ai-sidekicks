@@ -19,7 +19,7 @@ const MODIFIED_PAIR: readonly DiffLine[] = [
 ];
 
 describe("hunk body layout — unified is the identity, and holds no array", () => {
-  it("reports one row per line without materialising them", () => {
+  it("reports one row per line without materializing them", () => {
     const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
     expect(layout.kind).toBe("identity");
     expect(hunkBodyRowCount(layout)).toBe(MODIFIED_PAIR.length);

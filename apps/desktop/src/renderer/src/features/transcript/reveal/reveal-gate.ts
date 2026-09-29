@@ -9,7 +9,7 @@
 // THE PROBLEM THIS SOLVES. A stream arrives one token at a time, so at any moment
 // the revealed tail may end mid-construct: `**bol` is not bold yet, and `[link`
 // is not a link yet. Publishing that tail means either rendering a half-open
-// construct — which the parser then closes at the end of the block, italicising
+// construct — which the parser then closes at the end of the block, italicizing
 // the rest of the message — or rendering the raw markers, which then vanish a
 // frame later. Both read as a glitch.
 //

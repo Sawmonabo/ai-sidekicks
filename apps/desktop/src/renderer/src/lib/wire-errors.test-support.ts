@@ -69,7 +69,7 @@ export function nullPrototypeValue(): unknown {
 /**
  * A value whose members answer a scripted sequence of readings, and no more.
  *
- * THE SHAPE THAT MAKES A SECOND READ VISIBLE, parameterised on the members because
+ * THE SHAPE THAT MAKES A SECOND READ VISIBLE, parameterized on the members because
  * the suites read different ones — an envelope's `code` and `message`, a refusal's
  * `code`, `detail` and `origin`, a refusal's list of failed bindings — and on the
  * answers because a second read is caught two ways. One answer means the member is

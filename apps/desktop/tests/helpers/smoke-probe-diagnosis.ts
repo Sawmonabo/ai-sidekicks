@@ -78,7 +78,7 @@ export const DIAGNOSTIC_COLLECTION_CEILING_MS: number =
 // measurement started one instant earlier than the bound it was compared
 // against. The cheap readings above sit in that gap, so a collection whose two
 // probes each ran to their cap measured strictly MORE than the budget it was
-// asserted to honour — the bound and its own measurement disagreed by
+// asserted to honor — the bound and its own measurement disagreed by
 // construction. One clock, one constant, set at the call site.
 //
 // The subprocess readings share ONE wall budget (DIAGNOSTIC_BUDGET_MS) rather
@@ -189,7 +189,7 @@ function renderDiagnosticDump(result: SpawnResult): string {
  * silently losing the very evidence the trail exists to provide.
  *
  * One instance PER STREAM. Sharing an instance across stdout and stderr would
- * splice the tail of one stream onto the head of the other and synthesise a
+ * splice the tail of one stream onto the head of the other and synthesize a
  * line neither of them emitted.
  */
 export class ReadinessLineScanner {

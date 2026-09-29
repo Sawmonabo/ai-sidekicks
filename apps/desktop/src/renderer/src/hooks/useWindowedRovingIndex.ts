@@ -114,7 +114,7 @@
 // reads as the more precise rule and is defeated by the value a virtualizer actually
 // hands back: a fresh array every render. The first run after the arm then already
 // compares unequal, so the one retry is spent before the reveal it exists for can
-// answer and the move focuses nothing at all. The caller cannot be asked to stabilise
+// answer and the move focuses nothing at all. The caller cannot be asked to stabilize
 // that value either — this family may not name the virtualizer's types, so the option
 // cannot say which of them to memoize on — which leaves a count of this hook's own
 // effect runs as the one bound it can hold without trusting its caller's identities.

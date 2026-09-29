@@ -28,7 +28,7 @@
 //     a nearest-neighbor guess.
 //
 // Reverse video IS reproduced, by swapping the two channels at render. It is a relation
-// between the two colors a span paints, so honouring it needs no palette the console
+// between the two colors a span paints, so honoring it needs no palette the console
 // lacks — only the console's OWN default pair for whichever channel the stream left
 // unset, which is what `ANSI_DEFAULT_COLORS` names and `tokens/palette.ts` resolves.
 
@@ -77,7 +77,7 @@ export type AnsiColorName = (typeof ANSI_COLOR_NAMES)[number];
  * The console's own two defaults, as channel values a span can paint.
  *
  * They exist for exactly one caller: reverse video. A stream that reverses without having
- * set both colors is reversing against the terminal's defaults, so honouring it needs a
+ * set both colors is reversing against the terminal's defaults, so honoring it needs a
  * name for "the color this body paints when the stream says nothing" on each channel.
  * These are those names, and `tokens/palette.ts` binds them, as aliases, to the same
  * two tokens the body itself reads — so the swap resolves to what the reader is
@@ -163,7 +163,7 @@ const REPRODUCED_DECORATIONS: ReadonlySet<string> = new Set<string>(ANSI_DECORAT
  *
  * The loop runs to the end of the entries once the cap is reached rather than returning
  * there: the remainder still has to be COUNTED, and it is counted over the same skip the
- * admitted half was built through. Walking an array anser has already materialised is
+ * admitted half was built through. Walking an array anser has already materialized is
  * the cheap half of this function.
  */
 export function parseAnsiSpans(
@@ -245,7 +245,7 @@ export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
  *
  * They are undone rather than rendered. The console binds `black` and `white` to two
  * points on its READING scale, so a run that reached the surface carrying anser's pair
- * would paint muted grey on faint grey — a substitution that is invisible in this
+ * would paint muted gray on faint gray — a substitution that is invisible in this
  * console and reversed in none.
  *
  * UNDOING THEM IS AMBIGUOUS AT EXACTLY TWO INPUTS, and the ambiguity is accepted rather

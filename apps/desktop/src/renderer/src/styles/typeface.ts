@@ -95,7 +95,7 @@
 //      so once it was on the root no descendant could narrow the feature again. As
 //      an `@font-face` DESCRIPTOR it is scoped by construction instead: it sets the
 //      initial features of that face, so it applies wherever the face is selected
-//      and nowhere else. Chromium honours the descriptor from 140 (`@font-face` /
+//      and nowhere else. Chromium honors the descriptor from 140 (`@font-face` /
 //      `font-feature-settings` on MDN's compatibility table, the `FontFace`
 //      interface's `featureSettings` surface); Electron 44 runs Chromium 152, read
 //      off the pinned binary on 2026-09-09. `tnum` is deliberately NOT declared —
@@ -243,7 +243,7 @@ interface TypefaceFace {
    *
    * A DESCRIPTOR rather than a property, so the feature is scoped to the face by
    * construction — see decision 6 in the header for why the root could not hold
-   * the scoping and what Chromium version honours this.
+   * the scoping and what Chromium version honors this.
    */
   readonly featureSettings: string | null;
   /** The emitted asset URL, resolved by the bundler from the package path. */

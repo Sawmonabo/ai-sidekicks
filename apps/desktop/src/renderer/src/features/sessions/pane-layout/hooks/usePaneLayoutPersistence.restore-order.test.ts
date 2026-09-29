@@ -120,7 +120,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // THE RECORD NAMES AN ADDRESS THAT IS NOT ON SCREEN, so the merge actually runs.
     // A record every one of whose addresses is already open adopts nothing and leaves
     // the pane layout untouched by construction, which is why the earlier shape of this case
-    // never reached the commit it was written to constrain: the merge equalised every
+    // never reached the commit it was written to constrain: the merge equalized every
     // live pane, so the drag the person had just finished was gone.
     //
     // The arriving pane takes the equal share a pane layout of three panes gives it and the two

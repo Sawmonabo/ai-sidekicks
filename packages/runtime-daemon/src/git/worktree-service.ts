@@ -564,7 +564,7 @@ const LIVE_WORKTREE_STATE_PREDICATE = "worktrees.state NOT IN ('retired', 'faile
  * idempotent response, `cleanupPass` skips the row and continues the pass —
  * while anything else propagates. Not a `DaemonDomainError` and not exported:
  * it names an internal concurrency event rather than anything a caller did
- * wrong, and it never escapes this module. Modelled on
+ * wrong, and it never escapes this module. Modeled on
  * `../workspace/workspace-service.js`'s `StaleTransitionRaceError` and
  * `../workspace/repo-mount-service.js`'s `MountDetachRaceError`.
  */
@@ -615,7 +615,7 @@ interface WorktreeRootRow {
    * The owning mount's canonical root, for the administrative-entry prune.
    * NULLABLE because the read LEFT-joins, not because a mount is expected to be
    * missing: the schema and this package's write set make the NULL unreachable,
-   * and `#selectUncleanedRetiredStmt` records why it is modelled anyway.
+   * and `#selectUncleanedRetiredStmt` records why it is modeled anyway.
    */
   readonly canonical_root: string | null;
 }

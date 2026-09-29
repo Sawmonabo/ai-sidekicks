@@ -9,9 +9,9 @@ export const PERSISTENCE_SESSION_PARTITION_CAP = 40;
 
 /**
  * Bytes one persisted UI-state RECORD may occupy: its partition, its key, its
- * class, and its serialised value together. A layout snapshot or an expansion set
+ * class, and its serialized value together. A layout snapshot or an expansion set
  * is kilobytes; anything past this is content that does not belong in the store,
- * so the cap is a second line of defence behind the value-class enumeration
+ * so the cap is a second line of defense behind the value-class enumeration
  * rather than a performance knob.
  *
  * The address is inside the cap rather than beside it because the address is

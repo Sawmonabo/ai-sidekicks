@@ -162,7 +162,7 @@ function boundPathFor(driverName: FlooredDriverName): string {
  * rather than listed.
  *
  * Deriving it is what keeps the suite honest across a demotion or a promotion:
- * a driver that stops probing drops out of every probe-behaviour block instead
+ * a driver that stops probing drops out of every probe-behavior block instead
  * of failing them for the wrong reason, and a driver that starts probing joins
  * them. Which drivers are currently in the set is pinned by its own test below,
  * so the membership is never allowed to change silently.
@@ -294,7 +294,7 @@ describe("the declared detection-mechanism table", () => {
   it("pins WHICH drivers probe — and the corpus still reads a real build", () => {
     // Claude's one candidate entry is `static` on a MEASURED gap (below), so
     // this driver dispatches nothing. Pinned rather than left implicit: a table
-    // edit that promotes or demotes an entry must re-derive the probe-behaviour
+    // edit that promotes or demotes an entry must re-derive the probe-behavior
     // blocks below rather than silently make them vacuous.
     expect([...PROBING_DRIVERS]).toStrictEqual(["codex"]);
     // …and the reading-of-the-installed-build requirement is still discharged

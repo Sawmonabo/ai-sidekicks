@@ -356,7 +356,7 @@ export type ClaudeTranscriptReplayProbe = (
  * A composed daemon binds this as a closure over the same
  * {@link ClaudeTranscriptReplayProbe} and the same resolved executable path that
  * the capability read uses. That is what keeps the declared flag and the
- * driver's behaviour from disagreeing about one build: two independently-sourced
+ * driver's behavior from disagreeing about one build: two independently-sourced
  * readings could differ, and a caller that passed the capability gate would then
  * be refused by the driver behind it. Sharing the surface-carrying reading also
  * keeps the structural guarantee intact — a `true` flag and an absent surface
@@ -490,7 +490,7 @@ export class ClaudeCapabilityReporter {
     const reading = await this.#readSpawnedVersion();
     // A reading taken from another driver's build would compose Claude's flags
     // against a foreign version — a daemon wiring fault, not provider
-    // misbehaviour, so it is an internal-invariant `Error`.
+    // misbehavior, so it is an internal-invariant `Error`.
     if (reading.driverName !== CLAUDE_DRIVER_NAME) {
       throw new Error(
         `ClaudeCapabilityReporter: refusing a spawned-version reading taken from driver '${reading.driverName}'`,

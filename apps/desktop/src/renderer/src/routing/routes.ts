@@ -101,7 +101,7 @@ export const DEFAULT_ROUTE: AppRoute = { kind: "sessions" };
  * of this function and not a hope about its input — the two ways a hash breaks a
  * parser are both closed below. Every percent-escape goes through
  * {@link decodeSegment}, and every empty segment is refused before an arm reads
- * one, so neither a `URIError` nor a silently normalised path leaves here.
+ * one, so neither a `URIError` nor a silently normalized path leaves here.
  */
 export function parseRoute(hash: string): AppRoute {
   const afterHash = hash.startsWith("#") ? hash.slice(1) : hash;

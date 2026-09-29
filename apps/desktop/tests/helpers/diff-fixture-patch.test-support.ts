@@ -70,7 +70,7 @@ export function buildPatchText(shape: DiffFixtureShape): string {
  *
  * WRITTEN OUT RATHER THAN GENERATED, because the whole subject is one exact pair of
  * lines: the deletion and the insertion carry the SAME text, and the only thing that
- * tells them apart is the marker on the second. A generator parameterised over this
+ * tells them apart is the marker on the second. A generator parameterized over this
  * would have one call site and would hide the one property the case is about.
  *
  * The marker is on the inserted side alone, which is what removing a newline looks

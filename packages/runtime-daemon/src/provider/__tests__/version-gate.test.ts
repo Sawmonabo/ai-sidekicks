@@ -84,7 +84,7 @@ class RecordingHandshake {
     const reply = this.#repliesByPath.get(request.resolvedExecutablePath);
     if (reply === undefined) {
       // A spawn of a path the fixture never registered is a test-design bug,
-      // not a provider behaviour — fail loudly rather than answering `undefined`
+      // not a provider behavior — fail loudly rather than answering `undefined`
       // and letting it read as an unparseable provider reply.
       return Promise.reject(
         new Error(`no handshake reply registered for ${request.resolvedExecutablePath}`),
@@ -421,7 +421,7 @@ describe("in-band version read — Codex initialize userAgent", () => {
   it("refuses a daemon-supplied client name that breaks the extraction rule", () => {
     // A DAEMON obligation, so its violation is an internal-invariant Error and
     // not a provider refusal: a name carrying '/' or whitespace would make the
-    // extraction ambiguous in the provider's favour.
+    // extraction ambiguous in the provider's favor.
     for (const badName of ["", "ai/sidekicks", "ai sidekicks"]) {
       expect(() =>
         extractCodexReportedVersion({ userAgent: codexUserAgent("0.149.1") }, badName),
@@ -637,7 +637,7 @@ describe("the binding carriers come from one reading", () => {
   it("records a version the reading produced, never one a caller supplied", () => {
     // Type-level: `cliVersion` is omitted from the input, so the only way to
     // reach the column pair is through a reading. Runtime-level: a stray member
-    // on an untyped caller's object is overwritten rather than honoured.
+    // on an untyped caller's object is overwritten rather than honored.
     const smuggled = {
       ...BASE_INPUT,
       cliVersion: { raw: "9.9.9", semver: "9.9.9" } satisfies DriverCliVersionReport,

@@ -13,7 +13,7 @@
 // emitted as its own chunk, with the two sheets `RunGraphCanvas.tsx` imports, and fetched
 // the first time a graph mounts.
 //
-// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoised: two
+// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
 // run panes mounting in one frame must not start two fetches, and a remount must not
 // re-enter the module. A module-level `let` holding that promise is the state
 // `apps/desktop/AGENTS.md` rejects, and it would also be untestable — there would be
@@ -54,7 +54,7 @@ export class RunGraphLoader {
       return { RunGraphCanvas };
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoising the rejection would leave every later mount for the
+      // transiently. Memoizing the rejection would leave every later mount for the
       // life of the window holding a failure that a second request would not have
       // reproduced, so the memo is dropped and the caller that asked still sees this
       // attempt's error.

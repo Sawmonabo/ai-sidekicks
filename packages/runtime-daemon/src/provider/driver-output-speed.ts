@@ -69,7 +69,7 @@ export const DRIVER_OUTPUT_SPEED_LEVELS: Readonly<Record<FlooredDriverName, read
  * only after reading `output_speed: true` for that driver — from a live
  * declaration or from the durable cache — so an unknown name means either a
  * driver was registered without an entry here or a cache row was written
- * out-of-band. Both are daemon wiring faults rather than provider misbehaviour,
+ * out-of-band. Both are daemon wiring faults rather than provider misbehavior,
  * and both would otherwise publish a `GetCapabilitiesResult` that violates its
  * own required-when-`output_speed` rule while looking well-formed. Loud is the
  * same discipline the writer's row-set-invariant guard takes.

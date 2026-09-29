@@ -31,7 +31,7 @@
 //
 // THE EMPTY STRING IS ABSENT, and that is the decision the name records. A wire
 // member present as `""` carries nothing a reader can render: every consumer renders
-// such a member as missing, so admitting it would only move the same judgement
+// such a member as missing, so admitting it would only move the same judgment
 // downstream into a caller that then has to make it again. A caller that ever needs
 // to tell an empty member from an absent one is reading a wire shape that should be
 // parsed by its registered schema rather than picked out of a body.

@@ -703,7 +703,7 @@ export class SessionContentKeyStore
    * forecloses rollback to a superseded wrap — the old envelope's AAD names the
    * old version and will not authenticate against the new one.
    *
-   * THROWS on the first row it cannot open, which is the intended behaviour:
+   * THROWS on the first row it cannot open, which is the intended behavior:
    * the caller's transaction rolls back, every row stays under the previous
    * master, and the all-or-nothing guarantee that rotation advertises holds
    * across both tables rather than only across one.
@@ -713,7 +713,7 @@ export class SessionContentKeyStore
    * a bump for a rotation that then throws costs a concurrent first mint one
    * spurious retry, while a bump deferred until after the re-wraps would leave
    * the window this fence exists to close open for exactly the duration of the
-   * work. Over-signalling is free; under-signalling loses a session's bodies.
+   * work. Over-signaling is free; under-signaling loses a session's bodies.
    * Bumped even when the table is empty — the master moved regardless, and a
    * mint that read the old one is already in flight.
    *

@@ -27,7 +27,7 @@ export type PersistenceReadOutcome =
  * The two answers that carry nothing, minted once each.
  *
  * A fresh object per read would be a new identity for a value with no fields, which
- * is a re-render for callers that memoise on the outcome and tells nobody anything.
+ * is a re-render for callers that memoize on the outcome and tells nobody anything.
  */
 export const PERSISTENCE_READ_ABSENT: PersistenceReadOutcome = Object.freeze({ outcome: "absent" });
 

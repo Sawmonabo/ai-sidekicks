@@ -15,8 +15,8 @@
 //
 // AND THE WAIT IS ON A STATE, NEVER ON A COUNT OF TURNS. `run-graph-settled.ts` states
 // the general reason and this surface supplies a sharper one: the compiler's door is
-// memoised (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
-// memoised promise is still a promise — the hook's own `then` lands on a later microtask
+// memoized (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
+// memoized promise is still a promise — the hook's own `then` lands on a later microtask
 // and installs the verdict through a state update, so resolving the compiler ahead of the
 // mount makes the hook's load CHEAP and does not make it synchronous. Before the memo
 // landed, that resolution reached the tree after `renderSettled`'s single macrotask

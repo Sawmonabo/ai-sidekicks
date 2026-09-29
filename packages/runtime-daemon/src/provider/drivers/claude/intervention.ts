@@ -79,7 +79,7 @@ import { ClaudeSessionUnavailableError, type ClaudeRunChannelLookup } from "./li
 // command. Its `DRIVER_FALLBACK_ACTION_MAX_LEN` bound is ENFORCED rather than
 // asserted: every result this module returns is built through
 // `DriverInterventionResultSchema.parse`, so an over-long or misshapen action
-// fails here instead of travelling as a malformed envelope.
+// fails here instead of traveling as a malformed envelope.
 export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 
 // The success-payload key carrying the uuids of async user messages that
@@ -161,7 +161,7 @@ export class ClaudeInterventionDispatcher {
       // A cancel the provider acknowledged while reporting survivors.
       // Also no `fallbackAction`: the survivors are already queued, so the
       // documented `queue_and_interrupt` fallback would re-queue what is queued,
-      // and naming any other verb here would invent daemon behaviour this band
+      // and naming any other verb here would invent daemon behavior this band
       // has no standing to specify.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }

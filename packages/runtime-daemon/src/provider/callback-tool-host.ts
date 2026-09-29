@@ -41,7 +41,7 @@
 //
 // Both refusals are recorded rather than silent: an operator whose callback
 // tools stopped appearing must be able to find out why from the diagnostic
-// channel rather than from the absence of a behaviour.
+// channel rather than from the absence of a behavior.
 //
 // ---------------------------------------------------------------------------
 // What is checked before the pipeline is consulted
@@ -262,7 +262,7 @@ export interface CallbackToolHostOptions {
   readonly activitySink: CallbackToolActivitySink;
   /**
    * OPTIONAL by design rather than by oversight: the daemon must be able to
-   * run before the pipeline is composed, and the two fail-closed behaviours
+   * run before the pipeline is composed, and the two fail-closed behaviors
    * above are what make that safe.
    */
   readonly approvalSeam?: CallbackToolApprovalSeam | undefined;
@@ -422,7 +422,7 @@ export class CallbackToolHost {
       return;
     }
     if (registryToken !== null && installed.token !== registryToken) {
-      // RECORDED, never silently honoured and never silently dropped: honouring
+      // RECORDED, never silently honored and never silently dropped: honoring
       // it would tear down the LIVE spawn's registry, and dropping it without a
       // record would leave an operator watching a teardown that did nothing.
       this.#recordReleaseIgnored(sessionId, registryToken, installed.token);
@@ -1183,7 +1183,7 @@ export function createCallbackToolAskResponder(
         if (approvalAskResponder === null) {
           // No diagnostic is emitted, and the omission is deliberate: the
           // `callback_tool_*` kinds name this host's own conditions, and
-          // labelling an approval refusal with one would misattribute it. The
+          // labeling an approval refusal with one would misattribute it. The
           // refusal is not silent — the reason travels to the provider on the
           // method's own refusal shape — and the approval band owns the
           // observability for the questions it is meant to answer.

@@ -70,7 +70,7 @@ export function generateMeridianCss(): string {
     " * `console/tokens/generate-css.ts` builds this text and",
     " * `console/frame/bindings/token-installation.ts` writes it into the document head",
     " * before first paint. A committed copy would be a second record of the",
-    " * palette, and the only defence against the two drifting would be a byte-diff",
+    " * palette, and the only defense against the two drifting would be a byte-diff",
     " * test whose failure mode is a forgotten regeneration command.",
     " *",
     " * Sources of truth: `console/tokens/palette.ts` for the color ramps and the",

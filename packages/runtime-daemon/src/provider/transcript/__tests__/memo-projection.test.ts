@@ -1626,7 +1626,7 @@ describe("memo delivery — only the coordinator that established a target sends
   );
 
   it("refuses to send into a target another coordinator established", async () => {
-    // The restart, modelled as callers actually experience it: the coordinator
+    // The restart, modeled as callers actually experience it: the coordinator
     // that made the ambiguous send is gone and its register with it, and what a
     // successor inherits is the REQUEST — the established target inside it
     // included. That successor knows nothing about the send still applying, so

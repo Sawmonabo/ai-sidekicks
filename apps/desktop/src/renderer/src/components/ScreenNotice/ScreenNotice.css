@@ -4,13 +4,13 @@
  * A route that resolves to no surface, composed as a deliberate state.
  *
  * A flex COLUMN with `justify-content: center`, not a grid with `place-items`. The
- * grid version centres each row inside its own stretched track, which pushes the
+ * grid version centers each row inside its own stretched track, which pushes the
  * copy into the top half and the hint into the bottom half with a hundred pixels of
  * nothing between two lines that belong together. Flex centring keeps the block
  * whole.
  *
- * The extra `padding-block-end` sits the block slightly above the true centre for
- * the reason every dialog does: dead-centre reads as low.
+ * The extra `padding-block-end` sits the block slightly above the true center for
+ * the reason every dialog does: dead-center reads as low.
  */
 .meridian-screen-notice {
   display: flex;
@@ -23,8 +23,8 @@
   text-align: center;
 }
 
-/* Left-aligned inside a centred block: the title is one line and the detail is two
-   or three, and centred prose makes a reader re-find the left edge on every line. */
+/* Left-aligned inside a centered block: the title is one line and the detail is two
+   or three, and centered prose makes a reader re-find the left edge on every line. */
 .meridian-screen-notice__body {
   display: flex;
   flex-direction: column;

@@ -8,7 +8,7 @@
 // sign a daemon's PASETO v4.public token, the key's custody, and the control
 // plane's verification of it are the (PASETO auth) and land later. Minting
 // a token here would mean inventing a claim set and a signing key that a real provider
-// then has to honour or break.
+// then has to honor or break.
 //
 // Declaring the interface NOW is not premature either: it is what lets the
 // uploader be written and reviewed against a real call shape instead of a

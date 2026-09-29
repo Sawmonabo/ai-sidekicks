@@ -1205,7 +1205,7 @@ export class ExecutionRootService {
    * policy.
    *
    * `failRootPreparation` is deliberately NOT the answer: the preparation SUCCEEDED, and
-   * labelling it a preparation failure would misreport which step broke.
+   * labeling it a preparation failure would misreport which step broke.
    *
    * The `branch_contexts` row is deleted, then the worktree retires. The row
    * records a binding that is provably dead: this call inserted it, and the

@@ -115,7 +115,7 @@ export class SettingsPageRegistry {
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
    * A loader-form registration is normalized here exactly as the pane layout's and the frame's
-   * boards normalize theirs: one `LoaderBackedBody` per registration — one memoised promise
+   * boards normalize theirs: one `LoaderBackedBody` per registration — one memoized promise
    * and one stable lazy component — and a descriptor whose `render` mounts it. So
    * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
    * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
@@ -157,7 +157,7 @@ export class SettingsPageRegistry {
    * Start this section's body loading, without opening it.
    *
    * The two `seats/` boards' `preload`: idempotent by construction, because the promise
-   * is memoised on the registration, and a component-form or unregistered section settles
+   * is memoized on the registration, and a component-form or unregistered section settles
    * immediately with nothing to do — so a caller never has to ask first whether a section
    * is loader-backed.
    *

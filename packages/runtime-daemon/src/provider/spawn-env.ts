@@ -19,7 +19,7 @@
  * resolves that reference and hands the RESOLVED `{ denyEnvVars, envNameMatch }`
  * to this builder; no code path in either driver expands a ref, and no code path
  * here invents a name-matching rule — the artifact records the host's env-name
- * case semantics under `envNameMatch`, and this module honours what it is told.
+ * case semantics under `envNameMatch`, and this module honors what it is told.
  *
  * ABSENT POLICY IS NOT A LOOSER POLICY. A request with no `credentialEnvPolicy`
  * strips nothing, which is correct: a `trusted` posture carries no policy at
@@ -31,9 +31,9 @@
  * pruning — keys on the REQUEST's `hostEnvNameMatch`. The credential-policy
  * artifact records the same fact for the host it was authored on, and a policy
  * that disagrees with this host is a wiring fault: it is REFUSED rather than
- * reconciled, because both reconciliations are wrong. Honouring the policy's
+ * reconciled, because both reconciliations are wrong. Honoring the policy's
  * value would let a case-sensitive artifact leave `path` in the child's
- * environment on a case-insensitive host; honouring the host's value silently
+ * environment on a case-insensitive host; honoring the host's value silently
  * would apply a deny list under semantics its author never assumed.
  */
 
@@ -60,7 +60,7 @@ export type SpawnEnvNameMatch = "case-sensitive" | "case-insensitive";
  * so every spawn site derives the value from one place rather than restating a
  * platform test, and takes the platform as an argument — rather than reading
  * `process.platform` itself — so the Windows shape is reachable from a suite
- * running anywhere, which is the neighbouring `resolveExecutableResolver`
+ * running anywhere, which is the neighboring `resolveExecutableResolver`
  * idiom.
  */
 export function hostEnvNameMatchForPlatform(platform: NodeJS.Platform): SpawnEnvNameMatch {

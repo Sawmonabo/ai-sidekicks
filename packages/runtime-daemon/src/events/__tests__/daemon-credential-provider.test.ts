@@ -3,7 +3,7 @@
 // This file covers the credential seam and the ONE shipped consumer of it —
 // `TrpcFetchAnchorUploadTransport`, whose call shape is the thing the
 // contract exists to constrain. It deliberately does NOT cover
-// `MerkleAnchorService`'s own behaviour (cadence, force-fire, queue drain);
+// `MerkleAnchorService`'s own behavior (cadence, force-fire, queue drain);
 // that is the file set.
 //
 // WHY THE CONSUMER'S CALL SHAPE IS PART OF THIS SEAM'S COVERAGE. RFC 9449 section 4.3
