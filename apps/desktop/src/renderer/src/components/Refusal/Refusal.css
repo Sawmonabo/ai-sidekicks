@@ -51,7 +51,7 @@
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-3);
   border: 1px solid var(--meridian-edge);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
 }

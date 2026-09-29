@@ -32,7 +32,7 @@ afterEach(() => {
 
 const CHAPTER_HEADER = ".meridian-run-group-header";
 const CHAPTER_DISCLOSURE = ".meridian-run-group-header__disclosure";
-const SEAT_ROW = ".meridian-ledger-viewport__row";
+const SEAT_ROW = ".meridian-transcript-viewport__row";
 
 /** A row seat mount with no ledger around it — the refusal case's input. */
 function outsideLedgerSlotProps(): TranscriptRowProps {

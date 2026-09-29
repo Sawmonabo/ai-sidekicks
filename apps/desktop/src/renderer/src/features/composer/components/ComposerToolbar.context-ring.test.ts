@@ -31,7 +31,7 @@ import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-rea
 describe("ComposerToolbar — absence before assertion", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {
     const container = mountToolbar([], ADDRESSED);
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
@@ -62,9 +62,9 @@ describe("ComposerToolbar — absence before assertion", () => {
     );
 
     for (const container of [nearFull, pastTheWindow]) {
-      expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
+      expect(container.querySelector(".meridian-context-ring__hint")).toBeNull();
       expect(
-        container.querySelector(".meridian-context-meter__fill")?.getAttributeNames(),
+        container.querySelector(".meridian-context-ring__fill")?.getAttributeNames(),
       ).toStrictEqual(["class", "style"]);
       expect(container.querySelector('[role="status"]')).toBeNull();
     }
@@ -95,10 +95,10 @@ describe("ComposerToolbar — absence before assertion", () => {
       ADDRESSED,
     );
 
-    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source")?.textContent).toContain(
       "estimated",
     );
-    expect(container.querySelector(".meridian-context-meter__source-note")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source-note")?.textContent).toContain(
       "approximate",
     );
   });
@@ -107,8 +107,8 @@ describe("ComposerToolbar — absence before assertion", () => {
     // Without this the case above would hold over a meter that explained itself on
     // every reading, which would make the two grades that matter invisible.
     const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
-    expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
-    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source-note")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring__source")?.textContent).toContain(
       "provider_reported",
     );
   });
@@ -195,7 +195,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
     // this composer's.
     const container = mountToolbar(BOTH_METERED, { entities: BOTH_AGENTS });
 
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(
       container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
     ).not.toBeNull();
@@ -232,7 +232,7 @@ describe("ComposerToolbar — a compaction moves the meter off its stale figure"
   it("returns to the absence where the boundary carried no count", () => {
     const container = mountToolbar([contextWindowEvent(1), compactionRow(2, {})], ADDRESSED);
 
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(
       container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
     ).not.toBeNull();

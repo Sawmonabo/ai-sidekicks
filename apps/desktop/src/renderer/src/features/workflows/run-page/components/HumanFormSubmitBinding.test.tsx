@@ -81,7 +81,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     expect(screen.getByRole("status").textContent).toContain(
       "The daemon recorded this answer and one output came of it.",
     );
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent ?? "").toContain(
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent ?? "").toContain(
       "The daemon recorded this answer",
     );
   });

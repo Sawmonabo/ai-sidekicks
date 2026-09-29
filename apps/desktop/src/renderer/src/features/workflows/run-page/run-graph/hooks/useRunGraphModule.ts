@@ -81,8 +81,8 @@ export function useRunGraphModule(loader: RunGraphLoader, isNeeded: boolean): Ru
             // a throw inside this handler escapes as an unhandled rejection, leaving
             // the graph at `loading` forever with nothing on screen saying why. No
             // fallback: the browser's own message is what says which fetch failed,
-            // and the synthesized `phase-graph-chunk-call-failed` names the seam.
-            refusal: normalizeWireRejection("phase-graph-chunk", loadError),
+            // and the synthesized `run-graph-chunk-call-failed` names the seam.
+            refusal: normalizeWireRejection("run-graph-chunk", loadError),
           });
         }
       },

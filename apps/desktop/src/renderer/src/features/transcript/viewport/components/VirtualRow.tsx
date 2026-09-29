@@ -81,7 +81,7 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
       <WindowedListRow
         as="div"
         role={LEDGER_ROW_ROLE}
-        className="meridian-ledger-viewport__row"
+        className="meridian-transcript-viewport__row"
         rowIndex={props.rowIndex}
         totalRowCount={props.totalRowCount}
         rowRef={attachRowElement}

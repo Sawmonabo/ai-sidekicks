@@ -37,7 +37,7 @@
  * A slot is a dotted boundary rather than a filled panel, so an empty one does not
  * compete with the surfaces around it that hold something.
  */
-.meridian-workflow__slot {
+.meridian-workflow__mount-point {
   display: flex;
   flex-direction: column;
   padding: var(--meridian-space-4);

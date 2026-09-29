@@ -29,20 +29,24 @@ export function RevokeRuleControl(props: {
   }
   if (!props.isConfirming) {
     return (
-      <button className="meridian-grants__revoke" type="button" onClick={props.onAsk}>
+      <button className="meridian-remembered-rules__revoke" type="button" onClick={props.onAsk}>
         Revoke
       </button>
     );
   }
   return (
-    <div className="meridian-grants__confirm" role="group" aria-label="Confirm the revocation">
-      <span className="meridian-grants__confirm-copy">
+    <div
+      className="meridian-remembered-rules__confirm"
+      role="group"
+      aria-label="Confirm the revocation"
+    >
+      <span className="meridian-remembered-rules__confirm-copy">
         Revoke this permission? The next matching request will be asked again.
       </span>
-      <button className="meridian-grants__revoke" type="button" onClick={props.onConfirm}>
+      <button className="meridian-remembered-rules__revoke" type="button" onClick={props.onConfirm}>
         Revoke it
       </button>
-      <button className="meridian-grants__cancel" type="button" onClick={props.onCancel}>
+      <button className="meridian-remembered-rules__cancel" type="button" onClick={props.onCancel}>
         Keep it
       </button>
     </div>

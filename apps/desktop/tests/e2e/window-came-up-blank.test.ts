@@ -77,7 +77,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       });
-      expect(await consoleWindow.locator(".meridian-surface-absence").count()).toBe(0);
+      expect(await consoleWindow.locator(".meridian-screen-notice").count()).toBe(0);
 
       // The COMPOSED absence, in a real window, which is the half of the pair that
       // makes the other half mean something: without it, "no absence wrapper on

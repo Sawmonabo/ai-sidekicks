@@ -13,14 +13,14 @@
  * no ceiling the deck took the height of whatever its panes wanted, so a pane whose
  * body overflowed pushed the deck past the workspace region and the pane's own
  * scroller never engaged — the surface below it laid out in full, off the bottom of
- * the window, and every list inside it mounted every row it held. `.meridian-ledger-surface`
+ * the window, and every list inside it mounted every row it held. `.meridian-transcript-surface`
  * carries the same ceiling one level up, and its rule states the measurement.
  *
  * A CEILING AND NOT A `height`: the two agree wherever the deck overflows and differ
  * where it does not, so this bounds the broken case and moves no layout that already
  * fitted.
  */
-.meridian-deck {
+.meridian-pane-layout {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -34,13 +34,13 @@
  * they cannot be overridden, so nothing here tries: the group is the row, and the
  * deck's own frame above carries anything that would have fought it.
  */
-.meridian-deck__group {
+.meridian-pane-layout__group {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
 }
 
-.meridian-deck__refusals {
+.meridian-pane-layout__refusals {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -52,7 +52,7 @@
  * the density floor rides its `minSize` — so what is left here is the pane's own
  * chrome and the marks a person reads off it.
  */
-.meridian-deck__pane {
+.meridian-pane-layout__pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -66,7 +66,7 @@
  * neighbours: a deck where the unfocused panes fade reads as a deck where they
  * have stopped working.
  */
-.meridian-deck__pane--focused {
+.meridian-pane-layout__pane--focused {
   border-inline-start-color: var(--meridian-accent);
 }
 
@@ -77,8 +77,8 @@
  * as a pseudo-element so it costs no node and no React render — the class changes,
  * and the class is set only when the target or the edge actually changes.
  */
-.meridian-deck__pane--drop-before::after,
-.meridian-deck__pane--drop-after::after {
+.meridian-pane-layout__pane--drop-before::after,
+.meridian-pane-layout__pane--drop-after::after {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -87,11 +87,11 @@
   pointer-events: none;
 }
 
-.meridian-deck__pane--drop-before::after {
+.meridian-pane-layout__pane--drop-before::after {
   inset-inline-start: 0;
 }
 
-.meridian-deck__pane--drop-after::after {
+.meridian-pane-layout__pane--drop-after::after {
   inset-inline-end: 0;
 }
 
@@ -101,7 +101,7 @@
  * paint. It is drawn as a hairline and hit as a bar — the width is the target and
  * the gradient is the line.
  */
-.meridian-deck__separator {
+.meridian-pane-layout__separator {
   width: var(--meridian-space-2);
   border: 0;
   background: linear-gradient(
@@ -113,8 +113,8 @@
   cursor: col-resize;
 }
 
-.meridian-deck__separator:hover,
-.meridian-deck__separator:focus-visible {
+.meridian-pane-layout__separator:hover,
+.meridian-pane-layout__separator:focus-visible {
   background: linear-gradient(
     to right,
     transparent 30%,
@@ -123,7 +123,7 @@
   );
 }
 
-.meridian-deck__separator:focus-visible {
+.meridian-pane-layout__separator:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
 }
@@ -144,11 +144,11 @@
  * `seats/pane-chrome.css` spends them, so one family declares the class and one
  * family decides the number, with nothing to order.
  */
-.meridian-deck[data-density="comfortable"] {
+.meridian-pane-layout[data-density="comfortable"] {
   --meridian-pane-head-padding-block: var(--meridian-space-3);
 }
 
-.meridian-deck[data-density="compact"] {
+.meridian-pane-layout[data-density="compact"] {
   --meridian-pane-head-padding-block: var(--meridian-space-1);
   --meridian-pane-head-font-size: var(--meridian-text-xs);
 }

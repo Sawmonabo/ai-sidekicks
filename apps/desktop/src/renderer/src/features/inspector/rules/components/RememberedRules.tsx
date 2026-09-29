@@ -85,43 +85,43 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
   }
 
   return (
-    <div className="meridian-grants">
+    <div className="meridian-remembered-rules">
       {props.unreadableCount > 0 ? (
-        <p className="meridian-grants__unreadable">
+        <p className="meridian-remembered-rules__unreadable">
           The reply carried rows this build could not read, so this list is shorter than what the
           daemon holds.
         </p>
       ) : null}
-      <ul className="meridian-grants__list">
+      <ul className="meridian-remembered-rules__list">
         {rulesInForce.map((rule) => (
-          <li className="meridian-grants__row" key={rule.ruleId}>
-            <div className="meridian-grants__line">
+          <li className="meridian-remembered-rules__row" key={rule.ruleId}>
+            <div className="meridian-remembered-rules__line">
               <Chip mono label={rule.category} />
               <Chip
                 label={describeRuleScope(rule.scope.kind)}
                 tone={asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"}
               />
-              <span className="meridian-grants__grantor">
+              <span className="meridian-remembered-rules__grantor">
                 granted by <WireFigure value={rule.userId} />
               </span>
               <WireFigure value={rule.grantedAt} />
             </div>
-            <div className="meridian-grants__detail">
+            <div className="meridian-remembered-rules__detail">
               {rule.scope.pattern === undefined ? (
-                <span className="meridian-grants__pattern">
+                <span className="meridian-remembered-rules__pattern">
                   No pattern, so this covers the whole category inside that boundary.
                 </span>
               ) : (
-                <span className="meridian-grants__pattern">
+                <span className="meridian-remembered-rules__pattern">
                   Pattern <WireFigure value={rule.scope.pattern} />
                 </span>
               )}
               {rule.runId === undefined ? null : (
-                <span className="meridian-grants__run">
+                <span className="meridian-remembered-rules__run">
                   Run <WireFigure value={rule.runId} />
                 </span>
               )}
-              <span className="meridian-grants__node">
+              <span className="meridian-remembered-rules__node">
                 Node <WireFigure value={rule.nodeId} />
               </span>
             </div>

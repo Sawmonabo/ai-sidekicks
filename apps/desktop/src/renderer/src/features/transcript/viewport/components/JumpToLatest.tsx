@@ -27,16 +27,16 @@ export function JumpToLatest(props: LedgerTailAffordanceProps): React.JSX.Elemen
     return null;
   }
   return (
-    <div className="meridian-ledger-viewport__tail">
+    <div className="meridian-transcript-viewport__tail">
       {reading.pinnedRootCursor === undefined ? null : (
-        <span className="meridian-ledger-viewport__pin" role="status">
+        <span className="meridian-transcript-viewport__pin" role="status">
           History is pinned. Nothing is being trimmed while you read.
         </span>
       )}
       {reading.mode === "reading-with-new-rows" ? (
         <button
           type="button"
-          className="meridian-ledger-viewport__pill"
+          className="meridian-transcript-viewport__pill"
           onClick={props.onJumpToTail}
         >
           <DerivedFigure text={formatCount(reading.newRowCount)} />

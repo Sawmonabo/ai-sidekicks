@@ -81,7 +81,7 @@ describe("workflow builder pane — with a definition to open", () => {
     // The strip renders children on its `ready` arm alone, so a pane that handed it
     // another state would drop these two silently.
     const section = renderPane(paneContext(ADDRESSED));
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(2);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(2);
   });
 });
 
@@ -99,7 +99,7 @@ describe("workflow builder pane — with an address it does not author", () => {
     // The refusal has to be the whole surface: a pane that refused in a banner and still
     // mounted its two slots would have composed the read the banner says it did not.
     const section = renderPane(paneContext(MISADDRESSED));
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(0);
   });
 
   it("negative control: the same pane opens on the kind it does author", () => {
@@ -107,6 +107,6 @@ describe("workflow builder pane — with an address it does not author", () => {
     // which would make the builder unreachable rather than fail-closed.
     const section = renderPane(paneContext(ADDRESSED));
     expect(section.querySelector(".meridian-refusal--banner")).toBeNull();
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(2);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(2);
   });
 });

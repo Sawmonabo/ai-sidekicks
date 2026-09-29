@@ -60,7 +60,9 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     expect(feed.querySelector(".meridian-find")).toBeNull();
     // Not `body`: the log is where the reader was, and it is focusable for exactly
     // this reason.
-    expect(document.activeElement).toBe(feed.querySelector(".meridian-ledger-viewport__surface"));
+    expect(document.activeElement).toBe(
+      feed.querySelector(".meridian-transcript-viewport__surface"),
+    );
   });
 
   it("states the seat's refusal when the same row is run with no ledger up", () => {

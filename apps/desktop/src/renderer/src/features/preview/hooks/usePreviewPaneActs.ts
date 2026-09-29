@@ -42,7 +42,7 @@ import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubject
 import type { PreviewPaneRefusalCode } from "../pane-refusals.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
-const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
+const PREVIEW_PANE_REFUSAL_ORIGIN = "preview-pane";
 
 /**
  * Which dispatched act is the newest one.
@@ -156,7 +156,7 @@ export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): Prev
         },
         (failure: unknown) => {
           if (sequence.isNewest(token)) {
-            publish(normalizeWireRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
+            publish(normalizeWireRejection(PREVIEW_PANE_REFUSAL_ORIGIN, failure, fallback));
           }
         },
       );
@@ -167,7 +167,7 @@ export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): Prev
   const refuseLocally = useCallback(
     (code: PreviewPaneRefusalCode, detail: string): void => {
       sequence.begin();
-      publish(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
+      publish(refuse(PREVIEW_PANE_REFUSAL_ORIGIN, code, detail));
     },
     [publish, sequence],
   );

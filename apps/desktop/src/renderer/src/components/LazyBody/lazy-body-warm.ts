@@ -37,7 +37,7 @@ import type { PreloadableRegistry } from "./lazy-body.js";
  * A floor rather than a target. `requestIdleCallback` is the right instrument and
  * Chromium has it, so this value is only ever reached in a test environment or a host
  * that has dropped the API; 200 ms is past the frame the launch is judged on
- * (`time-to-first-ledger-row`, 800 ms from window show) while still being sooner than a
+ * (`time-to-first-transcript-row`, 800 ms from window show) while still being sooner than a
  * person can cross the window to a control.
  */
 export const LAZY_BODY_WARM_FALLBACK_DELAY_MS = 200;

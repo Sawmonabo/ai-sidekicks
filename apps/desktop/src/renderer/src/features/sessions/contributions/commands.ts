@@ -66,7 +66,7 @@ const WHEN_SESSION_ACTIVE = "sessionActive";
  * The contribution door is owner-scoped, so composing twice — a hot reload, a second
  * test — replaces these rows instead of raising on their ids.
  */
-export const PANE_LAYOUT_COMMAND_OWNER = "workspace-deck";
+export const PANE_LAYOUT_COMMAND_OWNER = "pane-layout";
 
 /** Build the palette commands, given the acts each one performs. */
 export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly CommandDefinition[] {

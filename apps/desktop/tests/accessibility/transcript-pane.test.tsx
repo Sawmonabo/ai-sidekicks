@@ -154,7 +154,7 @@ describe("accessibility — the ledger", () => {
       // a feed that mounted them all, so without this the clean result below would
       // hold over a ledger that drew nothing.
       expect(
-        container.querySelectorAll(".meridian-ledger-viewport__row").length,
+        container.querySelectorAll(".meridian-transcript-viewport__row").length,
         "the ledger mounted no rows, so a clean axe result says nothing about a card",
       ).toBeGreaterThan(0);
 
@@ -169,7 +169,7 @@ describe("accessibility — the ledger", () => {
       // state if the surface actually reached it, and a scenario that had grown a
       // beat would put this file back on the loaded surface without saying so.
       expect(container.textContent).toContain("Nothing has happened in this session yet.");
-      expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(0);
+      expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });

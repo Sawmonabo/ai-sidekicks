@@ -52,7 +52,7 @@ function deferredAct(): {
   };
 }
 
-const PORT_REFUSAL = refuse("browser-pane", "open-external-failed", "The page did not open.");
+const PORT_REFUSAL = refuse("preview-pane", "open-external-failed", "The page did not open.");
 
 /** The subject an act belongs to: which bridge it went out on, and for which pane. */
 interface ActSubject {

@@ -45,7 +45,7 @@ beforeAll(resolveSchemaFormChunks);
 describe("an unfilled slot draws only its frame", () => {
   it.each(UNFILLED_SLOTS)("%s stands as one empty frame", (_name, element) => {
     const { container } = render(element);
-    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    const frames = container.querySelectorAll(".meridian-workflow__mount-point");
     expect(frames).toHaveLength(1);
     expect(frames[0]?.textContent).toBe("");
   });
@@ -108,7 +108,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     const body = vi.fn(() => <p>form body</p>);
     const { container } = await renderSwitchableMountPoint({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe("");
   });
 });
 
@@ -143,7 +143,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
 
     await slot.switchTo(undefined);
-    expect(slot.container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    expect(slot.container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe("");
     expect(recordTeardown).toHaveBeenCalledTimes(1);
 
     await slot.switchTo(SECOND_PHASE);

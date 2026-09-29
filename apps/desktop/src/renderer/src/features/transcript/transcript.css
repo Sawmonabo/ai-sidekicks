@@ -2,14 +2,14 @@
  * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
  *
  * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered workspace screen draws `.meridian-ledger-surface` before any pane
+ * eagerly registered workspace screen draws `.meridian-transcript-surface` before any pane
  * body has loaded.
  *
- *   • `.meridian-ledger-surface`, the workspace screen's wrapper (`TranscriptSurface.tsx`,
+ *   • `.meridian-transcript-surface`, the workspace screen's wrapper (`TranscriptSurface.tsx`,
  *     which imports this sheet).
- *   • `.meridian-ledger` and `.meridian-ledger__body`, the feed's grid
+ *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
- *   • `.meridian-ledger-retry`, worn by the viewport's failed-row control and by the
+ *   • `.meridian-transcript-retry`, worn by the viewport's failed-row control and by the
  *     ANSI output's.
  *
  * Every color is a Meridian custom property and every space a step on the scale, so
@@ -39,7 +39,7 @@
  * surface that overflows and differ for one that does not, and only this one leaves
  * every already-fitting surface exactly where it was.
  */
-.meridian-ledger-surface {
+.meridian-transcript-surface {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;
@@ -59,7 +59,7 @@
  * row on screen for a reason the reader did not ask for. The grid keeps the
  * window's track the whole remainder either way.
  */
-.meridian-ledger {
+.meridian-transcript-feed {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
@@ -74,14 +74,14 @@
  * row — be the element that scrolls: a `1fr` track floors at its content's min-content
  * height, so the log would grow the row instead of overflowing inside it.
  */
-.meridian-ledger__body {
+.meridian-transcript-feed__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
 }
 
-.meridian-ledger-retry {
+.meridian-transcript-retry {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
@@ -91,7 +91,7 @@
   cursor: pointer;
 }
 
-.meridian-ledger-retry:focus-visible {
+.meridian-transcript-retry:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

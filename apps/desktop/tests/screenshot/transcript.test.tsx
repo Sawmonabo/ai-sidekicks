@@ -135,7 +135,7 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
       // fold, and the viewport's reconcile all sit between the two, and a capture
       // is only worth pinning once every one of them has run.
       expect(
-        container.querySelectorAll(".meridian-ledger-row").length,
+        container.querySelectorAll(".meridian-transcript-row-layout").length,
         "no ledger row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
@@ -180,7 +180,7 @@ describe("screenshot — the ledger's empty state", () => {
     // scoping changed about them: a sentence read off the window is a sentence that
     // may be anywhere in it, and the claim this capture makes is that it is in the
     // box being photographed.
-    expect(ledgerBody.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
+    expect(ledgerBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
     expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
 
     await captureSettled(ledgerBody, "empty-session-light");

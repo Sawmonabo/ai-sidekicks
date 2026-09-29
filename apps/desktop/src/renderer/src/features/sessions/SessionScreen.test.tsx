@@ -12,7 +12,7 @@ describe("Workspace — what it composes", () => {
   it("renders the session header above the deck", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
-      expect(container.querySelector(".meridian-deck__pane")).not.toBeNull();
+      expect(container.querySelector(".meridian-pane-layout__pane")).not.toBeNull();
     });
     expect(container.querySelector(".meridian-session-header")).not.toBeNull();
     expect(container.querySelector(".meridian-session-header")?.textContent).toContain(SESSION_ID);

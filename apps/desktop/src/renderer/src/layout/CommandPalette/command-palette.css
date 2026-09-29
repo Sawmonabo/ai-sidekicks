@@ -135,7 +135,7 @@
   align-items: center;
   gap: var(--meridian-space-3);
   padding: var(--meridian-space-2) var(--meridian-space-4);
-  border-left: var(--meridian-attribution-edge) solid transparent;
+  border-left: var(--meridian-leading-edge) solid transparent;
   color: var(--meridian-text-muted);
   cursor: default;
   scroll-margin: var(--meridian-space-2);
@@ -240,7 +240,7 @@
 
 /* error — a red-edged row carrying the code and the message verbatim. */
 .command-palette__empty-state--error {
-  border-left: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-left: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   background: var(--meridian-red-ground);
   color: var(--meridian-red-text);
 }

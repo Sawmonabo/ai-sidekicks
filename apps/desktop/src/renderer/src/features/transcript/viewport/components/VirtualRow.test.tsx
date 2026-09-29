@@ -30,7 +30,7 @@ function renderMount(rowIndex: number, totalRowCount: number): HTMLElement {
       attachRow={(): void => {}}
     />,
   );
-  const row = container.querySelector<HTMLElement>(".meridian-ledger-viewport__row");
+  const row = container.querySelector<HTMLElement>(".meridian-transcript-viewport__row");
   if (row === null) {
     throw new Error("LedgerRowMount rendered no row element");
   }

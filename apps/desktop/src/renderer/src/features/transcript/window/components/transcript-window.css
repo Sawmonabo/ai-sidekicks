@@ -28,7 +28,7 @@
 
 .meridian-transcript-window-skeleton__row {
   height: var(--meridian-space-4);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
   animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;

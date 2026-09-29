@@ -127,7 +127,8 @@ export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridi
  * two budget readings in this tier need the second claim and the churn loop needs
  * the first, so both selectors live here and neither tier spells one itself.
  */
-export const TRANSCRIPT_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-ledger-row";
+export const TRANSCRIPT_ROW_SELECTOR: string =
+  ".meridian-frame__surface .meridian-transcript-row-layout";
 
 /**
  * Assign the hash and wait for the surface only that route mounts.

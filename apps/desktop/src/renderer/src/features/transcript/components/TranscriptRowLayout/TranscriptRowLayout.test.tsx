@@ -44,7 +44,7 @@ function renderRow(element: React.JSX.Element): HTMLElement {
 }
 
 function edgeOf(row: HTMLElement): HTMLElement {
-  const edge = row.querySelector(".meridian-ledger-row__edge");
+  const edge = row.querySelector(".meridian-transcript-row-layout__edge");
   if (!(edge instanceof HTMLElement)) {
     throw new Error("TranscriptRowLayout rendered no attribution edge");
   }
@@ -83,7 +83,7 @@ describe("TranscriptRowLayout — attribution fails closed rather than into some
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
       `var(--meridian-${formatHueWheelTokenName(7)})`,
     );
-    expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(false);
+    expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(false);
   });
 
   it("refuses to wrap or clamp a step that is off the wheel", () => {
@@ -95,7 +95,7 @@ describe("TranscriptRowLayout — attribution fails closed rather than into some
     for (const step of offWheelSteps) {
       const row = basicRow({ agentHueStep: step });
       const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
-      expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(true);
+      expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(true);
       expect(hue).toBe("var(--meridian-edge-strong)");
       // The control that names the defect: a modulo wrap would land step 12 on
       // step 0's hue and step 15 on step 3's, and both would still render.
@@ -116,7 +116,9 @@ describe("TranscriptRowLayout — attribution fails closed rather than into some
 
 describe("TranscriptRowLayout — no formatted figure hides the value the daemon sent", () => {
   it("shows the clock reading and carries the exact instant in `title`", () => {
-    const gutterFigure = basicRow().querySelector(".meridian-ledger-row__gutter .meridian-figure");
+    const gutterFigure = basicRow().querySelector(
+      ".meridian-transcript-row-layout__gutter .meridian-figure",
+    );
     expect(gutterFigure?.getAttribute("title")).toBe(OCCURRED_AT);
     expect(gutterFigure?.textContent).toBe(formatClockTime(OCCURRED_AT));
     // The control: the visible text is a READING, so it must not be the wire value
@@ -152,7 +154,9 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
       );
     }
     // The control that the re-renders were real: the row's own text moved.
-    expect(container.querySelector(".meridian-ledger-row__kind")?.textContent).toBe("tool.result");
+    expect(container.querySelector(".meridian-transcript-row-layout__kind")?.textContent).toBe(
+      "tool.result",
+    );
     expect(formatter).toHaveBeenCalledTimes(1);
 
     // ...and the memo is keyed on the instant rather than frozen at mount, so a row
@@ -167,13 +171,14 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
     );
     expect(formatter).toHaveBeenCalledTimes(2);
     expect(
-      container.querySelector(".meridian-ledger-row__gutter .meridian-figure")?.textContent,
+      container.querySelector(".meridian-transcript-row-layout__gutter .meridian-figure")
+        ?.textContent,
     ).toBe(formatter.mock.results[1]?.value);
   });
 
   it("renders the event kind mono and verbatim", () => {
     const kind = basicRow({ kindLabel: "  usage.context_compacted  " }).querySelector(
-      ".meridian-ledger-row__kind .meridian-figure--wire",
+      ".meridian-transcript-row-layout__kind .meridian-figure--wire",
     );
     expect(kind?.textContent).toBe("  usage.context_compacted  ");
   });
@@ -182,14 +187,14 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
 describe("TranscriptRowLayout — superseded rows and the revealed footer", () => {
   it("marks a superseded row in its class and in visible text", () => {
     const row = basicRow({ isSuperseded: true });
-    expect(row.classList.contains("meridian-ledger-row--superseded")).toBe(true);
-    expect(row.querySelector(".meridian-ledger-row__superseded-mark")?.textContent).toBe(
+    expect(row.classList.contains("meridian-transcript-row-layout--superseded")).toBe(true);
+    expect(row.querySelector(".meridian-transcript-row-layout__superseded-mark")?.textContent).toBe(
       "Superseded",
     );
 
     const ordinary = basicRow();
-    expect(ordinary.classList.contains("meridian-ledger-row--superseded")).toBe(false);
-    expect(ordinary.querySelector(".meridian-ledger-row__superseded-mark")).toBeNull();
+    expect(ordinary.classList.contains("meridian-transcript-row-layout--superseded")).toBe(false);
+    expect(ordinary.querySelector(".meridian-transcript-row-layout__superseded-mark")).toBeNull();
   });
 
   it("renders the footer into the tree so Tab can reach it, and omits it when empty", () => {
@@ -197,9 +202,9 @@ describe("TranscriptRowLayout — superseded rows and the revealed footer", () =
     // element is IN the tree while hidden. A footer conditionally mounted on hover
     // is unreachable by keyboard, which is the failure rule 7's reveal must avoid.
     const withFooter = basicRow({ footer: <button type="button">Edit</button> });
-    expect(withFooter.querySelector(".meridian-ledger-row__footer button")?.textContent).toBe(
-      "Edit",
-    );
-    expect(basicRow().querySelector(".meridian-ledger-row__footer")).toBeNull();
+    expect(
+      withFooter.querySelector(".meridian-transcript-row-layout__footer button")?.textContent,
+    ).toBe("Edit");
+    expect(basicRow().querySelector(".meridian-transcript-row-layout__footer")).toBeNull();
   });
 });

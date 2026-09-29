@@ -30,7 +30,7 @@ export function EngineMountPoint<TMount extends object>(
 ): React.JSX.Element {
   const { body: MountPointBody, mount } = props;
   return (
-    <div className="meridian-workflow__slot">
+    <div className="meridian-workflow__mount-point">
       {MountPointBody === undefined || mount === undefined ? null : <MountPointBody {...mount} />}
     </div>
   );

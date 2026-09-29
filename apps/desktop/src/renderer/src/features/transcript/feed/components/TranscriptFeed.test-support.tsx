@@ -82,7 +82,7 @@ export function renderFeed(
       />
     </PlatformBridgeProvider>,
   );
-  const feed = container.querySelector(".meridian-ledger");
+  const feed = container.querySelector(".meridian-transcript-feed");
   if (!(feed instanceof HTMLElement)) {
     throw new Error("LedgerFeed rendered no ledger element");
   }

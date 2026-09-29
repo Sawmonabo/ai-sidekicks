@@ -92,7 +92,7 @@ export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
   const { nodes, edges } = useRunGraphElements(props.layout);
 
   return (
-    <div className="meridian-phase-graph__canvas">
+    <div className="meridian-run-graph__canvas">
       <ReactFlow
         aria-label={props.label}
         nodes={nodes}

@@ -90,7 +90,7 @@ function renderDeck(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElemen
       <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
     </DeckWindow>,
   );
-  const deck = container.querySelector(".meridian-deck");
+  const deck = container.querySelector(".meridian-pane-layout");
   if (!(deck instanceof HTMLElement)) {
     throw new Error("Deck rendered no deck element");
   }
@@ -153,7 +153,7 @@ describe("the deck's panes", () => {
     const second = layout.open({ kind: "inspector", entity: { kind: "worktree", id: "you" } });
     const deck = renderDeck(layout, registryWith({ kind: "inspector" }));
     expect(second).toBe(first);
-    expect(deck.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    expect(deck.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });
 
   it("puts a separator between panes and none before the first", () => {
@@ -215,7 +215,7 @@ describe("the deck's panes", () => {
     // tree: the announcer's polite region carries that role too and renders above
     // everything, so a bare role selector would find an empty live region.
     expect(
-      container.querySelector('.meridian-deck__refusals[role="status"]')?.textContent,
+      container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
     ).toContain("written by a different version");
   });
 });

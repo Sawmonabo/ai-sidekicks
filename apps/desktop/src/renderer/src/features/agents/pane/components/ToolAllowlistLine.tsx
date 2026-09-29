@@ -35,7 +35,7 @@ export function ToolAllowlistLine(props: {
   readonly position: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   return (
-    <p className="meridian-agent-card__tool-grant">
+    <p className="meridian-agent-card__tool-allowlist">
       <span className="meridian-agent-card__line-label">Tool grant</span>{" "}
       {positionSentence(props.position)}
     </p>

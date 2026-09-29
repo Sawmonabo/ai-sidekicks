@@ -98,7 +98,7 @@ describe("a waiting phase is answerable where the pane shows it", () => {
   it("draws only its empty frame where no phase is waiting on a person", async () => {
     const container = await renderMountPoint(undefined);
     expect(container.querySelector(".meridian-schema-answer")).toBeNull();
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe("");
   });
 });
 

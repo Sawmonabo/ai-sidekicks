@@ -4,7 +4,7 @@
 // `getBoundingClientRect`, so "the canvas stays inside its wrapper" passes there over a
 // canvas painted past it — which is exactly the state this file exists to prevent.
 //
-// THE CANVAS KEEPS A FLOOR. `.meridian-phase-graph` takes its content's own minimum, so
+// THE CANVAS KEEPS A FLOOR. `.meridian-run-graph` takes its content's own minimum, so
 // the canvas's floor never overflows the wrapper's edge onto whatever follows it; these
 // cases measure that in a real layout engine rather than asserting it about a
 // stylesheet's text.
@@ -62,8 +62,8 @@ function declaredCanvasFloorPx(canvas: HTMLElement): number {
 describe("browser — the phase graph stays inside its own box", () => {
   it("is contained by the wrapper that is supposed to bound it", async () => {
     const graph = await mountWithPaintedGraph();
-    const wrapper = requireElement(graph, ".meridian-phase-graph").getBoundingClientRect();
-    const canvas = requireElement(graph, ".meridian-phase-graph__canvas").getBoundingClientRect();
+    const wrapper = requireElement(graph, ".meridian-run-graph").getBoundingClientRect();
+    const canvas = requireElement(graph, ".meridian-run-graph__canvas").getBoundingClientRect();
 
     // Said about the pair rather than about a sibling: whatever else the surface
     // grows, a child painting past its own parent's edge is the mechanism.
@@ -78,9 +78,9 @@ describe("browser — the phase graph stays inside its own box", () => {
     // as a percentage of the box above it — which resolves to nothing wherever that
     // box has no definite block size of its own.
     const graph = await mountWithPaintedGraph();
-    const canvasElement = requireElement(graph, ".meridian-phase-graph__canvas");
+    const canvasElement = requireElement(graph, ".meridian-run-graph__canvas");
     const declaredFloorPx = declaredCanvasFloorPx(canvasElement);
-    const paintedRoot = requireElement(graph, ".meridian-phase-graph .react-flow");
+    const paintedRoot = requireElement(graph, ".meridian-run-graph .react-flow");
 
     expect(declaredFloorPx).toBeGreaterThan(0);
     expect(paintedRoot.getBoundingClientRect().height).toBeGreaterThanOrEqual(
@@ -94,10 +94,8 @@ describe("browser — the phase graph stays inside its own box", () => {
     // satisfy the case above and still show an operator nothing. The canvas is
     // `overflow: hidden`, so a node outside its rect is a node nobody can see.
     const graph = await mountWithPaintedGraph();
-    const canvas = requireElement(graph, ".meridian-phase-graph__canvas").getBoundingClientRect();
-    const nodes = [
-      ...graph.querySelectorAll<HTMLElement>(".meridian-phase-graph .react-flow__node"),
-    ];
+    const canvas = requireElement(graph, ".meridian-run-graph__canvas").getBoundingClientRect();
+    const nodes = [...graph.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node")];
     expect(nodes.length).toBeGreaterThan(0);
 
     const insideCanvas = nodes.filter((node) => {

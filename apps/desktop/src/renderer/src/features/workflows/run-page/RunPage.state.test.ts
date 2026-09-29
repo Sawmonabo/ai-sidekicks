@@ -20,7 +20,7 @@ describe("workflow run pane — the arms and what each offers", () => {
     expect(section.querySelector(".meridian-nothing--empty")).not.toBeNull();
     // One slot, and it is the conversational start: an empty pane offers the start
     // affordance, which is the empty state as designed rather than a fallback.
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(1);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(1);
   });
 
   it("offers no start affordance beside a run it already names", () => {
@@ -32,6 +32,6 @@ describe("workflow run pane — the arms and what each offers", () => {
       "One run's state",
     );
     expect(section.querySelector(".meridian-nothing")).toBeNull();
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(0);
   });
 });

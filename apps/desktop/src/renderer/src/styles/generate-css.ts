@@ -222,7 +222,7 @@ function invariantBlock(): string {
   for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
-  lines.push(declaration("attribution-edge", `${LEADING_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   // The reflow floor. Emitted rather than written into `frame.css` as a literal
   // because it is the palette's number and the frame is only the first thing to

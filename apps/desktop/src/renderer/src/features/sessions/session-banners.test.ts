@@ -53,7 +53,7 @@ describe("the workspace banner stack", () => {
       SAVE_FAILED.code,
       "This window's sidebar arrangement could not be saved.",
     );
-    const otherCode = refuse(SAVE_FAILED.origin, "workspace.no_mounted_deck", SAVE_FAILED.detail);
+    const otherCode = refuse(SAVE_FAILED.origin, "pane-layout.not_mounted", SAVE_FAILED.detail);
     const otherOrigin = refuse("persistence", SAVE_FAILED.code, SAVE_FAILED.detail);
 
     expect(raiseAll(SAVE_FAILED, otherDetail, otherCode, otherOrigin)).toHaveLength(4);

@@ -93,7 +93,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   const { snapshot } = binding;
 
   return (
-    <div className="meridian-ledger-viewport">
+    <div className="meridian-transcript-viewport">
       <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
        * The head act, floating over the top of the surface exactly as the tail
@@ -103,7 +103,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
        */}
       {props.earlierHistoryControl}
       <div
-        className="meridian-ledger-viewport__surface"
+        className="meridian-transcript-viewport__surface"
         ref={binding.attachSurface}
         // The feed role is claimed only while there is something to be a feed OF,
         // and the articles it owns are `VirtualRow`'s half of the same claim.
@@ -125,7 +125,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
         tabIndex={0}
       >
         <div
-          className="meridian-ledger-viewport__sizer"
+          className="meridian-transcript-viewport__sizer"
           ref={binding.attachSizer}
           role="presentation"
         >

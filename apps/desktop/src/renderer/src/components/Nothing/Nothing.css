@@ -31,7 +31,7 @@
 .meridian-nothing--block.meridian-nothing--not-loaded {
   padding-block: var(--meridian-space-3);
   padding-inline-start: var(--meridian-space-4);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
 }
 
 .meridian-nothing__skeleton-bar {
@@ -83,7 +83,7 @@
 
 /* `error`: the red edge and ground are the kind's, at either shape. */
 .meridian-nothing--error {
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   background: var(--meridian-red-ground);
 }
 

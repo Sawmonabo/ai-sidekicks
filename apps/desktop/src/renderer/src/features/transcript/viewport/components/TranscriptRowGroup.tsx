@@ -35,7 +35,7 @@ export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Elemen
           <RefusalCard
             {...rowProjectionRefusal(props.groupLabel, error)}
             action={
-              <button type="button" className="meridian-ledger-retry" onClick={retry}>
+              <button type="button" className="meridian-transcript-retry" onClick={retry}>
                 Try again
               </button>
             }

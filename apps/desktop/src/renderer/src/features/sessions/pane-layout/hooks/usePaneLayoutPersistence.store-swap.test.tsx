@@ -33,7 +33,7 @@ const PROBE_RECORD: PersistedLayoutRecord = { $probe: { version: 1 } };
 
 /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
 function cycleDeckFocus(container: HTMLElement): void {
-  const deck = container.querySelector(".meridian-deck");
+  const deck = container.querySelector(".meridian-pane-layout");
   expect(deck).not.toBeNull();
   if (deck !== null) {
     fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
@@ -56,7 +56,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     // replaced store re-renders this subtree rather than remounting it.
     const { container, rerender } = render(workspaceFor(session, retiredStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(session, storeOver(liveAdapter), false));
@@ -126,14 +126,14 @@ describe("Workspace — the restore runs once for the session on screen", () => 
 
     const { container, rerender } = render(workspaceFor(session, firstStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(session, secondStore, false));
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();
 
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
 
   it("negative control: the second store's record really is a one-pane deck", async () => {
@@ -145,7 +145,7 @@ describe("Workspace — the restore runs once for the session on screen", () => 
 
     const { container } = render(workspaceFor(session, secondStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
   });
 });

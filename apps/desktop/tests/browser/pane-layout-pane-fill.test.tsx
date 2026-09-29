@@ -65,15 +65,15 @@ async function mountPaneInDeckSlot(): Promise<MountedDeckPane> {
   installMeridianTokens(document);
   const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
-    <div className="meridian-deck" style={{ height: `${String(DECK_HEIGHT_PX)}px` }}>
-      <div className="meridian-deck__group" style={RESIZABLE_GROUP_LAYOUT}>
-        <div className="meridian-deck__pane">
+    <div className="meridian-pane-layout" style={{ height: `${String(DECK_HEIGHT_PX)}px` }}>
+      <div className="meridian-pane-layout__group" style={RESIZABLE_GROUP_LAYOUT}>
+        <div className="meridian-pane-layout__pane">
           <TerminalPane {...terminalPaneContext(undefined, bridge)} />
         </div>
       </div>
     </div>,
   );
-  const slot = container.querySelector(".meridian-deck__pane");
+  const slot = container.querySelector(".meridian-pane-layout__pane");
   const pane = container.querySelector(".meridian-pane");
   if (!(slot instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
     throw new Error("the pane did not mount into a deck slot");

@@ -80,7 +80,7 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
               // The ledger family's action-slot control, already the shape a `Nothing`
               // action takes in this family. A second class for one more control would
               // be the second styling of one decision.
-              className="meridian-ledger-retry"
+              className="meridian-transcript-retry"
               onClick={() => {
                 setRevealed({ source: props.source, spanCap: spans.length + elidedSpanCount });
               }}

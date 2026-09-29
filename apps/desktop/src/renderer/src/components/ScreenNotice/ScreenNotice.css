@@ -12,7 +12,7 @@
  * The extra `padding-block-end` sits the block slightly above the true centre for
  * the reason every dialog does: dead-centre reads as low.
  */
-.meridian-surface-absence {
+.meridian-screen-notice {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -25,7 +25,7 @@
 
 /* Left-aligned inside a centred block: the title is one line and the detail is two
    or three, and centred prose makes a reader re-find the left edge on every line. */
-.meridian-surface-absence__body {
+.meridian-screen-notice__body {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -33,7 +33,7 @@
   text-align: start;
 }
 
-.meridian-surface-absence__hint {
+.meridian-screen-notice__hint {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);

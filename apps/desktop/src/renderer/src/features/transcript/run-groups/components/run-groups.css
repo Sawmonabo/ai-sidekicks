@@ -22,7 +22,7 @@
   align-items: baseline;
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
@@ -88,7 +88,7 @@
   overflow-anchor: auto;
   margin: 0;
   padding: 0;
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   list-style: none;
 }
 

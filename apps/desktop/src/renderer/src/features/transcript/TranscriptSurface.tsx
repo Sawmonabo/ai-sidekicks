@@ -14,5 +14,5 @@ export interface TranscriptSurfaceProps {
  * screen rather than with the lazy pane chunk.
  */
 export function TranscriptSurface(props: TranscriptSurfaceProps): React.JSX.Element {
-  return <div className="meridian-ledger-surface">{props.children}</div>;
+  return <div className="meridian-transcript-surface">{props.children}</div>;
 }

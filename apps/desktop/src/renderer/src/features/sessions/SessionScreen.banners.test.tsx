@@ -68,13 +68,13 @@ async function storeWithSavedLayouts(): Promise<{
 
 async function awaitRestoredDeck(container: HTMLElement): Promise<void> {
   await waitFor(() => {
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
 }
 
 /** Commit one arrangement, and let the write it queues settle. */
 async function commitArrangement(container: HTMLElement): Promise<void> {
-  const deck = container.querySelector(".meridian-deck");
+  const deck = container.querySelector(".meridian-pane-layout");
   expect(deck).not.toBeNull();
   if (deck !== null) {
     fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });

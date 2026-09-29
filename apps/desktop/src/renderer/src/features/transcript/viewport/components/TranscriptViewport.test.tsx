@@ -174,7 +174,7 @@ describe("the ledger viewport — the feed", () => {
       />,
     );
     expect(screen.getByRole("feed", { name: "Session timeline" })).toBeDefined();
-    const mounted = container.querySelectorAll(".meridian-ledger-viewport__row");
+    const mounted = container.querySelectorAll(".meridian-transcript-viewport__row");
     expect(mounted.length).toBeGreaterThan(0);
     expect(mounted.length).toBeLessThan(LONG_LOG_ROW_COUNT / 4);
   });
@@ -194,12 +194,12 @@ describe("the ledger viewport — the feed", () => {
         feedLabel="Session timeline"
       />,
     );
-    const sizer = container.querySelector(".meridian-ledger-viewport__sizer");
+    const sizer = container.querySelector(".meridian-transcript-viewport__sizer");
     expect(sizer).not.toBeNull();
     expect(sizer?.getAttribute("style")).toContain("height");
-    const mountedIndexes = [...container.querySelectorAll(".meridian-ledger-viewport__row")].map(
-      (element) => Number(element.getAttribute("data-index")),
-    );
+    const mountedIndexes = [
+      ...container.querySelectorAll(".meridian-transcript-viewport__row"),
+    ].map((element) => Number(element.getAttribute("data-index")));
     expect(mountedIndexes[0]).toBe(0);
     expect(mountedIndexes.at(-1)).toBeLessThan(LONG_LOG_ROW_COUNT - 1);
   });
@@ -314,7 +314,7 @@ describe("the ledger viewport — the feed", () => {
     // scrollbar. Sharing the key would have left one row where the projection sent
     // two, because the library's caches are keyed by item key.
     expect(screen.getByText("Some entries share an identifier.")).toBeDefined();
-    expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(2);
   });
   it("scrolls the surface through the binding its caller owns", () => {
     withLaidOutViewport();
@@ -329,7 +329,7 @@ describe("the ledger viewport — the feed", () => {
         holder={holder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    const surface = container.querySelector<HTMLElement>(".meridian-transcript-viewport__surface");
     expect(surface).not.toBeNull();
     expect(surface?.scrollTop).toBe(0);
     act(() => {
@@ -354,7 +354,7 @@ describe("the ledger viewport — the feed", () => {
         holder={detachedHolder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    const surface = container.querySelector<HTMLElement>(".meridian-transcript-viewport__surface");
     expect(surface).not.toBeNull();
     act(() => {
       detachedHolder.binding?.jumpToTail();

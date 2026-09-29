@@ -367,7 +367,7 @@ describe("the phase graph and the park cards of one run", () => {
   it("captions the graph rather than inferring a topology no read carries", async () => {
     const container = await renderGraphAndParks(PARKED_RUN);
 
-    expect(container.querySelector(".meridian-phase-graph__caption")?.textContent ?? "").toContain(
+    expect(container.querySelector(".meridian-run-graph__caption")?.textContent ?? "").toContain(
       "has not been read here",
     );
   });

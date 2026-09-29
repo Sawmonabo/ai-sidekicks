@@ -253,14 +253,14 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
 
   return (
     <div
-      className="meridian-deck"
+      className="meridian-pane-layout"
       data-density={state.density}
       role="group"
       aria-label="Open panes"
       onKeyDown={onKeyDown}
     >
       {refusals.length === 0 ? null : (
-        <div className="meridian-deck__refusals" role="status">
+        <div className="meridian-pane-layout__refusals" role="status">
           {refusals.map((refusal, position) => (
             <InlineRefusal
               key={`${refusal.code}-${String(position)}`}
@@ -274,7 +274,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
         <Nothing kind="empty" placement="surface" title="No panes are open." />
       ) : (
         <Group
-          className="meridian-deck__group"
+          className="meridian-pane-layout__group"
           elementRef={containerReference}
           orientation="horizontal"
           defaultLayout={defaultLayout}
@@ -285,7 +285,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
             <Fragment key={pane.paneId}>
               {position === 0 ? null : (
                 <Separator
-                  className="meridian-deck__separator"
+                  className="meridian-pane-layout__separator"
                   aria-label="Resize the pane to the left"
                 />
               )}

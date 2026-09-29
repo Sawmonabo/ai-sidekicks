@@ -11,9 +11,9 @@ import type { PaneLayoutActName, PaneLayoutActs } from "./pane-layout-acts.js";
  * for would answer a question they did not ask.
  */
 export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
-  "workspace",
-  "workspace.no_mounted_deck",
-  "No deck of panes is open in this window. Open a session and try again.",
+  "pane-layout",
+  "pane-layout.not_mounted",
+  "No panes are open in this window. Open a session and try again.",
 );
 
 /** What asking the seat to perform an act produced. */

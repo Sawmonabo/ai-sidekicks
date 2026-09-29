@@ -112,7 +112,7 @@ function fittedViewportTransform(surface: HTMLElement): string | undefined {
  * (`browser/workflow-run-geometry.test.tsx`), which measures the canvas by name.
  */
 function isGraphPainted(surface: HTMLElement): boolean {
-  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-phase-graph .react-flow");
+  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
   if (paintedRoot === null) {
     return false;
   }
@@ -120,7 +120,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
   if (rootBox.height <= 0 || rootBox.width <= 0) {
     return false;
   }
-  return [...surface.querySelectorAll<HTMLElement>(".meridian-phase-graph .react-flow__node")].some(
+  return [...surface.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node")].some(
     (node) => {
       const nodeBox = node.getBoundingClientRect();
       return (
@@ -145,7 +145,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
  * knows draws a graph.
  */
 export function isRunGraphSettled(surface: HTMLElement): boolean {
-  if (surface.querySelector(".meridian-phase-graph") === null) {
+  if (surface.querySelector(".meridian-run-graph") === null) {
     return true;
   }
   return fittedViewportTransform(surface) !== undefined && isGraphPainted(surface);
@@ -164,7 +164,7 @@ export function isRunGraphSettled(surface: HTMLElement): boolean {
  * is the only clock that answers it.
  */
 export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> {
-  if (surface.querySelector(".meridian-phase-graph") === null) {
+  if (surface.querySelector(".meridian-run-graph") === null) {
     return;
   }
   await waitFor(

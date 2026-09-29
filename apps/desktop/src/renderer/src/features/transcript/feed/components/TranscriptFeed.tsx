@@ -148,9 +148,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   });
 
   return (
-    <div className="meridian-ledger">
+    <div className="meridian-transcript-feed">
       <TranscriptFeedHeader findAndJump={findAndJump} />
-      <div className="meridian-ledger__body">
+      <div className="meridian-transcript-feed__body">
         <RetainedRowStateProvider channel={rowLeaseChannel}>
           <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport

@@ -43,7 +43,7 @@ function toolsRowTextOf(container: HTMLElement): string {
 }
 
 function grantLineTextOf(container: HTMLElement): string {
-  return container.querySelector(".meridian-agent-card__tool-grant")?.textContent ?? "";
+  return container.querySelector(".meridian-agent-card__tool-allowlist")?.textContent ?? "";
 }
 
 describe("agent card — the effective binding", () => {

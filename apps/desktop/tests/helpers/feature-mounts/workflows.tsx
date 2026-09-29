@@ -273,7 +273,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
  *
  * The presentational piece alone, because no surface composes it until the run read is
  * built. The graph renderer is its own lazily-loaded chunk, so a reader waits on
- * `phase-graph-settled.ts` before it reads the picture.
+ * `run-graph-settled.ts` before it reads the picture.
  */
 export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
   const { container } = await renderSettled(<RunGraphSection phases={PARKED_RUN.phaseStates} />);

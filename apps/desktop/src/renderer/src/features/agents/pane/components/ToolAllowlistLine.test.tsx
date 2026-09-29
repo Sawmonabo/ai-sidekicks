@@ -15,7 +15,7 @@ import { AgentBindingCard } from "./AgentBindingCard.js";
 import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
 
 function lineTextOf(container: HTMLElement): string {
-  return container.querySelector(".meridian-agent-card__tool-grant")?.textContent ?? "";
+  return container.querySelector(".meridian-agent-card__tool-allowlist")?.textContent ?? "";
 }
 
 /** A list of exactly `count` distinct tool names, which is all these cases need. */

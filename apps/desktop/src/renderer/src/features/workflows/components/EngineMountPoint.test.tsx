@@ -17,7 +17,7 @@ const PROBE_MOUNT: ProbeMount = { sessionId: "ses-slot-mount" };
 
 /** Assert the frame stands once and holds nothing: no text and no absence block. */
 function expectEmptyFrame(container: HTMLElement): void {
-  const frames = container.querySelectorAll(".meridian-workflow__slot");
+  const frames = container.querySelectorAll(".meridian-workflow__mount-point");
   expect(frames).toHaveLength(1);
   expect(frames[0]?.textContent).toBe("");
   expect(container.querySelector(".meridian-nothing--empty")).toBeNull();

@@ -62,7 +62,7 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
 describe("an unfilled builder slot is an empty frame", () => {
   it.each(unfilledSlots())("%s stands as its own frame and holds nothing", (_name, element) => {
     const { container } = render(element);
-    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    const frames = container.querySelectorAll(".meridian-workflow__mount-point");
     expect(frames).toHaveLength(1);
     expect(frames[0]?.childElementCount).toBe(0);
     expect(frames[0]?.textContent).toBe("");
@@ -91,7 +91,9 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
       workflowDefinitionId: DEFINITION_ID,
       uiStateStore,
     });
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("canvas body");
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe(
+      "canvas body",
+    );
   });
 
   it("hands the drafts the definition and the window store, and no durable store", () => {

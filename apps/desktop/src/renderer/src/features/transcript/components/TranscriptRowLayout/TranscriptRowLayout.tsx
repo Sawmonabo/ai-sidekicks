@@ -12,7 +12,7 @@
 //     terms ("the twelve user hues … are never used as text") and which would
 //     also cost every row a contrast argument. A 2 px edge carries identity at a
 //     glance without ever sitting behind a glyph. The width is the palette's
-//     `--meridian-attribution-edge`, so rule 1's number lives in one place.
+//     `--meridian-leading-edge`, so rule 1's number lives in one place.
 //   • **The footer is revealed, never added.** Rule 7: "secondary controls live one
 //     click away — a row's hover footer or its context menu — never as a second
 //     visible button." Revealing on `:hover` alone would hide the row's affordances
@@ -83,35 +83,35 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
   };
 
   const className = [
-    "meridian-ledger-row",
-    isAttributed ? "" : "meridian-ledger-row--unattributed",
-    props.isSuperseded === true ? "meridian-ledger-row--superseded" : "",
+    "meridian-transcript-row-layout",
+    isAttributed ? "" : "meridian-transcript-row-layout--unattributed",
+    props.isSuperseded === true ? "meridian-transcript-row-layout--superseded" : "",
   ]
     .filter((part) => part !== "")
     .join(" ");
 
   return (
     <article className={className} aria-labelledby={actorId}>
-      <span className="meridian-ledger-row__edge" style={edgeStyle} aria-hidden="true" />
-      <div className="meridian-ledger-row__gutter">
-        <span className="meridian-ledger-row__actor" id={actorId}>
+      <span className="meridian-transcript-row-layout__edge" style={edgeStyle} aria-hidden="true" />
+      <div className="meridian-transcript-row-layout__gutter">
+        <span className="meridian-transcript-row-layout__actor" id={actorId}>
           {props.authorLabel}
         </span>
         <WireFigure value={occurredAtClockTime} title={props.occurredAtIso} />
       </div>
-      <div className="meridian-ledger-row__body">
-        <div className="meridian-ledger-row__meta">
-          <span className="meridian-ledger-row__kind">
+      <div className="meridian-transcript-row-layout__body">
+        <div className="meridian-transcript-row-layout__meta">
+          <span className="meridian-transcript-row-layout__kind">
             <WireFigure value={props.kindLabel} />
           </span>
           {props.isSuperseded === true ? (
-            <span className="meridian-ledger-row__superseded-mark">Superseded</span>
+            <span className="meridian-transcript-row-layout__superseded-mark">Superseded</span>
           ) : null}
         </div>
         {props.children}
       </div>
       {props.footer !== undefined ? (
-        <div className="meridian-ledger-row__footer">{props.footer}</div>
+        <div className="meridian-transcript-row-layout__footer">{props.footer}</div>
       ) : null}
     </article>
   );

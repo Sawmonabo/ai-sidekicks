@@ -103,11 +103,11 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     }
 
     const paneClassName = [
-      "meridian-deck__pane",
-      props.isFocused ? "meridian-deck__pane--focused" : undefined,
+      "meridian-pane-layout__pane",
+      props.isFocused ? "meridian-pane-layout__pane--focused" : undefined,
       props.dropIndicator === undefined
         ? undefined
-        : `meridian-deck__pane--drop-${props.dropIndicator}`,
+        : `meridian-pane-layout__pane--drop-${props.dropIndicator}`,
     ]
       .filter((token): token is string => token !== undefined)
       .join(" ");

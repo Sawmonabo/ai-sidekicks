@@ -86,6 +86,6 @@ describe("AppProviders — the rail's three destinations, and where the window i
     // again if the family stopped registering, and a check for "something is on
     // screen" would not notice.
     expect(mounted.container.querySelectorAll(".meridian-workflows-destination")).toHaveLength(1);
-    expect(mounted.container.querySelector(".meridian-surface-absence")).toBeNull();
+    expect(mounted.container.querySelector(".meridian-screen-notice")).toBeNull();
   });
 });

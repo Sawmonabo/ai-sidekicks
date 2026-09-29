@@ -48,7 +48,7 @@ describe("AppRouter — a registered slot", () => {
       const { container } = render(<AppRouter context={context} />);
 
       expect(container.textContent).toContain("the workflow builder rendered");
-      expect(container.querySelector(".meridian-surface-absence")).toBeNull();
+      expect(container.querySelector(".meridian-screen-notice")).toBeNull();
     } finally {
       screenRegistry.unregister("workflows");
     }

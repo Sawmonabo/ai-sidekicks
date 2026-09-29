@@ -40,7 +40,7 @@ describe("Workspace — the saved arrangement", () => {
   it("opens the ledger alone when nothing was saved", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
     expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
   });
@@ -52,7 +52,7 @@ describe("Workspace — the saved arrangement", () => {
     await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
     expect(
       [...container.querySelectorAll("[data-body]")].map((body) => body.getAttribute("data-body")),
@@ -76,7 +76,7 @@ describe("Workspace — the saved arrangement", () => {
     await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
     const record = await store.read(SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     const value = record?.value as Record<string, unknown> | undefined;
@@ -94,19 +94,19 @@ describe("Workspace — the saved arrangement", () => {
       // Scoped to the deck's own refusal strip: the announcer's polite region
       // carries `role="status"` too and renders above every surface.
       expect(
-        container.querySelector('.meridian-deck__refusals[role="status"]')?.textContent,
+        container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
       ).toContain("written by a different version");
     });
     // Discarded WHOLE: the deck falls back to the ledger rather than adopting the
     // pane the unknown record happened to name.
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });
 });
 
 describe("Workspace — navigating between two sessions the shell already has open", () => {
   /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
   function cycleDeckFocus(container: HTMLElement): void {
-    const deck = container.querySelector(".meridian-deck");
+    const deck = container.querySelector(".meridian-pane-layout");
     expect(deck).not.toBeNull();
     if (deck !== null) {
       fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
@@ -126,7 +126,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     // One write in flight against a closed gate, and a second arrangement waiting
@@ -151,7 +151,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     });
     adapter.releaseReads();
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
 
     const filedUnderSecond = adapter.asked.filter((write) => write.partition === SESSION_B_ID);
@@ -169,12 +169,12 @@ describe("Workspace — navigating between two sessions the shell already has op
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, true));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(otherSession(), store, true));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
     expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
   });
@@ -189,7 +189,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(otherSession(), store, false));
@@ -197,6 +197,6 @@ describe("Workspace — navigating between two sessions the shell already has op
       const record = await store.read(SESSION_B_ID, PANE_LAYOUT_RECORD_KEY);
       expect(record).not.toBeUndefined();
     });
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
 });

@@ -20,7 +20,7 @@ import { PROBE_SESSION_ID } from "../../workflows-probe.test-support.js";
 describe("the conversational start's frame", () => {
   it("stands empty while no body is supplied", () => {
     const { container } = render(<ChatStartMountPoint sessionId={PROBE_SESSION_ID} />);
-    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    const frames = container.querySelectorAll(".meridian-workflow__mount-point");
     expect(frames).toHaveLength(1);
     expect(frames[0]?.textContent).toBe("");
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();

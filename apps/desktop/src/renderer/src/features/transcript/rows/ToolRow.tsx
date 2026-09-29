@@ -126,7 +126,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
               // The second class is the primitives family's reveal slot: the row owns
               // WHEN a secondary control appears and this family owns what it is, so
               // neither sheet has to name the other's class.
-              className="meridian-tool-card__disclosure meridian-ledger-row__revealed"
+              className="meridian-tool-card__disclosure meridian-transcript-row-layout__revealed"
               aria-expanded={isOpen}
               onClick={props.onDensityToggle}
             >

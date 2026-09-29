@@ -165,15 +165,15 @@ describe("the recording and retiring entry points", () => {
   it("the retiring pair reaches the same process registry the recorders do", () => {
     expect(developmentPerformanceMeters).not.toBeNull();
     developmentPerformanceMeters?.reset();
-    recordFrameTime("ledger-frame#900", 9);
-    recordRevealDrain("ledger-frame#900/ledger-reveal-drain#1", 40);
+    recordFrameTime("transcript-frame#900", 9);
+    recordRevealDrain("transcript-frame#900/transcript-reveal-drain#1", 40);
     expect(developmentPerformanceMeters?.seriesCount).toBe(2);
 
-    retireFrameTimeSeries("ledger-frame#900");
-    retireRevealDrainSeries("ledger-frame#900/ledger-reveal-drain#1");
+    retireFrameTimeSeries("transcript-frame#900");
+    retireRevealDrainSeries("transcript-frame#900/transcript-reveal-drain#1");
 
     expect(developmentPerformanceMeters?.seriesCount).toBe(0);
-    expect(developmentPerformanceMeters?.reading("frame-time", "ledger-frame#900")).toBeNull();
+    expect(developmentPerformanceMeters?.reading("frame-time", "transcript-frame#900")).toBeNull();
     developmentPerformanceMeters?.reset();
   });
 

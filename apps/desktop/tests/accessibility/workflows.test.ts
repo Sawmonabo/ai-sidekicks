@@ -124,7 +124,7 @@ describe("accessibility — the workflows surfaces", () => {
         required: ["reviewers"],
       },
     });
-    // The subject, stated before it is read, on the phase-graph line's reasoning above:
+    // The subject, stated before it is read, on the run-graph line's reasoning above:
     // a form still waiting for its compiler draws no finding at all, so an audit taken
     // there covers a repeated control without the verdict this case is about.
     expect(isSchemaFormSettled(container)).toBe(true);

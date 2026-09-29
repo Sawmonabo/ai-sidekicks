@@ -81,7 +81,7 @@ describe("browser — the token sheet reaches the cascade", () => {
   });
 
   it("carries the attribution edge and the motion durations as real values", () => {
-    expect(tokenValue("attribution-edge")).toBe(`${String(LEADING_EDGE_WIDTH_PX)}px`);
+    expect(tokenValue("leading-edge")).toBe(`${String(LEADING_EDGE_WIDTH_PX)}px`);
     expect(tokenValue("motion-settle")).toBe(`${String(MOTION_DURATIONS_MS["motion-settle"])}ms`);
   });
 

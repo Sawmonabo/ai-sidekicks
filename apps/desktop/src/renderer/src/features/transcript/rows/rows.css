@@ -106,7 +106,7 @@
 }
 
 /* The row-hover arm is the PRIMITIVE's, reached by the class the disclosure carries:
-   `meridian-ledger-row` is the primitives family's, and a rule here naming it would
+   `meridian-transcript-row-layout` is the primitives family's, and a rule here naming it would
    make the reveal depend on which of the two sheets the bundler emits last. These two
    arms name only this family's own class, so they stay. */
 .meridian-tool-card__disclosure:focus-visible,
