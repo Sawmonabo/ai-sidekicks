@@ -13,9 +13,9 @@ import { railDestinationFor } from "@renderer/routing/route-readers.js";
 import type { FrameStore } from "@renderer/store/window/window-store.js";
 import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
 import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { PaletteOverlay } from "../CommandPalette/CommandPalette.js";
-import { describeScope } from "../CommandPalette/describe-palette-scope.js";
-import type { PaletteOverlayProps } from "../CommandPalette/hooks/useCommandPalette.js";
+import { CommandPalette } from "../CommandPalette/CommandPalette.js";
+import { describePaletteScope } from "../CommandPalette/describe-palette-scope.js";
+import type { CommandPaletteProps } from "../CommandPalette/hooks/useCommandPalette.js";
 import {
   RAIL_ENTRIES,
   routeForDestination,
@@ -24,13 +24,13 @@ import {
 import { AppFrame } from "./AppFrame.js";
 
 /** What the window hands its shell: its store, its screens, its palette, and the screen. */
-export interface ConsoleFrameProps {
+export interface AppShellProps {
   readonly frameStore: FrameStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
   readonly surfaceRegistry: ConsoleSurfaceRegistry;
   /** The palette's window-owned props: its `when` context, bindings, open state and revision. */
   readonly palette: Pick<
-    PaletteOverlayProps,
+    CommandPaletteProps,
     "context" | "bindings" | "revision" | "open" | "onOpenChange"
   >;
   /** The screen the route names. */
@@ -38,7 +38,7 @@ export interface ConsoleFrameProps {
 }
 
 /** The window's chrome around the routed screen. */
-export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
+export function AppShell(props: AppShellProps): React.JSX.Element {
   const { frameStore, surfaceRegistry, palette } = props;
   const route = useFrameStore(frameStore, (state) => state.route);
   const banners = useFrameStore(frameStore, (state) => state.banners);
@@ -62,11 +62,11 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
         frameStore.dismissBanner(bannerId);
       }}
       overlays={
-        <PaletteOverlay
+        <CommandPalette
           {...palette}
           registry={consoleCommands}
           platform={HOST_CHORD_PLATFORM}
-          scopeLabel={describeScope(route)}
+          scopeLabel={describePaletteScope(route)}
         />
       }
     >

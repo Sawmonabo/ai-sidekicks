@@ -33,7 +33,7 @@ import {
 } from "@renderer/registries/keybindings/keybinding-chord.js";
 import {
   type KeyBindingTable,
-  type KeyBindingTarget,
+  type KeybindingTarget,
 } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 import type { PaletteReadiness } from "../PaletteEmptyState.js";
@@ -46,7 +46,7 @@ import {
 } from "../palette-latch.js";
 
 /** What the mount hands the palette overlay: the registry, the live context, and the acts. */
-export interface PaletteOverlayProps {
+export interface CommandPaletteProps {
   readonly registry: CommandRegistry;
   /**
    * The context keys — live on the way in and CAPTURED at the open transition, so a
@@ -78,11 +78,11 @@ export interface PaletteOverlayProps {
   /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly overlayContainer?: HTMLElement | null;
   /** Listener target for the open chord. Defaults to `window`. */
-  readonly chordTarget?: KeyBindingTarget;
+  readonly chordTarget?: KeybindingTarget;
 }
 
 /** What the render reads. Every field is settled before the component's first JSX line. */
-export interface PaletteOverlayState {
+export interface CommandPaletteState {
   readonly query: string;
   readonly setQuery: (query: string) => void;
   readonly groups: readonly CommandResultGroup[];
@@ -98,7 +98,7 @@ export interface PaletteOverlayState {
   readonly resultCountLabel: string;
 }
 
-export function usePaletteOverlay(props: PaletteOverlayProps): PaletteOverlayState {
+export function useCommandPalette(props: CommandPaletteProps): CommandPaletteState {
   const { registry, context, open, onOpenChange, scopeLabel, revision, chordTarget } = props;
 
   const [query, setQuery] = useState("");
@@ -222,7 +222,7 @@ export function usePaletteOverlay(props: PaletteOverlayProps): PaletteOverlaySta
     if (!parsed.ok) {
       return undefined;
     }
-    const target: KeyBindingTarget = chordTarget ?? window;
+    const target: KeybindingTarget = chordTarget ?? window;
     const listener = (event: Event): void => {
       if (!(event instanceof KeyboardEvent) || event.repeat || event.isComposing) {
         return;

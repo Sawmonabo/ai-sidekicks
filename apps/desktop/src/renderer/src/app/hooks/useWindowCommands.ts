@@ -14,31 +14,31 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { FrameStore } from "@renderer/store/window/window-store.js";
-import { subscribeToConsoleFamilyContributions } from "@renderer/registries/commands/command-contributions.js";
+import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
 import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 import {
   consoleCommands,
-  registerConsoleCommands,
+  registerCommands,
   type ConsoleWhenClauseContext,
 } from "@renderer/registries/commands/window-command-registry.js";
 import { useKeybindingSurface } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
 import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
-import type { PaletteOverlayProps } from "@renderer/layout/CommandPalette/hooks/useCommandPalette.js";
+import type { CommandPaletteProps } from "@renderer/layout/CommandPalette/hooks/useCommandPalette.js";
 import { buildNavigationCommands } from "@renderer/layout/NavigationRail/navigation-commands.js";
 
 /** What the window's own commands are built against: this window's route, stores and screens. */
-export interface FrameCommandSurfaceInput {
+export interface WindowCommandsInput {
   readonly route: ConsoleRoute;
   /**
    * The session this window has in hand, which outlives a route that names none;
    * `sessionActive` is derived from it rather than from the route.
    */
   readonly lastOpenedSessionId: string | undefined;
-  readonly frameStore: FrameStore;
+  readonly windowStore: FrameStore;
   /**
    * This window's durable store, for the keybinding overrides: a rebound chord is
    * installed whether or not anybody opens the Keyboard page.
@@ -53,10 +53,16 @@ export interface FrameCommandSurfaceInput {
  * props for this window: its `when` context, its bindings, its open state and the
  * revision that tells it the command set changed.
  */
-export function useFrameCommandSurface(
-  input: FrameCommandSurfaceInput,
-): Pick<PaletteOverlayProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const { route, lastOpenedSessionId, frameStore, uiStateStore, surfaceRegistry } = input;
+export function useWindowCommands(
+  input: WindowCommandsInput,
+): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
+  const {
+    route,
+    lastOpenedSessionId,
+    windowStore: frameStore,
+    uiStateStore,
+    surfaceRegistry,
+  } = input;
 
   // Derived from the route rather than stored, so the palette cannot disagree with the
   // rail about where the window is.
@@ -112,11 +118,11 @@ export function useFrameCommandSurface(
       ...buildNavigationCommands(frameStore, surfaceRegistry),
       ...bridgeCommands,
     ];
-    registerConsoleCommands(windowCommands);
+    registerCommands(windowCommands);
     // A feature that contributes later adds commands the palette must list, so the
     // revision moves with every contribution. Its chords reach the table through the
     // override store, which republishes on the same signal.
-    const stopWatchingContributions = subscribeToConsoleFamilyContributions(() => {
+    const stopWatchingContributions = subscribeToCommandContributions(() => {
       setCommandRevision((revision) => revision + 1);
     });
     // Published for as long as the commands are registered: the same lifetime.

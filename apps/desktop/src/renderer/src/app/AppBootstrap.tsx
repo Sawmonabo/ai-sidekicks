@@ -29,7 +29,7 @@ import { installMeridianTokens } from "./token-installation.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
 
 /** Install the token sheet, then render the window once the bridge resolves. */
-export function ConsoleFrameHost(): React.JSX.Element {
+export function AppBootstrap(): React.JSX.Element {
   useMeridianTokenSheet();
   const resolution = useBridgeResolution();
   if (resolution.status === "unavailable") {

@@ -50,7 +50,7 @@ export interface KeybindingHydrationRefusal {
  * compares by identity: two readings of two fields would be two subscriptions to one
  * change, and a caller needing both would re-render twice per act.
  */
-export interface KeybindingSurface {
+export interface KeybindingSnapshot {
   /** The effective table: the shipped chords with this window's overrides applied. */
   readonly bindings: readonly KeyBinding[];
   /**

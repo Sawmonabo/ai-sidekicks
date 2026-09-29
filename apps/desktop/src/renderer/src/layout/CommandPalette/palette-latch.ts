@@ -54,7 +54,7 @@ export const PALETTE_INVOCATION_REFUSAL_ORIGIN = "palette";
  * Exactly the registry's non-running outcomes, DERIVED rather than restated. A
  * hand-written copy would let a third refusal status land on `CommandInvocationOutcome`
  * and be silently relabelled here as one of these two — a refusal naming the wrong
- * reason, which is worse than none. The same derivation `KeyBindingDispatch` takes for
+ * reason, which is worse than none. The same derivation `KeybindingDispatch` takes for
  * the same registry, for the same reason.
  */
 export type PaletteInvocationRefusalCode = Exclude<CommandInvocationOutcome["status"], "ran">;

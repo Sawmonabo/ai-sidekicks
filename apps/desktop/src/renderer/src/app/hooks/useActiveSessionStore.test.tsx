@@ -8,8 +8,8 @@
 // has a control that fails the way a regression would.
 //
 // The two other claims the hook makes have their own files, one per concern: the
-// window's binder in `session-lifecycle.binder.test.tsx`, and what the registry it
-// mints is wired with in `session-lifecycle.registry-wiring.test.tsx`.
+// window's binder in `useSessionStoreRegistry.subscriber.test.tsx`, and what the registry it
+// mints is wired with in `useSessionStoreRegistry.registry-wiring.test.tsx`.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

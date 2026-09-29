@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
-  CONSOLE_WHEN_CLAUSE_KEYS,
+  WHEN_CLAUSE_KEYS,
   consoleCommands,
-  registerConsoleCommands,
+  registerCommands,
   type ConsoleWhenClauseContext,
 } from "./window-command-registry.js";
 
@@ -40,7 +40,7 @@ const CONTEXT_THE_COMPILER_REJECTS: ConsoleWhenClauseContext = {
 describe("window command registry — the door commands are registered through", () => {
   it("registers several atomically", () => {
     try {
-      registerConsoleCommands([
+      registerCommands([
         { id: "console-commands-test.a", title: "A", group: "Test", run: () => undefined },
         { id: "console-commands-test.b", title: "B", group: "Test", run: () => undefined },
       ]);
@@ -63,7 +63,7 @@ describe("window command registry — the door commands are registered through",
         run: () => undefined,
       });
       expect(() => {
-        registerConsoleCommands([
+        registerCommands([
           {
             id: "console-commands-test.fresh",
             title: "Fresh",
@@ -100,14 +100,14 @@ describe("window command registry — the published when-clause vocabulary", () 
     // it, so the compiler already refuses a context that is missing a key or
     // invents one. This holds the other direction at runtime: that the tuple a
     // family READS is the same set, rather than a stale copy of it.
-    expect([...CONSOLE_WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
+    expect([...WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
   });
 
   it("negative control: a key nobody publishes is not in the vocabulary", () => {
     // Reads the object the `@ts-expect-error` above suppressed, so the directive
     // is a claim this file executes rather than a comment nobody runs.
     expect(Object.keys(CONTEXT_THE_COMPILER_REJECTS)).toContain("sessionActiveish");
-    expect(CONSOLE_WHEN_CLAUSE_KEYS).not.toContain("sessionActiveish");
+    expect(WHEN_CLAUSE_KEYS).not.toContain("sessionActiveish");
     expect(Object.keys(NO_CONTEXT)).not.toContain("sessionActiveish");
   });
 });

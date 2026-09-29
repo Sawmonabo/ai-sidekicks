@@ -20,7 +20,7 @@
 // and rendering `not loaded` here would tell a person their data had not arrived, which
 // is a different claim and a false one.
 //
-// The one thing it adds beyond the chrome is the marker `pending-pane-body.ts` owns, so
+// The one thing it adds beyond the chrome is the marker `PendingPaneBody.tsx` owns, so
 // the screenshot tier can refuse to photograph this frame.
 
 import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";

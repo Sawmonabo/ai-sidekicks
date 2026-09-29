@@ -26,9 +26,9 @@
 // prototype: the registry is created inside the frame and there is no other way to
 // observe what the frame asked it for.
 //
-// The other two claims have their own files: `ConsoleRoot.routing.test.tsx` for the
+// The other two claims have their own files: `providers.routing.test.ts` for the
 // address a window opens at and the rail that reports where it is, and
-// `ConsoleRoot.tokens.test.tsx` for the sheet every state renders on.
+// `AppBootstrap.tokens.test.ts` for the sheet every state renders on.
 
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
@@ -185,7 +185,7 @@ describe("ConsoleRoot — a modal overlay inerts the frame's background", () => 
   });
 
   it("carries inert for exactly as long as the palette is open", async () => {
-    // `AppFrame` proves the attribute follows its prop and `PaletteOverlay` proves
+    // `AppFrame` proves the attribute follows its prop and `CommandPalette` proves
     // the chord toggles the state; nothing below this file proves the two are
     // joined, and they were not — the prop existed, the palette opened, and the
     // rail and the whole surface stayed in the accessibility tree underneath it.

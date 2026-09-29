@@ -19,7 +19,7 @@
 // nothing happened. The last two cases are the typed refusal that replaced it.
 //
 // WHAT IS NOT HERE. The dormancy claim and the scope row's own text are
-// `PaletteOverlay.dormancy.test.tsx`'s, and the highlight's warm is the preload suite's.
+// `CommandPalette.dormancy.test.tsx`'s, and the highlight's warm is the preload suite's.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ import {
   CommandRegistry,
 } from "@renderer/registries/commands/command-registry.js";
 import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { PaletteOverlay } from "./CommandPalette.js";
+import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 /** The reading a person opens the palette on: they are looking at a session workspace. */
@@ -116,7 +116,7 @@ function optionTitles(): readonly string[] {
 
 /** The refusal the palette rendered inline, or `undefined` where it rendered none. */
 function refusalText(): string | undefined {
-  return document.querySelector(".console-palette__refusal")?.textContent ?? undefined;
+  return document.querySelector(".command-palette__refusal")?.textContent ?? undefined;
 }
 
 /**
@@ -159,13 +159,13 @@ function openPaletteOverWorkspace(ledger: RunLedger): {
     platform: "darwin" as const,
   };
   const { rerender } = render(
-    <PaletteOverlay {...shared} context={ON_WORKSPACE} scopeLabel="Session mercury" />,
+    <CommandPalette {...shared} context={ON_WORKSPACE} scopeLabel="Session mercury" />,
   );
   return {
     registry,
     openChanges,
     moveRouteToSettings: () => {
-      rerender(<PaletteOverlay {...shared} context={ON_SETTINGS} scopeLabel="Settings" />);
+      rerender(<CommandPalette {...shared} context={ON_SETTINGS} scopeLabel="Settings" />);
     },
   };
 }

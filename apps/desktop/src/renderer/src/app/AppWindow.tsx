@@ -30,7 +30,7 @@ import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-proj
 import { consolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
 import { consoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { ConsoleFrame } from "@renderer/layout/AppShell/AppShell.js";
+import { AppShell } from "@renderer/layout/AppShell/AppShell.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
@@ -38,8 +38,8 @@ import { useSchemePreference } from "./hooks/useSchemePreference.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
-import { useFrameCommandSurface } from "./hooks/useWindowCommands.js";
-import { RouteSurface } from "./router.js";
+import { useWindowCommands } from "./hooks/useWindowCommands.js";
+import { AppRouter } from "./router.js";
 import { applyConsoleScheme } from "./token-installation.js";
 
 /** What the bootstrap hands the window once the bridge has resolved. */
@@ -92,10 +92,10 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   // Window focus is a refresh reason, not a poll.
   useWindowFocusRefresh(frameStore, sessionStoreRegistry);
 
-  const palette = useFrameCommandSurface({
+  const palette = useWindowCommands({
     route,
     lastOpenedSessionId,
-    frameStore,
+    windowStore: frameStore,
     uiStateStore,
     surfaceRegistry: consoleSurfaceRegistry,
   });
@@ -115,12 +115,8 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   };
 
   return (
-    <ConsoleFrame
-      frameStore={frameStore}
-      surfaceRegistry={consoleSurfaceRegistry}
-      palette={palette}
-    >
-      <RouteSurface context={surfaceContext} />
-    </ConsoleFrame>
+    <AppShell frameStore={frameStore} surfaceRegistry={consoleSurfaceRegistry} palette={palette}>
+      <AppRouter context={surfaceContext} />
+    </AppShell>
   );
 }

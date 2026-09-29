@@ -8,7 +8,7 @@
 // decides whether one `KeyboardEvent` satisfies one parsed press — and wraps them
 // in the two refusals and the one comparison key the service above needs. It
 // deliberately does NOT call `tinykeys()` itself; the three reasons are stated in
-// `keybindings.ts`, which is the module that would otherwise have used it.
+// `keybinding-table.ts`, which is the module that would otherwise have used it.
 //
 // WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
 // `primitives/chord/chord-format.ts`. A keycap is a renderer's concern and primitives

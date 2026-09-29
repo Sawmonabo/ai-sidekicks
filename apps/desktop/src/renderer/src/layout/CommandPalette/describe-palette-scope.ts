@@ -7,7 +7,7 @@ import type { ConsoleRoute } from "@renderer/routing/routes.js";
  *
  * A palette listing "Interrupt the run" without naming which run invites a mistake.
  */
-export function describeScope(route: ConsoleRoute): string {
+export function describePaletteScope(route: ConsoleRoute): string {
   switch (route.kind) {
     case "sessions":
       return "All sessions";

@@ -34,15 +34,15 @@ import {
   type PaneKind,
 } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
-import { PaneHarnessSurface } from "./PaneHarnessScreen.js";
-import { RouteSurface } from "../router.js";
+import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
+import { AppRouter } from "../router.js";
 import {
   consoleSurfaceRegistry,
   type ConsoleSurfaceContext,
 } from "@renderer/console/seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
-import { registerConsoleSurface } from "@renderer/registries/screens/screen-registry.js";
+import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
 
 afterEach(cleanup);
 
@@ -122,7 +122,7 @@ function boardWithBothStubBodies(): ConsolePaneRegistry {
  * The frame store is the real class because the harness reads the route through it
  * in a running window; the two persistence stores are cast away because
  * constructing them opens a database to hand a surface that only passes them
- * through — `frame/composition/RouteSurface.test.tsx` casts for the same reason.
+ * through — `app/router.test.tsx` casts for the same reason.
  */
 function surfaceContextFor(route: ConsoleRoute): ConsoleSurfaceContext {
   return {
@@ -164,7 +164,7 @@ async function pressControl(controlName: string, times = 1): Promise<void> {
 describe("the fixture pane harness", () => {
   it("mounts nothing until it is asked to, and one body per ask", async () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
@@ -183,7 +183,7 @@ describe("the fixture pane harness", () => {
 
   it("leaves the earlier instances mounted when another is opened", async () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
@@ -206,7 +206,7 @@ describe("the fixture pane harness", () => {
 
   it("hands each instance the window's own session store", async () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
@@ -226,7 +226,7 @@ describe("the fixture pane harness", () => {
 
   it("refuses an address that names no pane kind, by the parser's own code", () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("not-a-pane-kind"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
@@ -241,7 +241,7 @@ describe("the fixture pane harness", () => {
 
   it("says a pane kind is reserved rather than stubbed when no family registered it", async () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         // A real board that claims a DIFFERENT kind: `terminal` is a pane kind and
         // this composition has no body for it.
@@ -263,7 +263,7 @@ describe("the fixture pane harness", () => {
     // would resolve and the assertions would still be green while the parameter
     // was doing nothing.
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         paneRegistry={new ConsolePaneRegistry()}
       />,
@@ -275,7 +275,7 @@ describe("the fixture pane harness", () => {
 
   it("says so when it is mounted on an address it does not serve", () => {
     render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor({ kind: "workflows" })}
         paneRegistry={boardWithStubBody("terminal")}
       />,
@@ -293,7 +293,7 @@ describe("the fixture pane harness", () => {
 // open-pane count survived, the replacement route mounted the previous route's number
 // of panes with no Open action, and on a same-kind session change the pane keys were
 // identical too — so the INSTANCES were handed to a session they had never been bound
-// to. These cases go through `RouteSurface`, because the key is its decision and a
+// to. These cases go through `AppRouter`, because the key is its decision and a
 // case that rendered the harness directly could not observe it.
 describe("the harness across a route change", () => {
   const HARNESS_OWNER = "pane-harness-route-keying-test";
@@ -311,15 +311,15 @@ describe("the harness across a route change", () => {
 
   /** Claim the slot the way the fixture registration does, out of a board here. */
   function registerHarnessSlot(paneRegistry: ConsolePaneRegistry): void {
-    registerConsoleSurface({
+    registerScreen({
       slot: "pane-harness",
       owner: HARNESS_OWNER,
-      render: (context) => <PaneHarnessSurface context={context} paneRegistry={paneRegistry} />,
+      render: (context) => <PaneHarnessScreen context={context} paneRegistry={paneRegistry} />,
     });
   }
 
   function surfaceAt(route: ConsoleRoute): React.JSX.Element {
-    return <RouteSurface context={surfaceContextFor(route)} />;
+    return <AppRouter context={surfaceContextFor(route)} />;
   }
 
   it("mounts no pane when the addressed pane kind changes", async () => {
@@ -370,14 +370,14 @@ describe("the harness across a route change", () => {
   });
 
   it("negative control: the unkeyed mount carries the count across the change", async () => {
-    // The defect, as the shape it had. `RouteSurface` used to return the descriptor's
+    // The defect, as the shape it had. `AppRouter` used to return the descriptor's
     // output in a BARE fragment, so React saw one element in one position across the
     // hash change and reconciled the harness rather than rebuilding it. Rendering the
     // component directly is that same position, and it is why the cases above have to
     // go through the route.
     const paneRegistry = boardWithBothStubBodies();
     const view = render(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
         paneRegistry={paneRegistry}
       />,
@@ -385,7 +385,7 @@ describe("the harness across a route change", () => {
     await pressControl("Open a pane");
 
     view.rerender(
-      <PaneHarnessSurface
+      <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("browser"))}
         paneRegistry={paneRegistry}
       />,

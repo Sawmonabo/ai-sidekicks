@@ -11,7 +11,7 @@ import { consoleCommands } from "./window-command-registry.js";
  *
  * One value rather than two calls, so a chord cannot name a command nobody registered.
  */
-export interface ConsoleFamilyCommandContribution {
+export interface CommandContribution {
   /** The owner, for the owner-scoped replace. */
   readonly owner: string;
   readonly commands: readonly ConsoleCommand[];
@@ -24,11 +24,11 @@ export interface ConsoleFamilyCommandContribution {
  * A superseded contributor's release leaves the registry untouched; the newest one's
  * hands the owner back to whichever contribution is still live beneath it.
  */
-export type ConsoleContributionRelease = () => void;
+export type CommandContributionRelease = () => void;
 
 /** What a feature contributes its commands through. */
 export interface ConsoleCommandSurface {
-  contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease;
+  contribute(contribution: CommandContribution): CommandContributionRelease;
 }
 
 /**
@@ -43,9 +43,9 @@ export interface ConsoleCommandSurface {
  * Exported so a test can build a second instance: "a second composition holds its own
  * contributors" is a property of the class, unprovable against the window's singleton.
  */
-export class ConsoleFamilyContributions implements ConsoleCommandSurface {
+export class CommandContributionRegistry implements ConsoleCommandSurface {
   readonly #registry: CommandRegistry;
-  readonly #contributionsByOwner = new Map<string, ConsoleFamilyCommandContribution>();
+  readonly #contributionsByOwner = new Map<string, CommandContribution>();
   readonly #changes = new Emitter<void>("command contribution");
   /**
    * Every contribution still live under an owner, oldest first.
@@ -62,7 +62,7 @@ export class ConsoleFamilyContributions implements ConsoleCommandSurface {
   }
 
   /** Install `owner`'s rows (the newest live contribution wins) and return its release. */
-  public contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease {
+  public contribute(contribution: CommandContribution): CommandContributionRelease {
     const live = this.#liveContributionsByOwner.get(contribution.owner) ?? [];
     const entry: LiveContribution = { contribution };
     live.push(entry);
@@ -121,7 +121,7 @@ export class ConsoleFamilyContributions implements ConsoleCommandSurface {
     );
   }
 
-  #replace(contribution: ConsoleFamilyCommandContribution): void {
+  #replace(contribution: CommandContribution): void {
     const previous = this.#contributionsByOwner.get(contribution.owner);
     for (const command of previous?.commands ?? []) {
       this.#registry.unregister(command.id);
@@ -139,29 +139,29 @@ export class ConsoleFamilyContributions implements ConsoleCommandSurface {
  * release removes: two mounts can hand over the very same memoized array.
  */
 interface LiveContribution {
-  readonly contribution: ConsoleFamilyCommandContribution;
+  readonly contribution: CommandContribution;
 }
 
 /** What a released owner contributes. Frozen, so a caller cannot make it grow. */
 const NO_CONTRIBUTION: readonly [] = Object.freeze([]);
 
 /** This window's command contributions. */
-export const consoleFamilyContributions: ConsoleFamilyContributions =
-  new ConsoleFamilyContributions(consoleCommands);
+export const commandContributionRegistry: CommandContributionRegistry =
+  new CommandContributionRegistry(consoleCommands);
 
 /** The contribution half of this window's contributions, for the features. */
-export const consoleCommandSurface: ConsoleCommandSurface = consoleFamilyContributions;
+export const consoleCommandSurface: ConsoleCommandSurface = commandContributionRegistry;
 
 /**
  * Every contributed chord, in the order the owners first contributed.
  *
  * First-contribution order, so re-composing one owner never reorders another's chords.
  */
-export function consoleFamilyKeyBindings(): readonly KeyBinding[] {
-  return consoleFamilyContributions.keyBindings();
+export function contributedKeybindings(): readonly KeyBinding[] {
+  return commandContributionRegistry.keyBindings();
 }
 
 /** Told when an owner contributes or releases, so a composed table can be read again. */
-export function subscribeToConsoleFamilyContributions(listener: () => void): Unsubscribe {
-  return consoleFamilyContributions.subscribe(listener);
+export function subscribeToCommandContributions(listener: () => void): Unsubscribe {
+  return commandContributionRegistry.subscribe(listener);
 }

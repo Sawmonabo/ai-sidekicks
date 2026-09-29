@@ -31,13 +31,13 @@ export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
 }
 
-export interface IconRailProps {
+export interface NavigationRailProps {
   readonly entries: readonly RailEntry[];
   readonly current: RailDestination | undefined;
   readonly onSelect: (destination: RailDestination) => void;
 }
 
-export function IconRail(props: IconRailProps): React.JSX.Element {
+export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
   return (
     <nav className="meridian-rail" aria-label="Console sections">
       <ul className="meridian-rail__list">

@@ -11,7 +11,7 @@
 //   • **`undefined` is an answer, not a cue.** Between the render that first names
 //     a session and the effect that opens it there is one frame with no store. The
 //     honest render of that frame is the `not-loaded` kind of nothing — a read is
-//     in flight — and `RouteSurface` renders exactly that. Opening the session from
+//     in flight — and `AppRouter` renders exactly that. Opening the session from
 //     inside render to skip the frame is the defect, not the fix.
 
 import { useEffect } from "react";

@@ -1,7 +1,7 @@
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { type AttentionSessionGroup } from "@renderer/store/attention/attention-summary.js";
-import { AttentionItemList } from "./NotificationEntryList.js";
+import { NotificationEntryList } from "./NotificationEntryList.js";
 
 /**
  * One session's items, actionable above informational.
@@ -12,19 +12,19 @@ import { AttentionItemList } from "./NotificationEntryList.js";
  * keyboard-reachable, announces its own expanded state, and costs no render pass
  * to open.
  */
-export function SessionGroup(props: {
+export function SessionNotificationGroup(props: {
   readonly group: AttentionSessionGroup;
   readonly foldInformational: boolean;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
   const { group } = props;
-  const informational = <AttentionItemList items={group.informational} onOpen={props.onOpen} />;
+  const informational = <NotificationEntryList items={group.informational} onOpen={props.onOpen} />;
   return (
     <section className="meridian-attention__group" aria-label={`Attention in ${group.sessionId}`}>
       <h3 className="meridian-attention__group-title">
         <WireFigure value={group.sessionId} />
       </h3>
-      <AttentionItemList items={group.actionable} onOpen={props.onOpen} />
+      <NotificationEntryList items={group.actionable} onOpen={props.onOpen} />
       {group.informational.length === 0 || !props.foldInformational ? (
         informational
       ) : (

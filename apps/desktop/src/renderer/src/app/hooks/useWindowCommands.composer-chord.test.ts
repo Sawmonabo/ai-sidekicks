@@ -8,7 +8,7 @@
 // indistinguishable from a chord that was handled.
 //
 // DRIVEN THROUGH THE REAL COMPOSITION ROOT AND A REAL DISPATCHED PRESS, on
-// `frame-commands.contributions.test.tsx`'s rule beside this file: what is claimed is
+// `useWindowCommands.contributions.test.ts`'s rule beside this file: what is claimed is
 // that the table this window installs answers the chord, and reading the binding list
 // out of a hook would assert this file's own import against itself.
 //

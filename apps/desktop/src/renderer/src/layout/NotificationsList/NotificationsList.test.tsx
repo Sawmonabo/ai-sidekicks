@@ -17,7 +17,7 @@ import { refuse } from "@renderer/lib/refusal.js";
 import { settle } from "@test/helpers/settle.js";
 import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { NotificationCenter } from "./NotificationsList.js";
+import { NotificationsList } from "./NotificationsList.js";
 import {
   AttentionPlane,
   type AttentionReading,
@@ -71,14 +71,14 @@ function refusedSession(sessionId: string): RefusedAttentionSession {
 
 describe("a projection read in flight", () => {
   it("renders as a read in flight", () => {
-    const { container } = render(<NotificationCenter reading={{ phase: "reading" }} />);
+    const { container } = render(<NotificationsList reading={{ phase: "reading" }} />);
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });
 });
 
 describe("what the center never offers", () => {
   it("draws no dismiss control beside an item", () => {
-    const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
+    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
     const labels = [...container.querySelectorAll("button")].map(
       (button) => `${button.textContent ?? ""} ${button.getAttribute("aria-label") ?? ""}`,
     );
@@ -86,7 +86,7 @@ describe("what the center never offers", () => {
   });
 
   it("says mute is global and draws no per-session switch", () => {
-    const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
+    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
     expect(container.textContent ?? "").toContain("Muting is a single global setting");
     expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
   });
@@ -99,14 +99,14 @@ describe("the density fold", () => {
   ];
 
   it("folds the informational half under a count while anything is actionable", () => {
-    const { container } = render(<NotificationCenter reading={readingOf(withBoth)} />);
+    const { container } = render(<NotificationsList reading={readingOf(withBoth)} />);
     const fold = container.querySelector(".meridian-attention__fold-summary");
     expect(fold?.textContent).toBe("1 informational");
   });
 
   it("negative control: with nothing actionable the informational items are not folded", () => {
     const { container } = render(
-      <NotificationCenter
+      <NotificationsList
         reading={readingOf([item({ severity: "informational", trigger: "mention" })])}
       />,
     );
@@ -117,7 +117,7 @@ describe("the density fold", () => {
 
 describe("an item's own render", () => {
   it("shows the projection's summary verbatim beside the console's reading of the trigger", () => {
-    const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
+    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
     const text = container.textContent ?? "";
     expect(text).toContain("An approval is waiting.");
     expect(text).toContain("Waiting on an approval");
@@ -125,14 +125,14 @@ describe("an item's own render", () => {
 
   it("names the scope off `runId` rather than recomputing it", () => {
     const { container } = render(
-      <NotificationCenter reading={readingOf([item({ id: "aggregate" })])} />,
+      <NotificationsList reading={readingOf([item({ id: "aggregate" })])} />,
     );
     expect(container.textContent ?? "").toContain("Everything unresolved in this session");
   });
 
   it("negative control: a run-scoped item names its run instead", () => {
     const { container } = render(
-      <NotificationCenter reading={readingOf([item({ runId: "run-7" })])} />,
+      <NotificationsList reading={readingOf([item({ runId: "run-7" })])} />,
     );
     const text = container.textContent ?? "";
     expect(text).toContain("run-7");
@@ -140,12 +140,12 @@ describe("an item's own render", () => {
   });
 
   it("is a press only when the surface supplied somewhere to go", () => {
-    const withoutOpen = render(<NotificationCenter reading={readingOf([item()])} />);
+    const withoutOpen = render(<NotificationsList reading={readingOf([item()])} />);
     expect(withoutOpen.container.querySelectorAll(".meridian-attention__row--open")).toHaveLength(
       0,
     );
     const withOpen = render(
-      <NotificationCenter reading={readingOf([item()])} onOpen={() => undefined} />,
+      <NotificationsList reading={readingOf([item()])} onOpen={() => undefined} />,
     );
     expect(withOpen.container.querySelectorAll(".meridian-attention__row--open")).toHaveLength(1);
   });
@@ -154,7 +154,7 @@ describe("an item's own render", () => {
 describe("members the boundary refused", () => {
   it("says how many were dropped rather than shrinking the list silently", () => {
     const { container } = render(
-      <NotificationCenter
+      <NotificationsList
         reading={{
           phase: "read",
           plane: new AttentionPlane([item()]),
@@ -171,7 +171,7 @@ describe("members the boundary refused", () => {
   });
 
   it("negative control: a clean read says nothing about dropped members", () => {
-    const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
+    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
     expect(container.textContent ?? "").not.toContain("could not be read");
   });
 
@@ -179,7 +179,7 @@ describe("members the boundary refused", () => {
     // The failure this catches is the worst one this surface has: a person is told
     // nothing needs them on the strength of a read whose every member was refused.
     const { container } = render(
-      <NotificationCenter
+      <NotificationsList
         reading={{
           phase: "read",
           plane: new AttentionPlane([]),
@@ -198,7 +198,7 @@ describe("members the boundary refused", () => {
   it("negative control: a read that answered nothing AND dropped nothing is the all-clear", () => {
     // Without this, the case above would pass over a center that had simply lost
     // its empty state, which is a different defect wearing the same green tick.
-    const { container } = render(<NotificationCenter reading={readingOf([])} />);
+    const { container } = render(<NotificationsList reading={readingOf([])} />);
     const text = container.textContent ?? "";
     expect(text).toContain("Nothing needs you.");
     expect(text).not.toContain("in that read");
@@ -213,7 +213,7 @@ describe("a read that did not cover every session", () => {
 
   it("never says a person is free while a session went unchecked", () => {
     const { container } = render(
-      <NotificationCenter reading={readingOf([], [refusedSession("session-b")])} />,
+      <NotificationsList reading={readingOf([], [refusedSession("session-b")])} />,
     );
     const text = container.textContent ?? "";
     expect(text).not.toContain("Nothing needs you.");
@@ -224,7 +224,7 @@ describe("a read that did not cover every session", () => {
   it("negative control: the same empty read with every session answered IS the all-clear", () => {
     // Without this, the case above would pass over a center that had simply lost its
     // empty state, which is a different defect wearing the same warning.
-    const { container } = render(<NotificationCenter reading={readingOf([])} />);
+    const { container } = render(<NotificationsList reading={readingOf([])} />);
     const text = container.textContent ?? "";
     expect(text).toContain("Nothing needs you.");
     expect(text).not.toContain("could not be checked");
@@ -234,7 +234,7 @@ describe("a read that did not cover every session", () => {
     // Two different facts about one read — members this console could not recognize,
     // and sessions that never answered — and neither may stand in for the other.
     const { container } = render(
-      <NotificationCenter
+      <NotificationsList
         reading={{
           phase: "read",
           plane: new AttentionPlane([]),
@@ -265,7 +265,7 @@ describe("when an attention item was raised", () => {
 
   it("renders two items a day apart as two different readings", () => {
     const { container } = render(
-      <NotificationCenter
+      <NotificationsList
         reading={readingOf([
           item({ id: "attention-today", createdAt: RAISED_TODAY }),
           item({ id: "attention-next-day", createdAt: RAISED_NEXT_DAY }),
@@ -286,7 +286,7 @@ describe("when an attention item was raised", () => {
 
   it("keeps the exact instant on the row's own title, unformatted", () => {
     const { container } = render(
-      <NotificationCenter reading={readingOf([item({ createdAt: RAISED_TODAY })])} />,
+      <NotificationsList reading={readingOf([item({ createdAt: RAISED_TODAY })])} />,
     );
     const titles = [...container.querySelectorAll(".meridian-attention__row [title]")].map(
       (element) => element.getAttribute("title"),
@@ -355,7 +355,7 @@ describe("what makes the attention read run again", () => {
     readonly read: AttentionProjectionReadCall;
     readonly registry: SessionStoreRegistry;
   }): React.JSX.Element {
-    return <NotificationCenter reading={useAttentionProjection(props.read, props.registry)} />;
+    return <NotificationsList reading={useAttentionProjection(props.read, props.registry)} />;
   }
 
   function mount(

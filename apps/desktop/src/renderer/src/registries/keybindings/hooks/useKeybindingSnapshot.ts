@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import type { KeybindingOverrideStore } from "../keybinding-override-store.js";
-import type { KeybindingSurface } from "../keybinding-override-types.js";
+import type { KeybindingSnapshot } from "../keybinding-override-types.js";
 
 /**
  * Read the seam from a component, re-rendering when an override is written.
@@ -11,7 +11,7 @@ import type { KeybindingSurface } from "../keybinding-override-types.js";
  * keyboard silently disagreeing with the page describing it is the failure this seam
  * exists to prevent.
  */
-export function useKeybindingSurface(store: KeybindingOverrideStore): KeybindingSurface {
+export function useKeybindingSurface(store: KeybindingOverrideStore): KeybindingSnapshot {
   const subscribe = useCallback(
     (onStoreChange: () => void) => store.subscribe(onStoreChange),
     [store],

@@ -12,7 +12,7 @@ import type { ConsoleCommand, KeyBinding } from "./command-types.js";
 export const consoleCommands: CommandRegistry = new CommandRegistry();
 
 /** Contribute several commands. Atomic: every id is validated before any is added. */
-export function registerConsoleCommands(commands: readonly ConsoleCommand[]): void {
+export function registerCommands(commands: readonly ConsoleCommand[]): void {
   consoleCommands.registerAll(commands);
 }
 
@@ -24,7 +24,7 @@ export function registerConsoleCommands(commands: readonly ConsoleCommand[]): vo
  * here is a compile error until every context builder supplies it; a typo at a call
  * site is a missing key (the command hides) rather than an invented one.
  */
-export const CONSOLE_WHEN_CLAUSE_KEYS = [
+export const WHEN_CLAUSE_KEYS = [
   "sessionActive",
   "onSessions",
   "onWorkspace",
@@ -33,21 +33,21 @@ export const CONSOLE_WHEN_CLAUSE_KEYS = [
 ] as const;
 
 /** One key of the window's `when` vocabulary. */
-export type ConsoleWhenClauseKey = (typeof CONSOLE_WHEN_CLAUSE_KEYS)[number];
+export type WhenClauseKey = (typeof WHEN_CLAUSE_KEYS)[number];
 
 /**
  * What the window evaluates a `when` clause against: every published key, none invented.
  *
  * Narrower than `WhenClauseContext`, which admits keys a feature publishes on its own.
  */
-export type ConsoleWhenClauseContext = Readonly<Record<ConsoleWhenClauseKey, boolean>>;
+export type ConsoleWhenClauseContext = Readonly<Record<WhenClauseKey, boolean>>;
 
 /** A command the window itself contributes; its `when` is the window's vocabulary. */
 export type FrameCommand = Omit<ConsoleCommand, "when"> & {
-  readonly when?: ConsoleWhenClauseKey;
+  readonly when?: WhenClauseKey;
 };
 
 /** A chord the window itself binds, scoped to the same vocabulary. */
-export type FrameKeyBinding = Omit<KeyBinding, "when"> & {
-  readonly when?: ConsoleWhenClauseKey;
+export type FrameKeybinding = Omit<KeyBinding, "when"> & {
+  readonly when?: WhenClauseKey;
 };

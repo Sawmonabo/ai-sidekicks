@@ -1,6 +1,6 @@
 // The palette's rows — how ranked results become categories, and each row.
 //
-// Split from `PaletteOverlay.tsx` because the overlay composes (combobox +
+// Split from `CommandPalette.tsx` because the overlay composes (combobox +
 // dialog + the open chord) and this renders (a group, a title with its matched
 // runs, the provenance mark, the chord). Both halves stay inside one
 // `Combobox.Root`: `Combobox.List` reads the items from that root's context, so
@@ -44,10 +44,10 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   const { context, platform, bindings, onRunResult } = props;
 
   return (
-    <Combobox.List className="console-palette__list">
+    <Combobox.List className="command-palette__list">
       {(group: CommandResultGroup) => (
         <Combobox.Group key={group.value} items={group.items}>
-          <Combobox.GroupLabel className="console-palette__group-label">
+          <Combobox.GroupLabel className="command-palette__group-label">
             {group.value}
           </Combobox.GroupLabel>
           <Combobox.Collection>
@@ -67,7 +67,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                 <Combobox.Item
                   key={result.command.id}
                   value={result.command.id}
-                  className="console-palette__item"
+                  className="command-palette__item"
                   // `aria-disabled` and not `disabled`: the row stays listed, stays
                   // reachable by arrow key, and stays readable, because its reason is
                   // the thing a person came here to find out. The press below still
@@ -88,19 +88,19 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                     }
                   }}
                 >
-                  <span className="console-palette__item-title">
+                  <span className="command-palette__item-title">
                     {renderTitle(result.command.title, result.titleMatch?.matchedIndices)}
                   </span>
                   {result.command.unavailable === undefined ? null : (
-                    <span className="console-palette__item-unavailable">
+                    <span className="command-palette__item-unavailable">
                       {result.command.unavailable}
                     </span>
                   )}
                   {result.recentRank === undefined ? null : (
-                    <span className="console-palette__recent-mark">Recent</span>
+                    <span className="command-palette__recent-mark">Recent</span>
                   )}
                   {chord === undefined ? null : (
-                    <span className="console-palette__chord">
+                    <span className="command-palette__chord">
                       <ChordHint chord={chord} platform={platform} />
                     </span>
                   )}
@@ -135,7 +135,7 @@ function renderTitle(title: string, matchedIndices: readonly number[] | undefine
       const text = title.slice(runStart, characterIndex);
       segments.push(
         runIsMatch ? (
-          <span className="console-palette__match" key={`${String(runStart)}-match`}>
+          <span className="command-palette__match" key={`${String(runStart)}-match`}>
             {text}
           </span>
         ) : (

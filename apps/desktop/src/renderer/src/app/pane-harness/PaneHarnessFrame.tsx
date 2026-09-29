@@ -1,6 +1,6 @@
 // The pane harness's region, its two controls, and its count line.
 //
-// Split out of `PaneHarnessSurface.tsx` so that module declares one component. It is
+// Split out of `PaneHarnessScreen.tsx` so that module declares one component. It is
 // shared by every arm of the surface rather than repeated because the count line is
 // what a driver reads to know how many bodies are mounted, and an arm that rendered
 // an absence without it would leave a driver waiting on a line that never appears.

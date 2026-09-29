@@ -1,6 +1,6 @@
 // The one ordering claim inside the composition root's own module body.
 //
-// `ConsoleRoot.tsx` arms the tripwire route and composes the seven boards, both at
+// `providers.tsx` arms the tripwire route and composes the seven boards, both at
 // module scope, and its comment says the ordering is part of the design. It is: a
 // registrar can report while it registers — the boards refuse a second owner on one
 // slot, and a projector claim can collide — and the tripwire registry's emitter
@@ -8,7 +8,7 @@
 // records none of that. The window in which that is invisible is the window in which
 // the composition-time breaches the capture most needs are the ones it misses.
 //
-// Its own file rather than a case in `ConsoleRoot.test.tsx`, because the only way to
+// Its own file rather than a case in `providers.test.ts`, because the only way to
 // report from inside the composition is to replace `families.ts` for the whole module
 // graph, and every other case in that suite drives the real families.
 

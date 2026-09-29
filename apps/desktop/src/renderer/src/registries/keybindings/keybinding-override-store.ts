@@ -19,7 +19,7 @@
 //     A base that can move supplies `subscribeToDefaults` beside the reader, and this
 //     store re-composes on that signal like any other change it publishes.
 //   • **The override applies to this window before the write settles, and a refused
-//     write is disclosed rather than discarded.** `scheme-preference.ts` states the
+//     write is disclosed rather than discarded.** `app/hooks/useSchemePreference.ts` states the
 //     reasoning for the one other window-wide preference: the choice is taken, so the
 //     honest sentence is not "that did not work" but "that worked for this window and
 //     will not come back".
@@ -41,8 +41,8 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
-  consoleFamilyKeyBindings,
-  subscribeToConsoleFamilyContributions,
+  contributedKeybindings,
+  subscribeToCommandContributions,
 } from "../commands/command-contributions.js";
 import { type KeyBinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -53,7 +53,7 @@ import {
   type KeybindingBindResult,
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
-  type KeybindingSurface,
+  type KeybindingSnapshot,
 } from "./keybinding-override-types.js";
 import {
   composeEffectiveBindings,
@@ -89,7 +89,7 @@ export class KeybindingOverrideStore {
   #overrides: KeybindingOverrideMap = {};
   #uiStateStore: UiStateStore | undefined;
   #recording = false;
-  #snapshot: KeybindingSurface | undefined;
+  #snapshot: KeybindingSnapshot | undefined;
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
   /**
    * The rounds this store's overrides have moved through.
@@ -97,10 +97,10 @@ export class KeybindingOverrideStore {
    * TWO ROLES, ONE GENERATION, which is the shape `store/read/generation-latch.ts`
    * describes — a monotonic serial, so a superseded settlement is IGNORED rather than
    * claimed to have been stopped — and which
-   * `settings/shared/shell-preferences/shell-preferences-store.ts` takes the same way:
+   * `features/settings/machine-settings/machine-settings-store.ts` takes the same way:
    * a rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
-   * `frame/bindings/scheme-preference.ts` states for the colour scheme — and a second hydration
+   * `app/hooks/useSchemePreference.ts` states for the colour scheme — and a second hydration
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */
@@ -122,7 +122,7 @@ export class KeybindingOverrideStore {
   }
 
   /** What to install and what to draw. One object, stable between changes. */
-  public get surface(): KeybindingSurface {
+  public get surface(): KeybindingSnapshot {
     const shippedBindings = this.#snapshot === undefined ? this.#readDefaults() : [];
     this.#snapshot ??= {
       bindings: composeEffectiveBindings(shippedBindings, this.#overrides),
@@ -326,6 +326,6 @@ export class KeybindingOverrideStore {
  * contract that deliberately carries none.
  */
 export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
-  defaults: consoleFamilyKeyBindings,
-  subscribeToDefaults: subscribeToConsoleFamilyContributions,
+  defaults: contributedKeybindings,
+  subscribeToDefaults: subscribeToCommandContributions,
 });

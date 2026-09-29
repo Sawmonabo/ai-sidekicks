@@ -25,7 +25,7 @@ import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
 import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
-import { ConsoleFrameHost } from "./AppBootstrap.js";
+import { AppBootstrap } from "./AppBootstrap.js";
 
 /**
  * The clock the tripwire route stamps its records off.
@@ -52,19 +52,19 @@ registerConsoleFamilies(
 );
 
 /** What the root hands the provider stack. */
-export interface ConsoleRootProps {
+export interface AppProvidersProps {
   /** Which fixture scenario to play. Ignored when fixtures are compiled out. */
   readonly scenarioId?: string;
 }
 
 /** The provider stack: the platform bridge, then the window. `App.tsx` renders exactly this. */
-export function ConsoleRoot(props: ConsoleRootProps): React.JSX.Element {
+export function ConsoleRoot(props: AppProvidersProps): React.JSX.Element {
   return (
     <DesktopBridgeProvider
       {...(props.scenarioId === undefined ? {} : { scenarioId: props.scenarioId })}
       clockToRebind={consoleTripwireRouteClock}
     >
-      <ConsoleFrameHost />
+      <AppBootstrap />
     </DesktopBridgeProvider>
   );
 }

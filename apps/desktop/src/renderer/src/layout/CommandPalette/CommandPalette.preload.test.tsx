@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { settle } from "@test/helpers/settle.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { PaletteOverlay } from "./CommandPalette.js";
+import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 /** Every clause key false: these commands carry no `when`, so nothing is filtered out. */
@@ -80,7 +80,7 @@ async function openPaletteOver(ledger: WarmLedger): Promise<void> {
   const registry = new CommandRegistry();
   registry.registerAll(commandsUnder(ledger));
   render(
-    <PaletteOverlay
+    <CommandPalette
       registry={registry}
       context={CONTEXT}
       open

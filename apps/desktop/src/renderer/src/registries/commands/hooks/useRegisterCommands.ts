@@ -1,17 +1,17 @@
 // How a SURFACE contributes commands for as long as it is on screen.
 //
 // The frame's own commands are registered from an effect and removed on unmount
-// (`frame/frame-commands.ts`), and a view family's are the same shape for the same
+// (`app/hooks/useWindowCommands.ts`), and a view family's are the same shape for the same
 // reason: they close over a live store, a live bridge, and the rows a pane is
 // currently showing, none of which exists at module scope. What a family must not
 // copy from the frame is the mechanism — two hand-written register/unregister
 // effects against one module-scoped registry is two places to get the unregister
 // wrong — so the lifecycle lands here once and every surface takes it as a hook.
 //
-// IT CONTRIBUTES THROUGH THE SEAT AND NOT THROUGH `registerConsoleCommands`, and
+// IT CONTRIBUTES THROUGH THE SEAT AND NOT THROUGH `registerCommands`, and
 // that is the whole point rather than a preference. The palette re-reads the
 // registry once per `commandRevision`, and the only thing that moves the revision
-// is a contribution signal: a surface that called `registerConsoleCommands`
+// is a contribution signal: a surface that called `registerCommands`
 // directly would add its rows to a registry the open palette has already memoised
 // against, and the commands would be invisible until something unrelated bumped
 // it. The frame gets away with the plural call because it bumps the revision

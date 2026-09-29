@@ -164,7 +164,7 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
 }
 
 export class InlineCardSeatRegistry {
-  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload
+  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
   // card kind is a conflict rather than a swap decided by import order.
   readonly #bodiesByKind = new KeyedRegistry<InlineCardKind, InlineCardBodyDescriptor>({

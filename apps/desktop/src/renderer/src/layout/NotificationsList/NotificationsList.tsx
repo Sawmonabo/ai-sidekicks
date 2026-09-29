@@ -27,12 +27,12 @@
 
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
-import { ProjectionBody } from "./NotificationsListBody.js";
+import { NotificationsListBody } from "./NotificationsListBody.js";
 
 import "./notifications.css";
 
 /** What the notifications list draws: the attention reading and how to open an item. */
-export interface NotificationCenterProps {
+export interface NotificationsListProps {
   /**
    * The projection read's result. The destination performs the read and hands it
    * here, so the center and the all-sessions list read one plane and cannot
@@ -48,7 +48,7 @@ export interface NotificationCenterProps {
  *
  * @consumedBy the notifications list the rail's bell opens
  */
-export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
+export function NotificationsList(props: NotificationsListProps): React.JSX.Element {
   return (
     <section className="meridian-attention" aria-label="Attention">
       <header className="meridian-attention__head">
@@ -57,7 +57,7 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
           Muting is a single global setting, and it never hides work that is blocking.
         </p>
       </header>
-      <ProjectionBody reading={props.reading} onOpen={props.onOpen} />
+      <NotificationsListBody reading={props.reading} onOpen={props.onOpen} />
     </section>
   );
 }

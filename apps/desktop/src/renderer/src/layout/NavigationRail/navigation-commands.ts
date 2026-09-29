@@ -9,7 +9,7 @@ import type { FrameStore } from "@renderer/store/window/window-store.js";
 import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
 import type {
   FrameCommand,
-  FrameKeyBinding,
+  FrameKeybinding,
 } from "@renderer/registries/commands/window-command-registry.js";
 import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
@@ -45,7 +45,7 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
  *
  * None fires in a text input: navigating away mid-sentence loses what was typed.
  */
-export const RAIL_KEYBINDINGS: readonly FrameKeyBinding[] = RAIL_DESTINATIONS.map(
+export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.map(
   (destination) => ({
     chord: RAIL_NAVIGATION_DETAILS[destination].chord,
     commandId: RAIL_NAVIGATION_DETAILS[destination].commandId,

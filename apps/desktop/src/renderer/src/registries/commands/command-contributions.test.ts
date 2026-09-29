@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   consoleCommandSurface,
-  consoleFamilyKeyBindings,
-  subscribeToConsoleFamilyContributions,
-  type ConsoleContributionRelease,
+  contributedKeybindings,
+  subscribeToCommandContributions,
+  type CommandContributionRelease,
 } from "./command-contributions.js";
 import type { ConsoleCommand, KeyBinding } from "./command-types.js";
 import { consoleCommands } from "./window-command-registry.js";
@@ -25,7 +25,7 @@ function inertCommand(id: string): ConsoleCommand {
  * and the next case would compose on top of it. Called from a `finally`, which is
  * this file's own idiom for leaving the module-scoped registry as it was found.
  */
-function releaseAll(...releases: readonly ConsoleContributionRelease[]): void {
+function releaseAll(...releases: readonly CommandContributionRelease[]): void {
   for (const release of releases) {
     release();
   }
@@ -40,7 +40,7 @@ describe("command contributions — one owner's whole set, contributed together"
     });
     try {
       expect(consoleCommands.has("contribution-test.act")).toBe(true);
-      expect(consoleFamilyKeyBindings()).toStrictEqual([
+      expect(contributedKeybindings()).toStrictEqual([
         { chord: "$mod+Shift+7", commandId: "contribution-test.act" },
       ]);
     } finally {
@@ -77,7 +77,7 @@ describe("command contributions — one owner's whole set, contributed together"
       expect(consoleCommands.has("contribution-test.kept")).toBe(true);
       // The replacing family keeps the slot its FIRST contribution gave it, so a
       // re-composition cannot reorder the window's chords under a sibling.
-      expect(consoleFamilyKeyBindings().map((binding) => binding.commandId)).toStrictEqual([
+      expect(contributedKeybindings().map((binding) => binding.commandId)).toStrictEqual([
         "contribution-test.kept",
         "contribution-test.second",
       ]);
@@ -91,7 +91,7 @@ describe("command contributions — one owner's whole set, contributed together"
     // table reachable at all. Without it the chord is bound into a list nothing
     // re-reads, which is a keypress that does nothing and reports nothing.
     let signalCount = 0;
-    const stopWatching = subscribeToConsoleFamilyContributions(() => {
+    const stopWatching = subscribeToCommandContributions(() => {
       signalCount += 1;
     });
 
@@ -118,8 +118,8 @@ describe("command contributions — one owner's whole set, contributed together"
     // written hands the listener the previous table, and every assertion above
     // still passes — the listener is the only thing that can tell.
     let chordsSeenByListener: readonly KeyBinding[] = [];
-    const stopWatching = subscribeToConsoleFamilyContributions(() => {
-      chordsSeenByListener = consoleFamilyKeyBindings();
+    const stopWatching = subscribeToCommandContributions(() => {
+      chordsSeenByListener = contributedKeybindings();
     });
 
     const release = consoleCommandSurface.contribute({
@@ -140,7 +140,7 @@ describe("command contributions — one owner's whole set, contributed together"
   it("negative control: no chord this file contributed survives it", () => {
     // Without this every case above would pass against a door whose withdrawal did
     // nothing, and the ordering assertion would be reading the case before it.
-    expect(consoleFamilyKeyBindings()).toStrictEqual([]);
+    expect(contributedKeybindings()).toStrictEqual([]);
     expect(consoleCommands.has("contribution-test.act")).toBe(false);
     expect(consoleCommands.has("contribution-test.kept")).toBe(false);
   });

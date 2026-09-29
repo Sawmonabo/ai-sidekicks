@@ -1,6 +1,6 @@
 // The two doors into the surface registry, and the closed set behind both.
 //
-// `registerConsoleSurface` is the door a plan-owned subtree uses: those subtrees
+// `registerScreen` is the door a plan-owned subtree uses: those subtrees
 // mount into the console and the console imports none of them, so the layering
 // gate bans the import and this call is the whole channel. Nothing in the tree
 // calls it yet because no such subtree has shipped — which makes it exactly the
@@ -20,7 +20,7 @@ import {
   CONSOLE_SURFACE_SLOTS,
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
-  registerConsoleSurface,
+  registerScreen,
   surfaceSlotFor,
   type ConsoleSurfaceDescriptor,
 } from "./screen-registry.js";
@@ -39,7 +39,7 @@ describe("surface registry — the module-scope door", () => {
     // `workspace` at import time, and this case is about the door rather than
     // about who got there first.
     try {
-      registerConsoleSurface(descriptor("timeline", "surface-registry-test"));
+      registerScreen(descriptor("timeline", "surface-registry-test"));
       expect(consoleSurfaceRegistry.descriptorFor("timeline")?.owner).toBe("surface-registry-test");
       expect(consoleSurfaceRegistry.registeredSlots()).toContain("timeline");
     } finally {
@@ -50,7 +50,7 @@ describe("surface registry — the module-scope door", () => {
   it("negative control: the slot is absent once released", () => {
     // Without this the case above would pass against a registry that had been
     // holding the descriptor since some earlier file ran, and would keep passing
-    // if `registerConsoleSurface` stopped registering anything at all.
+    // if `registerScreen` stopped registering anything at all.
     expect(consoleSurfaceRegistry.descriptorFor("timeline")).toBeUndefined();
     expect(consoleSurfaceRegistry.registeredSlots()).not.toContain("timeline");
   });

@@ -12,8 +12,8 @@
 // this tier compiles them in — so without it the branch that renders the recovery
 // card is unreachable, which is how it came to be untested.
 //
-// What the composition root wires is `ConsoleRoot.test.tsx`; the address it opens
-// at is `ConsoleRoot.routing.test.tsx`.
+// What the composition root wires is `providers.test.ts`; the address it opens
+// at is `providers.routing.test.ts`.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

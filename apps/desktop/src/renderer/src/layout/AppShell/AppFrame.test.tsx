@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { PaletteOverlay } from "../CommandPalette/CommandPalette.js";
+import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { AppFrame } from "./AppFrame.js";
 import {
@@ -65,7 +65,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
   it("carries inert only while a modal overlay is open, and never over the overlay itself", () => {
     const registry = new CommandRegistry();
     const palette = (openState: boolean): React.JSX.Element => (
-      <PaletteOverlay
+      <CommandPalette
         registry={registry}
         context={{}}
         open={openState}

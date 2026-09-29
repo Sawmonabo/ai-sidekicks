@@ -6,7 +6,7 @@ import {
   type ConsolePaneRegistry,
   type ConsoleSurfaceRegistry,
 } from "@renderer/console/seats/index.js";
-import { PaneHarnessSurface } from "./PaneHarnessScreen.js";
+import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 
 /**
  * Claim the harness slot, in a fixture build and in no other.
@@ -26,6 +26,6 @@ export function registerPaneHarnessSurface(
   surfaceRegistry.register({
     slot: "pane-harness",
     owner: "pane-harness",
-    render: (context) => createElement(PaneHarnessSurface, { context, paneRegistry }),
+    render: (context) => createElement(PaneHarnessScreen, { context, paneRegistry }),
   });
 }

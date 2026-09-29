@@ -8,7 +8,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
   consoleCommandSurface,
-  consoleFamilyKeyBindings,
+  contributedKeybindings,
 } from "@renderer/registries/commands/command-contributions.js";
 import { RAIL_KEYBINDINGS } from "@renderer/layout/NavigationRail/navigation-commands.js";
 
@@ -28,7 +28,7 @@ describe("registrations — the window's chord table order", () => {
   });
 
   it("puts the rail's chords before every feature's", () => {
-    expect(consoleFamilyKeyBindings().slice(0, RAIL_KEYBINDINGS.length)).toStrictEqual([
+    expect(contributedKeybindings().slice(0, RAIL_KEYBINDINGS.length)).toStrictEqual([
       ...RAIL_KEYBINDINGS,
     ]);
   });
@@ -44,11 +44,11 @@ describe("registrations — the window's chord table order", () => {
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "keybinding-order-test.act" }],
     });
 
-    expect(consoleFamilyKeyBindings().at(-1)).toStrictEqual({
+    expect(contributedKeybindings().at(-1)).toStrictEqual({
       chord: "$mod+Shift+7",
       commandId: "keybinding-order-test.act",
     });
-    expect(consoleFamilyKeyBindings().slice(0, RAIL_KEYBINDINGS.length)).toStrictEqual([
+    expect(contributedKeybindings().slice(0, RAIL_KEYBINDINGS.length)).toStrictEqual([
       ...RAIL_KEYBINDINGS,
     ]);
   });
