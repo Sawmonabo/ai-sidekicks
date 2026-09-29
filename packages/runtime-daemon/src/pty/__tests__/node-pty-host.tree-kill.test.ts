@@ -171,7 +171,7 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
   // `advanceTimersByTimeAsync` simulates time, which would deadlock if
   // production code awaited real wall-clock seconds inside `kill()`.
 
-  it("if the child exits BEFORE the 2 s budget elapses, the escalation is cancelled and taskkill is never called", async () => {
+  it("if the child exits BEFORE the 2 s budget elapses, the escalation is canceled and taskkill is never called", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGTERM");
 
@@ -320,7 +320,7 @@ describe("NodePtyHost — preemption clears stale escalation timer", () => {
     // SIGTERM-armed timer remains pending and would fire at T+2s,
     // invoking `mockTaskkill` a SECOND time. With the fix, the
     // SIGKILL branch calls `clearPendingEscalation` first, so the
-    // timer is cancelled. mockTaskkill fires exactly once (from
+    // timer is canceled. mockTaskkill fires exactly once (from
     // SIGKILL).
     await ctx.host.kill(session_id, "SIGKILL");
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);

@@ -131,7 +131,7 @@ export interface ArmedCompactionWait {
    * Withdraw this waiter: cancel its bound's timer and forget its registration.
    *
    * Idempotent, and safe to call after the wait has already settled — a wait that
-   * settled on evidence has cancelled its own timer and forgotten itself already,
+   * settled on evidence has canceled its own timer and forgotten itself already,
    * so the second call finds nothing to do. Touches no sibling waiter on the key.
    */
   abandon(): void;
@@ -216,7 +216,7 @@ export class PendingCompactionRegistry {
         if (closed) {
           return;
         }
-        // CLOSED FIRST, cancelled second. The flag is what makes the withdrawal
+        // CLOSED FIRST, canceled second. The flag is what makes the withdrawal
         // total: a scheduler whose canceller does not really stop its timer —
         // every injected test double, and any host whose clear raced the fire —
         // would otherwise deliver `wait_expired` into a promise whose caller had

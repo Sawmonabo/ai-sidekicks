@@ -683,7 +683,7 @@ interface CodexRoutedServerRequestDescriptor {
  * `decline` rather than `cancel` on the two modern approval arms, and the
  * `denied` object rather than `abort` on the legacy pair, because both pairs
  * mean different things: the refusing member lets the agent continue the turn
- * and try something else, while the cancelling member interrupts the turn
+ * and try something else, while the canceling member interrupts the turn
  * outright. A policy that refuses ONE tool call has not asked for the turn to
  * end, so answering `cancel` would convert every denial into an interruption.
  */
@@ -2254,7 +2254,7 @@ export type CodexPtySessionSubscriber = (
   listeners: CodexPtySessionListeners,
 ) => () => void;
 
-/** Cancellable timeout scheduler. Injected so tests never wait on real time. */
+/** Cancelable timeout scheduler. Injected so tests never wait on real time. */
 export type CodexScheduleTimeout = (callback: () => void, delayMs: number) => () => void;
 
 /**

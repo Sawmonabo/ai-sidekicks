@@ -185,7 +185,7 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // "Declared" means exactly this: the driver states, up front, how long it will
 // wait for the provider's own typed compaction evidence before reporting the
 // OPERATION failed. It is not a guess at how long a compaction takes and it is
-// not a timeout on the provider — the provider is never cancelled, and a
+// not a timeout on the provider — the provider is never canceled, and a
 // boundary frame that arrives after this elapses still travels its ordinary
 // route and still produces its `usage.context_compacted` row.
 //

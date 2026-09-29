@@ -962,7 +962,7 @@ describe("timeline method-name registration", () => {
       registry.dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext),
     ).rejects.toThrow("session not found");
 
-    // The allocated entry was drained: `next` on a cancelled producer is a
+    // The allocated entry was drained: `next` on a canceled producer is a
     // documented silent no-op, so nothing reaches the transport afterwards.
     const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
     producer.next(timelineRow);

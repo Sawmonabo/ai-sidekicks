@@ -126,7 +126,7 @@ describe("ClaudeInterventionDispatcher steer", () => {
 });
 
 describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
-  it("routes an interrupt to the interrupt control request without cancelling queued input", async () => {
+  it("routes an interrupt to the interrupt control request without canceling queued input", async () => {
     const harness = buildHarness();
 
     const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
@@ -139,7 +139,7 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
   });
 
-  it("routes a cancel to the same control request with queued input cancelled", async () => {
+  it("routes a cancel to the same control request with queued input canceled", async () => {
     const harness = buildHarness();
 
     const result = await harness.dispatcher.applyIntervention(buildCancelParams());

@@ -675,7 +675,7 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
     // "forced" : "drained"` MUST NOT over-classify a genuine graceful
     // drain as forced. Discriminator: `mockTaskkill` is NEVER called
     // — the child exits in response to CTRL_BREAK_EVENT well within
-    // the 2 s budget, the escalation timer is cancelled by
+    // the 2 s budget, the escalation timer is canceled by
     // `clearPendingEscalation` in the spawn-time `child.onExit`
     // closure, and the drainWaiter resolves with "drained" via the
     // L631 call site.
@@ -721,8 +721,8 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Advance past the (now-cancelled) 2 s budget to confirm the
-    // escalation timer was actually cancelled (a buggy implementation
+    // Advance past the (now-canceled) 2 s budget to confirm the
+    // escalation timer was actually canceled (a buggy implementation
     // that did NOT clear the timer would fire taskkill below).
     await vi.advanceTimersByTimeAsync(2_001);
     await Promise.resolve();

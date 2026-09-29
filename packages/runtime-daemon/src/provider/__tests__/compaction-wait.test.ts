@@ -25,7 +25,7 @@ import {
  * A scheduler whose timers fire only when a test says so.
  *
  * `fireAll` is what stands in for the declared bound elapsing. Cancellation is
- * RECORDED rather than merely honoured, because "the timer was cancelled" is the
+ * RECORDED rather than merely honoured, because "the timer was canceled" is the
  * observable difference between a wait that settled on evidence and one that was
  * left armed to fire into a settled promise later.
  */
@@ -33,29 +33,29 @@ function makeManualScheduler(): {
   readonly schedule: CompactionWaitScheduler;
   readonly fireAll: () => void;
   readonly armedCount: () => number;
-  readonly cancelledCount: () => number;
+  readonly canceledCount: () => number;
   readonly lastDelayMs: () => number | null;
 } {
-  const armed: { callback: () => void; cancelled: boolean }[] = [];
+  const armed: { callback: () => void; canceled: boolean }[] = [];
   let lastDelayMs: number | null = null;
   return {
     schedule: (callback, delayMs) => {
       lastDelayMs = delayMs;
-      const entry = { callback, cancelled: false };
+      const entry = { callback, canceled: false };
       armed.push(entry);
       return () => {
-        entry.cancelled = true;
+        entry.canceled = true;
       };
     },
     fireAll: () => {
       for (const entry of armed) {
-        if (!entry.cancelled) {
+        if (!entry.canceled) {
           entry.callback();
         }
       }
     },
     armedCount: () => armed.length,
-    cancelledCount: () => armed.filter((entry) => entry.cancelled).length,
+    canceledCount: () => armed.filter((entry) => entry.canceled).length,
     lastDelayMs: () => lastDelayMs,
   };
 }
@@ -100,7 +100,7 @@ describe("PendingCompactionRegistry — the observed terminal", () => {
     registry.observeBoundary(BINDING_KEY, 1);
     await wait.settled;
 
-    expect(scheduler.cancelledCount()).toBe(1);
+    expect(scheduler.canceledCount()).toBe(1);
   });
 });
 
@@ -133,7 +133,7 @@ describe("PendingCompactionRegistry — the two failure terminals", () => {
       terminal: "binding_lost",
       boundaryPosition: null,
     });
-    expect(scheduler.cancelledCount()).toBe(1);
+    expect(scheduler.canceledCount()).toBe(1);
   });
 
   it("never rejects — every terminal is a settlement the caller maps", async () => {
@@ -145,7 +145,7 @@ describe("PendingCompactionRegistry — the two failure terminals", () => {
 
     const expiring = registry.arm("expiring", DECLARED_BOUND_MS);
     const losing = registry.arm("losing", DECLARED_BOUND_MS);
-    // The loss FIRST, then the bound. `fireAll` skips a cancelled timer, so this
+    // The loss FIRST, then the bound. `fireAll` skips a canceled timer, so this
     // ordering is also the assertion that settling on a loss really does cancel
     // the bound rather than leaving it armed to re-settle the same wait.
     registry.releaseBinding("losing");
@@ -195,7 +195,7 @@ describe("PendingCompactionRegistry — withdrawal", () => {
     wait.abandon();
 
     expect(registry.pendingCountFor(BINDING_KEY)).toBe(0);
-    expect(scheduler.cancelledCount()).toBe(1);
+    expect(scheduler.canceledCount()).toBe(1);
     await expect(raceAgainstMicrotask(wait.settled)).resolves.toBe(NEVER_SETTLED);
   });
 

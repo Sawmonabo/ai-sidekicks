@@ -492,7 +492,7 @@ export function buildCancelParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
-    payload: { reason: "user cancelled the run" },
+    payload: { reason: "user canceled the run" },
   };
 }
 

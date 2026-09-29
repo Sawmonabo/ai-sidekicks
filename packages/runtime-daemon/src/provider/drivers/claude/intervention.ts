@@ -56,7 +56,7 @@
 // self-evidently an applied CANCEL. Under the `interrupt_receipt_v1` capability
 // the success payload carries `still_queued`, the uuids of async user messages
 // that SURVIVED the interrupt, and a cancel that leaves queued messages behind
-// has not cancelled the run's
+// has not canceled the run's
 // remaining input — reporting `applied` there would tell the daemon a
 // user's cancellation took hold while messages it was meant to stop are
 // still waiting to run. That success degrades. An interrupt (`cancelQueued`
@@ -132,7 +132,7 @@ export class ClaudeInterventionDispatcher {
       case "cancel": {
         // Claude has no `cancel` control subtype. The nearest native mechanism is
         // the interrupt request carrying `cancelQueued`, so queued async user
-        // messages cannot silently resume a run the user cancelled.
+        // messages cannot silently resume a run the user canceled.
         return await this.#dispatchInterrupt(params.targetRunId, true);
       }
       default: {

@@ -459,7 +459,7 @@ class FakeCodexAppServer implements PtyHost {
 interface ScheduledTimeout {
   callback: () => void;
   delayMs: number;
-  cancelled: boolean;
+  canceled: boolean;
 }
 
 function makeManualScheduler(): {
@@ -473,18 +473,18 @@ function makeManualScheduler(): {
   const scheduled: ScheduledTimeout[] = [];
   const fired: number[] = [];
   const schedule: CodexScheduleTimeout = (callback, delayMs) => {
-    const entry: ScheduledTimeout = { callback, delayMs, cancelled: false };
+    const entry: ScheduledTimeout = { callback, delayMs, canceled: false };
     scheduled.push(entry);
     return () => {
-      entry.cancelled = true;
+      entry.canceled = true;
     };
   };
   return {
     schedule,
     fireAll: () => {
       for (const entry of scheduled) {
-        if (!entry.cancelled) {
-          entry.cancelled = true;
+        if (!entry.canceled) {
+          entry.canceled = true;
           fired.push(entry.delayMs);
           entry.callback();
         }
@@ -505,8 +505,8 @@ function makeManualScheduler(): {
     fireDelay: (delayMs: number) => {
       let firedHere = 0;
       for (const entry of scheduled) {
-        if (!entry.cancelled && entry.delayMs === delayMs) {
-          entry.cancelled = true;
+        if (!entry.canceled && entry.delayMs === delayMs) {
+          entry.canceled = true;
           fired.push(entry.delayMs);
           entry.callback();
           firedHere += 1;
@@ -514,17 +514,16 @@ function makeManualScheduler(): {
       }
       return firedHere;
     },
-    pendingDelays: () =>
-      scheduled.filter((entry) => !entry.cancelled).map((entry) => entry.delayMs),
+    pendingDelays: () => scheduled.filter((entry) => !entry.canceled).map((entry) => entry.delayMs),
     /**
-     * The delays that ACTUALLY ran, as distinct from the ones cancelled.
+     * The delays that ACTUALLY ran, as distinct from the ones canceled.
      *
      * The two are indistinguishable through `pendingCount` — a settled wait
      * cancels its own timer, and so does an expired one — so an immediacy
      * assertion ("this settled without any timer firing") needs its own record.
      */
     firedDelays: () => fired,
-    pendingCount: () => scheduled.filter((entry) => !entry.cancelled).length,
+    pendingCount: () => scheduled.filter((entry) => !entry.canceled).length,
   };
 }
 
