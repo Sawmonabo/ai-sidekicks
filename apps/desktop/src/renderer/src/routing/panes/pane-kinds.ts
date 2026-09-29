@@ -1,9 +1,9 @@
 // The pane kinds, as one closed set.
 //
-// The console's design fixes this set and fixes its members: `transcript`, `inspector`,
-// `runs`, `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
-// `terminal`, `agents`. The order below is the design's own order, and
-// `pane-kinds.test.ts` compares the two by string equality rather than by eye.
+// The set is closed and its members are fixed: `transcript`, `inspector`, `diff`,
+// `workflow-run`, `workflow-builder`, `browser`, `terminal`, `agents`. The order below is
+// the order `registeredPaneKinds()` answers in, and `pane-kinds.test.ts` compares this
+// tuple with its own copy of the list by string equality rather than by eye.
 //
 // WHY THE SET IS DECLARED HERE AND NOT IN THE FAMILY THAT RENDERS EACH PANE
 //
@@ -31,10 +31,7 @@
 export const PANE_KINDS = [
   "transcript",
   "inspector",
-  "runs",
-  "approvals",
   "diff",
-  "artifact",
   "workflow-run",
   "workflow-builder",
   "browser",

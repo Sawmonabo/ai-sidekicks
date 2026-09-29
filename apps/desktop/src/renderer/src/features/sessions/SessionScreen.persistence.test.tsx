@@ -49,14 +49,14 @@ describe("SessionScreen — the saved arrangement", () => {
     // Without this, the case above would pass over a session screen that ignored the
     // record entirely and always opened one transcript.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
     expect(
       [...container.querySelectorAll("[data-body]")].map((body) => body.getAttribute("data-body")),
-    ).toStrictEqual(["transcript", "runs"]);
+    ).toStrictEqual(["transcript", "terminal"]);
   });
 
   it("saves the arrangement it opened, so the fallback transcript survives a restart", async () => {
@@ -73,7 +73,7 @@ describe("SessionScreen — the saved arrangement", () => {
     // restore completed would replace two panes with none, and the pane layout would look
     // exactly like a first run.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
@@ -120,7 +120,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     // was filed under the second session's partition and overwrote its saved pane layout.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     await saveLayout(store, SESSION_B_ID, ["transcript"]);
 
     const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
@@ -164,7 +164,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     // runs where a record exists, so a session with none used to inherit whatever
     // panes were already on screen — and then have them written under its own name.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
 
     const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, true));
@@ -184,7 +184,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     // and carries the arrangement with it. This is the case that makes the key above
     // an instrument rather than a decoration.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
 
     const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));

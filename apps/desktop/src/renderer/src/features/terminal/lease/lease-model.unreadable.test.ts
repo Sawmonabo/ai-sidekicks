@@ -59,7 +59,23 @@ describe("an unread transition — ignorance about a write lease is not the old 
       thisDeviceId: THIS_DEVICE_ID,
     });
     expect(state.unreadTransition?.reason).toBe("auto_released_quota_exhausted");
-    expect(state.unreadTransition?.sequence).toBe(2);
+  });
+
+  it("reads a `released` as unread, because no device can release a shell", () => {
+    // A hold ends only when another device takes the shell or the holding connection
+    // ends, so the wire has no release to report. A `released` after this device's
+    // take is a move this build does not understand, and it must not read as a free
+    // lease this device may take back or as a hold it still has.
+    const state = projectTerminalLease(
+      [
+        transitionEvent(1, "taken", THIS_DEVICE_ID),
+        transitionEvent(2, "released", null, THIS_DEVICE_ID),
+      ],
+      { thisDeviceId: THIS_DEVICE_ID },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderUserId).toBeNull();
+    expect(state.unreadTransition?.reason).toBe("released");
   });
 
   it("reports a transition with no reason at all as unread, with nothing to name", () => {
@@ -86,7 +102,6 @@ describe("an unread transition — ignorance about a write lease is not the old 
     // is that transition's — an unread transition is not a latch.
     expect(state.unreadTransition).toBeUndefined();
     expect(state.holding).toBe("held-by-this-device");
-    expect(state.transitionCount).toBe(2);
   });
 
   it("stays unread when the readable transition came FIRST", () => {
@@ -101,13 +116,13 @@ describe("an unread transition — ignorance about a write lease is not the old 
       { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("unrecognized-transition");
-    expect(state.unreadTransition?.sequence).toBe(4);
+    expect(state.unreadTransition?.reason).toBe("seized");
   });
 });
 
 // A reason alone is not a reading. The holder member is the other half, and the two
-// have to agree: a take names who holds it, and every release — the operator's own
-// and the three automatic ones — leaves nobody holding it.
+// have to agree: a take names who holds it, and both automatic releases leave nobody
+// holding it.
 //
 // Both malformed shapes below used to be presented as CONFIDENT states rather than as
 // the ignorance they are, and each is the expensive direction: a take that named
@@ -124,17 +139,13 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
     );
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.holderUserId).toBeNull();
-    // The lease itself did not move: the readable take is still the only counted
-    // transition, and the unread one is reported in its own right.
-    expect(state.transitionCount).toBe(1);
-    expect(state.transitions).toHaveLength(1);
-    expect(state.unreadTransition?.sequence).toBe(2);
+    // The unread one is reported in its own right.
     expect(state.unreadTransition?.reason).toBe("taken");
   });
 
-  it("refuses a `released` that names this device, rather than reading it as its hold", () => {
+  it("refuses a release that names this device, rather than reading it as its hold", () => {
     const state = projectTerminalLease(
-      [transitionEvent(1, "released", THIS_DEVICE_ID, THIS_DEVICE_ID)],
+      [transitionEvent(1, "auto_released_run_idle", THIS_DEVICE_ID, THIS_DEVICE_ID)],
       {
         thisDeviceId: THIS_DEVICE_ID,
       },
@@ -147,8 +158,8 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
   });
 
   it("refuses an automatic release that names a holder too", () => {
-    // The three automatic reasons are releases, so the same rule reads them: the
-    // user a release took the shell FROM travels as the previous holder.
+    // Both automatic reasons are releases, so the same rule reads them: the user a
+    // release took the shell FROM travels as the previous holder.
     const state = projectTerminalLease(
       [transitionEvent(1, "auto_released_disconnect", OTHER_DEVICE_ID, OTHER_DEVICE_ID)],
       { thisDeviceId: THIS_DEVICE_ID },
@@ -166,12 +177,11 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
     const releasedByOther = projectTerminalLease(
       [
         transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "released", null, OTHER_DEVICE_ID),
+        transitionEvent(2, "auto_released_disconnect", null, OTHER_DEVICE_ID),
       ],
       { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(releasedByOther.holding).toBe("unheld");
-    expect(releasedByOther.transitionCount).toBe(2);
   });
 
   it("negative control: a holder member of the wrong TYPE is unread on a take", () => {

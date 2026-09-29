@@ -1,29 +1,21 @@
-// The pane-kind set is the spec's set, in the spec's order.
-//
-// The console's design fixes both: a closed set of `transcript`, `inspector`, `runs`,
-// `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
+// The pane-kind set is closed, and its order is the one `registeredPaneKinds()` answers in:
+// `transcript`, `inspector`, `diff`, `workflow-run`, `workflow-builder`, `browser`,
 // `terminal` and `agents`.
 //
-// The transcription below is compared to `PANE_KINDS` by `toStrictEqual`, which
-// is an ORDERED comparison — a reorder fails here, and a reorder is not cosmetic:
-// `registeredPaneKinds()` answers in declaration order and the gallery renders in
-// it. Reading the spec file itself would be the stronger check and is not
-// available: `node:fs` is banned in renderer programs, and the design documents sit
-// outside this package's Vite root, so the honest arrangement is a transcription that
-// a reviewer can diff against the design.
+// The list below is compared to `PANE_KINDS` by `toStrictEqual`, which is an ORDERED
+// comparison — a reorder fails here, and a reorder is not cosmetic:
+// `registeredPaneKinds()` answers in declaration order and the gallery renders in it.
+// Adding or dropping a kind is a change to both lists, made on purpose.
 
 import { describe, expect, it } from "vitest";
 
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
-/** The eleven kinds of the design, in its own order. */
-const SPEC_PANE_KINDS: readonly string[] = [
+/** The eight kinds, in their declared order. */
+const DECLARED_PANE_KINDS: readonly string[] = [
   "transcript",
   "inspector",
-  "runs",
-  "approvals",
   "diff",
-  "artifact",
   "workflow-run",
   "workflow-builder",
   "browser",
@@ -31,14 +23,14 @@ const SPEC_PANE_KINDS: readonly string[] = [
   "agents",
 ];
 
-describe("pane kinds — the closed set the design fixes", () => {
-  it("carries the spec's members in the spec's order", () => {
-    expect([...PANE_KINDS]).toStrictEqual([...SPEC_PANE_KINDS]);
+describe("pane kinds — the closed set", () => {
+  it("carries the declared members in the declared order", () => {
+    expect([...PANE_KINDS]).toStrictEqual([...DECLARED_PANE_KINDS]);
   });
 
   it("declares each kind exactly once", () => {
     // `toStrictEqual` above would pass over a set that repeated a member if the
-    // transcription repeated it too, and a repeat is what a merge of two
+    // list repeated it too, and a repeat is what a merge of two
     // concurrent additions produces.
     expect(new Set(PANE_KINDS).size).toBe(PANE_KINDS.length);
   });
@@ -78,12 +70,12 @@ describe("pane kinds — the guard layout restore drops against", () => {
     // pass every case above and still leave a layout reader casting. Reading the
     // narrowed value into a `PaneKind` is the assertion, and it is a compile-time
     // one that this line makes runnable.
-    const fromSnapshot: unknown = "artifact";
+    const fromSnapshot: unknown = "terminal";
     expect(isPaneKind(fromSnapshot)).toBe(true);
     if (!isPaneKind(fromSnapshot)) {
       throw new Error("guard admitted a declared kind and then refused to narrow it");
     }
     const narrowed: PaneKind = fromSnapshot;
-    expect(narrowed).toBe("artifact");
+    expect(narrowed).toBe("terminal");
   });
 });

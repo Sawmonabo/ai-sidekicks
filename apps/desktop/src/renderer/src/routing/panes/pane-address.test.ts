@@ -1,15 +1,15 @@
 // Which entity each pane kind is a view of, as the COMPILER holds a caller to it.
 //
 // The defect this file exists for: every pane kind used to pair with every entity
-// reference or with `undefined`, so an artifact pane over a run reference and an
-// inspector over nothing were both constructible, and neither the address type nor the
+// reference or with `undefined`, so a workflow-run pane over an agent run reference and
+// an inspector over nothing were both constructible, and neither the address type nor the
 // registry refused either. A body handed one of those queries a partition that has never
 // held the row, which renders exactly like an entity the fetch has not answered for yet.
 //
 // The mechanism here is the union, so the cases below suppress real compile errors with
 // `@ts-expect-error` — a directive that becomes an error itself the moment the error it
 // suppresses stops occurring, which is what keeps them honest. What the UNTYPED boundary
-// does with the same rows is `pane-address-parse.test.ts`', including the cross-product
+// does with the same rows is `parse-pane-address.test.ts`', including the cross-product
 // sweep that makes the pre-fold behavior — admit everything — fail on every pair rather
 // than on one hand-picked one.
 //
@@ -31,8 +31,8 @@ type AddressArm<TKind extends PaneAddress["kind"]> = Extract<PaneAddress, { read
 
 describe("the address union, at a typed call site", () => {
   it("refuses an entity kind the pane is not a view of", () => {
-    // @ts-expect-error an artifact pane is a view of an artifact, never of a run
-    const wrongEntity: AddressArm<"artifact"> = { kind: "artifact", entity: RUN };
+    // @ts-expect-error a workflow-run pane is a view of a workflow run, never of an agent run
+    const wrongEntity: AddressArm<"workflow-run"> = { kind: "workflow-run", entity: RUN };
     // Reads the object the directive above suppressed, so the case fails if the
     // construction is ever deleted rather than passing vacuously.
     expect(wrongEntity.entity).toBe(RUN);
@@ -45,9 +45,9 @@ describe("the address union, at a typed call site", () => {
   });
 
   it("refuses an entity on a session-scoped pane", () => {
-    // @ts-expect-error the session's runs list takes no entity at all
-    const strayEntity: AddressArm<"runs"> = { kind: "runs", entity: RUN };
-    expect(strayEntity.kind).toBe("runs");
+    // @ts-expect-error the session's terminal takes no entity at all
+    const strayEntity: AddressArm<"terminal"> = { kind: "terminal", entity: RUN };
+    expect(strayEntity.kind).toBe("terminal");
   });
 
   it("refuses an entity on the browser pane, which the seam keys by pane id", () => {
@@ -96,11 +96,11 @@ describe("the address union, at a typed call site", () => {
     // open a diff pane with nothing to diff.
     // @ts-expect-error a diff pane is the changes OF something and takes no bare form
     const bareDiff: AddressArm<"diff"> = { kind: "diff" };
-    // @ts-expect-error an artifact pane is a view of an artifact and takes no bare form
-    const bareArtifact: AddressArm<"artifact"> = { kind: "artifact" };
+    // @ts-expect-error a workflow-run pane is a view of one run and takes no bare form
+    const bareWorkflowRun: AddressArm<"workflow-run"> = { kind: "workflow-run" };
 
     expect(bareDiff.kind).toBe("diff");
-    expect(bareArtifact.kind).toBe("artifact");
+    expect(bareWorkflowRun.kind).toBe("workflow-run");
   });
 });
 

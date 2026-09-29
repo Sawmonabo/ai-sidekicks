@@ -2,9 +2,8 @@
 //
 // `lease-transition.ts` reads one event; this module reads a session. The two are
 // split because they answer different questions and need different fixtures: a
-// reading is a payload and a sentence, and a projection is an ordering, a device, and
-// a cap. Everything below is a property of the SEQUENCE — which of five holdings
-// the surface settles into, and which transitions the ledger keeps.
+// reading is a payload, and a projection is an ordering and a device. Everything below
+// is a property of the SEQUENCE — which of five holdings the surface settles into.
 //
 // This module has one hard rule: **the holder is a wire field and is never derived
 // from the last observed take**. So nothing here reads the outcome of a
@@ -27,7 +26,6 @@
 // source of truth for a fact the log already orders.
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { TERMINAL_LEASE_HISTORY_CAP } from "../terminal-caps.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,
   readTerminalLeaseTransition,
@@ -68,26 +66,6 @@ export interface TerminalLeaseState {
    * stale, and the surface says which transition lost it.
    */
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
-  /** Newest last, capped at `TERMINAL_LEASE_HISTORY_CAP`. */
-  readonly transitions: readonly TerminalLeaseTransition[];
-  /**
-   * Every transition the fold could READ, including the ones the cap dropped. An
-   * unreadable one is counted nowhere here — it has no sentence and no ledger row,
-   * and it is counted by the member below instead.
-   */
-  readonly transitionCount: number;
-  /**
-   * Every transition the fold could NOT read, across the whole log.
-   *
-   * A DIFFERENT QUESTION FROM `unreadTransition`, which is the newest unreadable
-   * transition and only while no readable one has arrived since. That member
-   * answers whether the current holder is known, and a later readable transition
-   * settles it; this one answers whether the ledger's rows are the whole history,
-   * and nothing settles that — a transition this build could not read changed no
-   * row whether or not the log went on. A ledger counting only the trailing one
-   * would report a history it cannot prove complete as complete.
-   */
-  readonly unreadableTransitionCount: number;
 }
 
 /** What the fold needs beyond the events. */
@@ -102,9 +80,6 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holding: "not-checked",
   holderUserId: null,
   unreadTransition: undefined,
-  transitions: [],
-  transitionCount: 0,
-  unreadableTransitionCount: 0,
 };
 
 /**
@@ -129,9 +104,7 @@ export function projectTerminalLease(
   events: readonly ProjectedSessionEvent[],
   input: TerminalLeaseProjectionInput,
 ): TerminalLeaseState {
-  const transitions: TerminalLeaseTransition[] = [];
-  let transitionCount = 0;
-  let unreadableTransitionCount = 0;
+  let newest: TerminalLeaseTransition | undefined;
   let unreadTransition: TerminalLeaseUnreadTransition | undefined;
 
   for (const event of events) {
@@ -140,19 +113,13 @@ export function projectTerminalLease(
     }
     const transition = readTerminalLeaseTransition(event);
     if (transition === undefined) {
-      unreadableTransitionCount += 1;
       unreadTransition = readTerminalLeaseUnreadTransition(event);
       continue;
     }
     unreadTransition = undefined;
-    transitionCount += 1;
-    transitions.push(transition);
-    if (transitions.length > TERMINAL_LEASE_HISTORY_CAP) {
-      transitions.shift();
-    }
+    newest = transition;
   }
 
-  const newest = transitions.at(-1);
   const wireHolderUserId = newest === undefined ? null : newest.holderUserId;
 
   // Fail-closed: an unread transition collapses to the free lease BEFORE the device
@@ -162,16 +129,13 @@ export function projectTerminalLease(
 
   return {
     holding: readHolding({
-      transitionCount,
+      hasReadTransition: newest !== undefined,
       unreadTransition,
       holderUserId,
       thisDeviceId: input.thisDeviceId,
     }),
     holderUserId,
     unreadTransition,
-    transitions,
-    transitionCount,
-    unreadableTransitionCount,
   };
 }
 
@@ -184,7 +148,7 @@ export function projectTerminalLease(
  * only honest answers left are the two that disable writing.
  */
 function readHolding(state: {
-  readonly transitionCount: number;
+  readonly hasReadTransition: boolean;
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
   readonly holderUserId: string | null;
   readonly thisDeviceId: string | undefined;
@@ -192,7 +156,7 @@ function readHolding(state: {
   if (state.unreadTransition !== undefined) {
     return "unrecognized-transition";
   }
-  if (state.transitionCount === 0) {
+  if (!state.hasReadTransition) {
     return "not-checked";
   }
   if (state.holderUserId === null) {

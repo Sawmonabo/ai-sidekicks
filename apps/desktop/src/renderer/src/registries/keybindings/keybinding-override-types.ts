@@ -86,6 +86,14 @@ export interface KeybindingOverrideStoreOptions {
    * nothing, and the reader above is then called once per composition and no oftener.
    */
   readonly subscribeToDefaults?: (onDefaultsChange: () => void) => Unsubscribe;
+  /**
+   * Whether a command id names an act this window has.
+   *
+   * A stored override is read only for an act that exists: an override for one that
+   * no longer does is skipped without a word and is gone from the next write, so it
+   * can never bring the act back.
+   */
+  readonly isCommandRegistered: (commandId: string) => boolean;
   /** Which host's reserved chords to refuse. Defaults to the one being run on. */
   readonly platform?: ChordPlatform;
 }

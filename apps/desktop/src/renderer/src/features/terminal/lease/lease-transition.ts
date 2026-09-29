@@ -3,11 +3,10 @@
 //
 // The two questions were one module, and they are not one job. This half is a
 // READER: it holds the wire vocabulary the daemon sends, the shape each reason
-// obliges the payload to have, the two ways an event is read off that payload, and
-// the sentence one transition renders as. It knows nothing about a device, a holding
-// node, a ledger cap, or which of five holdings the surface settles into — all of
-// which are `lease-model.ts`'s, because all of them are properties of the SEQUENCE
-// rather than of the event.
+// obliges the payload to have, and the two ways an event is read off that payload. It
+// knows nothing about a device or which of five holdings the surface settles into —
+// both are `lease-model.ts`'s, because both are properties of the SEQUENCE rather than
+// of the event.
 //
 // The split is along that seam and not along a line count. A reader can be driven
 // with one event and no session; the fold cannot be driven at all without a log. So
@@ -17,13 +16,6 @@
 // Both halves obey one hard rule — **the holder is a wire field and is never derived
 // from the last observed take** — and this is where it is enforced, because this is
 // where a payload becomes a reading at all.
-//
-// THREE AUTOMATIC REASONS, KEPT DISTINCT. Every transition renders as a ledger line
-// naming its reason, and the three automatic ones — the holder disconnected, the holder
-// lost authorization, the acquiring agent run left its running state — stay
-// distinguishable. The sentence table below is total over the closed set, so a sixth
-// reason is a compile error rather than a line that silently reads like one of the
-// five.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -36,14 +28,12 @@ export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
  *
  * Declared once as a tuple with the union derived from it. No contract package exports
  * this vocabulary, so this is the console's single declaration of it, and every
- * consumer (the sentence table, the guard, the family's own scenario test) derives from
+ * consumer (the holder-shape table, the guard, the family's own scenario test) derives from
  * this array rather than restating it.
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
   "taken",
-  "released",
   "auto_released_disconnect",
-  "auto_released_authorization_lost",
   "auto_released_run_idle",
 ] as const;
 
@@ -58,14 +48,14 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * tolerantly beside it: any non-empty string became a holder and everything else
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may take — and a `released` that carried this device's own id was presented
+ * anybody may take — and a release that carried this device's own id was presented
  * as `held-by-this-device`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.
  *
- * Two shapes and not five, because the direction is what the holder member reports:
- * a take names who holds it, and every release — the operator's own and the three
- * automatic ones alike — leaves nobody holding it. The member is documented as who
+ * Two shapes and not three, because the direction is what the holder member reports:
+ * a take names who holds it, and both releases — the holder's connection ending and
+ * the acquiring run leaving its running state — leave nobody holding it. The member is documented as who
  * holds the lease AFTER the transition, so a release that named a holder is
  * contradicting itself rather than naming the user it took the shell from;
  * that user is the `previousHolderUserId` the same payload carries.
@@ -73,30 +63,22 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * The check is HERE because there is nowhere else for it. `packages/contracts`
  * registers `pty.control_changed` as an event type and no payload variant for it, so
  * this module is the console's one declaration of the shape and the tolerant envelope
- * above it validates nothing. Keyed by the reason union so a sixth reason is a
+ * above it validates nothing. Keyed by the reason union so a fourth reason is a
  * compile error rather than a payload nothing checks.
  */
 const TRANSITION_HOLDER_SHAPES: Readonly<
   Record<TerminalLeaseTransitionReason, "names-the-holder" | "names-nobody">
 > = {
   taken: "names-the-holder",
-  released: "names-nobody",
   auto_released_disconnect: "names-nobody",
-  auto_released_authorization_lost: "names-nobody",
   auto_released_run_idle: "names-nobody",
 };
 
-/** One transition, as the ledger renders it. */
+/** One transition, as the fold reads it. */
 export interface TerminalLeaseTransition {
-  /** The event's position in the session log. Stable across a replay. */
-  readonly sequence: number;
-  readonly occurredAtIso: string;
   readonly reason: TerminalLeaseTransitionReason;
   /** Who holds it after this transition; `null` is the free lease, explicitly. */
   readonly holderUserId: string | null;
-  readonly previousHolderUserId: string | null;
-  /** Who the log attributes the event to, when it names anyone. */
-  readonly actorId: string | undefined;
 }
 
 /**
@@ -109,9 +91,6 @@ export interface TerminalLeaseTransition {
  * called it, and the projection settles into the arm that writes nothing.
  */
 export interface TerminalLeaseUnreadTransition {
-  /** The event's position in the session log. Stable across a replay. */
-  readonly sequence: number;
-  readonly occurredAtIso: string;
   /**
    * The reason the wire sent, when it sent a non-empty string — verbatim, for the
    * operator to paste somewhere. `undefined` when the payload named none at all,
@@ -133,7 +112,7 @@ export function asTerminalLeaseTransitionReason(
  * Both halves have to agree. A recognized reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
  * holder quietly normalized is how a malformed `taken` became a free lease and a
- * `released` carrying this device became `held-by-this-device`.
+ * release carrying this device became `held-by-this-device`.
  */
 export function readTerminalLeaseTransition(
   event: ProjectedSessionEvent,
@@ -151,14 +130,7 @@ export function readTerminalLeaseTransition(
   if (namesAHolder !== (TRANSITION_HOLDER_SHAPES[reason] === "names-the-holder")) {
     return undefined;
   }
-  return {
-    sequence: event.sequence,
-    occurredAtIso: event.occurredAt,
-    reason,
-    holderUserId,
-    previousHolderUserId: readUserId(payload["previousHolderUserId"]),
-    actorId: event.actorId,
-  };
+  return { reason, holderUserId };
 }
 
 /**
@@ -173,39 +145,7 @@ export function readTerminalLeaseTransition(
 export function readTerminalLeaseUnreadTransition(
   event: ProjectedSessionEvent,
 ): TerminalLeaseUnreadTransition {
-  const reason = event.payload?.["reason"];
-  return {
-    sequence: event.sequence,
-    occurredAtIso: event.occurredAt,
-    reason: readWireString(reason),
-  };
-}
-
-/**
- * The sentence one transition renders as.
- *
- * Total over the closed reason set by construction, so the three automatic reasons
- * cannot collapse into one line.
- *
- * NOBODY IS NAMED IN ANY OF THEM. The shell belongs to the one person using this
- * machine, so what a transition records is where the keyboard went and not who took it;
- * the wire's holder members are still read above, because they are what settles the
- * holding, and a sentence repeating an identifier back would answer a question nobody
- * asked.
- */
-export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransition): string {
-  switch (transition.reason) {
-    case "taken":
-      return "The shell was taken.";
-    case "released":
-      return "The shell was released.";
-    case "auto_released_disconnect":
-      return "The holding device disconnected, so the shell was released.";
-    case "auto_released_authorization_lost":
-      return "The hold lost its authorization, so the shell was released.";
-    case "auto_released_run_idle":
-      return "The holding run left its running state, so the shell was released.";
-  }
+  return { reason: readWireString(event.payload?.["reason"]) };
 }
 
 /**

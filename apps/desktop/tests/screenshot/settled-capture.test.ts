@@ -166,7 +166,7 @@ describe("the screenshot tier's pending-body refusal", () => {
 
   it("counts every pending body rather than reporting the first", () => {
     expect(() => {
-      assertNoPendingPaneBodies(["diff", "artifact"], "repos-section-light");
+      assertNoPendingPaneBodies(["diff", "inspector"], "repos-section-light");
     }).toThrowError(/2 pane body\/bodies/u);
   });
 });

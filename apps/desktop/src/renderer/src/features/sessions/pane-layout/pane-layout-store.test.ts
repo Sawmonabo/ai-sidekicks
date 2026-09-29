@@ -122,7 +122,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
 describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   it("takes the group's percentages as the pane layout's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "terminal" });
     const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
 
     layout.applyLayout(
@@ -179,8 +179,8 @@ describe("PaneLayoutStore — the split act", () => {
     // two panes the person was not splitting keep the widths they had.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
-    layout.open({ kind: "approvals" });
+    layout.open({ kind: "terminal" });
+    layout.open({ kind: "agents" });
     const before = layout.snapshot().panes.map((pane) => pane.sizePermille);
     const source = layout.snapshot().panes[0];
     if (source === undefined) {
@@ -204,8 +204,8 @@ describe("PaneLayoutStore — the split act", () => {
     // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
-    layout.open({ kind: "approvals" });
+    layout.open({ kind: "terminal" });
+    layout.open({ kind: "agents" });
     expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
   });
 
@@ -214,7 +214,7 @@ describe("PaneLayoutStore — the split act", () => {
     // so they get one and the pane layout re-divides rather than the open being refused.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "terminal" });
     const [first, second] = layout.snapshot().panes;
     if (first === undefined || second === undefined) {
       throw new Error("the fixture opened too few panes");
@@ -227,7 +227,7 @@ describe("PaneLayoutStore — the split act", () => {
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "transcript",
       "browser",
-      "runs",
+      "terminal",
     ]);
     expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
   });

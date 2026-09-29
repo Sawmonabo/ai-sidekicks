@@ -40,12 +40,12 @@ const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
 describe("usePaneLayoutPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "runs"]);
+    await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
 
     // The pane layout of one pane the person is looking at has reached the store through no path,
@@ -61,11 +61,11 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
   });
 
   it("writes the reconciled arrangement once, after the restore settles", async () => {
@@ -75,7 +75,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
@@ -84,16 +84,16 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
   it("does not duplicate a pane the record already held", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "runs"]);
+    await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
   });
 
   it("leaves a pane the person closed during the read closed", async () => {
@@ -102,12 +102,12 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // cannot see it, and the record puts the pane straight back. The person watches a
     // pane they just closed return, and the write that follows files it as theirs.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "runs"]);
+    await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      const paneId = layout.open({ kind: "runs" });
+      const paneId = layout.open({ kind: "terminal" });
       layout.close(paneId);
     });
     await drain();
@@ -127,21 +127,21 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // live panes keep their seventy-thirty ratio across what is left — 467 to 200,
     // which is 700 and 300 rescaled into the 667 the pane layout still holds.
     const store = memoryStore();
-    await savePaneLayout(store, ["approvals"]);
+    await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
       const transcriptPaneId = layout.open({ kind: "transcript" });
-      const runsPaneId = layout.open({ kind: "runs" });
+      const terminalPaneId = layout.open({ kind: "terminal" });
       layout.applyLayout(
-        { [transcriptPaneId]: 70, [runsPaneId]: 30 },
+        { [transcriptPaneId]: 70, [terminalPaneId]: 30 },
         UNCLAMPED_WIDTH_FLOOR_PERMILLE,
       );
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["approvals", "transcript", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["agents", "transcript", "terminal"]);
     expect(paneWidths(layout)).toStrictEqual([333, 467, 200]);
   });
 
@@ -151,20 +151,20 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // arrived from the record with no focus among them, and the composer read that as
     // having nowhere to send — recoverable only by a click or an arrow key.
     const store = memoryStore();
-    await savePaneLayout(store, ["approvals"]);
+    await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      const runsPaneId = layout.open({ kind: "runs" });
-      layout.close(runsPaneId);
+      const terminalPaneId = layout.open({ kind: "terminal" });
+      layout.close(terminalPaneId);
     });
     await drain();
 
     const focused = layout
       .snapshot()
       .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
-    expect(focused?.kind).toBe("approvals");
+    expect(focused?.kind).toBe("agents");
   });
 
   it("negative control: a live focus is not moved onto the adopted pane", async () => {
@@ -172,19 +172,19 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // panes unconditionally, which is the same window-undoing-work-under-their-hands
     // defect the width rule exists for, one axis over.
     const store = memoryStore();
-    await savePaneLayout(store, ["approvals"]);
+    await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
     const focused = layout
       .snapshot()
       .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
-    expect(focused?.kind).toBe("runs");
+    expect(focused?.kind).toBe("terminal");
   });
 
   it("keeps the order the person set during the read", async () => {
@@ -192,32 +192,32 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // restore has no way to prefer one, so it takes the record's and the reorder the
     // person just performed is undone under their hands.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "runs"]);
+    await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
       layout.open({ kind: "transcript" });
-      const runsPaneId = layout.open({ kind: "runs" });
-      layout.movePane(runsPaneId, -1);
+      const terminalPaneId = layout.open({ kind: "terminal" });
+      layout.movePane(terminalPaneId, -1);
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["runs", "transcript"]);
+    expect(paneKinds(layout)).toStrictEqual(["terminal", "transcript"]);
   });
 
   it("negative control: an untouched read restores the record and writes nothing back", async () => {
     // Without this, a hook that wrote on every settle would pass the cases above while
     // spending a durable write on every session a person opens.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "runs"]);
+    await savePaneLayout(store, ["transcript", "terminal"]);
     const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
     const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
@@ -245,7 +245,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
@@ -267,7 +267,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     mountPersistence(layout, store, { underStrictMode: true });
     await drain();
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
@@ -284,7 +284,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 

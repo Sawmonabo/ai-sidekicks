@@ -12,12 +12,12 @@ import type { Announce } from "@renderer/console/primitives/index.js";
 import { PaneLayoutStore } from "./pane-layout-store.js";
 import { NO_FOCUSED_PANE_SENTENCE, paneLayoutActsOn } from "./pane-layout-acts.js";
 
-/** A layout holding a transcript, a runs list, and an approvals pane, in that order. */
+/** A layout holding a transcript, a terminal, and an agents pane, in that order. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   layout.open({ kind: "transcript" });
-  layout.open({ kind: "runs" });
-  layout.open({ kind: "approvals" });
+  layout.open({ kind: "terminal" });
+  layout.open({ kind: "agents" });
   return layout;
 }
 
@@ -40,7 +40,9 @@ describe("focusing the next and previous pane", () => {
     acts.focusNextPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(second?.paneId);
-    expect(announce.said).toStrictEqual([["Focused the Runs pane, position 2 of 3.", "polite"]]);
+    expect(announce.said).toStrictEqual([
+      ["Focused the Terminal pane, position 2 of 3.", "polite"],
+    ]);
   });
 
   it("wraps backwards from the first pane to the last", () => {
@@ -53,7 +55,7 @@ describe("focusing the next and previous pane", () => {
     acts.focusPreviousPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(panes[2]?.paneId);
-    expect(announce.said[0]?.[0]).toBe("Focused the Approvals pane, position 3 of 3.");
+    expect(announce.said[0]?.[0]).toBe("Focused the Sidekicks pane, position 3 of 3.");
   });
 
   it("says a pane layout of one pane has nowhere to cycle rather than moving in silence", () => {
@@ -84,16 +86,18 @@ describe("closing the focused pane", () => {
   it("closes it and names what closed", () => {
     const layout = threePaneLayout();
     const announce = announcer();
-    const second = layout.snapshot().panes[1];
-    layout.focus(second?.paneId ?? "");
+    // The agents pane, whose kind id and on-screen title are different words, so the
+    // sentence can only pass by naming the pane the way the screen does.
+    const third = layout.snapshot().panes[2];
+    layout.focus(third?.paneId ?? "");
 
     paneLayoutActsOn(layout, announce).closeFocusedPane();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "transcript",
-      "approvals",
+      "terminal",
     ]);
-    expect(announce.said).toStrictEqual([["Closed the runs pane.", "polite"]]);
+    expect(announce.said).toStrictEqual([["Closed the Sidekicks pane.", "polite"]]);
   });
 
   it("says there is no focused pane rather than closing nothing quietly", () => {
@@ -116,9 +120,9 @@ describe("moving the focused pane", () => {
     paneLayoutActsOn(layout, announce).moveFocusedPaneRight();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "runs",
+      "terminal",
       "transcript",
-      "approvals",
+      "agents",
     ]);
     expect(announce.said).toStrictEqual([
       ["Moved the Transcript pane to position 2 of 3.", "polite"],
@@ -135,8 +139,8 @@ describe("moving the focused pane", () => {
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "transcript",
-      "runs",
-      "approvals",
+      "terminal",
+      "agents",
     ]);
     expect(announce.said).toStrictEqual([["The Transcript pane was not moved.", "assertive"]]);
   });

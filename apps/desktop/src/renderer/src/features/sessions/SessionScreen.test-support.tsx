@@ -48,7 +48,7 @@ export interface SessionWithStore {
 /** A registry whose bodies say which kind they are, so a pane is identifiable. */
 export function testRegistry(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["transcript", "runs"] as const) {
+  for (const kind of ["transcript", "terminal"] as const) {
     registry.register({
       kind,
       owner: "session-screen-test",
@@ -209,7 +209,7 @@ export function workspaceFor(
 export async function saveLayout(
   store: UiStateStore,
   partition: string,
-  kinds: readonly ("transcript" | "runs")[],
+  kinds: readonly ("transcript" | "terminal")[],
 ): Promise<void> {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   for (const kind of kinds) {

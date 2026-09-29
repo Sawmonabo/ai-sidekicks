@@ -23,7 +23,6 @@ describe("the take control is gated on knowing which device this is", () => {
   const HELD_BY_SOMEBODY = leaseState({
     holding: "held-by-another-device",
     holderUserId: OTHER_DEVICE_ID,
-    transitionCount: 1,
   });
 
   it("offers no control while the identity read is still out", () => {

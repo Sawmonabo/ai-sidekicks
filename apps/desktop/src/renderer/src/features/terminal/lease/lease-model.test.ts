@@ -1,9 +1,8 @@
 // The lease fold: what the wire said, and only that.
 //
-// The fold's ordinary answer — who the log's transitions leave holding the shell, how
-// many there were, and what the ledger keeps when there are more than its cap. The
+// The fold's ordinary answer — who the log's transitions leave holding the shell. The
 // two arms where the fold refuses to answer are
-// `lease-model.withheld.test.ts`'s, and they are a different claim: this file is about
+// `lease-model.unreadable.test.ts`'s, and they are a different claim: this file is about
 // what a well-formed ordering produces, that one about what an ill-formed one does NOT.
 //
 // The READER's own claim is `lease-transition.test.ts`'s — a payload's reason and
@@ -11,7 +10,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_LEASE_HISTORY_CAP } from "../terminal-caps.js";
 import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
 import { OTHER_DEVICE_ID, THIS_DEVICE_ID, transitionEvent } from "./lease-model.test-support.js";
 
@@ -29,14 +27,13 @@ describe("the lease fold — what the wire said, and only that", () => {
     const state = projectTerminalLease(
       [
         transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "released", null, OTHER_DEVICE_ID),
+        transitionEvent(2, "auto_released_disconnect", null, OTHER_DEVICE_ID),
         transitionEvent(3, "taken", THIS_DEVICE_ID),
       ],
       { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("held-by-this-device");
     expect(state.holderUserId).toBe(THIS_DEVICE_ID);
-    expect(state.transitionCount).toBe(3);
   });
 
   it("renders a null holder as the free lease, explicitly", () => {
@@ -66,86 +63,23 @@ describe("the lease fold — what the wire said, and only that", () => {
     );
   });
 
-  it("gives a reason outside the closed set no ledger row and no sentence", () => {
-    const state = projectTerminalLease(
-      [
-        transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "auto_released_timeout", null, OTHER_DEVICE_ID),
-      ],
-      { thisDeviceId: THIS_DEVICE_ID },
-    );
-    // One READABLE transition, so one row and one count. The other is reported as
-    // the unread transition rather than rendered as a nameless one — inventing a
-    // sentence for it is how a surface starts asserting things nobody sent.
-    expect(state.transitionCount).toBe(1);
-    expect(state.transitions).toHaveLength(1);
-    expect(state.unreadTransition?.sequence).toBe(2);
-  });
-
   it("ignores every event that is not a lease transition", () => {
     const state = projectTerminalLease(
       [
+        transitionEvent(1, "taken", OTHER_DEVICE_ID),
         {
-          id: "event-1",
+          id: "event-2",
           sessionId: "session-terminal",
-          sequence: 1,
+          sequence: 2,
           kind: "session.created",
           occurredAt: "x",
         },
-        transitionEvent(2, "taken", OTHER_DEVICE_ID),
       ],
       { thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.transitionCount).toBe(1);
-  });
-
-  it("caps the ledger while still counting every transition it saw", () => {
-    const events = Array.from({ length: TERMINAL_LEASE_HISTORY_CAP + 5 }, (_unused, index) =>
-      transitionEvent(
-        index + 1,
-        index % 2 === 0 ? "taken" : "released",
-        index % 2 === 0 ? OTHER_DEVICE_ID : null,
-      ),
-    );
-    const state = projectTerminalLease(events, { thisDeviceId: THIS_DEVICE_ID });
-    expect(state.transitions).toHaveLength(TERMINAL_LEASE_HISTORY_CAP);
-    expect(state.transitionCount).toBe(TERMINAL_LEASE_HISTORY_CAP + 5);
-    // The cap drops the OLDEST, so the newest transition — the one the holder is
-    // read from — is always present.
-    expect(state.transitions.at(-1)?.sequence).toBe(events.length);
-  });
-
-  it("counts every transition it could not read, including the ones a later one cleared", () => {
-    // `unreadTransition` is cleared by the next readable transition, because the
-    // HOLDER is known again. The ledger's completeness is not: neither unreadable
-    // move ever became a row, so a count that only kept the trailing one would let a
-    // three-row ledger claim to be the whole history of five moves.
-    const state = projectTerminalLease(
-      [
-        transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "seized", OTHER_DEVICE_ID),
-        transitionEvent(3, "released", null, OTHER_DEVICE_ID),
-        transitionEvent(4, "auto_released_quota_exhausted", null, OTHER_DEVICE_ID),
-        transitionEvent(5, "taken", THIS_DEVICE_ID),
-      ],
-      { thisDeviceId: THIS_DEVICE_ID },
-    );
-    expect(state.unreadableTransitionCount).toBe(2);
-    expect(state.unreadTransition).toBeUndefined();
-    expect(state.transitionCount).toBe(3);
-  });
-
-  it("negative control: a log the fold read whole counts no unreadable transition", () => {
-    // Without it the case above would pass against a counter that incremented on
-    // every event, which would put a notice on every ledger the console renders.
-    const state = projectTerminalLease(
-      [
-        transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "released", null, OTHER_DEVICE_ID),
-      ],
-      { thisDeviceId: THIS_DEVICE_ID },
-    );
-    expect(state.unreadableTransitionCount).toBe(0);
+    // A `session.created` read as a lease event would be an unreadable transition after
+    // the take, and the fold would then report no holder at all.
+    expect(state.holding).toBe("held-by-another-device");
   });
 
   it("negative control: a fold that echoed the payload would pass every case above", () => {

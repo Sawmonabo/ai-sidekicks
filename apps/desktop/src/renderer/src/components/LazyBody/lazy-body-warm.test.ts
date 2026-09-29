@@ -130,11 +130,11 @@ class RecordingBoard implements PreloadableRegistry<string> {
 
 describe("the warm walk — one key per callback, once", () => {
   it("warms every unloaded key and then stops arming", () => {
-    const board = new RecordingBoard(["diff", "artifact", "runs"]);
+    const board = new RecordingBoard(["diff", "inspector", "terminal"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     scheduler.runToQuiescence();
-    expect(board.preloaded).toStrictEqual(["diff", "artifact", "runs"]);
+    expect(board.preloaded).toStrictEqual(["diff", "inspector", "terminal"]);
     expect(scheduler.pendingCount).toBe(0);
   });
 
@@ -142,7 +142,7 @@ describe("the warm walk — one key per callback, once", () => {
     // The whole reason the walk re-arms: a loop inside one idle callback would hold the
     // main thread through a frame the person is looking at, which is what an idle
     // callback exists to avoid.
-    const board = new RecordingBoard(["diff", "artifact"]);
+    const board = new RecordingBoard(["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     expect(scheduler.pendingCount).toBe(1);
@@ -163,7 +163,7 @@ describe("the warm walk — one key per callback, once", () => {
   it("does not start twice", () => {
     // Two starts on one instance — a frame that mounts twice under StrictMode — must not
     // double-schedule, or every body is fetched by two walks racing each other.
-    const board = new RecordingBoard(["diff", "artifact"]);
+    const board = new RecordingBoard(["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
     walk.start();
@@ -171,7 +171,7 @@ describe("the warm walk — one key per callback, once", () => {
     expect(scheduler.pendingCount).toBe(1);
     expect(walk.hasStarted).toBe(true);
     scheduler.runToQuiescence();
-    expect(board.preloaded).toStrictEqual(["diff", "artifact"]);
+    expect(board.preloaded).toStrictEqual(["diff", "inspector"]);
   });
 
   it("negative control: a walk that was never started warms nothing", () => {
@@ -189,7 +189,7 @@ describe("the warm walk — one key per callback, once", () => {
 
 describe("the warm walk — canceling it", () => {
   it("releases the armed handle and warms nothing further", () => {
-    const board = new RecordingBoard(["diff", "artifact", "runs"]);
+    const board = new RecordingBoard(["diff", "inspector", "terminal"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
     walk.start();
@@ -200,7 +200,7 @@ describe("the warm walk — canceling it", () => {
   });
 
   it("stops the walk mid-flight", () => {
-    const board = new RecordingBoard(["diff", "artifact", "runs"]);
+    const board = new RecordingBoard(["diff", "inspector", "terminal"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
     walk.start();
@@ -241,13 +241,13 @@ describe("the warm walk — a chunk that will not load", () => {
     // The walk is speculative: nobody asked for this pane, so the honest place for the
     // failure is the mount, where the surface error boundary can say so. An unhandled
     // rejection here would surface as a crash report for a pane nobody opened.
-    const board = new RecordingBoard(["diff", "artifact"], ["diff"]);
+    const board = new RecordingBoard(["diff", "inspector"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     expect(() => {
       scheduler.runToQuiescence();
     }).not.toThrow();
-    expect(board.preloaded).toStrictEqual(["diff", "artifact"]);
+    expect(board.preloaded).toStrictEqual(["diff", "inspector"]);
     // Let the rejected promise settle inside the case, so an unswallowed rejection is
     // this case's failure rather than the next file's.
     await Promise.resolve();
@@ -259,11 +259,11 @@ describe("the warm walk — a chunk that will not load", () => {
     // alternates between two such keys forever — one background refetch per idle
     // callback, for surfaces nobody has opened, on exactly the damaged install that can
     // least afford it. The retry a failed chunk gets is the one a person asks for.
-    const board = new RecordingBoard(["diff", "artifact"], ["diff", "artifact"]);
+    const board = new RecordingBoard(["diff", "inspector"], ["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     scheduler.runToQuiescence();
-    expect(board.preloaded).toStrictEqual(["diff", "artifact"]);
+    expect(board.preloaded).toStrictEqual(["diff", "inspector"]);
     expect(scheduler.pendingCount).toBe(0);
     await Promise.resolve();
   });
@@ -271,11 +271,11 @@ describe("the warm walk — a chunk that will not load", () => {
   it("negative control: a key still unloaded and never attempted is still warmed", async () => {
     // Without this, the case above would pass over a walk that stopped at its first
     // failure — and one broken chunk would leave every later body cold.
-    const board = new RecordingBoard(["diff", "artifact", "runs"], ["diff"]);
+    const board = new RecordingBoard(["diff", "inspector", "terminal"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     scheduler.runToQuiescence();
-    expect(board.preloaded).toStrictEqual(["diff", "artifact", "runs"]);
+    expect(board.preloaded).toStrictEqual(["diff", "inspector", "terminal"]);
     await Promise.resolve();
   });
 });

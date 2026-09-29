@@ -49,7 +49,7 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
     const retiredStore = storeOver(retiredAdapter);
-    await saveLayout(retiredStore, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(retiredStore, SESSION_ID, ["transcript", "terminal"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, because that is the shape the defect lives in: the same session with a
@@ -119,7 +119,7 @@ describe("SessionScreen — the restore runs once for the session on screen", ()
     // below deliberately disagree, so a second restore is visible as the pane layout losing a
     // pane rather than as nothing at all.
     const firstStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(firstStore, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(firstStore, SESSION_ID, ["transcript", "terminal"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
     await saveLayout(secondStore, SESSION_ID, ["transcript"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };

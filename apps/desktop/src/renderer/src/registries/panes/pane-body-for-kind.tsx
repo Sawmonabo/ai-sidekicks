@@ -26,7 +26,7 @@ declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
  *
  * `PaneDescriptor.render` takes the whole `PaneContext` union, because
  * one registry holds every kind. A body does not: an inspector reads an entity the
- * runs pane's arm does not carry, which is the property the kind-scoped address union
+ * terminal's arm does not carry, which is the property the kind-scoped address union
  * exists to hold. So the narrowing happens once, here, rather than six times in six
  * families with six different answers for the arm that cannot be served.
  *
