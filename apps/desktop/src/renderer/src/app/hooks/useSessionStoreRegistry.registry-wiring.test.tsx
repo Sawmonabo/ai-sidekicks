@@ -275,7 +275,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     expect(snapshot).toStrictEqual({
       cursor: 0,
       entities: [],
-      timelineCursors: { latest: "flagship-cursor-45" },
+      timelineCursors: { latest: "concurrent-streaming-cursor-45" },
     });
   });
 

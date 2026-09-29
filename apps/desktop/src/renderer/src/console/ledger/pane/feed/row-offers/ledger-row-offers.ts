@@ -1,13 +1,13 @@
 // What one row offers, decided once, over values the feed already holds.
 //
 // THE OFFERS ARE THE ROW'S, NOT THE WINDOW'S, which is why they are not nine more
-// members on `LedgerStructureActs`. A palette chord fires with no row in hand — it
+// members on `TranscriptActs`. A palette chord fires with no row in hand — it
 // resolves an anchor from the viewport's own range — and every offer here is about
-// one row a person pointed at. Two questions, two homes: `ledger-feed-acts.ts` owns
+// one row a person pointed at. Two questions, two homes: `transcript-structure-acts.ts` owns
 // what a chord does to the ledger, this owns what a control does to a row.
 //
 // A PURE BUILDER OVER A VALUE BAG, so the whole set is driven by a test with no
-// render at all — `ledger-feed-acts.ts`' property, for its reason. Nothing below
+// render at all — `transcript-structure-acts.ts`' property, for its reason. Nothing below
 // reaches a store, a bridge, or the DOM: the clipboard is the binding's, the scroll
 // is the viewport's, and the chapter lookup happened before this ran.
 //
@@ -42,7 +42,7 @@ import { type TimelineRowDensity } from "../../../../seats/index.js";
  * Every offer a row can carry. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `cards/card-family.ts` gives about its own family set: an offer added to a
+ * `row-kind.ts` gives about its own family set: an offer added to a
  * hand-written union while the builder below did not grow with it would be a kind
  * nothing can produce, and nothing would report it.
  */

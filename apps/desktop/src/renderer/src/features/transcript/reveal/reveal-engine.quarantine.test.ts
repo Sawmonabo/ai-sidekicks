@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire-errors.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
-import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { RopeSmoother } from "./rope-smoother.js";
@@ -26,7 +26,7 @@ function engineOn(clock: ManualClock): RevealEngine {
   // The engine no longer arms its own frame: every drain is submitted to the frame
   // coordinator's phase two, so `clock.runFrame()` here runs the coordinator's frame
   // and the coordinator runs the drain. What `pendingCount` measures is unchanged.
-  return new RevealEngine({ frameCoordinator: new LedgerFrameCoordinator({ clock }) });
+  return new RevealEngine({ frameCoordinator: new AnimationFrameCoordinator({ clock }) });
 }
 
 describe("the reveal engine — a lane whose advance throws an unrenderable value", () => {

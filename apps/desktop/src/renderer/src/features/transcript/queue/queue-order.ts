@@ -40,7 +40,7 @@ export class QueueOrder {
    * observation. Ids the snapshot did not carry are appended after it, in the order
    * the tail delivered them.
    */
-  public seat(items: readonly QueueItemSummary[]): void {
+  public replaceWithSnapshot(items: readonly QueueItemSummary[]): void {
     const rebuilt = new Map<string, QueueItemSummary>();
     for (const snapshotRow of items) {
       const held = this.#itemsById.get(snapshotRow.id);

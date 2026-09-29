@@ -18,13 +18,11 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
-import { useLedgerReveal, type LedgerRevealBinding } from "./useReveal.js";
+import { useLedgerReveal, type RevealBinding } from "./useReveal.js";
 
 const LANE_ID = "session-1:41";
 
-function mountBinding(
-  clock: ManualClock,
-): ReturnType<typeof renderHook<LedgerRevealBinding, void>> {
+function mountBinding(clock: ManualClock): ReturnType<typeof renderHook<RevealBinding, void>> {
   return renderHook(() => useLedgerReveal({ frameCoordinator: useLedgerFrameCoordinator(clock) }));
 }
 

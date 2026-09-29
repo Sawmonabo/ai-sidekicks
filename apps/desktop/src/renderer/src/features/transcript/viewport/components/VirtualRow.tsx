@@ -21,15 +21,15 @@
 import { memo, useCallback } from "react";
 
 import { WindowedListRow } from "@renderer/console/primitives/index.js";
-import { LedgerRowGroup } from "./TranscriptRowGroup.js";
-import { useRowSelectionPreservation } from "../hooks/usePreservedRowSelection.js";
-import type { LedgerViewportRow } from "../viewport-snapshot.js";
+import { TranscriptRowGroup } from "./TranscriptRowGroup.js";
+import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
+import type { ViewportRow } from "../viewport-snapshot.js";
 
 /**
  * What a ledger row is in the accessibility tree.
  *
  * Named once rather than spelled at the call below, because it is half of a pairing
- * whose other half lives one module up: `LedgerViewport` claims the WAI-ARIA feed
+ * whose other half lives one module up: `TranscriptViewport` claims the WAI-ARIA feed
  * pattern's `feed` on the scroll surface, and a `feed` REQUIRES owned articles. The
  * two are one claim about one surface, so the row's half is declared where a reader
  * meets the row and the surface's half says the same thing about the container.
@@ -37,15 +37,15 @@ import type { LedgerViewportRow } from "../viewport-snapshot.js";
 const LEDGER_ROW_ROLE = "article" as const;
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
-export type LedgerRowRenderer = (row: LedgerViewportRow) => React.ReactNode;
+export type TranscriptRowRenderer = (row: ViewportRow) => React.ReactNode;
 
-export interface LedgerRowMountProps {
+export interface VirtualRowProps {
   /** The virtualizer reads this back off the element to identify the row. */
   readonly rowIndex: number;
   /** How long the whole log is — not how many rows are mounted. */
   readonly totalRowCount: number;
-  readonly row: LedgerViewportRow;
-  readonly renderRow: LedgerRowRenderer;
+  readonly row: ViewportRow;
+  readonly renderRow: TranscriptRowRenderer;
   readonly attachRow: (element: HTMLElement | null) => void;
 }
 
@@ -60,35 +60,36 @@ export interface LedgerRowMountProps {
  * virtualizer owns the transform, and a second writer would produce two answers for
  * one row's position.
  */
-export const LedgerRowMount: React.MemoExoticComponent<
-  (props: LedgerRowMountProps) => React.JSX.Element
-> = memo((props: LedgerRowMountProps): React.JSX.Element => {
-  // THE SECOND READER OF THE ROW ELEMENT, and the reason the two are composed here
-  // rather than either one taking the other's: the virtualizer measures the row and
-  // the selection guard addresses a reader's highlight inside it, and both want the
-  // element this row actually painted. `WindowedListRow` takes one ref, so the
-  // composition is this module's — the row is where the two obligations meet.
-  const attachSelectionGuard = useRowSelectionPreservation();
-  const attachRow = props.attachRow;
-  const attachRowElement = useCallback(
-    (element: HTMLElement | null): void => {
-      attachRow(element);
-      attachSelectionGuard(element);
-    },
-    [attachRow, attachSelectionGuard],
-  );
+export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => React.JSX.Element> =
+  memo((props: VirtualRowProps): React.JSX.Element => {
+    // THE SECOND READER OF THE ROW ELEMENT, and the reason the two are composed here
+    // rather than either one taking the other's: the virtualizer measures the row and
+    // the selection guard addresses a reader's highlight inside it, and both want the
+    // element this row actually painted. `WindowedListRow` takes one ref, so the
+    // composition is this module's — the row is where the two obligations meet.
+    const attachSelectionGuard = usePreservedRowSelection();
+    const attachRow = props.attachRow;
+    const attachRowElement = useCallback(
+      (element: HTMLElement | null): void => {
+        attachRow(element);
+        attachSelectionGuard(element);
+      },
+      [attachRow, attachSelectionGuard],
+    );
 
-  return (
-    <WindowedListRow
-      as="div"
-      role={LEDGER_ROW_ROLE}
-      className="meridian-ledger-viewport__row"
-      rowIndex={props.rowIndex}
-      totalRowCount={props.totalRowCount}
-      rowRef={attachRowElement}
-    >
-      <LedgerRowGroup groupLabel="This entry">{props.renderRow(props.row)}</LedgerRowGroup>
-    </WindowedListRow>
-  );
-});
-LedgerRowMount.displayName = "LedgerRowMount";
+    return (
+      <WindowedListRow
+        as="div"
+        role={LEDGER_ROW_ROLE}
+        className="meridian-ledger-viewport__row"
+        rowIndex={props.rowIndex}
+        totalRowCount={props.totalRowCount}
+        rowRef={attachRowElement}
+      >
+        <TranscriptRowGroup groupLabel="This entry">
+          {props.renderRow(props.row)}
+        </TranscriptRowGroup>
+      </WindowedListRow>
+    );
+  });
+VirtualRow.displayName = "VirtualRow";

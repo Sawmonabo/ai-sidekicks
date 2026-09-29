@@ -32,7 +32,7 @@
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
 
-export interface LedgerDeferredHoldOptions {
+export interface ViewportDeferredHoldOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
   /** The retained row keys as they stand when the hold is performed. */
@@ -44,7 +44,7 @@ export interface LedgerDeferredHoldOptions {
 }
 
 /** The two pending arms, and the rule that picks between them and the third. */
-export class LedgerDeferredHold {
+export class ViewportDeferredHold {
   readonly #anchor: ReadingAnchor;
   readonly #scroll: LedgerScrollController;
   readonly #rowKeys: () => readonly string[];
@@ -54,7 +54,7 @@ export class LedgerDeferredHold {
   #tailGlidePending = false;
   #headHoldPending: PendingHeadHold | undefined;
 
-  public constructor(options: LedgerDeferredHoldOptions) {
+  public constructor(options: ViewportDeferredHoldOptions) {
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
     this.#rowKeys = options.rowKeys;

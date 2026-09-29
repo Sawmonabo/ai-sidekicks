@@ -12,14 +12,14 @@
 // there would print a paragraph of unbuilt-feature prose down the whole ledger, and
 // the honest reading of an absent offer is the absent offer — the same reading that
 // took the structural surfaces' load-earlier buttons out, recorded in
-// `pane/feed/surface/LedgerFeed.tsx`. The three facts the seat answers live in
-// `seats/slots/timeline-row-footer-seat.ts` for the developer who needs them.
+// `pane/feed/surface/TranscriptFeed.tsx`. The three facts the seat answers live in
+// `transcript-row-footer-renderer.ts` for the developer who needs them.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { rowTakesFooter, type TimelineRowFooterRenderer } from "@renderer/console/seats/index.js";
 
-export interface TimelineRowFooterProps {
+export interface TranscriptRowFooterProps {
   readonly row: TimelineRow;
   readonly isSuperseded: boolean;
   /** The seat's renderer, resolved by the caller. `undefined` while unfilled. */
@@ -27,7 +27,7 @@ export interface TimelineRowFooterProps {
 }
 
 /** Draw one row's footer through the seat, or draw nothing. */
-export function TimelineRowFooter(props: TimelineRowFooterProps): React.ReactNode {
+export function TranscriptRowFooter(props: TranscriptRowFooterProps): React.ReactNode {
   const renderFooter = props.renderFooter;
   if (renderFooter === undefined || !rowTakesFooter(props.row)) {
     return null;

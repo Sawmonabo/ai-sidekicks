@@ -4,7 +4,8 @@
 // only one of them needs a DOM: these are pure store builders — a real
 // `SessionStore` with a real batch applied — and they are read by the pane's own
 // unit cases, by the model's, and by the composed feed's alike. The harness that
-// mounts a feed, stubs a box and presses a palette row is `LedgerFeedFixtures.test-support.tsx`'.
+// mounts a feed, stubs a box and presses a palette row is
+// `feed/components/TranscriptFeed.test-support.tsx`'.
 //
 // EVERY EVENT CARRIES A REAL ROW ID. The hydrated-event read is keyed by it, so a
 // store seeded without one holds rows nothing could ever ask about.
@@ -27,7 +28,7 @@ export const SESSION_ID = "session-ledger-feed";
  * reads a timezone-less stamp in the host's zone, so a fixture that parsed its own
  * spelling would be asking a reader to trust the one function this console bans.
  */
-export function ledgerFixtureStampAt(index: number): string {
+export function transcriptFixtureStampAt(index: number): string {
   return new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
 }
 
@@ -42,18 +43,9 @@ export function ledgerFixtureStampAt(index: number): string {
  * The stem is the ledger scenario's, imported rather than restated: an id namespace
  * written twice is two namespaces the day one of them moves.
  */
-export function ledgerFixtureEventId(sequence: number): string {
+export function transcriptFixtureEventId(sequence: number): string {
   return `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`;
 }
-
-/**
- * The first of two users whose PREFERRED wheel step is the same, so which of
- * them takes it is decided by the order their first events arrive and by nothing else.
- */
-export const EARLY_JOINER = "user-alba";
-
-/** The second of that pair — the one whose preferred step is already taken. */
-export const LATE_JOINER = "user-saga";
 
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
@@ -61,44 +53,14 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
-      id: ledgerFixtureEventId(index),
+      id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "run.running",
-      occurredAt: ledgerFixtureStampAt(index),
+      occurredAt: transcriptFixtureStampAt(index),
       payload: { sessionId: SESSION_ID, runId: "019b793b-7b60-740e-8110-d1a4c1150111" },
     })),
   );
-  return sessionStore;
-}
-
-/** A store whose first event is from the later-named of the colliding pair. */
-export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({
-    cursor: -1,
-    entities: [],
-  });
-  sessionStore.applyBatch([
-    {
-      id: ledgerFixtureEventId(0),
-      sessionId: SESSION_ID,
-      sequence: 0,
-      kind: "user.message",
-      occurredAt: ledgerFixtureStampAt(0),
-      actorId: LATE_JOINER,
-      payload: {},
-    },
-    {
-      id: ledgerFixtureEventId(1),
-      sessionId: SESSION_ID,
-      sequence: 1,
-      kind: "user.message",
-      occurredAt: ledgerFixtureStampAt(1),
-      actorId: EARLY_JOINER,
-      payload: {},
-    },
-  ]);
   return sessionStore;
 }
 
@@ -118,7 +80,7 @@ export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
  * because every case in this family reads in that vocabulary.
  */
 export function projectedRowId(sequence: number): string {
-  return ledgerFixtureEventId(sequence);
+  return transcriptFixtureEventId(sequence);
 }
 
 /**
@@ -133,11 +95,11 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
-      id: ledgerFixtureEventId(index),
+      id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "tool.invoked",
-      occurredAt: ledgerFixtureStampAt(index),
+      occurredAt: transcriptFixtureStampAt(index),
       payload: {
         sessionId: SESSION_ID,
         runId: LIVE_RUN_ID,
@@ -155,11 +117,11 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
-      id: ledgerFixtureEventId(index),
+      id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "user.message",
-      occurredAt: ledgerFixtureStampAt(index),
+      occurredAt: transcriptFixtureStampAt(index),
       payload: {},
     })),
   );

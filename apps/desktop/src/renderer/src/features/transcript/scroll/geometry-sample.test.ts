@@ -6,14 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LEDGER_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
+import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import {
-  LEDGER_GEOMETRY_CAUSES,
+  GEOMETRY_CHANGE_CAUSES,
   sameSampledGeometry,
-  type LedgerGeometry,
+  type ScrollGeometry,
 } from "./geometry-sample.js";
 
-function sample(overrides: Partial<LedgerGeometry> = {}): LedgerGeometry {
+function sample(overrides: Partial<ScrollGeometry> = {}): ScrollGeometry {
   return {
     scrollTop: 400,
     viewportHeight: 500,
@@ -28,14 +28,14 @@ function sample(overrides: Partial<LedgerGeometry> = {}): LedgerGeometry {
 
 describe("the geometry sample", () => {
   it("declares its causes closed, and names what moved rather than who moved it", () => {
-    expect([...LEDGER_GEOMETRY_CAUSES]).toStrictEqual(["scroll", "resize"]);
+    expect([...GEOMETRY_CHANGE_CAUSES]).toStrictEqual(["scroll", "resize"]);
   });
 
   it("calls two samples the same when the three numbers agree within the epsilon", () => {
     // Sub-pixel wobble is what a fractional row height and a device pixel ratio
     // produce every frame, and waking every subscriber for it is the render this
     // frame's budget exists to avoid.
-    const wobble = LEDGER_GEOMETRY_EPSILON_PX / 2;
+    const wobble = TRANSCRIPT_GEOMETRY_EPSILON_PX / 2;
     expect(sameSampledGeometry(sample(), sample({ scrollTop: 400 + wobble }))).toBe(true);
     // Provenance is not a difference: the same box at the same offset is the same
     // reading whether a resize or a scroll went looking for it.

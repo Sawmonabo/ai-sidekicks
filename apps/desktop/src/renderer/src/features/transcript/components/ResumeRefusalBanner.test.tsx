@@ -25,7 +25,7 @@ import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "@renderer/console/s
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionSnapshot } from "@renderer/store/session/session-state.js";
-import { registerLedger } from "@renderer/console/ledger/index.js";
+import { registerLedger } from "../contributions/screens.js";
 
 const SESSION_ID = "session-resume-degraded";
 

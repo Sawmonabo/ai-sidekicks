@@ -1,24 +1,16 @@
 // Every window this feed derives, in the one order they may be derived in.
 //
-// WHAT THIS MODULE OWNS. A ledger pane holds a chain of windows, not one: the whole
-// unfurled projection, the same projection narrowed by the ledger filter, that narrowing
-// with finished chapters folded, and finally the part the viewport reconciled onto
-// the screen. Each stage is somebody else's derivation — `ledger-window.ts`',
-// `ledger-narrowing.ts`', `ledger-chapter-fold.ts`', `viewport-binding.ts`',
-// `ledger-visible-window.ts`' — and what this module adds is the ORDER and nothing
+// WHAT THIS MODULE OWNS. A transcript pane holds a chain of windows, not one: the whole
+// unfurled projection, that projection with finished run groups folded, and finally the
+// part the viewport reconciled onto the screen. Each stage is somebody else's derivation
+// — `transcript-window.ts`', `run-group-fold.ts`', `useTranscriptViewport.ts`',
+// `useVisibleTranscriptWindow.ts`' — and what this module adds is the ORDER and nothing
 // else. It folds no log, measures no row and writes no `scrollTop`.
 //
-// WHY THE ORDER IS THE PRODUCT. Two of the stages are only truthful in one
-// position, and the reasons are stated at each call below: the narrowing runs on the
-// unfurled projection so no piece downstream has to remember a filter exists, and the
-// chapter fold runs AFTER the narrowing or a closed terminal chapter reaches the
-// filter as one receipt. A caller that composed these stages itself would be free to
-// get that wrong, and the failure is silent: every ordering renders rows.
-//
 // AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The counts beside the find
-// field are made of exactly these separations — a match the cap took, one the filter
-// is hiding, one a folded chapter holds are three states with three different
-// exits — so the stage that removed the rows is the one that publishes them.
+// field are made of exactly these separations — a match the cap took and one a folded
+// chapter holds are two states with two different exits — so the stage that removed
+// the rows is the one that publishes them.
 // Re-deriving the difference downstream re-walked the whole projection on every
 // appended row for as long as a query sat in the field.
 //
@@ -36,49 +28,41 @@
 // AND ONE WALK, WHICH IS THE OTHER END OF THE LOG. The store's window begins wherever
 // this user's stream was last acknowledged, and everything below that head was
 // never delivered — so the ledger reaches it by asking rather than by scrolling.
-// `useLedgerEarlierPaging` is that walk, held here because this is where the session
+// `useEarlierHistory` is that walk, held here because this is where the session
 // store is, and handed on to the viewport, where the head control is placed beside
 // the tail's.
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 
 import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import {
-  useLedgerEarlierPaging,
-  useLedgerFrameCoordinator,
-  useLedgerReveal,
-  useLedgerViewport,
-  type LedgerEarlierPaging,
-  type LedgerRevealBinding,
-  type LedgerViewportBinding,
-} from "@renderer/console/ledger/frame/index.js";
+  useEarlierHistory,
+  type EarlierHistoryPaging,
+} from "../../history/hooks/useEarlierHistory.js";
+import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
-  deriveDriverAskTerminals,
-  type DriverAskReading,
-} from "@renderer/console/ledger/cards/index.js";
+  useTranscriptViewport,
+  type TranscriptViewportBinding,
+} from "../../viewport/hooks/useTranscriptViewport.js";
+import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
+import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import {
-  useLedgerFilter,
-  useFilteredLedgerWindow,
-  type LedgerFilterState,
-} from "@renderer/console/ledger/pane/find/ledger-narrowing.js";
+  useVisibleTranscriptWindow,
+  type VisibleTranscriptWindow,
+} from "../../window/hooks/useVisibleTranscriptWindow.js";
 import {
-  useLedgerFirstReadSettled,
-  useLedgerProjection,
-  useVisibleLedgerWindow,
-  type LedgerPipelineStage,
-  type LedgerWindowModel,
-  type VisibleLedgerWindow,
-} from "@renderer/console/ledger/pane/window/index.js";
+  type TranscriptPipelineStage,
+  type TranscriptWindowModel,
+} from "../../window/transcript-window.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import {
-  useChapterDisclosure,
-  useFoldedChapters,
-  type LedgerChapterDisclosure,
-} from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
+import { type RunGroupDisclosure } from "../run-group-fold.js";
+import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
+import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 
 /** What the window chain is derived from: the session's store and the frame's clock. */
-export interface LedgerFeedWindowsInputs {
+export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
   /** The frame coordinator's clock, minted once by the mount that holds this chain. */
   readonly clock: ConsoleClock;
@@ -89,77 +73,43 @@ export interface LedgerFeedWindowsInputs {
  *
  * Published as separate members rather than as the last window alone, because the
  * surfaces above read from two different points in it: find classifies an id against
- * every narrowing to say WHICH one is the reason a row is not on screen, and the rows
+ * every stage to say WHICH one is the reason a row is not on screen, and the rows
  * render the folded one.
  */
-export interface LedgerFeedWindows {
+export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
-  readonly chapterDisclosure: LedgerChapterDisclosure;
-  /** Every member row of every chapter, before any fold or narrowing. */
-  readonly unfurledWindow: LedgerWindowModel;
-  readonly ledgerFilter: LedgerFilterState;
-  readonly narrowing: LedgerPipelineStage;
-  readonly chapterFold: LedgerPipelineStage;
-  /** The last model window: narrowed and chapter-folded. */
-  readonly ledgerWindow: LedgerWindowModel;
-  /**
-   * The terminal each settled ask in this ledger reached, keyed by run AND ask id.
-   *
-   * A MEMBER OF THE CHAIN AND NOT OF A WINDOW, which is the whole of the fix. Whether
-   * a request still needs answering is a fact about everything this pane is a log of,
-   * and every stage below the projection is a NARROWING somebody chose — a facet chip,
-   * a folded chapter. A user filter that admits a request row
-   * and excludes the row that answered it must not be able to take the terminal with
-   * it: the ask would find none, and the card would offer answer controls for an ask
-   * the log had already settled. Carried on `LedgerWindowModel` the fold was rebuilt
-   * by each of those stages and read off the last of them, which is one spread away
-   * from exactly that defect at all times; carried here it is derived once, from the
-   * unfurled projection, and no narrowing can reach it.
-   *
-   * The key belongs to `input-ask.ts` and is never spelled here.
-   */
-  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
-  readonly reveal: LedgerRevealBinding;
-  readonly viewport: LedgerViewportBinding;
-  readonly earlierPaging: LedgerEarlierPaging;
+  readonly chapterDisclosure: RunGroupDisclosure;
+  /** Every member row of every chapter, before any fold. */
+  readonly unfurledWindow: TranscriptWindowModel;
+  readonly chapterFold: TranscriptPipelineStage;
+  /** The last model window: chapter-folded. */
+  readonly ledgerWindow: TranscriptWindowModel;
+  readonly reveal: RevealBinding;
+  readonly viewport: TranscriptViewportBinding;
+  readonly earlierPaging: EarlierHistoryPaging;
   /** What the viewport reconciled onto the screen, with both absences separable. */
-  readonly visible: VisibleLedgerWindow;
+  readonly visible: VisibleTranscriptWindow;
 }
 
 /** Derive every window this feed draws from, in the one order they may be derived in. */
-export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFeedWindows {
-  // The same reading `<LedgerWindowReadState>` draws its shells from, so the empty
+export function useTranscriptFeedWindows(
+  inputs: TranscriptFeedWindowsInputs,
+): TranscriptFeedWindows {
+  // The same reading `<TranscriptReadState>` draws its shells from, so the empty
   // sentence and the loading shells cannot both be on screen.
-  const firstReadSettled = useLedgerFirstReadSettled(inputs.sessionStore);
+  const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // The fold is the MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useChapterDisclosure(inputs.sessionStore.sessionId);
+  const chapterDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(inputs.sessionStore);
-  // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
-  // below — the chapter fold, the viewport, the visible window and find — is built
-  // over the narrowed model, so no piece has to remember that a filter exists.
-  //
-  // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be
-  // truthful at all: folded first, a closed terminal chapter reaches the filter as
-  // one receipt, so its messages and tools are
-  // unreachable by narrowing until somebody expands the chapter by hand.
-  const ledgerFilter = useLedgerFilter(unfurledWindow);
-  const narrowing = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
-  const chapterFold = useFoldedChapters(
-    narrowing.window,
+  const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
+  const chapterFold = useFoldedRunGroups(
+    unfurledWindow,
     chapterDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
   const ledgerWindow = chapterFold.window;
-  // OVER THE UNFURLED PROJECTION, never over `ledgerWindow`. It is upstream of every
-  // narrowing a person can apply, which is what keeps a filtered-away terminal from
-  // un-settling a visible request.
-  const askTerminalByAskIdentity = useMemo(
-    () => deriveDriverAskTerminals(unfurledWindow.rows),
-    [unfurledWindow.rows],
-  );
   // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
   // publishes reaches a row through the frame's own channel; what it is DOING reaches
   // the viewport as the drain state, which used to be the literal `false` — a default
@@ -170,7 +120,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // that half against nothing.
   const frameCoordinator = useLedgerFrameCoordinator(inputs.clock);
   const reveal = useLedgerReveal({ frameCoordinator });
-  const viewport = useLedgerViewport({
+  const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: ledgerWindow.viewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
@@ -178,8 +128,8 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   });
   // The walk back past the window's head. Read against the STORE rather than against
   // any of the windows above, because what it can reach is a property of the log this
-  // console was given and not of whichever narrowing this pane happens to be applying.
-  const earlierPaging = useLedgerEarlierPaging(inputs.sessionStore);
+  // window was given and not of whichever run groups this pane happens to have folded.
+  const earlierPaging = useEarlierHistory(inputs.sessionStore);
 
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
   // here because this is where the session id and the one binding meet, and gated on
@@ -212,17 +162,14 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // Read back off the viewport's own reconciled snapshot, so find is looking at the
   // window on screen rather than at the log behind it. What the cap took is the
   // difference between the two.
-  const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
+  const visible = useVisibleTranscriptWindow(ledgerWindow, viewport.snapshot.rows);
 
   return {
     firstReadSettled,
     chapterDisclosure,
     unfurledWindow,
-    ledgerFilter,
-    narrowing,
     chapterFold,
     ledgerWindow,
-    askTerminalByAskIdentity,
     reveal,
     viewport,
     earlierPaging,

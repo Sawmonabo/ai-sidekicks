@@ -1,6 +1,6 @@
 // The message card — a user's words, an agent's reply, and an agent's reasoning.
 //
-// Three of `card-family.ts`'s five families live here and share one layout: the body is
+// Three of `row-kind.ts`'s five families live here and share one layout: the body is
 // open, the attribution edge carries the author's hue, and the row's affordances are
 // revealed on hover rather than parked in the log, because secondary controls live one
 // click away.
@@ -9,8 +9,8 @@
 // obvious:
 //
 //   • An ASSISTANT body is machine-authored, so it arrives through the hydrated
-//     `content` projection and renders through `MachineBody` — including its truncation
-//     and unavailability dispositions, which are `MachineBody`'s and not this card's.
+//     `content` projection and renders through `MessageContent`, including its truncation
+//     and unavailability dispositions, which are `MessageContent`'s and not this card's.
 //   • A LIVE assistant body arrives as `liveText`, published by the reveal engine and
 //     handed down by the viewport. It takes precedence, because a turn still streaming
 //     has no stored body yet.
@@ -25,7 +25,7 @@
 // AND A REASONING BODY IS NOT A MACHINE BODY. The reasoning family renders the
 // four-arm availability surface rather than the hydrated content projection: those
 // are two different reads answering two different questions, and rendering reasoning
-// through `MachineBody` made a turn whose reasoning was WITHHELD by policy
+// through `MessageContent` made a turn whose reasoning was WITHHELD by policy
 // indistinguishable from one whose stored body could not be opened. The element is
 // composed by the mount and handed down, for the reason the edit affordance is —
 // this card decides layout, and what a row is allowed to show is decided by the
@@ -38,17 +38,19 @@
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
 import { type InlineCardSeatProps } from "@renderer/console/seats/index.js";
-import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
-import { classifyCardFamily } from "./row-kind.js";
-import type { LedgerCardProps } from "./hydrated-row-props.js";
+import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
+import { type RowKindDescriptor } from "./row-kind.js";
+import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { MachineBody } from "@renderer/console/ledger/cards/bodies/index.js";
-import { MessageReceipt } from "./RecordedBodyLine.js";
-import { UserBody } from "@renderer/console/ledger/cards/bodies/index.js";
+import { MessageContent } from "./bodies/MessageContent.js";
+import { RecordedBodyLine } from "./RecordedBodyLine.js";
+import { UserBody } from "./bodies/UserBody.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
 
 /** What a mount hands a message card, beyond the row itself. */
-export interface MessageCardProps extends LedgerCardProps {
+export interface MessageRowProps extends HydratedRowProps {
+  /** The row's kind, as the dispatcher classified it: one of the three message kinds. */
+  readonly rowKind: RowKindDescriptor;
   /**
    * The inline cards this message carries.
    *
@@ -64,7 +66,7 @@ export interface MessageCardProps extends LedgerCardProps {
    * compile error at the construction site instead of an absent key that renders
    * identically to a deliberate "none".
    */
-  readonly editAffordance: React.ReactNode | undefined;
+  readonly editControl: React.ReactNode | undefined;
   /**
    * The reasoning row's body, composed by the mount.
    *
@@ -73,39 +75,38 @@ export interface MessageCardProps extends LedgerCardProps {
    * compile error at the construction site rather than a row that silently falls back
    * to the machine body and reports a policy redaction as an unreadable one.
    */
-  readonly reasoningSurface: React.ReactNode | undefined;
+  readonly thinkingRow: React.ReactNode | undefined;
 }
 
 /** A user or agent message row: the sender's frame around its body, receipt and cards. */
-export function MessageCard(props: MessageCardProps): React.JSX.Element {
-  const family = classifyCardFamily(props.row);
-  const isUser = family.family === "user-message";
+export function MessageRow(props: MessageRowProps): React.JSX.Element {
+  const family = props.rowKind;
+  const isUser = family.kind === "user-message";
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
 
   return (
-    <LedgerRowGroup groupLabel="a message row">
+    <TranscriptRowGroup groupLabel="a message row">
       <LedgerRow
-        actorHueStep={props.actorHue?.step ?? -1}
-        {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
+        agentHueStep={props.actorHue?.step ?? -1}
         occurredAtIso={props.row.timestamp}
-        actorLabel={props.row.actor ?? family.label}
+        authorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
-        footer={isUser ? props.editAffordance : undefined}
+        footer={isUser ? props.editControl : undefined}
       >
-        <div className={`meridian-message-card meridian-message-card--${family.family}`}>
+        <div className={`meridian-message-card meridian-message-card--${family.kind}`}>
           <span className="meridian-message-card__family">
             {family.glyph === undefined ? null : <Glyph name={family.glyph} title={family.label} />}
             {family.label}
           </span>
           {isUser ? (
             <UserBody row={props.row} footnotes={props.footnotes} />
-          ) : family.family === "assistant-reasoning" ? (
-            props.reasoningSurface
+          ) : family.kind === "thinking" ? (
+            props.thinkingRow
           ) : (
-            <MachineBody
+            <MessageContent
               content={props.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
               // THE SHAPE THIS CARD DOES HAVE TO GIVE, unlike the tool card beside it.
@@ -119,16 +120,14 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
             />
           )}
           <InlineCards cards={props.inlineCards ?? []} />
-          {isUser ||
-          family.family === "assistant-reasoning" ||
-          props.liveText !== undefined ? null : (
-            <MessageReceipt
+          {isUser || family.kind === "thinking" || props.liveText !== undefined ? null : (
+            <RecordedBodyLine
               contentType={assistantMediaType}
               contentLength={readWireCount(payload, "contentLength")}
             />
           )}
         </div>
       </LedgerRow>
-    </LedgerRowGroup>
+    </TranscriptRowGroup>
   );
 }

@@ -1,0 +1,115 @@
+/* The message and tool rows (`MessageRow`, `RecordedBodyLine`, `ToolRow`). */
+
+/* --- The message row ------------------------------------------------------ */
+
+.meridian-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-message-card__family {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
+.meridian-message-card--thinking {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-message-card__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-message-card__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-message-card__receipt {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- The tool row --------------------------------------------------------- */
+
+/*
+ * One line, and it stays one line. `min-width: 0` on the summary is what lets it be the
+ * part that gives: a header that wrapped would defeat the density budget the collapsed
+ * row exists to hold.
+ */
+.meridian-tool-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-tool-card__name {
+  flex: none;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-tool-card__name--absent {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-tool-card__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-tool-card__elapsed {
+  flex: none;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * Hover-revealed, and revealed by focus too — a control that appears only under a
+ * pointer is a control a keyboard cannot reach.
+ */
+.meridian-tool-card__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: none;
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* The row-hover arm is the PRIMITIVE's, reached by the class the disclosure carries:
+   `meridian-ledger-row` is the primitives family's, and a rule here naming it would
+   make the reveal depend on which of the two sheets the bundler emits last. These two
+   arms name only this family's own class, so they stay. */
+.meridian-tool-card__disclosure:focus-visible,
+.meridian-tool-card__disclosure[aria-expanded="true"] {
+  opacity: 1;
+}

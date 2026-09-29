@@ -3,9 +3,9 @@
 // THE ONE IDEA THIS MODULE OWNS: there are TWO windows, and the difference between
 // them is the defect it exists to make unrepresentable.
 //
-//   • `LedgerWindowModel` is the whole loaded log — everything the subscription
+//   • `TranscriptWindowModel` is the whole loaded log — everything the subscription
 //     delivered and the projection could place.
-//   • `VisibleLedgerWindow` is what the viewport is actually showing, after the
+//   • `VisibleTranscriptWindow` is what the viewport is actually showing, after the
 //     window cap has pruned. Find searches it, because find offers to JUMP and a
 //     jump is performed by the viewport: a control that counted a row the viewport
 //     does not hold would step to it and land nowhere, reporting success.
@@ -19,11 +19,11 @@ import { useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerViewportRow } from "@renderer/console/ledger/frame/index.js";
-import { type LedgerWindowModel } from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type TranscriptWindowModel } from "../transcript-window.js";
 
 /** The window the viewport is showing, and what fell outside it. */
-export interface VisibleLedgerWindow {
+export interface VisibleTranscriptWindow {
   /** The projected rows the viewport holds, in log order. */
   readonly rows: readonly TimelineRow[];
   /** Rows the log has and this window does not — what the cap took. */
@@ -42,7 +42,7 @@ export interface VisibleLedgerWindow {
    * So the two are separated: this is the FACT, and the offer is somebody else's.
    * The find result's boundary reads this; the act that fetches rows the daemon still
    * holds is `frame/paging/`'s, which asks the producer rather than the cap. The find
-   * surface offers none — see `LedgerFeed.tsx`.
+   * surface offers none — see `TranscriptFeed.tsx`.
    */
   readonly hasEarlierRows: boolean;
   /**
@@ -70,10 +70,10 @@ export interface VisibleLedgerWindow {
  * nesting is what makes the partition below a decision and not a guess: a row the
  * viewport holds is on screen, and a row it does not is one the cap took.
  */
-export function useVisibleLedgerWindow(
-  ledgerWindow: LedgerWindowModel,
-  viewportRows: readonly LedgerViewportRow[],
-): VisibleLedgerWindow {
+export function useVisibleTranscriptWindow(
+  ledgerWindow: TranscriptWindowModel,
+  viewportRows: readonly ViewportRow[],
+): VisibleTranscriptWindow {
   return useMemo(() => {
     const visibleKeys = new Set(viewportRows.map((row) => row.key));
     const rows: TimelineRow[] = [];

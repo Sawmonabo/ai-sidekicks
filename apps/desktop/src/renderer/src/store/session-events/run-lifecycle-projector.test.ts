@@ -20,6 +20,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { SessionStore } from "../session/session-store.js";
@@ -148,8 +149,8 @@ describe("the run partition under every shipped scenario", () => {
   );
 });
 
-describe("the flagship scenario's run, folded", () => {
-  const flagship = CONSOLE_SCENARIOS.find((scenario) => scenario.id === "flagship");
+describe("the concurrent-streaming scenario's run, folded", () => {
+  const concurrentStreaming = FLAGSHIP_SCENARIO;
 
   it("stamps the run into the store from its creation beat, with no state it came from", () => {
     // The creation beat is not a transition, so it names the state the run is IN and
@@ -157,13 +158,10 @@ describe("the flagship scenario's run, folded", () => {
     // machine's transition table. The run still has to reach the store from it,
     // because `run.subscribeState` does not carry the creation kind at all: this
     // fold is the only way a surface learns the run exists.
-    if (flagship === undefined) {
-      throw new Error("the flagship scenario is not on the scenario board");
-    }
-    const queued = firstBeatOfKind(flagship, "run.queued");
+    const queued = firstBeatOfKind(concurrentStreaming, "run.queued");
     const beforeAnyTransition = {
-      ...flagship,
-      beats: flagship.beats.filter((beat) => beat.event.sequence <= queued.sequence),
+      ...concurrentStreaming,
+      beats: concurrentStreaming.beats.filter((beat) => beat.event.sequence <= queued.sequence),
     };
 
     const run =
@@ -177,10 +175,7 @@ describe("the flagship scenario's run, folded", () => {
   });
 
   it("keeps the agent the queued beat named across the next transition", () => {
-    if (flagship === undefined) {
-      throw new Error("the flagship scenario is not on the scenario board");
-    }
-    const queued = firstBeatOfKind(flagship, "run.queued");
+    const queued = firstBeatOfKind(concurrentStreaming, "run.queued");
     const runId = queued.payload?.["runId"];
     expect(typeof runId).toBe("string");
 
@@ -188,7 +183,7 @@ describe("the flagship scenario's run, folded", () => {
     // assumed to be the one that follows the birth beat: the scenario streams its
     // lanes for many beats after they start, and naming `run.starting` here made
     // the assertion a claim about the script's length rather than about the merge.
-    const lastTransition = flagship.beats
+    const lastTransition = concurrentStreaming.beats
       .map((beat) => beat.event)
       .filter((event) => event.payload?.["runId"] === runId && event.kind.startsWith("run."))
       .at(-1);
@@ -198,7 +193,7 @@ describe("the flagship scenario's run, folded", () => {
     }
     expect(lastTransition.sequence).toBeGreaterThan(queued.sequence);
 
-    const run = storeDrivenBy(flagship).snapshot().partitions.run[String(runId)];
+    const run = storeDrivenBy(concurrentStreaming).snapshot().partitions.run[String(runId)];
 
     // The state is the LAST transition's `newState`, and the body still carries the
     // agent only the first beat named — the property the entity merge exists for.
@@ -210,18 +205,17 @@ describe("the flagship scenario's run, folded", () => {
   });
 
   it("attributes a run to the user the envelope names, and only then", () => {
-    if (flagship === undefined) {
-      throw new Error("the flagship scenario is not on the scenario board");
-    }
-    const queued = firstBeatOfKind(flagship, "run.queued");
-    const starting = firstBeatOfKind(flagship, "run.starting");
+    const queued = firstBeatOfKind(concurrentStreaming, "run.queued");
+    const starting = firstBeatOfKind(concurrentStreaming, "run.starting");
     // The queued beat carries an actor and the daemon-driven transition does not,
     // so the attribution the first established survives rather than being erased.
     expect(queued.actorId).toBeDefined();
     expect(starting.actorId).toBeUndefined();
 
     const run =
-      storeDrivenBy(flagship).snapshot().partitions.run[String(queued.payload?.["runId"])];
+      storeDrivenBy(concurrentStreaming).snapshot().partitions.run[
+        String(queued.payload?.["runId"])
+      ];
 
     expect(run?.attributedTo).toBe(queued.actorId);
   });

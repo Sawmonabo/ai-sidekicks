@@ -16,7 +16,7 @@
 // Each was checked by removal: drop its dependency and that group's first case fails
 // with the window still over its cap.
 //
-// The layout engine is stubbed the way `LedgerViewport.test.tsx` stubs it and for
+// The layout engine is stubbed the way `TranscriptViewport.test.tsx` stubs it and for
 // the same reason: `happy-dom` reports zero for `clientHeight` and `scrollHeight`,
 // and a viewport with no box is at its tail by construction, so the reading state
 // this file drives would never leave `following`. Every module in the assertion path
@@ -28,10 +28,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LEDGER_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
-import { useLedgerViewport, type LedgerViewportBinding } from "./useTranscriptViewport.js";
-import { LedgerViewportController } from "../viewport-controller.js";
-import type { LedgerViewportRow } from "../viewport-snapshot.js";
+import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
+import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
+import { ViewportController } from "../viewport-controller.js";
+import type { ViewportRow } from "../viewport-snapshot.js";
 import { type PruneDeferralReason } from "../window-cap.js";
 
 const VIEWPORT_HEIGHT_PX = 400;
@@ -43,12 +43,12 @@ const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
  * glide publish a sample its subscribers are woken for rather than one the
  * chokepoint suppresses as unchanged.
  */
-const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - LEDGER_TAIL_TOLERANCE_PX / 2;
+const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
 const OVER_CAP_ROW_COUNT = LEDGER_WINDOW_ROW_CAP + 40;
 const CALM = { hasActiveTurn: false, isRevealDraining: false } as const;
 
-function syntheticRows(count: number): readonly LedgerViewportRow[] {
+function syntheticRows(count: number): readonly ViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
     key: `row-${String(index)}`,
     parentKey: undefined,
@@ -74,18 +74,18 @@ function withLaidOutViewport(): void {
  * geometry subscription to reconcile while a write is still in flight.
  */
 function mountBinding(
-  rows: readonly LedgerViewportRow[],
+  rows: readonly ViewportRow[],
   initialScrollTopPx = 0,
 ): {
-  binding: ReturnType<typeof renderHook<LedgerViewportBinding, readonly LedgerViewportRow[]>>;
+  binding: ReturnType<typeof renderHook<TranscriptViewportBinding, readonly ViewportRow[]>>;
   surface: HTMLElement;
-  controller: LedgerViewportController;
+  controller: ViewportController;
 } {
-  const attachedControllers = vi.spyOn(LedgerViewportController.prototype, "attach");
+  const attachedControllers = vi.spyOn(ViewportController.prototype, "attach");
   const clock = new ManualClock();
   const binding = renderHook(
-    (currentRows: readonly LedgerViewportRow[]) =>
-      useLedgerViewport({ clock, rows: currentRows, ...CALM }),
+    (currentRows: readonly ViewportRow[]) =>
+      useTranscriptViewport({ clock, rows: currentRows, ...CALM }),
     { initialProps: rows },
   );
   const surface = document.createElement("div");
@@ -94,7 +94,7 @@ function mountBinding(
     binding.result.current.attachSurface(surface);
   });
   const [controller] = attachedControllers.mock.contexts;
-  if (!(controller instanceof LedgerViewportController)) {
+  if (!(controller instanceof ViewportController)) {
     throw new Error("the binding attached no viewport controller");
   }
   return { binding, surface, controller };

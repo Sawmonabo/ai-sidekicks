@@ -13,7 +13,7 @@ import {
   QueueFeedProbe,
   SECOND_SESSION_ID,
   SESSION_ID,
-  TwoQueueSurfaces,
+  TwoQueueReaders,
   openFeed,
   queueFeedBridge,
 } from "./queue-feed.test-support.js";
@@ -23,7 +23,7 @@ describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
     const { bridge, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
-      <TwoQueueSurfaces
+      <TwoQueueReaders
         bridge={bridge}
         queueCalls={queueCalls}
         firstSessionId={SESSION_ID}
@@ -38,7 +38,7 @@ describe("one session's queue is read once for every surface", () => {
   it("negative control: two sessions on one bridge are two readings", async () => {
     const { bridge, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
-      <TwoQueueSurfaces
+      <TwoQueueReaders
         bridge={bridge}
         queueCalls={queueCalls}
         firstSessionId={SESSION_ID}

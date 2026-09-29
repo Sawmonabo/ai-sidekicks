@@ -16,9 +16,9 @@ import { describe, expect, it } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
-import { countingSurface } from "../scroll/scroll-container.test-support.js";
-import { LedgerViewportController } from "./viewport-controller.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
+import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { ViewportController } from "./viewport-controller.js";
 import {
   CALM,
   attachedController,
@@ -34,13 +34,17 @@ describe("the viewport controller — pruning under a reader", () => {
   const INITIAL_SCROLL_TOP_PX = 2000;
 
   /** A surface tall enough that no compensation this case performs is clamped. */
-  function tallSurface(initialScrollTop: number): ReturnType<typeof countingSurface> {
-    return countingSurface({ initialScrollTop, clientHeight: 300, scrollHeight: 400_000 });
+  function tallSurface(initialScrollTop: number): ReturnType<typeof createCountingScrollContainer> {
+    return createCountingScrollContainer({
+      initialScrollTop,
+      clientHeight: 300,
+      scrollHeight: 400_000,
+    });
   }
 
   it("stops the prune at the reader's row and moves the offset by exactly what it took", () => {
     const surface = tallSurface(INITIAL_SCROLL_TOP_PX);
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
 
@@ -55,13 +59,13 @@ describe("the viewport controller — pruning under a reader", () => {
     // read that would still answer in the pre-prune index space.
     expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
     expect(surface.scrollTop).toBe(
-      INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * LEDGER_ROW_HEIGHT_ESTIMATE_PX,
+      INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
     );
     expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
   });
 
   it("defers by name when the reader is on the oldest row it could have taken", () => {
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
     controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
 
@@ -72,7 +76,7 @@ describe("the viewport controller — pruning under a reader", () => {
   });
 
   it("takes the rows it had to leave once the reader returns to the tail", () => {
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -88,7 +92,7 @@ describe("the viewport controller — pruning under a reader", () => {
 
   it("negative control: a reader at the tail prunes as it always did, compensating nothing", () => {
     // Without this the floor could have been a cap that never lets go at all.
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(tallSurface(399_700));
     expect(controller.anchor.state.mode).toBe("following");
 
@@ -110,15 +114,15 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
 
   /** A reader parked above the tail, on the oldest row the cap wanted to take. */
   function readerAboveTheTail(): {
-    controller: LedgerViewportController;
-    surface: ReturnType<typeof countingSurface>;
+    controller: ViewportController;
+    surface: ReturnType<typeof createCountingScrollContainer>;
   } {
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -151,12 +155,12 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // no deferral named, and 4 390 rows still resident against a cap of 400. Read
     // through the deferral alone the re-ask saw nothing owed and never fired, and on
     // a session that had gone quiet those rows stayed for the life of the mount.
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.anchor.capture({ rowKey: "row-10", offsetWithinViewportPx: -12 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -178,9 +182,9 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // Without this the residual could be a re-ask that ignores the reading floor,
     // which is the promise the floor exists to keep — and, because every pass
     // publishes a new outcome, one that re-armed itself on its own result.
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(
-      countingSurface({
+      createCountingScrollContainer({
         initialScrollTop: READER_SCROLL_TOP_PX,
         clientHeight: VIEWPORT_HEIGHT_PX,
         scrollHeight: CONTENT_HEIGHT_PX,
@@ -196,8 +200,10 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("takes them when a pin lifts, likewise without one", () => {
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
-    controller.attach(countingSurface({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }));
+    const controller = new ViewportController({ clock: new ManualClock() });
+    controller.attach(
+      createCountingScrollContainer({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }),
+    );
     controller.anchor.pin("cursor-3");
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
     expect(controller.snapshot().lastPrune?.deferredBecause).toBe("pinned-history");
@@ -213,12 +219,12 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // reconcile under it is from a subscriber the glide itself wakes — which is
     // exactly how the effect that reconciles reaches it in a tree. Nothing observes
     // the veto lifting, which is why the retry is keyed on the refusal instead.
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     let reconciledUnderTheVeto = false;
     controller.scroll.subscribeToGeometry(() => {
@@ -251,8 +257,10 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("negative control: re-asking after a prune that landed does nothing at all", () => {
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
-    controller.attach(countingSurface({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }));
+    const controller = new ViewportController({ clock: new ManualClock() });
+    controller.attach(
+      createCountingScrollContainer({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }),
+    );
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
     const settled = controller.snapshot();
     expect(settled.lastPrune?.applied).toBe(true);

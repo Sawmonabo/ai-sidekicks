@@ -6,7 +6,7 @@ import { REASONING_AVAILABILITY_STATES } from "@ai-sidekicks/contracts";
 
 import { sampleGeneralRow, sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 import {
-  REASONING_ARM_COPY,
+  REASONING_AVAILABILITY_COPY,
   REASONING_TAIL_LINE_COUNT,
   reasoningRunIdOf,
   reasoningTailOf,
@@ -38,7 +38,7 @@ describe("reasoningTailOf", () => {
 describe("REASONING_ARM_COPY", () => {
   it("carries a sentence for every arm the contract declares", () => {
     for (const availability of REASONING_AVAILABILITY_STATES) {
-      expect(REASONING_ARM_COPY[availability].title.length).toBeGreaterThan(0);
+      expect(REASONING_AVAILABILITY_COPY[availability].title.length).toBeGreaterThan(0);
     }
   });
 
@@ -49,14 +49,20 @@ describe("REASONING_ARM_COPY", () => {
   // than eyeballed — two arms sharing a sentence collapses the set and fails here.
   it("says something different for every arm", () => {
     const sentences = new Set(
-      REASONING_AVAILABILITY_STATES.map((availability) => REASONING_ARM_COPY[availability].title),
+      REASONING_AVAILABILITY_STATES.map(
+        (availability) => REASONING_AVAILABILITY_COPY[availability].title,
+      ),
     );
     expect(sentences.size).toBe(REASONING_AVAILABILITY_STATES.length);
   });
 
   it("never says a withheld surface is an absent one", () => {
-    expect(REASONING_ARM_COPY.policy_redacted.title).not.toBe(REASONING_ARM_COPY.unavailable.title);
-    expect(REASONING_ARM_COPY.compacted.title).not.toBe(REASONING_ARM_COPY.unavailable.title);
+    expect(REASONING_AVAILABILITY_COPY.policy_redacted.title).not.toBe(
+      REASONING_AVAILABILITY_COPY.unavailable.title,
+    );
+    expect(REASONING_AVAILABILITY_COPY.compacted.title).not.toBe(
+      REASONING_AVAILABILITY_COPY.unavailable.title,
+    );
   });
 });
 

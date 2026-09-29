@@ -27,7 +27,7 @@ import type { RunId } from "@ai-sidekicks/contracts";
 import {
   ASK_ANSWER_UNSENT,
   type DriverAskDelivery,
-} from "@renderer/console/ledger/cards/bodies/index.js";
+} from "@renderer/store/session-events/question-reading.js";
 
 /** The wire method an answer travels, named once. */
 const ASK_ANSWER_METHOD = "driver.respondToRequest";

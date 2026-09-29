@@ -29,12 +29,15 @@
 //     distinct virtual key per row keeps every row in the window and counts the
 //     defect, which is degrading rather than discarding.
 //
-// Chromium caps an element's height at `LEDGER_MAX_ELEMENT_HEIGHT_PX`; past it a
+// Chromium caps an element's height at `MAX_ELEMENT_HEIGHT_PX`; past it a
 // virtual list's size container stops growing and every row below is unreachable.
 // The ledger reports that rather than leaving it a mystery in the scrollbar.
 
-import { LEDGER_MAX_ELEMENT_HEIGHT_PX, LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
-import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
+import { MAX_ELEMENT_HEIGHT_PX, LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import {
+  TRANSCRIPT_GEOMETRY_EPSILON_PX,
+  TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
+} from "./viewport-constants.js";
 
 /**
  * The display facts a measurement is only valid under.
@@ -55,7 +58,7 @@ export interface RowKeyProjection {
   readonly duplicateKeyCount: number;
 }
 
-export interface RowMeasurementLedgerOptions {
+export interface RowMeasurementTableOptions {
   readonly estimatedRowHeightPx?: number;
   readonly measurementCap?: number;
 }
@@ -65,13 +68,13 @@ const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount:
 /**
  * How a repeat's projected key is spelled, declared once.
  *
- * Read back by {@link RowMeasurementLedger.forgetAllExcept}, which has to recover
+ * Read back by {@link RowMeasurementTable.forgetAllExcept}, which has to recover
  * the row a projected key was minted for. Two spellings of it would make the trim
  * drop a prior for a row still on screen.
  */
 const REPEAT_KEY_SEPARATOR = "~repeat-";
 
-export class RowMeasurementLedger {
+export class RowMeasurementTable {
   readonly #estimatedRowHeightPx: number;
   readonly #measurementCap: number;
   /** Insertion-ordered, so the ceiling evicts the least recently measured. */
@@ -81,8 +84,8 @@ export class RowMeasurementLedger {
   #cachedRowKeys: readonly string[] | undefined;
   #cachedProjection: RowKeyProjection = EMPTY_PROJECTION;
 
-  public constructor(options: RowMeasurementLedgerOptions = {}) {
-    this.#estimatedRowHeightPx = options.estimatedRowHeightPx ?? LEDGER_ROW_HEIGHT_ESTIMATE_PX;
+  public constructor(options: RowMeasurementTableOptions = {}) {
+    this.#estimatedRowHeightPx = options.estimatedRowHeightPx ?? TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
     this.#measurementCap = options.measurementCap ?? LEDGER_WINDOW_ROW_CAP;
   }
 
@@ -128,7 +131,7 @@ export class RowMeasurementLedger {
     }
     if (
       previous !== undefined &&
-      Math.abs(previous - observedHeightPx) < LEDGER_GEOMETRY_EPSILON_PX
+      Math.abs(previous - observedHeightPx) < TRANSCRIPT_GEOMETRY_EPSILON_PX
     ) {
       return previous;
     }
@@ -232,7 +235,7 @@ export class RowMeasurementLedger {
    * height.
    *
    * A COUNT AND NOT A BOOLEAN, because that is what a person is owed: the shared
-   * absence vocabulary (`primitives/absence/window-absence.ts`) says "N are still held and
+   * absence vocabulary (`window-notices.ts`) says "N are still held and
    * sit below the height this window can draw down to", and a flag would leave the
    * figure to be invented at the call site or left out of a sentence built to carry
    * one.
@@ -251,12 +254,12 @@ export class RowMeasurementLedger {
    * says there is something to count.
    */
   public rowsPastElementCeiling(rowKeys: readonly string[], totalHeightPx: number): number {
-    if (totalHeightPx <= LEDGER_MAX_ELEMENT_HEIGHT_PX) {
+    if (totalHeightPx <= MAX_ELEMENT_HEIGHT_PX) {
       return 0;
     }
     let offsetPx = 0;
     for (let index = 0; index < rowKeys.length; index += 1) {
-      if (offsetPx >= LEDGER_MAX_ELEMENT_HEIGHT_PX) {
+      if (offsetPx >= MAX_ELEMENT_HEIGHT_PX) {
         // Offsets only grow, so every row from here down is past the ceiling too.
         return rowKeys.length - index;
       }

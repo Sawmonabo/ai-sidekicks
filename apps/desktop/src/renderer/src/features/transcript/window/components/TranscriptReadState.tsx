@@ -33,7 +33,7 @@
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
-import { useLedgerFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
+import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 
 /**
@@ -50,7 +50,7 @@ const LOADING_SHELL_KEYS: readonly string[] = Object.freeze(
   Array.from({ length: LOADING_SHELL_COUNT }, (_unused, index) => `shell-${String(index)}`),
 );
 
-export interface LedgerWindowReadStateProps {
+export interface TranscriptReadStateProps {
   readonly sessionStore: SessionStore;
 }
 
@@ -61,10 +61,10 @@ export interface LedgerWindowReadStateProps {
  * a navigation that changes which session the pane is a log of — and so neither fact
  * is copied into a second holder that could disagree with the store it came from.
  */
-export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.JSX.Element | null {
+export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.Element | null {
   // The same reading the viewport's empty arm takes, through the same hook: two
   // surfaces speaking about one moment, and never from two selectors.
-  const firstReadSettled = useLedgerFirstReadSettled(props.sessionStore);
+  const firstReadSettled = useTranscriptFirstReadSettled(props.sessionStore);
   const degradedCause = useSessionStore(props.sessionStore, readDegradedCause);
   // ASKED FIRST, so a first read that has already failed says so instead of drawing
   // shells for a read that is over. Nothing here mints a second sentence for that
@@ -73,27 +73,27 @@ export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.
   // the read that ended from the projection that is behind.
   if (degradedCause !== undefined) {
     return (
-      <div className="meridian-ledger-window-catch-up">
+      <div className="meridian-transcript-window-catch-up">
         <Nothing
           kind="computing"
           placement="surface"
           title="Catching up."
           detail="Entries this window was told about have not arrived. It re-reads from the last position it kept, and this clears when that read lands."
         />
-        <span className="meridian-ledger-window-catch-up__cause">{degradedCause}</span>
+        <span className="meridian-transcript-window-catch-up__cause">{degradedCause}</span>
       </div>
     );
   }
   if (!firstReadSettled) {
     return (
       <div
-        className="meridian-ledger-window-skeleton"
+        className="meridian-transcript-window-skeleton"
         role="status"
         aria-busy="true"
         aria-label="Reading this session's entries."
       >
         {LOADING_SHELL_KEYS.map((key) => (
-          <span key={key} className="meridian-ledger-window-skeleton__row" aria-hidden="true" />
+          <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />
         ))}
       </div>
     );

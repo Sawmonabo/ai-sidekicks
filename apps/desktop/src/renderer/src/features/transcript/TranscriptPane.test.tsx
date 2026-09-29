@@ -19,7 +19,7 @@
 //   • The two absences are different absences. Both are quiet grey lines; only the
 //     copy tells "the console cannot draw this" from "your session is empty".
 //
-// The fixtures live in `TimelinePaneFixtures.test-support.tsx`.
+// The fixtures live in `TranscriptPane.test-support.tsx`.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -34,10 +34,10 @@ import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-suppo
 import { unregisterTimelineRowRenderer } from "./transcript-row-renderer.js";
 import { type TimelinePaneContext } from "./TranscriptPane.js";
 import {
-  TIMELINE_PANE_SESSION_ID,
+  TRANSCRIPT_PANE_SESSION_ID,
   openSessionStoreWithPaneLog,
   paneContext,
-  renderTimelinePane as renderPane,
+  renderTranscriptPane as renderPane,
 } from "./TranscriptPane.test-support.js";
 
 /** Every crumb the address contributed, without the pane's own name at the end. */
@@ -66,7 +66,7 @@ describe("TimelinePane — what it hands the chrome", () => {
 
   it("hands over the session the route names", () => {
     const pane = renderPane({ context: paneContext() });
-    expect(addressCrumbs(pane)).toStrictEqual([TIMELINE_PANE_SESSION_ID]);
+    expect(addressCrumbs(pane)).toStrictEqual([TRANSCRIPT_PANE_SESSION_ID]);
   });
 
   it("hands over no session at all rather than one the route does not name", () => {
@@ -143,7 +143,7 @@ describe("TimelinePane — the row slot", () => {
 
   it("negative control: the same store with no events shows the empty session", () => {
     registerTimelineRowRenderer("timeline-pane-test", () => null);
-    const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
+    const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
     sessionStore.initialise({ cursor: -1, entities: [] });
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),

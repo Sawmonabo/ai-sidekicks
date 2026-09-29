@@ -24,12 +24,12 @@
 //
 // The response is neither to invent the types nor to drop the kinds. Each binding
 // below carries the wire types it reads verbatim, and membership in the registered
-// census is ASKED of the contract by `seams.ts`' index rather than hand-copied here,
+// census is ASKED of the contract by `system-message-classifier.ts`' index rather than hand-copied here,
 // so a surface can render the absence (rule 8's `not-checked`: nobody asked, which is
 // not the same as "no") instead of drawing a seam vocabulary that half the daemon
 // cannot produce.
 //
-// WHAT THIS MODULE IS NOT. It classifies nothing. `seams.ts` holds the epoch rule —
+// WHAT THIS MODULE IS NOT. It classifies nothing. `system-message-classifier.ts` holds the epoch rule —
 // which rows are seams, and what one row's seam reads — and takes the table below as
 // its closed input, so the set a gallery iterates and the set the classifier switches
 // over cannot come apart.
@@ -40,7 +40,7 @@ import { type GlyphName } from "@renderer/styles/glyphs.js";
  * Every seam the ledger draws. Closed; adding one is a deliberate edit here and a
  * reading of the epoch rule above.
  *
- * The tuple is the declaration and `LedgerSeamKind` is derived from it, so the set
+ * The tuple is the declaration and `SystemMessageKind` is derived from it, so the set
  * a gallery iterates and the set the classifier switches over cannot come apart.
  *
  * Eight, in two groups that render the same way: three epoch
@@ -49,7 +49,7 @@ import { type GlyphName } from "@renderer/styles/glyphs.js";
  * one-line row marking a change in the run's condition, and a reader scanning the
  * log does not care which paragraph of the design a mark came from.
  */
-export const LEDGER_SEAM_KINDS = [
+export const SYSTEM_MESSAGE_KINDS = [
   "provider-switch",
   "provider-switch-failed",
   "compaction",
@@ -60,7 +60,7 @@ export const LEDGER_SEAM_KINDS = [
   "run-unblocked",
 ] as const;
 
-export type LedgerSeamKind = (typeof LEDGER_SEAM_KINDS)[number];
+export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
 
 /**
  * Whether the wire type a seam reads is in the registered event census.
@@ -69,11 +69,11 @@ export type LedgerSeamKind = (typeof LEDGER_SEAM_KINDS)[number];
  * the difference between "this has not happened" and "the daemon cannot say this
  * yet".
  */
-export type SeamWireRegistration = "registered" | "unregistered";
+export type WireTypeRegistration = "registered" | "unregistered";
 
 /** What one seam kind reads, and how it is drawn. */
-export interface SeamWireBinding {
-  readonly kind: LedgerSeamKind;
+export interface SystemMessageBinding {
+  readonly kind: SystemMessageKind;
   /**
    * What the one-line row calls this seam, in the console's own words.
    *
@@ -106,11 +106,11 @@ export interface SeamWireBinding {
 }
 
 /**
- * The binding table. Closed and total over `LedgerSeamKind` by construction — a
+ * The binding table. Closed and total over `SystemMessageKind` by construction — a
  * ninth kind fails to compile here before it can reach a classifier that would
  * silently never match it.
  */
-export const SEAM_WIRE_BINDINGS: Readonly<Record<LedgerSeamKind, SeamWireBinding>> = {
+export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemMessageBinding>> = {
   "provider-switch": {
     kind: "provider-switch",
     label: "Provider switched",
@@ -171,6 +171,3 @@ export const SEAM_WIRE_BINDINGS: Readonly<Record<LedgerSeamKind, SeamWireBinding
     isCaution: false,
   },
 };
-
-/** The value `continuity` takes when the new provider works from a summary. */
-export const SWITCH_CONTINUITY_MEMO = "memo";

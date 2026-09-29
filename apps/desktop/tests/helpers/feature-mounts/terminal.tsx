@@ -9,7 +9,7 @@ import type { FunctionComponent } from "react";
 
 import { registerTerminalPanes } from "@renderer/console/terminal/index.js";
 import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";

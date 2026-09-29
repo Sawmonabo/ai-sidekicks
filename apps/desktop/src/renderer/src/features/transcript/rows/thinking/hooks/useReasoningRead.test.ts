@@ -23,7 +23,7 @@ import type { RunId } from "@ai-sidekicks/contracts";
 import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
 import { settle } from "@test/helpers/settle.js";
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "@test/helpers/recoverable-bridge.js";
-import { useReasoningSurfaceRead } from "./useReasoningRead.js";
+import { useReasoningRead } from "./useReasoningRead.js";
 
 const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 /** A second run, for the cases about a row re-addressed while a read is in flight. */
@@ -36,7 +36,7 @@ const UNAVAILABLE_REASONING: Record<string, unknown> = { availability: "unavaila
 describe("useReasoningSurfaceRead — a refusal is retryable and an answer is not", () => {
   it("holds the door's own refusal rather than discarding it", async () => {
     const { held } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
-    const { result } = renderHook(() => useReasoningSurfaceRead(SAMPLE_RUN_ID), {
+    const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),
     });
 
@@ -53,7 +53,7 @@ describe("useReasoningSurfaceRead — a refusal is retryable and an answer is no
     // a transport that was down for one moment could never be taken again — and the
     // control was hidden in that state, so there was nothing on screen to press either.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
-    const { result } = renderHook(() => useReasoningSurfaceRead(SAMPLE_RUN_ID), {
+    const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),
     });
 
@@ -79,7 +79,7 @@ describe("useReasoningSurfaceRead — a refusal is retryable and an answer is no
     // for a page this surface holds no continuation cursor to extend.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     recover();
-    const { result } = renderHook(() => useReasoningSurfaceRead(SAMPLE_RUN_ID), {
+    const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),
     });
 
@@ -98,7 +98,7 @@ describe("useReasoningSurfaceRead — a refusal is retryable and an answer is no
   it("negative control: a row with no run attribution asks nothing", async () => {
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     recover();
-    const { result } = renderHook(() => useReasoningSurfaceRead(undefined), {
+    const { result } = renderHook(() => useReasoningRead(undefined), {
       wrapper: inBridge(held),
     });
 
@@ -154,7 +154,7 @@ describe("useReasoningSurfaceRead — the row moves while the answer is on the w
     // at, presented as this one's. Re-addressing the line abandons the read, so the
     // reply installs nothing.
     const { held, release } = bridgeHoldingReasoningRead();
-    const { result, rerender } = renderHook((runId: RunId) => useReasoningSurfaceRead(runId), {
+    const { result, rerender } = renderHook((runId: RunId) => useReasoningRead(runId), {
       initialProps: SAMPLE_RUN_ID,
       wrapper: inBridge(held),
     });
@@ -171,7 +171,7 @@ describe("useReasoningSurfaceRead — the row moves while the answer is on the w
 
   it("negative control: the same held read lands when the row stays put", async () => {
     const { held, release } = bridgeHoldingReasoningRead();
-    const { result } = renderHook((runId: RunId) => useReasoningSurfaceRead(runId), {
+    const { result } = renderHook((runId: RunId) => useReasoningRead(runId), {
       initialProps: SAMPLE_RUN_ID,
       wrapper: inBridge(held),
     });

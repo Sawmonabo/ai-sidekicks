@@ -4,17 +4,17 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { PERF_METER_BOUNDS } from "@renderer/lib/performance-meters/performance-meter-bounds.js";
 import { devPerfMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
-  LEDGER_FRAME_PHASES,
-  LedgerFrameCoordinator,
-  type LedgerFrameDiagnostic,
+  ANIMATION_FRAME_PHASES,
+  AnimationFrameCoordinator,
+  type AnimationFrameDiagnostic,
 } from "./animation-frame-coordinator.js";
 
-const constructCoordinator = (): { clock: ManualClock; coordinator: LedgerFrameCoordinator } => {
+const constructCoordinator = (): { clock: ManualClock; coordinator: AnimationFrameCoordinator } => {
   const clock = new ManualClock();
-  return { clock, coordinator: new LedgerFrameCoordinator({ clock }) };
+  return { clock, coordinator: new AnimationFrameCoordinator({ clock }) };
 };
 
-describe("LedgerFrameCoordinator", () => {
+describe("AnimationFrameCoordinator", () => {
   beforeEach(() => {
     devPerfMeters?.reset();
   });
@@ -44,8 +44,8 @@ describe("LedgerFrameCoordinator", () => {
     // average over a feed blowing the budget and a feed sitting idle — with no second
     // series anywhere to notice it by.
     const clock = new ManualClock();
-    const firstFeed = new LedgerFrameCoordinator({ clock });
-    const secondFeed = new LedgerFrameCoordinator({ clock });
+    const firstFeed = new AnimationFrameCoordinator({ clock });
+    const secondFeed = new AnimationFrameCoordinator({ clock });
 
     firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
     secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
@@ -76,7 +76,7 @@ describe("LedgerFrameCoordinator", () => {
 
     for (let cycle = 0; cycle < mountCycleCount; cycle += 1) {
       const clock = new ManualClock();
-      const coordinator = new LedgerFrameCoordinator({ clock });
+      const coordinator = new AnimationFrameCoordinator({ clock });
       coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
       clock.runFrame();
       coordinator.dispose();
@@ -90,8 +90,8 @@ describe("LedgerFrameCoordinator", () => {
     // The other half of the bound: retiring must not retire a SIBLING's series, which
     // a coordinator keying by anything the two share would do.
     const clock = new ManualClock();
-    const firstFeed = new LedgerFrameCoordinator({ clock });
-    const secondFeed = new LedgerFrameCoordinator({ clock });
+    const firstFeed = new AnimationFrameCoordinator({ clock });
+    const secondFeed = new AnimationFrameCoordinator({ clock });
     firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
     secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
     clock.runFrame();
@@ -123,7 +123,7 @@ describe("LedgerFrameCoordinator", () => {
   });
 
   test("the phase order is the declared enumeration", () => {
-    expect(LEDGER_FRAME_PHASES).toEqual(["scroll-writes", "reveal-work"]);
+    expect(ANIMATION_FRAME_PHASES).toEqual(["scroll-writes", "reveal-work"]);
   });
 
   test("coalesces by task key, so repeated submissions cost one run", () => {
@@ -243,7 +243,7 @@ describe("LedgerFrameCoordinator", () => {
 
   test("quarantines a throwing task, finishes the phase, and reports it", () => {
     const { clock, coordinator } = constructCoordinator();
-    const diagnostics: LedgerFrameDiagnostic[] = [];
+    const diagnostics: AnimationFrameDiagnostic[] = [];
     coordinator.subscribeToDiagnostics((diagnostic) => {
       diagnostics.push(diagnostic);
     });
@@ -269,7 +269,7 @@ describe("LedgerFrameCoordinator", () => {
 
   test("a task throwing a null-prototype value still reports rather than escaping", () => {
     const { clock, coordinator } = constructCoordinator();
-    const diagnostics: LedgerFrameDiagnostic[] = [];
+    const diagnostics: AnimationFrameDiagnostic[] = [];
     coordinator.subscribeToDiagnostics((diagnostic) => {
       diagnostics.push(diagnostic);
     });

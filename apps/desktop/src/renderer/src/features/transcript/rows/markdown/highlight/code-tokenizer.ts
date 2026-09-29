@@ -37,7 +37,7 @@
 import type { HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/types";
 
 import type { HighlightableLanguage } from "./highlight-languages.js";
-import { meridianCodeTheme } from "./code-theme.js";
+import { buildCodeTheme } from "./code-theme.js";
 
 /**
  * What a grammar module hands back: shiki's own registration list, under `default`.
@@ -77,7 +77,7 @@ export interface CodeToken {
   readonly content: string;
   /**
    * The family's custom-property reference, or `undefined` for a token the theme left
-   * plain. Never a colour — see `meridian-code-theme.ts`.
+   * plain. Never a colour — see `code-theme.ts`.
    */
   readonly colorReference: string | undefined;
 }
@@ -145,7 +145,7 @@ async function createCore(): Promise<HighlighterCore> {
     import("shiki/engine/javascript"),
   ]);
   return createHighlighterCore({
-    themes: [meridianCodeTheme()],
+    themes: [buildCodeTheme()],
     langs: [],
     engine: createJavaScriptRegexEngine(),
   });

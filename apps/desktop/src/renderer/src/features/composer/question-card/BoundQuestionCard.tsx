@@ -23,11 +23,12 @@ import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {
-  InputAskCard,
   askSettledBy,
-  useLedgerAskTerminal,
   type DriverAskReading,
-} from "@renderer/console/ledger/cards/bodies/index.js";
+} from "@renderer/store/session-events/question-reading.js";
+import { useQuestionSettlement } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
+import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { InputAskCard } from "./QuestionCard.js";
 import { useDriverAskAnswer } from "./hooks/useQuestionAnswer.js";
 
 export interface FixtureShellAskRowProps {
@@ -39,6 +40,8 @@ export interface FixtureShellAskRowProps {
    * construction, and no caller can hand a row an ask belonging to another.
    */
   readonly ask: DriverAskReading;
+  /** The session the ask belongs to, whose store folds every settlement it admits. */
+  readonly sessionStore: SessionStore;
 }
 
 /**
@@ -53,8 +56,8 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
   // mount's. The row says only what its own event type says, and the delivery state
   // beside it is local to a mount and resets with one — so a request answered from
   // another window, or answered here and then scrolled out and back, kept its controls.
-  // The fold is the ledger's row model's; this is the lookup and the merge.
-  const askTerminal = useLedgerAskTerminal(props.ask);
+  // The session store folds every settlement; this is the lookup and the merge.
+  const askTerminal = useQuestionSettlement(props.sessionStore, props.ask);
   const ask = useMemo(() => askSettledBy(props.ask, askTerminal), [props.ask, askTerminal]);
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.

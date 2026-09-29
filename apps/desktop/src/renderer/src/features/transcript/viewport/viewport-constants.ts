@@ -38,7 +38,7 @@ export const LEDGER_OVERSCAN_ROWS = 6;
  * this; the estimate only has to be close enough that the first paint's scrollbar
  * is not visibly wrong, because every mounted row replaces it with a measurement.
  */
-export const LEDGER_ROW_HEIGHT_ESTIMATE_PX = 96;
+export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
 
 /**
  * Tolerance, in pixels, within which the viewport counts as sitting at the tail.
@@ -47,7 +47,7 @@ export const LEDGER_ROW_HEIGHT_ESTIMATE_PX = 96;
  * test flickers between following and reading on every frame of a stream. One
  * ledger line's leading is the smallest band that cannot be crossed by rounding.
  */
-export const LEDGER_TAIL_TOLERANCE_PX = 24;
+export const TRANSCRIPT_TAIL_TOLERANCE_PX = 24;
 
 /**
  * The epsilon every geometry comparison uses, in pixels.
@@ -56,7 +56,7 @@ export const LEDGER_TAIL_TOLERANCE_PX = 24;
  * anything a display can show and above the error a device-pixel-ratio division
  * introduces.
  */
-export const LEDGER_GEOMETRY_EPSILON_PX = 0.5;
+export const TRANSCRIPT_GEOMETRY_EPSILON_PX = 0.5;
 
 /**
  * Agreeing witnesses before the controller believes this display quantizes
@@ -66,7 +66,7 @@ export const LEDGER_GEOMETRY_EPSILON_PX = 0.5;
  * explained by a concurrent user scroll landing between the write and the read,
  * and the only cost of waiting for the second is one unskipped no-op write.
  */
-export const SCROLL_QUANTIZATION_WITNESS_COUNT = 2;
+export const SCROLL_QUANTIZATION_SAMPLE_COUNT = 2;
 
 /**
  * The largest multiple of its fair share a lane behind the others may take.
@@ -92,7 +92,7 @@ export const REVEAL_GATE_TAIL_CHARACTERS = 64;
  *
  * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
  * after a gap this wide rather than on a timer, because no timer is allowed on the
- * console's steady state and `LedgerViewport.test.tsx` holds this frame to it. So this
+ * console's steady state and `TranscriptViewport.test.tsx` holds this frame to it. So this
  * is a threshold a
  * subtraction is compared against, and a ledger nobody is touching arms nothing.
  *
@@ -102,4 +102,4 @@ export const REVEAL_GATE_TAIL_CHARACTERS = 64;
  * what that session accumulated. A row whose lease survives a two-minute pause is one
  * nobody is coming back to.
  */
-export const LEDGER_IDLE_TRIM_DWELL_MS = 120_000;
+export const TRANSCRIPT_IDLE_TRIM_DWELL_MS = 120_000;

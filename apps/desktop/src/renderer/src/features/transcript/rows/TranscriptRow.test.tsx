@@ -6,10 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
-import {
-  LedgerRowLeaseProvider,
-  type LedgerRowLease,
-} from "@renderer/console/ledger/frame/index.js";
+import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
+import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
@@ -17,11 +15,8 @@ import {
 } from "@renderer/console/seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
 import { unregisterTimelineRowRenderer } from "../transcript-row-renderer.js";
-import {
-  FIXTURE_SHELL_OWNER,
-  FixtureShellRow,
-  registerFixtureShellRows,
-} from "@renderer/console/ledger/cards/shell/FixtureShellRows.js";
+import { TRANSCRIPT_ROW_OWNER, registerFixtureShellRows } from "../contributions/timeline-rows.js";
+import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 afterEach(() => {
@@ -60,12 +55,12 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 function MountedInAList(props: {
   readonly row: TimelineRowSlotProps["row"];
   readonly listDensity: TimelineRowSlotProps["density"];
-  readonly onLeaseWritten?: (rowKey: string, lease: LedgerRowLease) => void;
+  readonly onLeaseWritten?: (rowKey: string, lease: RetainedRowState) => void;
 }): React.JSX.Element {
-  const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
+  const [leased, setLeased] = useState<RetainedRowState | undefined>(undefined);
   return (
     <InBridge>
-      <LedgerRowLeaseProvider
+      <RetainedRowStateProvider
         channel={{
           setLease: (rowKey, lease) => {
             props.onLeaseWritten?.(rowKey, lease);
@@ -73,8 +68,8 @@ function MountedInAList(props: {
           },
         }}
       >
-        <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
-      </LedgerRowLeaseProvider>
+        <TranscriptRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+      </RetainedRowStateProvider>
     </InBridge>
   );
 }
@@ -125,7 +120,7 @@ describe("standing in for the list's density decision", () => {
     // virtualizer scrolled the row out of the mounted range, so the choice had to
     // leave the component — and this asserts on the value that leaves it, keyed by
     // the row, which is what the window parks and re-parks across a prune.
-    const written: Array<{ readonly rowKey: string; readonly lease: LedgerRowLease }> = [];
+    const written: Array<{ readonly rowKey: string; readonly lease: RetainedRowState }> = [];
     const row = sampleRunRow({ type: "tool.invoked" });
     const { container } = render(
       <MountedInAList
@@ -182,7 +177,7 @@ describe("standing in for the list's density decision", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
-      render(<FixtureShellRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
+      render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
     ).toThrow(/lease provider/);
   });
 });
@@ -191,7 +186,7 @@ describe("claiming the seat", () => {
   it("fills it under the shell's own owner", () => {
     expect(timelineRowRenderer()).toBeUndefined();
     registerFixtureShellRows();
-    expect(timelineRowRenderer()).toBe(FixtureShellRow);
+    expect(timelineRowRenderer()).toBe(TranscriptRow);
   });
 
   it("refuses a second owner rather than replacing the shell", () => {
@@ -209,7 +204,7 @@ describe("claiming the seat", () => {
     // the shell undevelopable.
     registerFixtureShellRows();
     expect(() => {
-      registerTimelineRowRenderer(FIXTURE_SHELL_OWNER, FixtureShellRow);
+      registerTimelineRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
     }).not.toThrow();
   });
 });

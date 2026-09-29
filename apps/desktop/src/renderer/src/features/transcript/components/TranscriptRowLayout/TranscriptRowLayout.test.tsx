@@ -26,7 +26,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
 import { actorHueTokenName } from "@renderer/styles/tokens.js";
-import { RING_TREATMENTS } from "@renderer/styles/agent-hue.js";
 import { LedgerRow } from "./TranscriptRowLayout.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
@@ -55,9 +54,9 @@ function edgeOf(row: HTMLElement): HTMLElement {
 function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {}): HTMLElement {
   return renderRow(
     <LedgerRow
-      actorHueStep={0}
+      agentHueStep={0}
       occurredAtIso={OCCURRED_AT}
-      actorLabel="Ada"
+      authorLabel="Ada"
       kindLabel="assistant.message"
       {...overrides}
     />,
@@ -78,7 +77,7 @@ describe("LedgerRow — the row is a work-log line, named by its author", () => 
 
 describe("LedgerRow — attribution fails closed rather than into someone else's hue", () => {
   it("carries the user's own hue token for a step on the wheel", () => {
-    const row = basicRow({ actorHueStep: 7 });
+    const row = basicRow({ agentHueStep: 7 });
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
       `var(--meridian-${actorHueTokenName(7)})`,
     );
@@ -88,11 +87,11 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
   it("refuses to wrap or clamp a step that is off the wheel", () => {
     const offWheelSteps = [ACTOR_HUE_STEPS, ACTOR_HUE_STEPS + 3, -1, 1.5, Number.NaN];
     const onWheelHues = Array.from({ length: ACTOR_HUE_STEPS }, (_unused, step) =>
-      edgeOf(basicRow({ actorHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
+      edgeOf(basicRow({ agentHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
     );
 
     for (const step of offWheelSteps) {
-      const row = basicRow({ actorHueStep: step });
+      const row = basicRow({ agentHueStep: step });
       const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
       expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(true);
       expect(hue).toBe("var(--meridian-edge-strong)");
@@ -106,21 +105,8 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
     expect(new Set(onWheelHues).size).toBe(ACTOR_HUE_STEPS);
   });
 
-  it("varies the edge along its length rather than its width", () => {
-    // A 2 px strip has no room for a `double` border-style, so each treatment is a
-    // fill pattern named on the row and drawn in `ledger-row.css`.
-    for (const treatment of RING_TREATMENTS) {
-      expect(
-        basicRow({ ringTreatment: treatment }).classList.contains(
-          `meridian-ledger-row--${treatment}`,
-        ),
-      ).toBe(true);
-    }
-    expect(basicRow().classList.contains("meridian-ledger-row--solid")).toBe(true);
-  });
-
   it("keeps the hue off the body text by putting it only on the edge", () => {
-    const row = basicRow({ actorHueStep: 3 });
+    const row = basicRow({ agentHueStep: 3 });
     expect(row.style.getPropertyValue("--meridian-row-hue")).toBe("");
     expect(edgeOf(row).getAttribute("aria-hidden")).toBe("true");
   });
@@ -142,9 +128,9 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
 
     const { rerender, container } = render(
       <LedgerRow
-        actorHueStep={0}
+        agentHueStep={0}
         occurredAtIso={OCCURRED_AT}
-        actorLabel="Ada"
+        authorLabel="Ada"
         kindLabel="assistant.message"
       />,
     );
@@ -156,9 +142,9 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     for (const kindLabel of ["tool.invoked", "tool.result"]) {
       rerender(
         <LedgerRow
-          actorHueStep={0}
+          agentHueStep={0}
           occurredAtIso={OCCURRED_AT}
-          actorLabel="Ada"
+          authorLabel="Ada"
           kindLabel={kindLabel}
         />,
       );
@@ -171,9 +157,9 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // whose instant moves is re-read rather than showing the moment before it.
     rerender(
       <LedgerRow
-        actorHueStep={0}
+        agentHueStep={0}
         occurredAtIso={LATER_INSTANT}
-        actorLabel="Ada"
+        authorLabel="Ada"
         kindLabel="tool.result"
       />,
     );

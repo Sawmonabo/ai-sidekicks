@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
+import { RUN_LIFECYCLE_PROJECTOR_OWNER } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import {
   ConsoleEntityProjectorRegistry,
   consoleEntityProjectorRegistry,
@@ -149,7 +150,7 @@ describe("console families — the pane board a composition writes into", () => 
     composeInto(boards);
 
     expect(Object.keys(boards.projectors.snapshot()).length).toBeGreaterThan(0);
-    expect(boards.projectors.ownerOf("run.running")).toBe("frame");
+    expect(boards.projectors.ownerOf("run.running")).toBe(RUN_LIFECYCLE_PROJECTOR_OWNER);
   });
 
   it("negative control: a board no composition wrote into stays empty", () => {
@@ -180,7 +181,7 @@ describe("console families — the pane board a composition writes into", () => 
     registerFreePaneKindProbe(boards.panes, "families.test");
 
     expect(boards.panes.registeredPaneKinds().length).toBeGreaterThan(0);
-    expect(boards.projectors.ownerOf("run.running")).toBe("frame");
+    expect(boards.projectors.ownerOf("run.running")).toBe(RUN_LIFECYCLE_PROJECTOR_OWNER);
 
     // THE DISCRIMINATING ASSERTION, AND THE ONE THE PROBE CANNOT MAKE. A probe put
     // straight into the owned board never travels through the composition, so a

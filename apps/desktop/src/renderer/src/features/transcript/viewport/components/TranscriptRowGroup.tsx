@@ -33,12 +33,12 @@ export interface LedgerRowGroupProps {
  * grammar — the row's own place in the log, holding the reason it could not be
  * drawn, rather than a gap a reader would read as the session having nothing there.
  */
-export function LedgerRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
+export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
   return (
     <SurfaceErrorBoundary
       surfaceName={props.groupLabel}
       fallback={(error, retry) => (
-        <div className="meridian-ledger-row-failure" role="alert">
+        <div className="meridian-transcript-row-failure" role="alert">
           <RefusalCard
             {...rowProjectionRefusal(props.groupLabel, error)}
             action={

@@ -11,17 +11,20 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { LedgerScrollController } from "../scroll/scroll-chokepoint.js";
-import { countingSurface, type CountingSurface } from "../scroll/scroll-container.test-support.js";
-import { LedgerDeferredHold } from "./viewport-deferred-hold.js";
+import {
+  createCountingScrollContainer,
+  type CountingScrollContainer,
+} from "../scroll/scroll-container.test-support.js";
+import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 
 const ROW_HEIGHT_PX = 40;
 
 interface HoldUnderTest {
-  readonly hold: LedgerDeferredHold;
+  readonly hold: ViewportDeferredHold;
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
   /** The layout engine's stand-in — `happy-dom` answers zero for every dimension. */
-  readonly surface: CountingSurface;
+  readonly surface: CountingScrollContainer;
   readonly immediateHolds: () => number;
   setRowKeys: (rowKeys: readonly string[]) => void;
 }
@@ -29,11 +32,11 @@ interface HoldUnderTest {
 function holdUnderTest(): HoldUnderTest {
   const anchor = new ReadingAnchor();
   const scroll = new LedgerScrollController({ clock: new ManualClock() });
-  const surface = countingSurface({ initialScrollTop: 0 });
+  const surface = createCountingScrollContainer({ initialScrollTop: 0 });
   scroll.attach(surface);
   let rowKeys: readonly string[] = [];
   let immediateHolds = 0;
-  const hold = new LedgerDeferredHold({
+  const hold = new ViewportDeferredHold({
     anchor,
     scroll,
     rowKeys: () => rowKeys,

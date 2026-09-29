@@ -35,7 +35,7 @@ export const FIND_STEP_DIRECTIONS = ["next", "previous"] as const;
 export type FindStepDirection = (typeof FIND_STEP_DIRECTIONS)[number];
 
 /** One row the query matched, and where. */
-export interface LedgerFindMatch {
+export interface FindMatch {
   readonly rowId: string;
   readonly sequence: number;
   /** Which field matched, so the field can say why a row is in the list. */
@@ -43,12 +43,12 @@ export interface LedgerFindMatch {
 }
 
 /** What one query over one window produced. */
-export interface LedgerFindResult {
+export interface FindResult {
   readonly query: string;
   /**
    * Every match, capped at `FIND_MATCH_CAP`. The walk is over these.
    */
-  readonly matches: readonly LedgerFindMatch[];
+  readonly matches: readonly FindMatch[];
   /**
    * The TRUE match count, uncapped: a count that silently equalled the cap would tell
    * a person their query is narrower than it is.
@@ -63,7 +63,7 @@ export interface LedgerFindResult {
 }
 
 /** The result an empty query produces: no matches over the rows searched. */
-export function emptyFindResult(searchedRowCount: number): LedgerFindResult {
+export function emptyFindResult(searchedRowCount: number): FindResult {
   return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
 }
 
@@ -79,13 +79,13 @@ export function emptyFindResult(searchedRowCount: number): LedgerFindResult {
  * "everything" is what the ledger already shows, and a field that highlighted every
  * row the moment it was focused would be noise.
  */
-export function findInLedger(rows: readonly TimelineRow[], query: string): LedgerFindResult {
+export function findInTranscript(rows: readonly TimelineRow[], query: string): FindResult {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) {
     return emptyFindResult(rows.length);
   }
   const needle = trimmedQuery.toLowerCase();
-  const matches: LedgerFindMatch[] = [];
+  const matches: FindMatch[] = [];
   let totalMatchCount = 0;
 
   for (const row of rows) {
@@ -108,7 +108,7 @@ export function findInLedger(rows: readonly TimelineRow[], query: string): Ledge
 }
 
 /** Which field a row matched on, summary first because that is what a person reads. */
-function matchFieldOf(row: TimelineRow, needle: string): LedgerFindMatch["matchedIn"] | undefined {
+function matchFieldOf(row: TimelineRow, needle: string): FindMatch["matchedIn"] | undefined {
   if (row.summary.toLowerCase().includes(needle)) {
     return "summary";
   }
@@ -147,10 +147,10 @@ const UNSELECTED_FIND_INDEX = -1;
  * Returns `undefined` only when there is nothing to walk.
  */
 export function stepFindMatch(
-  result: LedgerFindResult,
+  result: FindResult,
   currentIndex: number,
   direction: FindStepDirection,
-): { readonly index: number; readonly match: LedgerFindMatch } | undefined {
+): { readonly index: number; readonly match: FindMatch } | undefined {
   const count = result.matches.length;
   if (count === 0) {
     return undefined;

@@ -23,9 +23,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
-import { LedgerViewport } from "./TranscriptViewport.js";
-import { useLedgerViewport, type LedgerViewportBinding } from "../hooks/useTranscriptViewport.js";
-import type { LedgerViewportRow } from "../viewport-snapshot.js";
+import { TranscriptViewport } from "./TranscriptViewport.js";
+import {
+  useTranscriptViewport,
+  type TranscriptViewportBinding,
+} from "../hooks/useTranscriptViewport.js";
+import type { ViewportRow } from "../viewport-snapshot.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
@@ -60,18 +63,18 @@ function withScrollableContent(): void {
 
 /** Somewhere for a case to keep the binding the harness minted. */
 interface BindingHolder {
-  binding: LedgerViewportBinding | undefined;
+  binding: TranscriptViewportBinding | undefined;
 }
 
 interface BoundLedgerViewportProps {
   readonly clock: ConsoleClock;
-  readonly rows: readonly LedgerViewportRow[];
-  readonly renderRow: (row: LedgerViewportRow) => React.ReactNode;
+  readonly rows: readonly ViewportRow[];
+  readonly renderRow: (row: ViewportRow) => React.ReactNode;
   readonly feedLabel: string;
   /** Defaults to settled, so only the cases about the read in flight say otherwise. */
   readonly firstReadSettled?: boolean;
   readonly hasActiveTurn?: boolean;
-  readonly errorEntries?: React.ComponentProps<typeof LedgerViewport>["errorEntries"];
+  readonly errorEntries?: React.ComponentProps<typeof TranscriptViewport>["errorEntries"];
   /** Filled on every commit, so a case can act on the binding the viewport got. */
   readonly holder?: BindingHolder;
 }
@@ -85,7 +88,7 @@ interface BoundLedgerViewportProps {
  * a component that cannot be rendered at all.
  */
 function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element {
-  const binding = useLedgerViewport({
+  const binding = useTranscriptViewport({
     clock: props.clock,
     rows: props.rows,
     hasActiveTurn: props.hasActiveTurn ?? false,
@@ -98,7 +101,7 @@ function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element
     }
   });
   return (
-    <LedgerViewport
+    <TranscriptViewport
       binding={binding}
       renderRow={props.renderRow}
       feedLabel={props.feedLabel}
@@ -111,7 +114,7 @@ function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element
 
 interface DetachedBindingProps {
   readonly clock: ConsoleClock;
-  readonly rows: readonly LedgerViewportRow[];
+  readonly rows: readonly ViewportRow[];
   readonly holder: BindingHolder;
 }
 
@@ -123,7 +126,7 @@ interface DetachedBindingProps {
  * element. The case below acts on the held one and watches the element not move.
  */
 function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
-  const detachedBinding = useLedgerViewport({
+  const detachedBinding = useTranscriptViewport({
     clock: props.clock,
     rows: props.rows,
     hasActiveTurn: false,
@@ -147,7 +150,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function syntheticRows(count: number): readonly LedgerViewportRow[] {
+function syntheticRows(count: number): readonly ViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
     key: `row-${String(index)}`,
     parentKey: undefined,
@@ -155,7 +158,7 @@ function syntheticRows(count: number): readonly LedgerViewportRow[] {
   }));
 }
 
-function renderRow(row: LedgerViewportRow): React.ReactNode {
+function renderRow(row: ViewportRow): React.ReactNode {
   return <p>{row.key}</p>;
 }
 
@@ -294,7 +297,7 @@ describe("the ledger viewport — the feed", () => {
 
   it("reports a projection that repeated a key rather than dropping the window", () => {
     withLaidOutViewport();
-    const rows: readonly LedgerViewportRow[] = [
+    const rows: readonly ViewportRow[] = [
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-0" },
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },
     ];
@@ -314,7 +317,7 @@ describe("the ledger viewport — the feed", () => {
     expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(2);
     // In the console's shared sentence, with the figure it carries: the count is
     // what this family owed the vocabulary and what the notice it replaced never
-    // said. The wording is `primitives/absence/window-absence.ts`', so a second copy of it
+    // said. The wording is `window-notices.ts`', so a second copy of it
     // here would be the drift the shared module exists to remove.
     expect(
       screen.getByText(/^1 arrived carrying the same identifier as one already in this window/u),

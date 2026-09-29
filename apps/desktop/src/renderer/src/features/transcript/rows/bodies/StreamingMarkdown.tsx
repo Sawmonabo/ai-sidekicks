@@ -55,16 +55,15 @@
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
+import { collectFootnoteDefinitions } from "../markdown/footnotes/footnote-collection.js";
+import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
+import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import {
-  MarkdownBlockSegmenter,
-  MarkdownNodes,
-  collectFootnoteDefinitions,
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-  type FootnoteRegistry,
-  type MarkdownRenderContext,
-} from "@renderer/console/ledger/cards/markdown/index.js";
+} from "../markdown/parse/markdown-parse.js";
 import { SettledBlock } from "./SettledBlock.js";
 
 /**

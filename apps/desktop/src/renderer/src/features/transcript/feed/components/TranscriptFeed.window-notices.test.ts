@@ -2,8 +2,7 @@
 //
 // Three absences with three different next moves — an unrecognised type, a row the
 // cap took, and a sequence that never arrived — and the failure this file guards is
-// one being reported as another. The seam is `LedgerFeed.test.tsx`'; the scaffolding
-// is `LedgerFeedFixtures.test-support.tsx`'.
+// one being reported as another. The scaffolding is `TranscriptFeed.test-support.tsx`'.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

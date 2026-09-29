@@ -2,7 +2,7 @@
 //
 // Every case here reads the RENDERED line rather than the model behind it, because
 // the defect this component answers was exactly that the model was correct and
-// nothing drew it: `LedgerSeamIndex` derived the boundary, the continuity, the
+// nothing drew it: `SystemMessageClassifier` derived the boundary, the continuity, the
 // losses, the reason and the blocked-on state on every pass, and the only consumer
 // was the replay dock's next-seam jump, itself since removed. A case asserting over
 // `classify()` would have passed throughout.
@@ -11,22 +11,25 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../../timeline-rows.test-support.js";
-import { SeamRow } from "./SystemMessage.js";
-import { SEAM_WIRE_BINDINGS } from "../system-message-kinds.js";
-import { LedgerSeamIndex, type LedgerSeam } from "../system-message-classifier.js";
+import { SystemMessage } from "./SystemMessage.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
+import {
+  SystemMessageClassifier,
+  type SystemMessageReading,
+} from "../system-message-classifier.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-function seamOf(row: TimelineRow): LedgerSeam {
-  const seam = new LedgerSeamIndex().classify(row);
+function seamOf(row: TimelineRow): SystemMessageReading {
+  const seam = new SystemMessageClassifier().classify(row);
   if (seam === undefined) {
     throw new Error(`expected ${row.type} to classify as a seam`);
   }
   return seam;
 }
 
-function renderSeam(seam: LedgerSeam): HTMLElement {
-  const { container } = render(<SeamRow seam={seam} />);
-  const line = container.querySelector<HTMLElement>(".meridian-seam-row");
+function renderSeam(seam: SystemMessageReading): HTMLElement {
+  const { container } = render(<SystemMessage seam={seam} />);
+  const line = container.querySelector<HTMLElement>(".meridian-system-message");
   if (line === null) {
     throw new Error("the seam row drew no line");
   }
@@ -46,7 +49,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS.rollback.label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.rollback.label);
     expect(line.textContent).toContain("2");
   });
 
@@ -63,7 +66,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS.compaction.label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.compaction.label);
     expect(line.textContent).toContain("7");
   });
 
@@ -71,7 +74,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
     const line = renderSeam(
       seamOf(runRow({ id: "p1", sequence: 2, type: "run.paused", runId: "run-a", position: 2 })),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS["run-paused"].label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-paused"].label);
     expect(line.textContent).not.toContain("Boundary");
   });
 
@@ -87,7 +90,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS["run-blocked"].label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-blocked"].label);
     expect(line.textContent).toContain("run.waiting_for_approval");
   });
 
@@ -105,7 +108,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
       ),
     );
     expect(line.textContent).toContain("output_speed_unavailable");
-    expect(line.classList.contains("meridian-seam-row--caution")).toBe(true);
+    expect(line.classList.contains("meridian-system-message--caution")).toBe(true);
   });
 
   it("negative control: an ordinary switch is not drawn as a caution", () => {
@@ -123,12 +126,12 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.classList.contains("meridian-seam-row--caution")).toBe(false);
+    expect(line.classList.contains("meridian-system-message--caution")).toBe(false);
   });
 });
 
-describe("the seam row — the loss clause is the memo arm's and nobody else's", () => {
-  it("renders each declared loss as itself on a memo switch", () => {
+describe("the seam row — the loss clause", () => {
+  it("renders each declared loss as itself", () => {
     const line = renderSeam(
       seamOf(
         runRow({
@@ -138,13 +141,13 @@ describe("the seam row — the loss clause is the memo arm's and nobody else's",
           runId: "run-a",
           position: 7,
           payload: {
-            continuity: "memo",
+            continuity: "brief",
             declaredLosses: ["turn_content_truncated", "a_loss_this_build_never_heard_of"],
           },
         }),
       ),
     );
-    expect(line.textContent).toContain("memo");
+    expect(line.textContent).toContain("brief");
     expect(line.textContent).toContain("turn_content_truncated");
     // A value the closed wire vocabulary does not carry is still rendered as
     // itself. Mapping it onto a fallback phrase would go quiet on exactly the
@@ -152,31 +155,30 @@ describe("the seam row — the loss clause is the memo arm's and nobody else's",
     expect(line.textContent).toContain("a_loss_this_build_never_heard_of");
   });
 
-  it("negative control: a replayed switch renders the same line with no loss clause", () => {
-    // The other two continuity values lost nothing, so a clause on them would be a
-    // sentence this component invented. `declaredLosses` is empty on that arm by
-    // construction, which is what makes the absence of the clause checkable.
+  it("negative control: a switch that declares no loss draws no clause", () => {
+    // An empty list is the switch's claim that nothing was lost; a notice for it would
+    // be a sentence this component invented.
     const line = renderSeam(
       seamOf(
         runRow({
-          id: "sr",
+          id: "si",
           sequence: 8,
           type: "agent.provider_switched",
           runId: "run-a",
           position: 8,
-          payload: { continuity: "replayed", declaredLosses: ["turn_content_truncated"] },
+          payload: { continuity: "in_place", declaredLosses: [] },
         }),
       ),
     );
-    expect(line.textContent).toContain("replayed");
-    expect(line.textContent).not.toContain("turn_content_truncated");
+    expect(line.textContent).toContain("in_place");
+    expect(line.querySelector(".meridian-system-message__losses")).toBeNull();
   });
 });
 
 describe("the seam row — a kind the wire does not register says so", () => {
   it("draws the not-checked absence for an unregistered seam type", () => {
     const { container } = render(
-      <SeamRow
+      <SystemMessage
         seam={seamOf(
           runRow({
             id: "sw2",
@@ -196,7 +198,7 @@ describe("the seam row — a kind the wire does not register says so", () => {
     // Without this the case above would pass over a row that marked every seam
     // unregistered, which would report the whole vocabulary as unavailable.
     const { container } = render(
-      <SeamRow
+      <SystemMessage
         seam={seamOf(
           runRow({ id: "p2", sequence: 10, type: "run.paused", runId: "run-a", position: 10 }),
         )}

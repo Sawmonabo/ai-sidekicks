@@ -3,7 +3,7 @@
 // paying account is named.
 //
 // ITS OWN MODULE BESIDE THE FOLD, because the two answer different questions and grow
-// on different clocks. `chapters.ts` decides how a window partitions into chapters and
+// on different clocks. `run-groups.ts` decides how a window partitions into chapters and
 // what one carries; this decides what the DAEMON'S OWN WORDS mean, and every entry
 // here is a claim about the registered event census rather than about this console.
 // A type added to the census is an edit here and nowhere else.
@@ -23,17 +23,13 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
  * are registered in the `@ai-sidekicks/contracts` event census; `run.rolled_back`
  * is deliberately absent, because a rewind is not a terminal — the run continues
  * from the boundary, which is exactly why the rollback has its own non-state event.
- * It appears in {@link CHAPTER_REOPENING_EVENT_TYPES} instead,
+ * It appears in {@link RUN_REOPENING_EVENT_TYPES} instead,
  * where it CLEARS a terminal the run has come back from.
  */
-export const CHAPTER_TERMINAL_EVENT_TYPES = [
-  "run.completed",
-  "run.failed",
-  "run.interrupted",
-] as const;
+export const RUN_TERMINAL_EVENT_TYPES = ["run.completed", "run.failed", "run.interrupted"] as const;
 
 /** One terminal event type. Derived from the tuple, never restated. */
-export type ChapterTerminalEventType = (typeof CHAPTER_TERMINAL_EVENT_TYPES)[number];
+export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
 
 /**
  * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
@@ -54,7 +50,7 @@ export type ChapterTerminalEventType = (typeof CHAPTER_TERMINAL_EVENT_TYPES)[num
  * worker shutting down after a completion says nothing about the run, and reading it
  * as a reopening would unfold every finished chapter in the session.
  */
-export const CHAPTER_REOPENING_EVENT_TYPES = [
+export const RUN_REOPENING_EVENT_TYPES = [
   "run.queued",
   "run.starting",
   "run.running",
@@ -65,7 +61,7 @@ export const CHAPTER_REOPENING_EVENT_TYPES = [
 ] as const;
 
 /** One reopening event type. Derived from the tuple, never restated. */
-export type ChapterReopeningEventType = (typeof CHAPTER_REOPENING_EVENT_TYPES)[number];
+export type RunReopeningEventType = (typeof RUN_REOPENING_EVENT_TYPES)[number];
 
 /**
  * The event type whose payload names the account a run is billed to, wire-verbatim.
@@ -91,22 +87,22 @@ const CHAPTER_PAYING_ACCOUNT_MEMBER = "admittedProviderAccountId";
  * PERSISTS would be worse — so it clears the state instead, and the header says
  * nothing until the daemon says something.
  */
-export const CHAPTER_RUN_STATE_EVENT_TYPES: readonly string[] = [
-  ...CHAPTER_TERMINAL_EVENT_TYPES,
-  ...CHAPTER_REOPENING_EVENT_TYPES.filter((wireType) => wireType !== "run.rolled_back"),
+export const RUN_STATE_EVENT_TYPES: readonly string[] = [
+  ...RUN_TERMINAL_EVENT_TYPES,
+  ...RUN_REOPENING_EVENT_TYPES.filter((wireType) => wireType !== "run.rolled_back"),
 ];
 
-export function isTerminalEventType(wireType: string): wireType is ChapterTerminalEventType {
-  return CHAPTER_TERMINAL_EVENT_TYPES.some((terminal) => terminal === wireType);
+export function isTerminalEventType(wireType: string): wireType is RunTerminalEventType {
+  return RUN_TERMINAL_EVENT_TYPES.some((terminal) => terminal === wireType);
 }
 
-export function isReopeningEventType(wireType: string): wireType is ChapterReopeningEventType {
-  return CHAPTER_REOPENING_EVENT_TYPES.some((reopening) => reopening === wireType);
+export function isReopeningEventType(wireType: string): wireType is RunReopeningEventType {
+  return RUN_REOPENING_EVENT_TYPES.some((reopening) => reopening === wireType);
 }
 
 /** Whether this type reports a run state. Asked of the derived set, never re-listed. */
 export function isRunStateEventType(wireType: string): boolean {
-  return CHAPTER_RUN_STATE_EVENT_TYPES.includes(wireType);
+  return RUN_STATE_EVENT_TYPES.includes(wireType);
 }
 
 /**

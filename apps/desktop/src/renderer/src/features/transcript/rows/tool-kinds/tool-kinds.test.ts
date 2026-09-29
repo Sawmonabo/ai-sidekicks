@@ -14,11 +14,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  TOOL_SUB_FAMILIES,
-  TOOL_SUB_FAMILY_ARGUMENTS_MEMBER,
-  TOOL_SUB_FAMILY_MEMBER,
-  TOOL_SUB_FAMILY_SERVER_MEMBER,
-  declaredToolSubFamily,
+  TOOL_KINDS,
+  TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY,
+  TOOL_KIND_PAYLOAD_KEY,
+  TOOL_SERVER_LABEL_PAYLOAD_KEY,
+  readDeclaredToolKind,
 } from "./tool-kinds.js";
 
 describe("a tool row's declared sub-family", () => {
@@ -26,13 +26,13 @@ describe("a tool row's declared sub-family", () => {
     // Every row this build can receive: the registered tool payload carries a name,
     // a call id and a duration, and no member saying what kind of tool ran.
     expect(
-      declaredToolSubFamily({ toolName: "Bash", toolCallId: "call-1", durationMs: 12 }),
+      readDeclaredToolKind({ toolName: "Bash", toolCallId: "call-1", durationMs: 12 }),
     ).toBeUndefined();
   });
 
   it("reads every member of the declared vocabulary", () => {
-    for (const subFamily of TOOL_SUB_FAMILIES) {
-      expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: subFamily })).toStrictEqual({
+    for (const subFamily of TOOL_KINDS) {
+      expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: subFamily })).toStrictEqual({
         kind: "declared",
         subFamily,
         serverLabel: undefined,
@@ -42,7 +42,7 @@ describe("a tool row's declared sub-family", () => {
   });
 
   it("names a value this build does not know rather than dropping it", () => {
-    expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: "notebook-cell" })).toStrictEqual({
+    expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: "notebook-cell" })).toStrictEqual({
       kind: "unrecognized",
       declared: "notebook-cell",
     });
@@ -50,9 +50,9 @@ describe("a tool row's declared sub-family", () => {
 
   it("carries the MCP server label the row names", () => {
     expect(
-      declaredToolSubFamily({
-        [TOOL_SUB_FAMILY_MEMBER]: "mcp",
-        [TOOL_SUB_FAMILY_SERVER_MEMBER]: "sentry",
+      readDeclaredToolKind({
+        [TOOL_KIND_PAYLOAD_KEY]: "mcp",
+        [TOOL_SERVER_LABEL_PAYLOAD_KEY]: "sentry",
       }),
     ).toStrictEqual({
       kind: "declared",
@@ -63,9 +63,9 @@ describe("a tool row's declared sub-family", () => {
   });
 
   it("carries the argument summary the daemon composed, in order", () => {
-    const reading = declaredToolSubFamily({
-      [TOOL_SUB_FAMILY_MEMBER]: "mcp",
-      [TOOL_SUB_FAMILY_ARGUMENTS_MEMBER]: ["issueId: PROJ-4", "limit: 20"],
+    const reading = readDeclaredToolKind({
+      [TOOL_KIND_PAYLOAD_KEY]: "mcp",
+      [TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]: ["issueId: PROJ-4", "limit: 20"],
     });
     expect(reading).toStrictEqual({
       kind: "declared",
@@ -78,9 +78,9 @@ describe("a tool row's declared sub-family", () => {
   it("drops a summary element that is not a string rather than stringifying it", () => {
     // `String({})` is `[object Object]`, and putting that on the page would be the
     // console printing something the daemon never sent.
-    const reading = declaredToolSubFamily({
-      [TOOL_SUB_FAMILY_MEMBER]: "mcp",
-      [TOOL_SUB_FAMILY_ARGUMENTS_MEMBER]: ["issueId: PROJ-4", { limit: 20 }, 7, null],
+    const reading = readDeclaredToolKind({
+      [TOOL_KIND_PAYLOAD_KEY]: "mcp",
+      [TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]: ["issueId: PROJ-4", { limit: 20 }, 7, null],
     });
     expect(reading?.kind === "declared" ? reading.argumentSummary : undefined).toStrictEqual([
       "issueId: PROJ-4",
@@ -88,9 +88,9 @@ describe("a tool row's declared sub-family", () => {
   });
 
   it("treats a non-array summary as no summary at all", () => {
-    const reading = declaredToolSubFamily({
-      [TOOL_SUB_FAMILY_MEMBER]: "mcp",
-      [TOOL_SUB_FAMILY_ARGUMENTS_MEMBER]: "issueId: PROJ-4",
+    const reading = readDeclaredToolKind({
+      [TOOL_KIND_PAYLOAD_KEY]: "mcp",
+      [TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]: "issueId: PROJ-4",
     });
     expect(reading?.kind === "declared" ? reading.argumentSummary : undefined).toStrictEqual([]);
   });
@@ -98,7 +98,7 @@ describe("a tool row's declared sub-family", () => {
   it("reads no sub-family off a declaration that is not a wire string", () => {
     // The negative control for the unrecognized arm: a number is not a member this
     // build does not know, it is not a declaration at all.
-    expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: 4 })).toBeUndefined();
-    expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: null })).toBeUndefined();
+    expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: 4 })).toBeUndefined();
+    expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: null })).toBeUndefined();
   });
 });

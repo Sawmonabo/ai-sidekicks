@@ -40,42 +40,6 @@
   background: var(--meridian-row-hue);
 }
 
-/*
- * The four ring treatments, as four fill patterns down the edge's LENGTH.
- *
- * Past twelve users the hue wheel wraps and `ActorRingTreatment` is the
- * only thing keeping two people on one hue apart. A 2 px strip cannot carry a
- * `double` border-style — CSS collapses it to a solid hairline — so varying the
- * pattern along the edge is what preserves BOTH rule 1's width and rule 2's wrap
- * disambiguation. Each pattern's period differs from every other, so two adjacent
- * rows on the same hue are told apart by rhythm, not by squinting at a hairline.
- */
-.meridian-ledger-row--dashed .meridian-ledger-row__edge {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--meridian-row-hue) 0 6px,
-    transparent 6px 10px
-  );
-}
-
-.meridian-ledger-row--double .meridian-ledger-row__edge {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--meridian-row-hue) 0 3px,
-    transparent 3px 5px,
-    var(--meridian-row-hue) 5px 8px,
-    transparent 8px 14px
-  );
-}
-
-.meridian-ledger-row--dotted .meridian-ledger-row__edge {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--meridian-row-hue) 0 2px,
-    transparent 2px 5px
-  );
-}
-
 /* No user owns this row, so the edge reads as a boundary rather than an
    identity. Dimmed, never coloured — a guess would be worse than an absence. */
 .meridian-ledger-row--unattributed .meridian-ledger-row__edge {

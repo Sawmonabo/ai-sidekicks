@@ -1,21 +1,13 @@
-// The timeline pane: the address it hands its chrome, and the hole where another
-// plan's rows go.
+// The transcript pane: the address it hands its chrome, and the seat its rows fill.
 //
-// THE CHROME IS NOT THIS FAMILY'S AND IT IS NOT PASSED IN EITHER. `seats/` draws
-// every pane's frame — its contents are fixed, and six families each drawing their own
-// would be six spacings and six answers to where the
-// focus ring goes. It sits in `seats/` rather than in the deck for the reason every
-// other seat does: the deck is a SIBLING view family and a sibling may not be
-// imported, so the one frame six families share lives in the family whose whole job
-// is holding contracts siblings share. What this pane supplies is what genuinely
-// differs — its kind, the address its trail reads, and the hue it is attributed to.
+// THE CHROME IS NOT THIS FEATURE'S AND IT IS NOT PASSED IN EITHER. The shared pane chrome
+// draws every pane's frame, so eleven pane kinds share one spacing and one answer to where
+// the focus ring goes. What this pane supplies is what genuinely differs — its kind, the
+// address its trail reads, and the hue it is attributed to.
 //
-// THE ROWS ARE NOT THIS FAMILY'S EITHER. The timeline row vocabulary is authored in
-// `renderer/src/timeline/`, which the console imports
-// through no path — it reaches this pane by CALLING `registerTimelineRowRenderer`. So
-// the body here is a slot that reads the seat, and a row body written under
-// `console/` for one of those entry types would be this family authoring somebody
-// else's work.
+// THE ROWS ARRIVE THROUGH THE ROW SEAT. Whatever fills the seat (`registerTimelineRowRenderer`)
+// draws each row's body, so the body here is a slot that reads the seat rather than a
+// dispatcher of its own.
 //
 // WHY THE CLOSE CONTROL IS NOT DEFAULTED. Closing a pane is the DECK's act. The honest
 // rendering of a control whose act nobody can perform is to leave it out, not to draw it
@@ -29,7 +21,7 @@ import {
   timelineRowRenderer,
   type PaneContextOf,
 } from "@renderer/console/seats/index.js";
-import { TimelineRowHost } from "./feed/components/TranscriptRowHost.js";
+import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
 
 /**
  * The pane context, narrowed to the arm this body can serve.
@@ -40,14 +32,14 @@ import { TimelineRowHost } from "./feed/components/TranscriptRowHost.js";
 export type TimelinePaneContext = PaneContextOf<"timeline">;
 
 /** What a deck hands the timeline pane: its context and the close control it may offer. */
-export interface TimelinePaneProps {
+export interface TranscriptPaneProps {
   readonly context: TimelinePaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
 }
 
 /** The timeline pane: the chrome around the feed of the session the route names. */
-export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
+export function TimelinePane(props: TranscriptPaneProps): React.JSX.Element {
   const { context } = props;
 
   // Read through the store's own selector rather than off a snapshot: the pane has
@@ -65,7 +57,7 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
       focusHue={context.focusHue}
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
-      <TimelineRowHost
+      <TranscriptRowHost
         body={timelineRowRenderer()}
         paneId={context.paneId}
         sessionStore={context.sessionStore}

@@ -1,8 +1,8 @@
 // The chapter header — one finished run, folded to a line somebody can open.
 //
-// WHAT WAS MISSING. `chapters.ts` was written to be drawn: it carries the actor, the
+// WHAT WAS MISSING. `run-groups.ts` was written to be drawn: it carries the actor, the
 // lifecycle, which terminal ended the run, the row count, the clipped count and the
-// incomplete-child marker, and `ChapterCollapseState` carries whether a person has
+// incomplete-child marker, and `RunGroupFoldState` carries whether a person has
 // opened one. None of it reached a component. What reached the rows instead was a
 // flat `collapsedRowIds` set handed down as a per-row density — which exactly one
 // card reads. So a completed or failed run stayed fully expanded, and the palette's
@@ -27,32 +27,32 @@
 //
 // AND THE CLIPPED ROWS BECAME REACHABLE. The clipped figure named rows that were
 // dropped out of the feed, which made it a count of something a person could not get
-// to. `ChapterBodyViewport` is where they live now, mounted under this line while the
+// to. `RunGroupBody` is where they live now, mounted under this line while the
 // chapter is open.
 
 import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
-import { ChapterBodyViewport } from "./RunGroupBody.js";
+import { RunGroupBody } from "./RunGroupBody.js";
 import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
 import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
 import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { type LedgerChapter } from "../run-groups.js";
+import { type RunGroup } from "../run-groups.js";
 
-export interface ChapterHeaderProps {
-  readonly chapter: LedgerChapter;
+export interface RunGroupHeaderProps {
+  readonly chapter: RunGroup;
   /** Whether the chapter's rows are on screen beneath this header. */
   readonly isOpen: boolean;
   /** The actor's allocated hue, or `undefined` where the wheel never admitted them. */
   readonly actorHue?: ActorHueAssignment | undefined;
-  readonly onToggle: (chapter: LedgerChapter) => void;
+  readonly onToggle: (chapter: RunGroup) => void;
 }
 
 /** One run's chapter, as a header. */
-export function ChapterHeader(props: ChapterHeaderProps): React.JSX.Element {
+export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
   const { chapter } = props;
   const hueStep = props.actorHue?.step ?? -1;
   return (
     <div
-      className="meridian-chapter-header"
+      className="meridian-run-group-header"
       style={
         hueStep < 0 || hueStep >= ACTOR_HUE_STEPS
           ? undefined
@@ -66,7 +66,7 @@ export function ChapterHeader(props: ChapterHeaderProps): React.JSX.Element {
     >
       <button
         type="button"
-        className="meridian-chapter-header__disclosure"
+        className="meridian-run-group-header__disclosure"
         aria-expanded={props.isOpen}
         onClick={() => {
           props.onToggle(chapter);
@@ -78,30 +78,30 @@ export function ChapterHeader(props: ChapterHeaderProps): React.JSX.Element {
       {chapter.actorId === undefined ? (
         <Nothing kind="empty" placement="inline" title="No row named an actor." />
       ) : (
-        <span className="meridian-chapter-header__actor">{chapter.actorId}</span>
+        <span className="meridian-run-group-header__actor">{chapter.actorId}</span>
       )}
       {/* The daemon's own word for what the run is doing, in mono and verbatim. The
           console never paraphrases it into a tense of its own, and says nothing at all
           where the log has reported no state since the last rewind. */}
       {chapter.runStateEventType === undefined ? null : (
-        <span className="meridian-chapter-header__state">{chapter.runStateEventType}</span>
+        <span className="meridian-run-group-header__state">{chapter.runStateEventType}</span>
       )}
       {/* The account the run was admitted under, where the log named one. No label at
           all otherwise: an absent account is a receipt that named none, not a figure
           this console is missing. */}
       {chapter.payingAccountId === undefined ? null : (
-        <span className="meridian-chapter-header__account">
+        <span className="meridian-run-group-header__account">
           {"billed to "}
-          <span className="meridian-chapter-header__figure">{chapter.payingAccountId}</span>
+          <span className="meridian-run-group-header__figure">{chapter.payingAccountId}</span>
         </span>
       )}
-      <span className="meridian-chapter-header__counts">
-        <span className="meridian-chapter-header__figure">{String(chapter.rowCount)}</span>
+      <span className="meridian-run-group-header__counts">
+        <span className="meridian-run-group-header__figure">{String(chapter.rowCount)}</span>
         {chapter.rowCount === 1 ? " entry" : " entries"}
         {chapter.clippedRowCount === 0 ? null : (
           <>
             {", "}
-            <span className="meridian-chapter-header__figure">
+            <span className="meridian-run-group-header__figure">
               {String(chapter.clippedRowCount)}
             </span>
             {" clipped"}
@@ -118,7 +118,7 @@ export function ChapterHeader(props: ChapterHeaderProps): React.JSX.Element {
       {/* Only while the chapter is open, because a folded chapter draws its header and
           its receipt and nothing else — mounting a scroller inside a fold would be the
           fold showing rows it exists to put away. */}
-      {props.isOpen ? <ChapterBodyViewport chapter={chapter} /> : null}
+      {props.isOpen ? <RunGroupBody chapter={chapter} /> : null}
     </div>
   );
 }

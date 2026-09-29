@@ -8,10 +8,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { countingSurface } from "../scroll/scroll-container.test-support.js";
-import { LEDGER_SCROLL_CALLERS } from "../scroll/scroll-callers.js";
-import { LedgerViewportController } from "./viewport-controller.js";
-import type { LedgerRowVirtualizer } from "./virtualizer-options.js";
+import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { SCROLL_CALLERS } from "../scroll/scroll-callers.js";
+import { ViewportController } from "./viewport-controller.js";
+import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
 /**
  * The instance argument the two observer seams ignore.
@@ -19,11 +19,11 @@ import type { LedgerRowVirtualizer } from "./virtualizer-options.js";
  * Both read the chokepoint rather than the virtualizer — which is the property under
  * test — so the parameter is unused and typed rather than constructed.
  */
-const UNUSED_VIRTUALIZER = undefined as unknown as LedgerRowVirtualizer;
+const UNUSED_VIRTUALIZER = undefined as unknown as TranscriptRowVirtualizer;
 
 /** A controller holding a real detached element, the way a mounted pane does. */
-function attachedController(): { controller: LedgerViewportController } {
-  const controller = new LedgerViewportController({ clock: new ManualClock() });
+function attachedController(): { controller: ViewportController } {
+  const controller = new ViewportController({ clock: new ManualClock() });
   controller.attach(document.createElement("div"));
   return { controller };
 }
@@ -41,7 +41,7 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   it("negative control: no other caller was charged for that write", () => {
     const { controller } = attachedController();
     controller.seams.scrollToFn(120, {});
-    for (const caller of LEDGER_SCROLL_CALLERS) {
+    for (const caller of SCROLL_CALLERS) {
       expect(controller.scroll.writeCount(caller)).toBe(
         caller === "measurement-compensation" ? 1 : 0,
       );
@@ -52,8 +52,8 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     // The library's own `observeElementOffset` and `observeElementRect` each attach
     // their own listener and observer. Two sources for one box is how two surfaces
     // start disagreeing about where the reader is standing.
-    const surface = countingSurface();
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const surface = createCountingScrollContainer();
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     const offsets: number[] = [];
     const heights: number[] = [];
@@ -69,9 +69,9 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     // The library's own `observeElementRect` runs a `ResizeObserver`; this frame
     // replaces it, so the height a resize produces reaches the virtualizer through
     // this subscription or through nothing at all.
-    const surface = countingSurface({ clientHeight: 300 });
+    const surface = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
-    const controller = new LedgerViewportController({ clock });
+    const controller = new ViewportController({ clock });
     controller.attach(surface);
     const heights: number[] = [];
     controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
@@ -86,9 +86,9 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   it("negative control: a pass over an unchanged box gives it nothing to re-lay-out", () => {
     // Otherwise the case above would pass over a seam that republished on every
     // pass, which is a full re-layout of the window per measurement frame.
-    const surface = countingSurface({ clientHeight: 300 });
+    const surface = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
-    const controller = new LedgerViewportController({ clock });
+    const controller = new ViewportController({ clock });
     controller.attach(surface);
     const heights: number[] = [];
     controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));

@@ -18,36 +18,36 @@
 // `apps/desktop/AGENTS.md` pins by path.
 //
 // AND IT TAKES A READING RATHER THAN A SURFACE for the same reason a cycle would
-// otherwise close: `LedgerScrollSurface` is the chokepoint's own declaration, and a
+// otherwise close: `ScrollContainer` is the chokepoint's own declaration, and a
 // publisher that took one would have to import the module that imports it —
 // `scroll-callers.ts` records the same shape one seam over.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import {
-  LEDGER_GEOMETRY_EPSILON_PX,
-  LEDGER_TAIL_TOLERANCE_PX,
+  TRANSCRIPT_GEOMETRY_EPSILON_PX,
+  TRANSCRIPT_TAIL_TOLERANCE_PX,
 } from "../viewport/viewport-constants.js";
 import {
   sameSampledGeometry,
-  type LedgerGeometry,
-  type LedgerGeometryCause,
+  type ScrollGeometry,
+  type GeometryChangeCause,
 } from "./geometry-sample.js";
 
 /**
  * The three numbers a surface read produces, before anything is derived from them.
  *
- * The SAMPLED members of `LedgerGeometry` and nothing else: the two derived facts are
+ * The SAMPLED members of `ScrollGeometry` and nothing else: the two derived facts are
  * this module's to compute and the provenance pair is its to stamp, so a caller that
  * could supply either would be a second answer to a question decided here.
  */
-export interface LedgerGeometryReading {
+export interface ScrollGeometryReading {
   readonly scrollTop: number;
   readonly viewportHeight: number;
   readonly contentHeight: number;
 }
 
-export interface LedgerGeometryPublisherOptions {
+export interface ScrollGeometryPublisherOptions {
   readonly clock: ConsoleClock;
   /**
    * Within this many pixels of the bottom counts as the tail.
@@ -67,20 +67,20 @@ export interface LedgerGeometryPublisherOptions {
  * the emitter and the tolerance are one object's state and the module level is not a
  * place to keep them.
  */
-export class LedgerGeometryPublisher {
+export class ScrollGeometryPublisher {
   readonly #clock: ConsoleClock;
   readonly #tailTolerancePx: number;
-  readonly #emitter = new Emitter<LedgerGeometry>("ledger geometry");
+  readonly #emitter = new Emitter<ScrollGeometry>("ledger geometry");
 
-  #lastGeometry: LedgerGeometry | undefined;
+  #lastGeometry: ScrollGeometry | undefined;
 
-  public constructor(options: LedgerGeometryPublisherOptions) {
+  public constructor(options: ScrollGeometryPublisherOptions) {
     this.#clock = options.clock;
-    this.#tailTolerancePx = options.tailTolerancePx ?? LEDGER_TAIL_TOLERANCE_PX;
+    this.#tailTolerancePx = options.tailTolerancePx ?? TRANSCRIPT_TAIL_TOLERANCE_PX;
   }
 
   /** The last published sample, or `undefined` before the first publication. */
-  public get lastGeometry(): LedgerGeometry | undefined {
+  public get lastGeometry(): ScrollGeometry | undefined {
     return this.#lastGeometry;
   }
 
@@ -90,7 +90,7 @@ export class LedgerGeometryPublisher {
    * The replay is the point: a pane mounted mid-stream needs to know whether it is at the
    * tail before the next scroll event, and polling for that is what the budgets forbid.
    */
-  public subscribe(sink: (geometry: LedgerGeometry) => void): Unsubscribe {
+  public subscribe(sink: (geometry: ScrollGeometry) => void): Unsubscribe {
     const unsubscribe = this.#emitter.subscribe(sink);
     const lastGeometry = this.#lastGeometry;
     if (lastGeometry !== undefined) {
@@ -108,17 +108,17 @@ export class LedgerGeometryPublisher {
    * provenance and decide nothing. Returns the sample either way, so a caller does not
    * take a second reading to find out what was published.
    */
-  public publish(reading: LedgerGeometryReading, cause: LedgerGeometryCause): LedgerGeometry {
+  public publish(reading: ScrollGeometryReading, cause: GeometryChangeCause): ScrollGeometry {
     const distanceFromTailPx = Math.max(
       0,
       reading.contentHeight - reading.viewportHeight - reading.scrollTop,
     );
-    const geometry: LedgerGeometry = {
+    const geometry: ScrollGeometry = {
       scrollTop: reading.scrollTop,
       viewportHeight: reading.viewportHeight,
       contentHeight: reading.contentHeight,
       distanceFromTailPx,
-      isAtTail: distanceFromTailPx <= this.#tailTolerancePx + LEDGER_GEOMETRY_EPSILON_PX,
+      isAtTail: distanceFromTailPx <= this.#tailTolerancePx + TRANSCRIPT_GEOMETRY_EPSILON_PX,
       sampledAt: this.#clock.now(),
       cause,
     };

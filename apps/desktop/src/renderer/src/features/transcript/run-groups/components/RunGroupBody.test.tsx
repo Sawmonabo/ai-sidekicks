@@ -10,12 +10,12 @@ import { describe, expect, it } from "vitest";
 
 import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import {
-  CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT,
-  CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT,
+  RUN_GROUP_BODY_FALLBACK_HEIGHT,
+  RUN_GROUP_BODY_INTRINSIC_HEIGHT,
 } from "../run-group-body.js";
-import { ChapterBodyViewport } from "./RunGroupBody.js";
-import { foldChapters } from "../run-groups.js";
-import { chapterFor } from "../run-groups.test-support.js";
+import { RunGroupBody } from "./RunGroupBody.js";
+import { groupRowsByRun } from "../run-groups.js";
+import { findRunGroup } from "../run-groups.test-support.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -38,15 +38,13 @@ function renderBody(
   rows: readonly TimelineRow[],
   narrowedRowIds?: readonly string[],
 ): HTMLElement | null {
-  const sealed = chapterFor(foldChapters(rows).chapters, RUN_ID);
+  const sealed = findRunGroup(groupRowsByRun(rows).chapters, RUN_ID);
   const chapter =
     narrowedRowIds === undefined
       ? sealed
       : { ...sealed, rowIds: narrowedRowIds, rowCount: narrowedRowIds.length };
-  const { container } = render(
-    <ChapterBodyViewport chapter={chapter} supportsDeclaration={() => true} />,
-  );
-  return container.querySelector<HTMLElement>(".meridian-chapter-body");
+  const { container } = render(<RunGroupBody chapter={chapter} supportsDeclaration={() => true} />);
+  return container.querySelector<HTMLElement>(".meridian-run-group-body");
 }
 
 describe("the chapter body — the head the outer list left out", () => {
@@ -64,24 +62,25 @@ describe("the chapter body — the head the outer list left out", () => {
 
   it("sets the height the engine agreed to on the scroller itself", () => {
     const scroller = renderBody(longRun(2))?.querySelector<HTMLElement>(
-      ".meridian-chapter-body__scroller",
+      ".meridian-run-group-body__scroller",
     );
-    expect(scroller?.style.maxBlockSize).toBe(CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT);
+    expect(scroller?.style.maxBlockSize).toBe(RUN_GROUP_BODY_INTRINSIC_HEIGHT);
   });
 
   it("falls back to a length every engine parses where the expression is refused", () => {
-    const sealed = chapterFor(foldChapters(longRun(2)).chapters, RUN_ID);
+    const sealed = findRunGroup(groupRowsByRun(longRun(2)).chapters, RUN_ID);
     const { container } = render(
-      <ChapterBodyViewport chapter={sealed} supportsDeclaration={() => false} />,
+      <RunGroupBody chapter={sealed} supportsDeclaration={() => false} />,
     );
     expect(
-      container.querySelector<HTMLElement>(".meridian-chapter-body__scroller")?.style.maxBlockSize,
-    ).toBe(CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT);
+      container.querySelector<HTMLElement>(".meridian-run-group-body__scroller")?.style
+        .maxBlockSize,
+    ).toBe(RUN_GROUP_BODY_FALLBACK_HEIGHT);
   });
 
   it("re-pins through the engine's own anchoring rather than a second scroll writer", () => {
     const scroller = renderBody(longRun(2))?.querySelector<HTMLElement>(
-      ".meridian-chapter-body__scroller",
+      ".meridian-run-group-body__scroller",
     );
     expect(scroller).not.toBeNull();
     expect(scroller?.scrollTop).toBe(0);
@@ -90,17 +89,17 @@ describe("the chapter body — the head the outer list left out", () => {
 
 describe("the top-edge fade — drawn only while something is clipped above", () => {
   it("draws no fade at the top of the body", () => {
-    expect(renderBody(longRun(2))?.querySelector(".meridian-chapter-body__fade")).toBeNull();
+    expect(renderBody(longRun(2))?.querySelector(".meridian-run-group-body__fade")).toBeNull();
   });
 
   it("draws the fade once the body has been scrolled off its top", () => {
     const body = renderBody(longRun(2));
-    const scroller = body?.querySelector<HTMLElement>(".meridian-chapter-body__scroller");
+    const scroller = body?.querySelector<HTMLElement>(".meridian-run-group-body__scroller");
     if (scroller === null || scroller === undefined) {
       throw new Error("the body drew no scroller");
     }
     fireEvent.scroll(scroller, { target: { scrollTop: 24 } });
-    expect(body?.querySelector(".meridian-chapter-body__fade")).not.toBeNull();
+    expect(body?.querySelector(".meridian-run-group-body__fade")).not.toBeNull();
   });
 });
 
@@ -122,7 +121,7 @@ describe("what the body does not hold", () => {
     const body = renderBody(longRun(40), admitted);
     // Two admitted rows sit outside the ceiling, so the body draws exactly those two —
     // and not the thirty-eight the unnarrowed chapter would have clipped.
-    expect(body?.querySelectorAll(".meridian-chapter-body__row")).toHaveLength(2);
+    expect(body?.querySelectorAll(".meridian-run-group-body__row")).toHaveLength(2);
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");
   });

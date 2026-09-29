@@ -10,14 +10,14 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ToolSubFamilyBadge } from "./ToolKindBadge.js";
-import { type ToolSubFamilyReading } from "./tool-kinds.js";
+import { ToolKindBadge } from "./ToolKindBadge.js";
+import { type ToolKindReading } from "./tool-kinds.js";
 
 function renderBadge(
-  reading: ToolSubFamilyReading | undefined,
-  body?: (props: { reading: ToolSubFamilyReading }) => React.ReactNode,
+  reading: ToolKindReading | undefined,
+  body?: (props: { reading: ToolKindReading }) => React.ReactNode,
 ): HTMLElement {
-  const { container } = render(<ToolSubFamilyBadge body={body} reading={reading} />);
+  const { container } = render(<ToolKindBadge body={body} reading={reading} />);
   return container;
 }
 

@@ -52,6 +52,8 @@ import type {
   DriverAskReading,
 } from "@renderer/store/session-events/question-reading.js";
 
+import "./question-card.css";
+
 /** What the row hands a supplied body. */
 export interface InputAskBodyProps {
   readonly ask: DriverAskReading;

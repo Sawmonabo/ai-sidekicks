@@ -2,7 +2,7 @@
 // ref a row attaches it through.
 //
 // `selection-preservation.ts` holds the mechanism — the offsets, the listener, the
-// restore rule. This module holds the React side of it, on `reveal-binding.ts`' split
+// restore rule. This module holds the React side of it, on `useReveal.ts`' split
 // and for the same reason: the guard listens to a document and knows nothing about
 // renders, and the restore has to happen after a commit, which only the tree can say.
 //
@@ -35,7 +35,7 @@ export type RowSelectionAttach = (element: HTMLElement | null) => void;
  * Returns the ref callback the row hands its element to. The guard is minted lazily,
  * on the first element, because a row that never paints installs no listener.
  */
-export function useRowSelectionPreservation(): RowSelectionAttach {
+export function usePreservedRowSelection(): RowSelectionAttach {
   const guardRef = useRef<RowSelectionGuard | undefined>(undefined);
 
   useEffect(

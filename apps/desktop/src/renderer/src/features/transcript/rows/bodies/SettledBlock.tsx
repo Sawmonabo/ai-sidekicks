@@ -10,10 +10,7 @@
 import type { RootContent } from "mdast";
 import { memo } from "react";
 
-import {
-  MarkdownNodes,
-  type MarkdownRenderContext,
-} from "@renderer/console/ledger/cards/markdown/index.js";
+import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
 
 export interface SettledBlockProps {
   readonly nodes: readonly RootContent[];

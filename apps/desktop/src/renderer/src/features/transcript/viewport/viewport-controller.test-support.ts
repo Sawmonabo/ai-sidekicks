@@ -8,11 +8,11 @@
 // reconcile as the first's.
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { LedgerViewportRow } from "./viewport-snapshot.js";
-import { LedgerViewportController } from "./viewport-controller.js";
+import type { ViewportRow } from "./viewport-snapshot.js";
+import { ViewportController } from "./viewport-controller.js";
 
 /** `count` rows, optionally all under one chapter. */
-export function syntheticRows(count: number, chapterKey?: string): readonly LedgerViewportRow[] {
+export function syntheticRows(count: number, chapterKey?: string): readonly ViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
     key: `${chapterKey ?? "row"}-${String(index)}`,
     parentKey: chapterKey,
@@ -27,17 +27,17 @@ export const CALM: { hasActiveTurn: boolean; isRevealDraining: boolean } = {
 };
 
 /** Rows named by key, for the cases about which END of the window a set grew at. */
-export function rowsFrom(keys: readonly string[]): readonly LedgerViewportRow[] {
+export function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
   return keys.map((key) => ({ key, parentKey: undefined, rootCursor: `cursor-${key}` }));
 }
 
 /** A controller attached to a detached element, with the clock its cases advance. */
 export function attachedController(): {
-  controller: LedgerViewportController;
+  controller: ViewportController;
   clock: ManualClock;
 } {
   const clock = new ManualClock();
-  const controller = new LedgerViewportController({ clock });
+  const controller = new ViewportController({ clock });
   controller.attach(document.createElement("div"));
   return { controller, clock };
 }

@@ -44,7 +44,10 @@
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { registerComposerFamily } from "../shell/index.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
-import { registerRunLifecycleProjectors } from "@renderer/store/session-events/run-lifecycle-projector.js";
+import {
+  RUN_LIFECYCLE_PROJECTOR_OWNER,
+  RUN_LIFECYCLE_PROJECTORS,
+} from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
@@ -92,7 +95,7 @@ export function registerConsoleFamilies(
   // opened with is what decides which family can own which partition — and it takes
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
-  registerRunLifecycleProjectors(projectors);
+  projectors.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
   // The fixture-only pane harness, which is the one surface that mounts a
   // REGISTERED pane body in a running window. It takes both boards because it
   // resolves its body out of the pane board this composition owns, and it decides

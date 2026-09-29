@@ -19,7 +19,7 @@ import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { LedgerEarlierWindowReader } from "./earlier-history-reader.js";
+import { EarlierHistoryReader } from "./earlier-history-reader.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
@@ -115,7 +115,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
   it("walks back a page at a time and retires itself on the producer's verdict", async () => {
     const { bridge } = createFixture(pagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     expect(reader.state(store).canLoadEarlier).toBe(true);
 
@@ -143,7 +143,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     // control's absence is the ordinary case rather than a failure.
     const { bridge } = createFixture(pagingScenario());
     const store = openStore();
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     expect(reader.state(store).canLoadEarlier).toBe(false);
 
@@ -154,7 +154,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
   it("drops a second press while a page is in flight", async () => {
     const { bridge } = createFixture(pagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     // Both started before either settles. Without the single flight the second call
     // asks from the same cursor, and the page it brings back is refused row by row by
@@ -173,7 +173,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     // path, not a fabricated one.
     const { bridge } = createFixture(pagingScenario());
     const store = openStore({ readFromCursor: "cursor-nobody-scripted" });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     await reader.loadEarlier(bridge, store);
     const state = reader.state(store);
@@ -186,7 +186,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
   it("starts the walk over when a completed read re-establishes the window", async () => {
     const { bridge } = createFixture(pagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
     await reader.loadEarlier(bridge, store);
     expect(reader.state(store).admittedRowCount).toBe(3);
 
@@ -222,7 +222,7 @@ describe("LedgerEarlierWindowReader — a refresh lands while a page is in fligh
   it("discards the page and fills the interval from the head the refresh established", async () => {
     const { bridge, engine } = createFixture(delayedPagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     const heldPage = reader.loadEarlier(bridge, store);
     await crossMacrotaskBoundary();
@@ -262,7 +262,7 @@ describe("LedgerEarlierWindowReader — a refresh lands while a page is in fligh
     // what the discard is caused by is the window moving and not the wait.
     const { bridge, engine } = createFixture(delayedPagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     const heldPage = reader.loadEarlier(bridge, store);
     await crossMacrotaskBoundary();
@@ -284,7 +284,7 @@ describe("LedgerEarlierWindowReader — the pane leaves while a page is in fligh
     // anybody's, so what stops it here is the abandonment and not the wait.
     const { bridge, engine } = createFixture(delayedPagingScenario());
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
-    const reader = new LedgerEarlierWindowReader();
+    const reader = new EarlierHistoryReader();
 
     const heldPage = reader.loadEarlier(bridge, store);
     await crossMacrotaskBoundary();

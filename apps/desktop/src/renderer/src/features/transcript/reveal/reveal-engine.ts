@@ -17,7 +17,7 @@
 //     Catch-up raises a lane's rate and never jumps it, which is why
 //     four lanes all move rather than one finishing while three wait.
 //   • **The frame is the only scheduler, and it is not this engine's.** Work is
-//     submitted to `coordinator/frame-coordinator.ts`' phase two and re-submitted only
+//     submitted to `animation-frame-coordinator.ts`' phase two and re-submitted only
 //     while a lane has characters left, so a drain always lands AFTER the frame's
 //     scroll writes rather than whenever this engine happened to arm. A settled engine
 //     holds no submitted task at all, which is the idle-CPU budget's precondition and
@@ -47,7 +47,7 @@ import {
 } from "../frame/frame-caps.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
-import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import {
   REVEAL_CATCH_UP_MULTIPLIER,
   REVEAL_GATE_TAIL_CHARACTERS,
@@ -68,15 +68,15 @@ export interface RevealEngineOptions {
    *
    * Required rather than optional, and the engine holds no clock of its own: an
    * engine that could fall back to arming its own frame would be the unordered path
-   * `coordinator/frame-coordinator.ts` exists to close, silently available to
+   * `animation-frame-coordinator.ts` exists to close, silently available to
    * whichever caller forgot to pass one.
    */
-  readonly frameCoordinator: LedgerFrameCoordinator;
+  readonly frameCoordinator: AnimationFrameCoordinator;
   readonly frameCharacterBudget?: number;
 }
 
 export class RevealEngine {
-  readonly #frameCoordinator: LedgerFrameCoordinator;
+  readonly #frameCoordinator: AnimationFrameCoordinator;
   readonly #frameTaskKey: string;
   readonly #frameCharacterBudget: number;
   readonly #frameEmitter = new Emitter<RevealFrame>("reveal frame");
@@ -89,7 +89,7 @@ export class RevealEngine {
 
   public constructor(options: RevealEngineOptions) {
     this.#frameCoordinator = options.frameCoordinator;
-    this.#frameTaskKey = options.frameCoordinator.claimTaskKey("ledger-reveal-drain");
+    this.#frameTaskKey = options.frameCoordinator.claimTaskKey("transcript-reveal-drain");
     this.#frameCharacterBudget = options.frameCharacterBudget ?? REVEAL_FRAME_CHARACTER_BUDGET;
   }
 
@@ -140,7 +140,7 @@ export class RevealEngine {
     return working.some((lane) => lane.isCatchingUp) ? "catching-up" : "streaming";
   }
 
-  /** True while a drain is submitted. `LedgerWindow` reads this to defer prune. */
+  /** True while a drain is submitted. `TranscriptWindow` reads this to defer prune. */
   public get isDraining(): boolean {
     return this.#frameSubmitted;
   }

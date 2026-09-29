@@ -108,7 +108,7 @@ export interface HandoffEntry {
 /**
  * Child-run and handoff structure over one loaded window.
  *
- * A class for the reason `SupersededIndex` and `LedgerChapterIndex` are: the answers
+ * A class for the reason `SupersededIndex` and `RunGroupIndex` are: the answers
  * are asked once per row per frame and derived once per window, and the derivation
  * is a pure fold that a test can drive with no DOM at all.
  */

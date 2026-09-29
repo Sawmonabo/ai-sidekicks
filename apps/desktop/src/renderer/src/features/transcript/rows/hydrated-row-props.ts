@@ -12,9 +12,9 @@
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
 import type { TimelineRowSlotProps } from "@renderer/console/seats/index.js";
-import type { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import type { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 
-export interface LedgerCardProps extends TimelineRowSlotProps {
+export interface HydratedRowProps extends TimelineRowSlotProps {
   /**
    * The row's machine-authored body, as the read projection reports it.
    *

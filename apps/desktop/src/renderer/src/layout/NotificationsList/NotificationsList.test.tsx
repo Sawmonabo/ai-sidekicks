@@ -10,6 +10,8 @@ import { describe, expect, it, vi } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { refuse } from "@renderer/lib/refusal.js";
@@ -354,7 +356,18 @@ describe("what makes the attention read run again", () => {
     readonly read: AttentionProjectionReadCall;
     readonly registry: SessionStoreRegistry;
   }): React.JSX.Element {
-    return <NotificationCenter reading={useAttentionProjection(props.read, props.registry)} />;
+    const bridge = useConsoleBridge();
+    const clock = useConsoleClock();
+    return (
+      <NotificationCenter
+        reading={useAttentionProjection(
+          props.read,
+          props.registry,
+          clock,
+          bridge.attentionSubscribe,
+        )}
+      />
+    );
   }
 
   function mount(

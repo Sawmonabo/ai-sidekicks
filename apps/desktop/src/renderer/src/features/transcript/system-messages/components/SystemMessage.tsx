@@ -1,7 +1,7 @@
 // The seam, drawn: one line across the ledger, and every part of it wire-sourced.
 //
 // WHY THIS EXISTS AS ITS OWN ROW RATHER THAN AS A CARD. A seam is not a message and
-// not a receipt — it is a change in the run's condition, and `seams.ts` already
+// not a receipt — it is a change in the run's condition, and `system-message-classifier.ts` already
 // decomposes it into named parts precisely so that the layout is decided here and
 // the meaning is decided there. Before this component, the classification reached one
 // consumer — the replay dock's next-seam jump, itself since removed — and no renderer
@@ -11,7 +11,7 @@
 // blocked-on state were derived on every pass and shown nowhere.
 //
 // WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the LEDGER's
-// rows, not the seat's. The seat (`seats/slots/timeline-row-slot.ts`) is filled
+// rows, not the seat's. The seat (`transcript-row-renderer.ts`) is filled
 // by whichever renderer owns a session's row BODIES, and a seam has no body: it has
 // a glyph, a label, and a handful of wire members laid on one line. So the feed
 // dispatches a seam row here BEFORE it delegates to the seat, and the seat contract
@@ -23,7 +23,7 @@
 // hook-free fragment of ONE line, rendered from one place, and naming five components
 // for five spans of a sentence would put five fibers and five files where the ledger
 // has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
-// module has one; what sits beside it is the shape `MachineBody.tsx`'s `renderBodyText`
+// module has one; what sits beside it is the shape `MessageContent.tsx`'s `renderBodyText`
 // already uses — a plain function returning markup, called rather than mounted.
 //
 // NOTHING HERE COMPOSES A SENTENCE. Each part is rendered as itself: the label from
@@ -35,11 +35,13 @@
 
 import { Glyph, LedgerRow, Nothing } from "@renderer/console/primitives/index.js";
 import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SEAM_WIRE_BINDINGS, SWITCH_CONTINUITY_MEMO } from "../system-message-kinds.js";
-import { type LedgerSeam } from "../system-message-classifier.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
+import { type SystemMessageReading } from "../system-message-classifier.js";
 
-export interface SeamRowProps {
-  readonly seam: LedgerSeam;
+import "./system-messages.css";
+
+export interface SystemMessageProps {
+  readonly seam: SystemMessageReading;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
   readonly actorHue?: ActorHueAssignment | undefined;
   /** Whether a rollback later in the log put this seam behind it. */
@@ -47,25 +49,26 @@ export interface SeamRowProps {
 }
 
 /** One seam, on one line. */
-export function SeamRow(props: SeamRowProps): React.JSX.Element {
+export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
   const { seam } = props;
-  const binding = SEAM_WIRE_BINDINGS[seam.kind];
+  const binding = SYSTEM_MESSAGE_BINDINGS[seam.kind];
   return (
     <LedgerRow
-      actorHueStep={props.actorHue?.step ?? -1}
-      {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
+      agentHueStep={props.actorHue?.step ?? -1}
       occurredAtIso={seam.timestamp}
-      actorLabel={seam.actorId ?? "Session"}
+      authorLabel={seam.actorId ?? "Session"}
       kindLabel={seam.wireType}
       {...(props.isSuperseded === undefined ? {} : { isSuperseded: props.isSuperseded })}
     >
       <p
         className={
-          binding.isCaution ? "meridian-seam-row meridian-seam-row--caution" : "meridian-seam-row"
+          binding.isCaution
+            ? "meridian-system-message meridian-system-message--caution"
+            : "meridian-system-message"
         }
       >
         <Glyph name={binding.glyph} title={binding.label} />
-        <span className="meridian-seam-row__label">{binding.label}</span>
+        <span className="meridian-system-message__label">{binding.label}</span>
         {seamBoundaryPosition(seam)}
         {seamContinuity(seam)}
         {seamReason(seam)}
@@ -83,7 +86,7 @@ export function SeamRow(props: SeamRowProps): React.JSX.Element {
  * to turn zero and a rewind whose floor nobody recorded are different facts, and a
  * `0` on screen is indistinguishable between them.
  */
-function seamBoundaryPosition(seam: LedgerSeam): React.JSX.Element | null {
+function seamBoundaryPosition(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.kind !== "rollback" && seam.kind !== "compaction") {
     return null;
   }
@@ -93,40 +96,34 @@ function seamBoundaryPosition(seam: LedgerSeam): React.JSX.Element | null {
     );
   }
   return (
-    <span className="meridian-seam-row__boundary">
-      Boundary <span className="meridian-seam-row__figure">{String(seam.boundaryPosition)}</span>
+    <span className="meridian-system-message__boundary">
+      Boundary{" "}
+      <span className="meridian-system-message__figure">{String(seam.boundaryPosition)}</span>
     </span>
   );
 }
 
 /**
- * The switch's continuity, and its loss clause.
+ * The switch's continuity, and the losses it declared.
  *
- * The clause appears ONLY on the memo arm. `'in_place'` and `'replayed'` render the
- * same line without one, because nothing was lost — and an "and nothing was lost"
- * sentence on those two would be prose this component invented. Every loss is
- * rendered as the string the wire sent; the vocabulary is closed on the wire and
- * widened by amendment, so a mapping onto a fallback phrase here would go quiet on
- * exactly the newest kind of loss.
+ * An empty list is the switch's own claim that nothing was lost, so it draws no clause.
+ * Each loss is the string the wire sent: the vocabulary is widened by amendment, and a
+ * fallback phrase would go quiet on the newest kind of loss.
  */
-function seamContinuity(seam: LedgerSeam): React.JSX.Element | null {
+function seamContinuity(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.continuity === undefined) {
     return null;
   }
   return (
-    <span className="meridian-seam-row__continuity">
-      <span className="meridian-seam-row__figure">{seam.continuity}</span>
-      {seam.continuity === SWITCH_CONTINUITY_MEMO ? (
-        <span className="meridian-seam-row__losses">
-          {seam.declaredLosses.length === 0 ? (
-            <Nothing kind="empty" placement="inline" title="No losses were declared." />
-          ) : (
-            seam.declaredLosses.map((loss) => (
-              <span className="meridian-seam-row__figure" key={loss}>
-                {loss}
-              </span>
-            ))
-          )}
+    <span className="meridian-system-message__continuity">
+      <span className="meridian-system-message__figure">{seam.continuity}</span>
+      {seam.declaredLosses.length > 0 ? (
+        <span className="meridian-system-message__losses">
+          {seam.declaredLosses.map((loss) => (
+            <span className="meridian-system-message__figure" key={loss}>
+              {loss}
+            </span>
+          ))}
         </span>
       ) : null}
     </span>
@@ -134,21 +131,21 @@ function seamContinuity(seam: LedgerSeam): React.JSX.Element | null {
 }
 
 /** The failed switch's reason, verbatim. */
-function seamReason(seam: LedgerSeam): React.JSX.Element | null {
+function seamReason(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.kind !== "provider-switch-failed" || seam.reason === undefined) {
     return null;
   }
-  return <span className="meridian-seam-row__figure">{seam.reason}</span>;
+  return <span className="meridian-system-message__figure">{seam.reason}</span>;
 }
 
 /** Which state a blocked run is waiting on, verbatim. */
-function seamBlockedOn(seam: LedgerSeam): React.JSX.Element | null {
+function seamBlockedOn(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.blockedOn === undefined) {
     return null;
   }
   return (
-    <span className="meridian-seam-row__blocked-on">
-      Waiting on <span className="meridian-seam-row__figure">{seam.blockedOn}</span>
+    <span className="meridian-system-message__blocked-on">
+      Waiting on <span className="meridian-system-message__figure">{seam.blockedOn}</span>
     </span>
   );
 }
@@ -162,7 +159,7 @@ function seamBlockedOn(seam: LedgerSeam): React.JSX.Element | null {
  * contract — and when one does the console draws it and says, on the same line, that
  * its type is not one the contract package registers.
  */
-function seamWireAbsence(seam: LedgerSeam): React.JSX.Element | null {
+function seamWireAbsence(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.wireRegistration === "registered") {
     return null;
   }

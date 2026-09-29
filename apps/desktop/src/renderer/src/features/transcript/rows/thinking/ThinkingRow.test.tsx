@@ -4,8 +4,8 @@ import type { EventCursor, ReasoningSurfaceReadResponse, RunId } from "@ai-sidek
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type ReasoningSurfaceReading } from "./reasoning-reading.js";
-import { ReasoningSurface } from "./ThinkingRow.js";
+import { type ReasoningReading } from "./reasoning-reading.js";
+import { ThinkingRow } from "./ThinkingRow.js";
 
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 
@@ -13,13 +13,13 @@ function renderSurface(
   overrides: {
     readonly runId?: RunId | undefined;
     readonly liveText?: string;
-    readonly reading?: ReasoningSurfaceReading;
+    readonly reading?: ReasoningReading;
     readonly onExpand?: () => void;
     readonly body?: (props: { readonly runId: RunId }) => React.ReactNode;
   } = {},
 ): HTMLElement {
   const { container } = render(
-    <ReasoningSurface
+    <ThinkingRow
       body={overrides.body}
       runId={"runId" in overrides ? overrides.runId : SAMPLE_RUN_ID}
       liveText={overrides.liveText}

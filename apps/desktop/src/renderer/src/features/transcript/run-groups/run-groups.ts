@@ -18,14 +18,14 @@
 //     chapters keep the order their first row arrived in. The fold partitions; it
 //     never sorts.
 //   • **The live chapter never collapses.** Collapse state is a separate MODULE
-//     from the fold — `chapter-collapse.ts` — and its `isOpen` answers `true` for a
+//     from the fold — `run-group-fold-state.ts` — and its `isOpen` answers `true` for a
 //     live chapter before it reads any stored state at all, so "never collapses the
 //     live chapter" is a branch that cannot be reached rather than a rule a caller
 //     has to remember.
 //
 // WHAT THIS MODULE IS NOT. It renders nothing. The header — the agent's name and
 // hue, the run state, the paying account label, the row count — is drawn by
-// `ChapterHeader.tsx` from this model, and every one of those five is a member sealed
+// `RunGroupHeader.tsx` from this model, and every one of those five is a member sealed
 // below, so the fold stays a pure derivation the `console-unit` tier can drive with no
 // DOM at all. The two that read a wire read it VERBATIM: the run state is the daemon's
 // own newest lifecycle type and the account is the id the run was admitted under, so
@@ -33,13 +33,13 @@
 
 import type { ChildRunCompleteness, TimelineRow } from "@ai-sidekicks/contracts";
 
-import { ChapterBodyRowWindow, chapterClippedHeadRowCount } from "./run-group-body.js";
+import { RunGroupBodyRowWindow, countClippedHeadRows } from "./run-group-body.js";
 import {
   isReopeningEventType,
   isRunStateEventType,
   isTerminalEventType,
   payingAccountIdOf,
-  type ChapterTerminalEventType,
+  type RunTerminalEventType,
 } from "./run-lifecycle-events.js";
 
 /**
@@ -48,12 +48,12 @@ import {
  * Two values, and the distinction is the whole of rule 7's collapse behaviour: a
  * terminal chapter folds to one line and a live one stays open.
  */
-export const CHAPTER_LIFECYCLES = ["live", "terminal"] as const;
+export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;
 
-export type ChapterLifecycle = (typeof CHAPTER_LIFECYCLES)[number];
+export type RunGroupLifecycle = (typeof RUN_GROUP_LIFECYCLES)[number];
 
 /** One run's rows, folded. */
-export interface LedgerChapter {
+export interface RunGroup {
   /** The run this chapter is, wire-verbatim. The only thing rows are grouped by. */
   readonly runId: string;
   /**
@@ -66,7 +66,7 @@ export interface LedgerChapter {
   /**
    * Rows the outer list's ceiling left out, which the body clips behind a top-edge
    * fade and scrolls to. Counted by the same rule the body's window is cut with —
-   * `chapterClippedHeadRowCount`, which the selection itself defers to — so the figure
+   * `countClippedHeadRows`, which the selection itself defers to — so the figure
    * and the rows cannot disagree; reported rather than dropped, because a chapter that
    * hid rows silently would make its own row count a lie.
    */
@@ -77,7 +77,7 @@ export interface LedgerChapter {
    * console never invents one.
    */
   readonly actorId: string | undefined;
-  readonly lifecycle: ChapterLifecycle;
+  readonly lifecycle: RunGroupLifecycle;
   /**
    * The newest run state the log reported for this run, wire-verbatim, or `undefined`
    * where no row in the window carried one and after a rewind that cleared it.
@@ -108,7 +108,7 @@ export interface LedgerChapter {
    * receipt's past tense is composed from this by the header, so the console
    * never paraphrases the state the daemon reported.
    */
-  readonly terminalEventType: ChapterTerminalEventType | undefined;
+  readonly terminalEventType: RunTerminalEventType | undefined;
   /**
    * The row that ENDED it, or `undefined` while live.
    *
@@ -138,8 +138,8 @@ export interface LedgerChapter {
 }
 
 /** What a fold produced: the chapters, and the rows that belong to none. */
-export interface LedgerChapterFold {
-  readonly chapters: readonly LedgerChapter[];
+export interface RunGroupFold {
+  readonly chapters: readonly RunGroup[];
   /**
    * Rows carrying no run attribution — the `general` arm. They are NOT a chapter
    * and are deliberately not folded into one: a session-scoped row inside a run's
@@ -158,18 +158,18 @@ export interface LedgerChapterFold {
  * memo: it is built once per loaded-window identity by the caller's `useMemo` and
  * computes nothing until something is read.
  */
-export class LedgerChapterIndex {
+export class RunGroupIndex {
   readonly #rows: readonly TimelineRow[];
   /** The lazy completion index. Undefined until the first read folds it. */
-  #fold: LedgerChapterFold | undefined;
-  #chapterByRunId: ReadonlyMap<string, LedgerChapter> | undefined;
+  #fold: RunGroupFold | undefined;
+  #chapterByRunId: ReadonlyMap<string, RunGroup> | undefined;
 
   public constructor(rows: readonly TimelineRow[]) {
     this.#rows = rows;
   }
 
   /** Every chapter, in the order each run's first row arrived. */
-  public chapters(): readonly LedgerChapter[] {
+  public chapters(): readonly RunGroup[] {
     return this.#foldOnce().chapters;
   }
 
@@ -179,7 +179,7 @@ export class LedgerChapterIndex {
   }
 
   /** One chapter by run, or `undefined` when the window holds none of that run. */
-  public chapterFor(runId: string): LedgerChapter | undefined {
+  public chapterFor(runId: string): RunGroup | undefined {
     this.#chapterByRunId ??= new Map(
       this.#foldOnce().chapters.map((chapter) => [chapter.runId, chapter]),
     );
@@ -187,12 +187,12 @@ export class LedgerChapterIndex {
   }
 
   /** Chapters that have ended. The input to "collapse all terminal chapters". */
-  public terminalChapters(): readonly LedgerChapter[] {
+  public terminalChapters(): readonly RunGroup[] {
     return this.#foldOnce().chapters.filter((chapter) => chapter.lifecycle === "terminal");
   }
 
-  #foldOnce(): LedgerChapterFold {
-    this.#fold ??= foldChapters(this.#rows);
+  #foldOnce(): RunGroupFold {
+    this.#fold ??= groupRowsByRun(this.#rows);
     return this.#fold;
   }
 }
@@ -204,7 +204,7 @@ export class LedgerChapterIndex {
  * `@ai-sidekicks/contracts` states its own arms are for: `runId` is a required
  * member of three arms and structurally absent from the fourth.
  */
-export function runIdOfChapteredRow(row: TimelineRow): string | undefined {
+export function readRunIdOfGroupedRow(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
@@ -215,12 +215,12 @@ export function runIdOfChapteredRow(row: TimelineRow): string | undefined {
  * and by the bench tier without constructing an index — the class is the memo,
  * this is the fold, and there is exactly one of each.
  */
-export function foldChapters(rows: readonly TimelineRow[]): LedgerChapterFold {
+export function groupRowsByRun(rows: readonly TimelineRow[]): RunGroupFold {
   const accumulatorsByRunId = new Map<string, ChapterAccumulator>();
   const unchapteredRowIds: string[] = [];
 
   for (const row of rows) {
-    const runId = runIdOfChapteredRow(row);
+    const runId = readRunIdOfGroupedRow(row);
     if (runId === undefined) {
       unchapteredRowIds.push(row.id);
       continue;
@@ -244,12 +244,12 @@ interface ChapterAccumulator {
   readonly runId: string;
   readonly rowIds: string[];
   actorId: string | undefined;
-  terminalEventType: ChapterTerminalEventType | undefined;
+  terminalEventType: RunTerminalEventType | undefined;
   terminalRowId: string | undefined;
   runStateEventType: string | undefined;
   payingAccountId: string | undefined;
   /** The bounded head this chapter's body will draw. Fed one row at a time. */
-  readonly bodyRows: ChapterBodyRowWindow;
+  readonly bodyRows: RunGroupBodyRowWindow;
   firstSequence: number;
   lastSequence: number;
   firstTimestamp: string;
@@ -276,7 +276,7 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
     terminalRowId: undefined,
     runStateEventType: undefined,
     payingAccountId: undefined,
-    bodyRows: new ChapterBodyRowWindow(),
+    bodyRows: new RunGroupBodyRowWindow(),
     firstSequence: row.sequence,
     lastSequence: row.sequence,
     firstTimestamp: row.timestamp,
@@ -339,13 +339,13 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   }
 }
 
-function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
+function sealChapter(accumulator: ChapterAccumulator): RunGroup {
   const rowCount = accumulator.rowIds.length;
   return {
     runId: accumulator.runId,
     rowIds: accumulator.rowIds,
     rowCount,
-    clippedRowCount: chapterClippedHeadRowCount(rowCount),
+    clippedRowCount: countClippedHeadRows(rowCount),
     actorId: accumulator.actorId,
     lifecycle: accumulator.terminalEventType === undefined ? "live" : "terminal",
     runStateEventType: accumulator.runStateEventType,

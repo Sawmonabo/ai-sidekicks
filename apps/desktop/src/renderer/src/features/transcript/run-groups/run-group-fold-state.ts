@@ -1,6 +1,6 @@
 // WHICH CHAPTERS ARE OPEN — the collapse state.
 //
-// Its own module beside `chapters.ts` because the two change on different clocks: the
+// Its own module beside `run-groups.ts` because the two change on different clocks: the
 // fold changes when rows arrive and this changes when a person clicks. The behaviour is
 // fixed — run chapters collapse once terminal and the live chapter stays open — and the
 // live arm here answers
@@ -11,7 +11,7 @@
 // smallest thing that has to be remembered: live chapters are open by rule, terminal
 // chapters are folded by default, and everything else follows.
 
-import { type LedgerChapter } from "./run-groups.js";
+import { type RunGroup } from "./run-groups.js";
 
 /**
  * Which chapters are open.
@@ -24,7 +24,7 @@ import { type LedgerChapter } from "./run-groups.js";
  * the smallest thing that has to be remembered: live chapters are open by rule,
  * terminal chapters are folded by default, and everything else follows.
  */
-export class ChapterCollapseState {
+export class RunGroupFoldState {
   readonly #openedTerminalRunIds = new Set<string>();
 
   /**
@@ -33,7 +33,7 @@ export class ChapterCollapseState {
    * The live arm answers before any stored state is read, which is what makes
    * rule 7's "the live chapter stays open" unreachable rather than remembered.
    */
-  public isOpen(chapter: LedgerChapter): boolean {
+  public isOpen(chapter: RunGroup): boolean {
     if (chapter.lifecycle === "live") {
       return true;
     }
@@ -41,7 +41,7 @@ export class ChapterCollapseState {
   }
 
   /** Open a folded chapter. It stays open until closed. */
-  public open(chapter: LedgerChapter): void {
+  public open(chapter: RunGroup): void {
     this.#openedTerminalRunIds.add(chapter.runId);
   }
 
@@ -52,7 +52,7 @@ export class ChapterCollapseState {
    * on a header, and the header of a live chapter offers no fold control at all,
    * so reaching here means the run ended between the render and the click.
    */
-  public close(chapter: LedgerChapter): boolean {
+  public close(chapter: RunGroup): boolean {
     if (chapter.lifecycle === "live") {
       return false;
     }
@@ -65,7 +65,7 @@ export class ChapterCollapseState {
    * Returns how many were folded, so the command that invokes it can say what it
    * did rather than reporting success over a no-op.
    */
-  public collapseAllTerminal(chapters: readonly LedgerChapter[]): number {
+  public collapseAllTerminal(chapters: readonly RunGroup[]): number {
     let folded = 0;
     for (const chapter of chapters) {
       if (this.close(chapter)) {

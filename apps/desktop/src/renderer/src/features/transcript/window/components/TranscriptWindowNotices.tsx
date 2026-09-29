@@ -16,10 +16,12 @@ import { WindowAbsences } from "@renderer/console/primitives/index.js";
  * the console failed where it merely stopped holding, or the reverse.
  *
  * THE SENTENCES ARE THE CONSOLE'S NOW, NOT THIS LEDGER'S. Six families each wrote
- * their own wording for this case and they disagreed; `primitives/absence/window-absence.ts`
+ * their own wording for this case and they disagreed; `window-notices.ts`
  * says it once and this hands it the readings it derived.
  */
-export function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
+export function TranscriptWindowNotices(
+  props: LedgerWindowAbsencesProps,
+): React.JSX.Element | null {
   return (
     <WindowAbsences
       // The order is the pipeline's: what this build cannot place, what the cap took,

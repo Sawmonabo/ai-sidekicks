@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
 import { projectFixtureShellRows } from "./transcript-row-projection.js";
-import { deriveShellChildRunSummaries } from "./child-run-summaries.js";
+import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const PARENT_RUN = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -51,7 +51,7 @@ function childTransition(sequence: number, newState: string): ConsoleSessionEven
 describe("the shell's child-run summaries", () => {
   it("summarizes a child run onto the one row that names it and its parent", () => {
     const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const summaries = deriveShellChildRunSummaries([
+    const summaries = deriveChildRunSummaries([
       birth,
       childTransition(2, "starting"),
       childTransition(3, "running"),
@@ -73,17 +73,14 @@ describe("the shell's child-run summaries", () => {
     // THE NEGATIVE CONTROL for the whole treatment. A run is a child because the
     // daemon said so on its birth beat; without that member there is a run and no
     // parent, and the ledger already draws one of those.
-    const summaries = deriveShellChildRunSummaries([
-      childBirth(1, {}),
-      childTransition(2, "running"),
-    ]);
+    const summaries = deriveChildRunSummaries([childBirth(1, {}), childTransition(2, "running")]);
 
     expect([...summaries.keys()]).toStrictEqual([]);
   });
 
   it("counts only the rows attributed to the child, and not its parent's", () => {
     const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const summaries = deriveShellChildRunSummaries([
+    const summaries = deriveChildRunSummaries([
       birth,
       childTransition(2, "running"),
       event(3, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
@@ -99,7 +96,7 @@ describe("the shell's child-run summaries", () => {
       sessionId: SESSION_ID,
       runId: CHILD_RUN,
     });
-    const summaries = deriveShellChildRunSummaries([
+    const summaries = deriveChildRunSummaries([
       birth,
       firstCompaction,
       event(3, "usage.context_compacted", { sessionId: SESSION_ID, runId: CHILD_RUN }),
@@ -116,7 +113,7 @@ describe("the shell's child-run summaries", () => {
 
   it("reports a parent's compaction as nothing at all about the child", () => {
     const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const summaries = deriveShellChildRunSummaries([
+    const summaries = deriveChildRunSummaries([
       birth,
       event(2, "usage.context_compacted", { sessionId: SESSION_ID, runId: PARENT_RUN }),
     ]);
@@ -130,13 +127,13 @@ describe("the shell's child-run summaries", () => {
     // than one whose first walk does not return.
     const birth = childBirth(1, { parentRunId: CHILD_RUN });
 
-    expect([...deriveShellChildRunSummaries([birth]).keys()]).toStrictEqual([]);
+    expect([...deriveChildRunSummaries([birth]).keys()]).toStrictEqual([]);
   });
 
   it("keeps the first creation row when a child's birth is delivered twice", () => {
     const birth = childBirth(1, { parentRunId: PARENT_RUN });
     const redelivered = childBirth(2, { parentRunId: OTHER_RUN });
-    const summaries = deriveShellChildRunSummaries([birth, redelivered]);
+    const summaries = deriveChildRunSummaries([birth, redelivered]);
 
     // First-wins, the rule the anchor index is written under: a redelivered birth
     // would otherwise walk the card down the log and re-parent the child with it.

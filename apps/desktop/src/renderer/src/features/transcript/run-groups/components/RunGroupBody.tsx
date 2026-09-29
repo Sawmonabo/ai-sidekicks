@@ -18,14 +18,14 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import {
-  chapterClippedHeadRowIds,
-  resolveChapterBodyViewportHeight,
+  listClippedHeadRowIds,
+  resolveRunGroupBodyHeight,
   type CssDeclarationSupportProbe,
 } from "../run-group-body.js";
-import { type LedgerChapter } from "../run-groups.js";
+import { type RunGroup } from "../run-groups.js";
 
-export interface ChapterBodyViewportProps {
-  readonly chapter: LedgerChapter;
+export interface RunGroupBodyProps {
+  readonly chapter: RunGroup;
   /**
    * How the engine is asked whether it parses the body's height. Defaulted, and
    * overridable only so a test can drive the arm this host's engine does not take.
@@ -39,11 +39,11 @@ export interface ChapterBodyViewportProps {
  * `null` where the chapter clips nothing, so an ordinary chapter mounts no scroller
  * and pays for none.
  */
-export function ChapterBodyViewport(props: ChapterBodyViewportProps): React.JSX.Element | null {
+export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null {
   const { chapter } = props;
   const contents = useMemo(() => chapterBodyContents(chapter), [chapter]);
   const maxBlockSize = useMemo(
-    () => resolveChapterBodyViewportHeight(props.supportsDeclaration),
+    () => resolveRunGroupBodyHeight(props.supportsDeclaration),
     [props.supportsDeclaration],
   );
   // The fade is a fact about the scroll offset, so it is held rather than derived —
@@ -54,12 +54,12 @@ export function ChapterBodyViewport(props: ChapterBodyViewportProps): React.JSX.
     return null;
   }
   return (
-    <div className="meridian-chapter-body">
+    <div className="meridian-run-group-body">
       {/* Never the scroll anchor: an overlay the engine picked as its anchor would
           hold the fade still and move the rows behind it. */}
-      {isClippedAbove ? <div className="meridian-chapter-body__fade" aria-hidden="true" /> : null}
+      {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
       <ol
-        className="meridian-chapter-body__scroller"
+        className="meridian-run-group-body__scroller"
         style={{ maxBlockSize }}
         aria-label="Earlier entries in this run"
         onScroll={(event) => {
@@ -70,20 +70,20 @@ export function ChapterBodyViewport(props: ChapterBodyViewportProps): React.JSX.
         }}
       >
         {contents.rows.map((row) => (
-          <li key={row.id} className="meridian-chapter-body__row">
-            <span className="meridian-chapter-body__time">{row.timestamp}</span>
-            <span className="meridian-chapter-body__type">{row.type}</span>
+          <li key={row.id} className="meridian-run-group-body__row">
+            <span className="meridian-run-group-body__time">{row.timestamp}</span>
+            <span className="meridian-run-group-body__type">{row.type}</span>
             {row.summary.length === 0 ? (
               <Nothing kind="empty" placement="inline" title="This entry carries no summary." />
             ) : (
-              <span className="meridian-chapter-body__summary">{row.summary}</span>
+              <span className="meridian-run-group-body__summary">{row.summary}</span>
             )}
           </li>
         ))}
       </ol>
       {contents.unheldRowCount === 0 ? null : (
-        <p className="meridian-chapter-body__unheld">
-          <span className="meridian-chapter-body__figure">{String(contents.unheldRowCount)}</span>
+        <p className="meridian-run-group-body__unheld">
+          <span className="meridian-run-group-body__figure">{String(contents.unheldRowCount)}</span>
           {contents.unheldRowCount === 1
             ? " earlier entry is outside this window."
             : " earlier entries are outside this window."}
@@ -108,9 +108,9 @@ interface ChapterBodyContents {
  * older than the sealed head is asked for, not found, and counted as unheld rather
  * than silently omitted.
  */
-function chapterBodyContents(chapter: LedgerChapter): ChapterBodyContents {
+function chapterBodyContents(chapter: RunGroup): ChapterBodyContents {
   const headRowsById = new Map(chapter.clippedHeadRows.map((row) => [row.id, row]));
-  const headRowIds = chapterClippedHeadRowIds(chapter.rowIds);
+  const headRowIds = listClippedHeadRowIds(chapter.rowIds);
   const rows = headRowIds
     .map((rowId) => headRowsById.get(rowId))
     .filter((row): row is TimelineRow => row !== undefined);

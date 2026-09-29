@@ -38,7 +38,7 @@ import type { ThemeRegistrationRaw } from "shiki/types";
  * loudest thing on the screen, which the console's whole colour budget is spent avoiding
  * elsewhere.
  */
-export const CODE_TOKEN_FAMILIES = [
+export const CODE_TOKEN_KINDS = [
   "plain",
   "keyword",
   "name",
@@ -51,15 +51,15 @@ export const CODE_TOKEN_FAMILIES = [
 ] as const;
 
 /** One token family. Derived from the enumeration, never restated. */
-export type CodeTokenFamily = (typeof CODE_TOKEN_FAMILIES)[number];
+export type CodeTokenKind = (typeof CODE_TOKEN_KINDS)[number];
 
 /** The custom property a family's colour is declared under, in one place. */
-export function codeTokenVariableName(family: CodeTokenFamily): string {
+export function codeTokenVariableName(family: CodeTokenKind): string {
   return `--meridian-code-${family}`;
 }
 
 /** The value a theme foreground carries for a family — a reference, never a colour. */
-export function codeTokenColorReference(family: CodeTokenFamily): string {
+export function codeTokenColorReference(family: CodeTokenKind): string {
   return `var(${codeTokenVariableName(family)})`;
 }
 
@@ -70,7 +70,7 @@ export function codeTokenColorReference(family: CodeTokenFamily): string {
  * therefore claims no scope: a token no rule matched IS plain, and giving it a rule
  * would be a second way to say the same thing.
  */
-const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenFamily, "plain">, readonly string[]>> = {
+const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenKind, "plain">, readonly string[]>> = {
   keyword: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.control"],
   name: ["entity.name.function", "support.function", "variable.function", "entity.name.tag"],
   string: ["string", "string.quoted", "constant.character.escape", "meta.embedded.string"],
@@ -89,7 +89,7 @@ const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenFamily, "plain">, reado
  * would be two owners of one mutable value, which is the module-scope singleton
  * `apps/desktop/AGENTS.md` rejects and which here would also be a real aliasing bug.
  */
-export function meridianCodeTheme(): ThemeRegistrationRaw {
+export function buildCodeTheme(): ThemeRegistrationRaw {
   return {
     name: "meridian",
     // `type` is shiki's light/dark hint for its own colour replacements. The theme is
@@ -100,7 +100,7 @@ export function meridianCodeTheme(): ThemeRegistrationRaw {
     bg: "transparent",
     settings: Object.entries(SCOPES_BY_FAMILY).map(([family, scopes]) => ({
       scope: [...scopes],
-      settings: { foreground: codeTokenColorReference(family as CodeTokenFamily) },
+      settings: { foreground: codeTokenColorReference(family as CodeTokenKind) },
     })),
   };
 }

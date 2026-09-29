@@ -3,26 +3,19 @@
 // Every case below invokes an act and watches what it reached. That is the whole
 // property: the palette and the session header both resolve their target at press time,
 // so the only thing that can be wrong is which of the feed's own callbacks an act
-// runs — and none of them needs a DOM to check.
-//
-// THE REFUSING ARM is the reason this file exists in the shape it does. A no-op and
-// a refusal are indistinguishable from a component test: nothing moves either way.
-// Here the refusal is read off the frame's own act-refusal channel, so a press that
-// quietly did nothing fails — and the act that CAN refuse is checked on both arms,
-// because an act that refused unconditionally would pass a one-armed case.
+// runs — and none of them needs a DOM to check. No act refuses, so the refusal channel
+// is watched too: a press that raised a banner over work it did would pass a trace alone.
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
-import { UNFILTERED_LEDGER, emptyFindResult } from "@renderer/console/ledger/structure/index.js";
+import { emptyFindResult } from "../find/find-model.js";
+import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {
-  LEDGER_NOTHING_FILTERED_REFUSAL,
-  buildLedgerStructureActs,
-  type LedgerFeedActInputs,
-} from "@renderer/console/ledger/pane/feed/model/ledger-feed-acts.js";
-import { type LedgerFindState } from "../find/hooks/useTranscriptFind.js";
-import { type LedgerFilterState } from "@renderer/console/ledger/pane/find/ledger-narrowing.js";
+  buildTranscriptStructureActs,
+  type TranscriptStructureActInputs,
+} from "./transcript-structure-acts.js";
 
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
@@ -33,17 +26,16 @@ const WALKED_ROW_ID = "row-the-walk-found";
 /**
  * A find state whose members record rather than derive.
  *
- * `useLedgerFind`'s real behaviour is `ledger-find.test.ts`'; what matters
+ * `useTranscriptFind`'s real behaviour is `useTranscriptFind.test.ts`'; what matters
  * here is which member an act calls, which a recording stand-in answers and a real
  * hook would only obscure.
  */
-function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindState {
+function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFindState {
   return {
     isOpen: false,
     query: "",
     result: emptyFindResult(0),
     beyondWindowMatchCount: 0,
-    filteredAwayMatchCount: 0,
     foldedAwayMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {
@@ -70,9 +62,8 @@ function actInputs(
   trace: ActTrace,
   options: {
     readonly walkedRowId?: string;
-    readonly isFiltered?: boolean;
   } = {},
-): LedgerFeedActInputs {
+): TranscriptStructureActInputs {
   return {
     find: recordingFindState(trace, options.walkedRowId),
     jumpToRow: (rowId) => {
@@ -83,27 +74,6 @@ function actInputs(
     },
     collapseAllTerminalChapters: () => {
       trace.push("collapseAllTerminalChapters");
-    },
-    ledgerFilter: recordingFilterState(options.isFiltered ?? false, trace),
-  };
-}
-
-/**
- * A narrowing whose members record.
- *
- * What it HOLDS is `ledger/structure/narrowing/filters.test.ts`'; what this file is
- * about is which of these members the feed's acts call.
- */
-function recordingFilterState(isFiltered: boolean, trace: ActTrace): LedgerFilterState {
-  return {
-    filter: UNFILTERED_LEDGER,
-    facets: { users: [], categories: [] },
-    isFiltered,
-    setFilter: () => {
-      trace.push("setFilter");
-    },
-    clear: () => {
-      trace.push("clearFilters");
     },
   };
 }
@@ -120,16 +90,16 @@ function collectRaisedRefusals(): {
   return { raised, withdraw };
 }
 
-describe("the ledger's acts — what each one reaches", () => {
+describe("the transcript's acts — what each one reaches", () => {
   it("opens the find field without touching its query", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).openFind();
+    buildTranscriptStructureActs(actInputs(trace)).openFind();
     expect(trace).toStrictEqual(["open"]);
   });
 
   it("walks the matches and scrolls to each one it lands on", () => {
     const trace: ActTrace = [];
-    const acts = buildLedgerStructureActs(actInputs(trace, { walkedRowId: WALKED_ROW_ID }));
+    const acts = buildTranscriptStructureActs(actInputs(trace, { walkedRowId: WALKED_ROW_ID }));
     acts.stepFindNext();
     acts.stepFindPrevious();
     expect(trace).toStrictEqual([
@@ -145,56 +115,35 @@ describe("the ledger's acts — what each one reaches", () => {
     // press — which, with no match to land on, is a scroll to a row id nobody
     // produced and a reader moved for no reason.
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).stepFindNext();
+    buildTranscriptStructureActs(actInputs(trace)).stepFindNext();
     expect(trace).toStrictEqual(["step:next"]);
   });
 
-  it("scrolls to the tail through the ledger's own scroll writer", () => {
+  it("scrolls to the tail through the transcript's own scroll writer", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).scrollToTail();
+    buildTranscriptStructureActs(actInputs(trace)).jumpToLatest();
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
   it("folds every terminal chapter this feed has open", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
     expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
   });
 
   it("fires nothing merely by being built", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace));
+    buildTranscriptStructureActs(actInputs(trace));
     expect(trace).toStrictEqual([]);
   });
 });
 
-describe("the ledger's acts — the one that refuses", () => {
+describe("the transcript's acts — none of them refuses", () => {
   let withdrawSink: (() => void) | undefined;
 
   afterEach(() => {
     withdrawSink?.();
     withdrawSink = undefined;
-  });
-
-  it("says why there is nothing to widen when nothing is narrowed", () => {
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs([])).clearFilters();
-    expect(raised).toStrictEqual([LEDGER_NOTHING_FILTERED_REFUSAL]);
-    expect(raised[0]?.code).toBe("ledger.nothing_filtered");
-    expect(raised[0]?.origin).toBe("ledger");
-  });
-
-  it("clears a narrowed ledger rather than refusing over a surface that now exists", () => {
-    // The refusal this replaces said the ledger offered no narrowing at all, which
-    // was true only while `filters.ts` had no caller. The facet bar reaches it now,
-    // so a narrowed ledger widens and raises nothing.
-    const trace: ActTrace = [];
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs(trace, { isFiltered: true })).clearFilters();
-    expect(trace).toStrictEqual(["clearFilters"]);
-    expect(raised).toStrictEqual([]);
   });
 
   it("folds the chapters rather than refusing over a control that now exists", () => {
@@ -204,7 +153,7 @@ describe("the ledger's acts — the one that refuses", () => {
     const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
     expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
     expect(raised).toStrictEqual([]);
   });
@@ -214,11 +163,11 @@ describe("the ledger's acts — the one that refuses", () => {
     // press with a banner, which would state a refusal over work that was done.
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
-    const acts = buildLedgerStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));
+    const acts = buildTranscriptStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));
     acts.openFind();
     acts.stepFindNext();
-    acts.scrollToTail();
-    acts.collapseAllTerminalChapters();
+    acts.jumpToLatest();
+    acts.foldEveryRun();
     expect(raised).toStrictEqual([]);
   });
 });

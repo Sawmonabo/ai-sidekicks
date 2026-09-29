@@ -12,10 +12,10 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   TimelinePane,
   type TimelinePaneContext,
-  type TimelinePaneProps,
+  type TranscriptPaneProps,
 } from "./TranscriptPane.js";
 
-export const TIMELINE_PANE_SESSION_ID = "session-ledger";
+export const TRANSCRIPT_PANE_SESSION_ID = "session-ledger";
 
 /**
  * The pane context, with the members this component reads real and the rest cast.
@@ -28,7 +28,7 @@ export const TIMELINE_PANE_SESSION_ID = "session-ledger";
  */
 export function paneContext(
   overrides: Partial<TimelinePaneContext> = {},
-  sessionId: string | null = TIMELINE_PANE_SESSION_ID,
+  sessionId: string | null = TRANSCRIPT_PANE_SESSION_ID,
 ): TimelinePaneContext {
   // `null` rather than `undefined` for the session-less arm: passing `undefined`
   // explicitly re-applies a parameter default, so the one case that needs a bare
@@ -60,7 +60,7 @@ export function paneContext(
  * from a store they build, so a scenario that delivered its own would make the setup
  * the subject.
  */
-export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
+export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
   const { container } = render(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <TimelinePane {...props} />
@@ -81,25 +81,25 @@ export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
  * be wrong together while this case stayed green.
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
+  const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: "event-0",
-      sessionId: TIMELINE_PANE_SESSION_ID,
+      sessionId: TRANSCRIPT_PANE_SESSION_ID,
       sequence: 0,
       kind: "session.created",
       occurredAt: "2026-01-01T11:05:00.000Z",
-      payload: { sessionId: TIMELINE_PANE_SESSION_ID },
+      payload: { sessionId: TRANSCRIPT_PANE_SESSION_ID },
     },
     {
       id: "event-1",
-      sessionId: TIMELINE_PANE_SESSION_ID,
+      sessionId: TRANSCRIPT_PANE_SESSION_ID,
       sequence: 1,
       kind: "run.running",
       occurredAt: "2026-01-01T11:05:01.000Z",
       payload: {
-        sessionId: TIMELINE_PANE_SESSION_ID,
+        sessionId: TRANSCRIPT_PANE_SESSION_ID,
         runId: "019b793b-7b60-740e-8110-d1a4c1150111",
       },
     },

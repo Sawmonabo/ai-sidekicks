@@ -32,17 +32,17 @@
 //   • **Held rows are never pruned**, however old, and the drop stops at the row
 //     the reader is on. The reading anchor decides both; the window only obeys.
 //   • **A dropped row's lease is parked, not lost.** What parking means, and the
-//     bound it is held to, are `row-lease-table.ts`'s — the cap names a key it is
+//     bound it is held to, are `retained-row-state-table.ts`'s — the cap names a key it is
 //     about to drop and reads nothing back.
 //
 // The window is a ceiling for a mechanical reason as well as a memory one:
-// `LEDGER_MAX_ELEMENT_HEIGHT_PX` is where a browser stops being able to place a
+// `MAX_ELEMENT_HEIGHT_PX` is where a browser stops being able to place a
 // virtual list's total-size spacer, and an uncapped log reaches it.
 
-import { LedgerRowLeaseTable, type LedgerRowLease } from "./retained-row-state-table.js";
+import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
-export interface LedgerWindowRow {
+export interface WindowRow {
   readonly key: string;
   /** The chapter or row this hangs from; `undefined` for a top-level row. */
   readonly parentKey: string | undefined;
@@ -115,17 +115,17 @@ export interface PruneOutcome {
   readonly topLevelRetained: number;
 }
 
-export interface LedgerWindowOptions {
+export interface TranscriptWindowOptions {
   readonly topLevelCap?: number;
   readonly parkedLeaseCap?: number;
 }
 
-export class LedgerWindow {
+export class TranscriptWindow {
   readonly #topLevelCap: number;
   readonly #childKeysByParentKey = new Map<string, string[]>();
   /** Every retained row key, so "is this row's parent here?" costs no scan. */
   readonly #presentRowKeys = new Set<string>();
-  readonly #leaseTable: LedgerRowLeaseTable;
+  readonly #leaseTable: RetainedRowStateTable;
 
   /**
    * The adopted log, oldest first — which is also prune order.
@@ -138,11 +138,11 @@ export class LedgerWindow {
    * and this console's answer to a projection that breaks that is to degrade rather than
    * discard the window.
    */
-  #rows: LedgerWindowRow[] = [];
+  #rows: WindowRow[] = [];
 
-  public constructor(options: LedgerWindowOptions = {}) {
+  public constructor(options: TranscriptWindowOptions = {}) {
     this.#topLevelCap = options.topLevelCap ?? LEDGER_WINDOW_ROW_CAP;
-    this.#leaseTable = new LedgerRowLeaseTable(options.parkedLeaseCap);
+    this.#leaseTable = new RetainedRowStateTable(options.parkedLeaseCap);
   }
 
   /**
@@ -158,7 +158,7 @@ export class LedgerWindow {
    * A row that arrives twice in one read collapses to one row in its first position,
    * so a projection defect cannot double a chapter.
    */
-  public ingest(rows: readonly LedgerWindowRow[]): void {
+  public ingest(rows: readonly WindowRow[]): void {
     this.#rows = [...rows];
     this.#childKeysByParentKey.clear();
     this.#presentRowKeys.clear();
@@ -179,7 +179,7 @@ export class LedgerWindow {
   }
 
   /** Every retained row, oldest first. */
-  public rows(): readonly LedgerWindowRow[] {
+  public rows(): readonly WindowRow[] {
     return [...this.#rows];
   }
 
@@ -205,17 +205,17 @@ export class LedgerWindow {
     return this.#rows.length;
   }
 
-  /** A row body's leased state, live or parked. `row-lease-table.ts` owns which. */
-  public lease(rowKey: string): LedgerRowLease | undefined {
+  /** A row body's leased state, live or parked. `retained-row-state-table.ts` owns which. */
+  public lease(rowKey: string): RetainedRowState | undefined {
     return this.#leaseTable.lease(rowKey);
   }
 
-  public setLease(rowKey: string, lease: LedgerRowLease): void {
+  public setLease(rowKey: string, lease: RetainedRowState): void {
     this.#leaseTable.setLease(rowKey, lease);
   }
 
   /**
-   * Drop every parked lease, answering how many went. `row-lease-table.ts` owns why.
+   * Drop every parked lease, answering how many went. `retained-row-state-table.ts` owns why.
    *
    * Delegated rather than reached through, so the idle trim asks the window — the
    * one object that knows which rows are still held — instead of holding a second

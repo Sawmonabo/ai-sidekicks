@@ -19,7 +19,10 @@
 
 import { createElement } from "react";
 
-import { registerApprovalFlowProjectors } from "@renderer/store/session-events/approval-flow-projection.js";
+import {
+  APPROVAL_FLOW_PROJECTOR_OWNER,
+  APPROVAL_FLOW_PROJECTORS,
+} from "@renderer/store/session-events/approval-flow-projection.js";
 import { registerComposerSeat } from "../console/seats/index.js";
 import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
@@ -40,5 +43,5 @@ export function registerComposerFamily(projectorRegistry: ConsoleEntityProjector
   // their own. Without it the `approval` partition has no producer at all and the
   // pane can read no entity for a row — which is where `askId` was landing, since
   // the projection reply registers no member for it.
-  registerApprovalFlowProjectors(projectorRegistry);
+  projectorRegistry.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
 }

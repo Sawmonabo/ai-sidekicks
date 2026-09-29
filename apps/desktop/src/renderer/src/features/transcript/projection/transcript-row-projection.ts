@@ -1,6 +1,6 @@
 // The fixture shell's row projection — this window's event log, read as rows.
 //
-// THE SECOND HALF OF THE SHELL, AND IT DIES WITH THE FIRST. `FixtureShellRows.tsx`
+// THE SECOND HALF OF THE SHELL, AND IT DIES WITH THE FIRST. `TranscriptRow.tsx`
 // renders one row; this decides which rows there are. Both exist for the same
 // bounded reason and both are deleted by the change that registers the timeline
 // subtree's real rows, because that subtree brings its own read.
@@ -58,7 +58,7 @@
 //     actually carries rather than composing a sentence the daemon never said,
 //     and the real summary arrives with the read that brings the real rows.
 //
-//   • `childRunSummary`. Derived by `shell-child-run-summaries.ts` beside this file
+//   • `childRunSummary`. Derived by `child-run-summaries.ts` beside this file
 //     and stamped here on one row per child run, from the orchestration linkage
 //     the event contract puts on a run's birth beat. Its own module because its
 //     subject is a
@@ -92,7 +92,7 @@ import {
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
-import { deriveShellChildRunSummaries } from "./child-run-summaries.js";
+import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 /**
  * What one projection pass produced, and what it could not.
@@ -102,7 +102,7 @@ import { deriveShellChildRunSummaries } from "./child-run-summaries.js";
  * showed fewer rows than the session holds is a surface nobody can debug, and rule
  * 8's five kinds of nothing all need to know that something WAS dropped.
  */
-export interface FixtureShellProjection {
+export interface TranscriptRowProjection {
   readonly rows: readonly TimelineRow[];
   /**
    * Events the registered census does not carry a category for.
@@ -126,7 +126,7 @@ export interface FixtureShellProjection {
 const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_CATEGORY_BY_TYPE;
 
 /** Nothing projected. A frozen module constant, so an empty pass allocates none. */
-const EMPTY_PROJECTION: FixtureShellProjection = { rows: [], unprojectableEventCount: 0 };
+const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [], unprojectableEventCount: 0 };
 
 /**
  * Read this window's event log as timeline rows.
@@ -138,7 +138,7 @@ const EMPTY_PROJECTION: FixtureShellProjection = { rows: [], unprojectableEventC
  */
 export function projectFixtureShellRows(
   events: readonly ConsoleSessionEvent[],
-): FixtureShellProjection {
+): TranscriptRowProjection {
   if (events.length === 0) {
     return EMPTY_PROJECTION;
   }
@@ -148,7 +148,7 @@ export function projectFixtureShellRows(
   // child GOT to — its newest state and how many rows it holds — and neither is known
   // at the row the summary is stamped on. Keyed by that row's event id, so the fold
   // below asks one map read per event and decides nothing about which row is which.
-  const childRunSummaryByEventId = deriveShellChildRunSummaries(events);
+  const childRunSummaryByEventId = deriveChildRunSummaries(events);
   const rows: TimelineRow[] = [];
   let unprojectableEventCount = 0;
 
@@ -202,7 +202,7 @@ export function projectFixtureShellRows(
       runId: runId as RunId,
       position: progression.nextPosition,
       epoch: progression.epoch,
-      // Present on exactly one row per child run — see `shell-child-run-summaries.ts`
+      // Present on exactly one row per child run — see `child-run-summaries.ts`
       // for which row and why. Absent has to be absent rather than a present
       // `undefined`: the retention table compares own keys and would read the two as
       // different rows.

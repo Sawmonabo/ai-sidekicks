@@ -9,11 +9,11 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  CARD_FAMILIES,
-  CARD_LAYOUTS,
+  TRANSCRIPT_ROW_KINDS,
+  ROW_LAYOUTS,
   TOOL_RESULT_STATES,
-  cardFamilyDescriptor,
-  classifyCardFamily,
+  describeRowKind,
+  classifyTranscriptRow,
   toolResultState,
 } from "./row-kind.js";
 import { sampleGeneralRow, sampleRunRow } from "@test/helpers/timeline-row-samples.js";
@@ -32,55 +32,51 @@ const UNREADABLE_BODY: HydratedSessionEventContent = {
 
 describe("the card family classifier", () => {
   it("gives each body-bearing event type its own family", () => {
-    const familyFor = (type: string): string => classifyCardFamily(sampleRunRow({ type })).family;
+    const familyFor = (type: string): string | undefined =>
+      classifyTranscriptRow(sampleRunRow({ type }))?.kind;
     expect(familyFor("user.message")).toBe("user-message");
-    expect(familyFor("assistant.message")).toBe("assistant-message");
-    expect(familyFor("assistant.thinking_update")).toBe("assistant-reasoning");
-    expect(familyFor("tool.invoked")).toBe("tool-activity");
-    expect(familyFor("tool.result")).toBe("tool-activity");
-    expect(familyFor("tool.error")).toBe("tool-activity");
+    expect(familyFor("assistant.message")).toBe("agent-message");
+    expect(familyFor("assistant.thinking_update")).toBe("thinking");
+    expect(familyFor("tool.invoked")).toBe("tool-call");
+    expect(familyFor("tool.result")).toBe("tool-call");
+    expect(familyFor("tool.error")).toBe("tool-call");
   });
 
-  it("files every other event type as a receipt", () => {
-    expect(classifyCardFamily(sampleGeneralRow({ type: "session.created" })).family).toBe(
-      "receipt",
-    );
-    expect(classifyCardFamily(sampleRunRow({ type: "run.queued" })).family).toBe("receipt");
+  it("gives every other event type no row kind", () => {
+    expect(classifyTranscriptRow(sampleGeneralRow({ type: "session.created" }))).toBeUndefined();
+    expect(classifyTranscriptRow(sampleRunRow({ type: "run.queued" }))).toBeUndefined();
   });
 
   it("negative control: a near-miss type is NOT absorbed by a prefix", () => {
     // Without this, a `startsWith("tool.")` implementation would pass every case above
     // and silently give an unreviewed future type the tool layout.
-    expect(classifyCardFamily(sampleRunRow({ type: "tool.rehearsed" })).family).toBe("receipt");
-    expect(classifyCardFamily(sampleRunRow({ type: "assistant.message.v2" })).family).toBe(
-      "receipt",
-    );
+    expect(classifyTranscriptRow(sampleRunRow({ type: "tool.rehearsed" }))).toBeUndefined();
+    expect(classifyTranscriptRow(sampleRunRow({ type: "assistant.message.v2" }))).toBeUndefined();
   });
 
   it("hands the icon, the label, and the layout out together", () => {
-    for (const family of CARD_FAMILIES) {
-      const descriptor = cardFamilyDescriptor(family);
-      expect(descriptor.family).toBe(family);
+    for (const family of TRANSCRIPT_ROW_KINDS) {
+      const descriptor = describeRowKind(family);
+      expect(descriptor.kind).toBe(family);
       expect(descriptor.label.length).toBeGreaterThan(0);
-      expect(CARD_LAYOUTS).toContain(descriptor.layout);
+      expect(ROW_LAYOUTS).toContain(descriptor.layout);
     }
   });
 
-  it("opens message bodies and keeps tool rows and receipts to one line", () => {
-    expect(cardFamilyDescriptor("user-message").layout).toBe("body-open");
-    expect(cardFamilyDescriptor("assistant-message").layout).toBe("body-open");
-    expect(cardFamilyDescriptor("assistant-reasoning").layout).toBe("body-open");
-    expect(cardFamilyDescriptor("tool-activity").layout).toBe("one-line");
-    expect(cardFamilyDescriptor("receipt").layout).toBe("one-line");
+  it("opens message bodies and keeps tool rows to one line", () => {
+    expect(describeRowKind("user-message").layout).toBe("body-open");
+    expect(describeRowKind("agent-message").layout).toBe("body-open");
+    expect(describeRowKind("thinking").layout).toBe("body-open");
+    expect(describeRowKind("tool-call").layout).toBe("one-line");
   });
 
   it("classifies from the type alone — never from the tool's name", () => {
     // The wire declares no tool kind, so reading one out of the name would be the
     // console asserting a fact the daemon never sent.
-    const bash = classifyCardFamily(
+    const bash = classifyTranscriptRow(
       sampleRunRow({ type: "tool.result", payload: { toolName: "Bash" } }),
     );
-    const edit = classifyCardFamily(
+    const edit = classifyTranscriptRow(
       sampleRunRow({ type: "tool.result", payload: { toolName: "Edit" } }),
     );
     expect(bash).toStrictEqual(edit);

@@ -8,7 +8,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerChapter } from "./run-groups.js";
+import { type RunGroup } from "./run-groups.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
 
 export function mixedWindow(): readonly TimelineRow[] {
@@ -35,7 +35,7 @@ export function mixedWindow(): readonly TimelineRow[] {
   ];
 }
 
-export function chapterFor(chapters: readonly LedgerChapter[], runId: string): LedgerChapter {
+export function findRunGroup(chapters: readonly RunGroup[], runId: string): RunGroup {
   const chapter = chapters.find((candidate) => candidate.runId === runId);
   if (chapter === undefined) {
     throw new Error(`no chapter for ${runId}`);

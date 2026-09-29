@@ -20,7 +20,7 @@ import {
   type ConsolePaneContext,
   type ConsoleSurfaceContext,
 } from "@renderer/console/seats/index.js";
-import { registerLedger } from "@renderer/console/ledger/index.js";
+import { registerLedger } from "./screens.js";
 
 const PANE_TEST_OWNER = "ledger-test";
 

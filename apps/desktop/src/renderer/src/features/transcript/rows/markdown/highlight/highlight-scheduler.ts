@@ -237,7 +237,7 @@ function cacheKey(source: string, language: HighlightableLanguage): string {
 }
 
 /** The renderer's scheduler. One per realm, on `code-tokenizer.ts`' terms. */
-export const consoleCodeHighlightScheduler: CodeHighlightScheduler = new CodeHighlightScheduler();
+export const codeHighlightScheduler: CodeHighlightScheduler = new CodeHighlightScheduler();
 import {
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
   CODE_TOKEN_CACHE_BYTE_CAP,

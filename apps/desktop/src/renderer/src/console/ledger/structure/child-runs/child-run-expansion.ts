@@ -22,7 +22,7 @@
 // STATE IS PER CHILD RUN AND PER SESSION. Per child run because two children expand
 // independently; per session because the console holds session stores open across a
 // navigation, so a mount-scoped holder would carry one session's expansions into the
-// next one — the defect `useChapterDisclosure` records in its own header.
+// next one — the defect `useRunGroupDisclosure` records in its own header.
 
 import { useCallback, useMemo } from "react";
 
@@ -257,7 +257,7 @@ const CHILD_RUN_EXPANSION_DISPOSAL: SubjectScopedDisposal<ChildRunExpansionState
  * Hold one session's child-run expansions.
  *
  * The instance AND its published mirror are both session-scoped, for
- * `useChapterDisclosure`'s reason: they are one fact, and re-seeding the instance
+ * `useRunGroupDisclosure`'s reason: they are one fact, and re-seeding the instance
  * alone would leave the mirror standing over a session it is not about.
  *
  * The instance is a RESOURCE and the mirror is a value, which is the one asymmetry
@@ -302,7 +302,7 @@ export function useChildRunDisclosure(sessionId: string): ChildRunDisclosure {
       // holds when it runs, so publishing first files the state this press replaced:
       // against a daemon that is slow or never answers, the row goes on offering an
       // enabled `Expand` — or `Retry` — with no later publication until settlement,
-      // and its disabled progress state is unreachable. `useLedgerEarlierPaging`
+      // and its disabled progress state is unreachable. `useEarlierHistory`
       // makes the same claim about its own in-flight flag and can settle first only
       // because its state is DERIVED from the reader at render rather than copied at
       // the call; a mirror has to be filled after the fact it mirrors is true.

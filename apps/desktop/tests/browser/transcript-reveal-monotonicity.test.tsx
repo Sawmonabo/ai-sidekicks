@@ -24,12 +24,10 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { VisibleTextMonotonicityRecorder } from "./visible-text-monotonicity.js";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import {
-  LedgerRowRevealProvider,
-  useLedgerFrameCoordinator,
-  useLedgerReveal,
-  useLedgerRowReveal,
-} from "@renderer/console/ledger/frame/index.js";
+import { LedgerRowRevealProvider } from "@renderer/features/transcript/reveal/components/RowRevealProvider.js";
+import { useLedgerFrameCoordinator } from "@renderer/features/transcript/hooks/useAnimationFrameCoordinator.js";
+import { useLedgerReveal } from "@renderer/features/transcript/reveal/hooks/useReveal.js";
+import { useLedgerRowReveal } from "@renderer/features/transcript/reveal/hooks/useRowReveal.js";
 import { revealProse } from "@renderer/features/transcript/reveal/reveal.test-support.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "@renderer/features/transcript/frame/frame-caps.js";
 

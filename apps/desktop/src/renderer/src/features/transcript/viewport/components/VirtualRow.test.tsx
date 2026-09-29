@@ -11,10 +11,10 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
-import { LedgerRowMount } from "./VirtualRow.js";
-import type { LedgerViewportRow } from "../viewport-snapshot.js";
+import { VirtualRow } from "./VirtualRow.js";
+import type { ViewportRow } from "../viewport-snapshot.js";
 
-const ROW: LedgerViewportRow = {
+const ROW: ViewportRow = {
   key: "row-4000",
   parentKey: undefined,
   rootCursor: "cursor-1",
@@ -22,7 +22,7 @@ const ROW: LedgerViewportRow = {
 
 function renderMount(rowIndex: number, totalRowCount: number): HTMLElement {
   const { container } = render(
-    <LedgerRowMount
+    <VirtualRow
       rowIndex={rowIndex}
       totalRowCount={totalRowCount}
       row={ROW}

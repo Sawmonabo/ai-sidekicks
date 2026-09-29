@@ -3,11 +3,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  TIMELINE_ROW_FOOTER_TYPES,
-  registerTimelineRowFooterRenderer,
+  ROW_TYPES_WITH_FOOTER,
+  registerTranscriptRowFooterRenderer,
   rowTakesFooter,
-  timelineRowFooterRenderer,
-  unregisterTimelineRowFooterRenderer,
+  findTranscriptRowFooterRenderer,
+  unregisterTranscriptRowFooterRenderer,
 } from "./transcript-row-footer-renderer.js";
 import type { SessionId, TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -34,27 +34,27 @@ function generalRowOfType(type: string): TimelineRow {
 }
 
 afterEach(() => {
-  unregisterTimelineRowFooterRenderer();
+  unregisterTranscriptRowFooterRenderer();
 });
 
 describe("the timeline row footer seat", () => {
   it("is empty until an owner fills it", () => {
-    expect(timelineRowFooterRenderer()).toBeUndefined();
-    registerTimelineRowFooterRenderer("an owner", () => null);
-    expect(timelineRowFooterRenderer()).toBeDefined();
+    expect(findTranscriptRowFooterRenderer()).toBeUndefined();
+    registerTranscriptRowFooterRenderer("an owner", () => null);
+    expect(findTranscriptRowFooterRenderer()).toBeDefined();
   });
 
   it("refuses a second owner rather than swapping", () => {
-    registerTimelineRowFooterRenderer("first owner", () => null);
+    registerTranscriptRowFooterRenderer("first owner", () => null);
     expect(() => {
-      registerTimelineRowFooterRenderer("second owner", () => null);
+      registerTranscriptRowFooterRenderer("second owner", () => null);
     }).toThrow(/second owner/);
   });
 
   it("admits the same owner again, for a hot reload", () => {
-    registerTimelineRowFooterRenderer("one owner", () => null);
+    registerTranscriptRowFooterRenderer("one owner", () => null);
     expect(() => {
-      registerTimelineRowFooterRenderer("one owner", () => null);
+      registerTranscriptRowFooterRenderer("one owner", () => null);
     }).not.toThrow();
   });
 
@@ -66,6 +66,6 @@ describe("the timeline row footer seat", () => {
   });
 
   it("names one row type, so the membership question has one home", () => {
-    expect([...TIMELINE_ROW_FOOTER_TYPES]).toStrictEqual(["user.message"]);
+    expect([...ROW_TYPES_WITH_FOOTER]).toStrictEqual(["user.message"]);
   });
 });

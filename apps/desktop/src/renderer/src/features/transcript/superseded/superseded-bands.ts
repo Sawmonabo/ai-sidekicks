@@ -1,11 +1,11 @@
 // Superseded bands — the rows a rewind put behind it, kept and dimmed.
 //
-// `seams.ts`' epoch rule ends on the half this module owns: superseded turns stay
+// `system-message-classifier.ts`' epoch rule ends on the half this module owns: superseded turns stay
 // present but visibly past. Nothing is ever removed. A
 // band is the group of rows one rollback rewound past, and the ledger dims a band
 // rather than deleting one, so a person can still read what was rewound away.
 //
-// WHY THIS IS NOT IN `seams.ts`. A seam answers "is this ONE row a mark on the
+// WHY THIS IS NOT IN `system-message-classifier.ts`. A seam answers "is this ONE row a mark on the
 // log, and what does it say", from that row's own type and payload. A band answers
 // a different question over a different subject: given a WHOLE loaded window,
 // which rows does a rollback boundary somewhere in it rank past a cutoff. The two
@@ -33,7 +33,7 @@ export interface SupersededBand {
  * One row's rank against the rollback boundaries in its own run and epoch.
  *
  * A class because the answer is asked once per row per frame and computed once per
- * loaded window — the same memo shape `LedgerChapterIndex` uses, for the same
+ * loaded window — the same memo shape `RunGroupIndex` uses, for the same
  * reason.
  *
  * IDEMPOTENCE IS STRUCTURAL. The derivation reads the window and produces a set;
@@ -68,7 +68,7 @@ export class SupersededIndex {
   /**
    * Every band, keyed by the header key the feed dispatches a band header on.
    *
-   * The same shape `LedgerChapterIndex` publishes for chapters, and for the same
+   * The same shape `RunGroupIndex` publishes for chapters, and for the same
    * reason: the feed's row dispatch is a map read on `row.key`, so a band that wants
    * a header of its own has to be findable by that key and by nothing else.
    */

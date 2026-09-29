@@ -138,7 +138,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("negative control: rejects a member whose type changed under it", () => {
     // A method replaced by a plausible-looking value is the shape a half-installed
     // preload actually arrives in, and a name-only comparison would call it equal.
-    const perturbed = createStubBridge(FIXTURE_APP_META);
+    const perturbed = createStubBridge({ ...FIXTURE_APP_META });
     Reflect.set(perturbed.app, "version", 0);
     const live = resolveLiveBridgeFrom(perturbed);
     expect(live).toBeDefined();

@@ -18,10 +18,7 @@ import { useEffect, useState } from "react";
 
 import type { CodeTokenLine } from "./code-tokenizer.js";
 import { resolveHighlightableLanguage, type HighlightableLanguage } from "./highlight-languages.js";
-import {
-  consoleCodeHighlightScheduler,
-  type CodeHighlightScheduler,
-} from "./highlight-scheduler.js";
+import { codeHighlightScheduler, type CodeHighlightScheduler } from "./highlight-scheduler.js";
 
 export interface CodeBlockProps {
   readonly source: string;
@@ -43,7 +40,7 @@ export interface CodeBlockProps {
 
 export function CodeBlock(props: CodeBlockProps): React.JSX.Element {
   const language = resolveHighlightableLanguage(props.infoString);
-  const scheduler = props.scheduler ?? consoleCodeHighlightScheduler;
+  const scheduler = props.scheduler ?? codeHighlightScheduler;
   const tokenLines = useHighlightedLines(props.source, language, props.isSettled, scheduler);
 
   return (

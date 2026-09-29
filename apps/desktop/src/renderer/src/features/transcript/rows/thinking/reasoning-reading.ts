@@ -50,14 +50,14 @@ export const REASONING_TAIL_LINE_COUNT = 3;
  * the daemon answered it. Collapsing them would make the surface claim a provider
  * captured no reasoning every time a reader had simply not expanded the row.
  */
-export type ReasoningSurfaceReading =
+export type ReasoningReading =
   | { readonly status: "not-asked" }
   | { readonly status: "reading" }
   | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** What one arm says of itself when it carries no entries to show. */
-export interface ReasoningArmCopy {
+export interface ReasoningAvailabilityCopy {
   /** The sentence, in the console's calm register — what happened, never a remedy. */
   readonly title: string;
   /** The second line, saying what remains readable. */
@@ -97,7 +97,9 @@ export function reasoningTailOf(text: string): readonly string[] {
  * only on the terminal arm, and a reader meeting one is owed the same sentence
  * treatment as the others rather than a blank region.
  */
-export const REASONING_ARM_COPY: Readonly<Record<ReasoningAvailability, ReasoningArmCopy>> = {
+export const REASONING_AVAILABILITY_COPY: Readonly<
+  Record<ReasoningAvailability, ReasoningAvailabilityCopy>
+> = {
   available: {
     title: "This turn's reasoning was captured and this page of it is empty.",
     detail: "The read succeeded and served no entries at this position.",

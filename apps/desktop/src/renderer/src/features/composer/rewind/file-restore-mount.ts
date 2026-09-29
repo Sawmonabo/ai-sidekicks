@@ -20,7 +20,7 @@
 // every run's history draws the same disclosure, so there is nothing to key it on.
 
 import { LoadedLazyBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
-import type { FileRestoreDisclosureProps } from "@renderer/console/primitives/index.js";
+import type { FileRestoreDisclosureProps } from "../components/FileRestoreDisclosure/FileRestoreDisclosure.js";
 
 /**
  * What a pending disclosure stamps, so a refused capture says WHICH body was loading.

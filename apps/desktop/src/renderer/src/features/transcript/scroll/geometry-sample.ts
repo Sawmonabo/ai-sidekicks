@@ -11,7 +11,7 @@
 // samples say the same thing is a rule about the value, and it is asserted directly
 // rather than by driving a surface through two events.
 
-import { LEDGER_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
+import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 
 /**
  * What produced a geometry sample. Closed at two, and a rule rather than a label.
@@ -22,10 +22,10 @@ import { LEDGER_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
  * consumer folding a resize the way it folds a scroll drops a follower out of
  * following because the window got shorter.
  */
-export const LEDGER_GEOMETRY_CAUSES = ["scroll", "resize"] as const;
+export const GEOMETRY_CHANGE_CAUSES = ["scroll", "resize"] as const;
 
 /** One geometry cause. Derived from the enumeration, never restated. */
-export type LedgerGeometryCause = (typeof LEDGER_GEOMETRY_CAUSES)[number];
+export type GeometryChangeCause = (typeof GEOMETRY_CHANGE_CAUSES)[number];
 
 /**
  * The three numbers a scroll sample reads, and the facts derived from them.
@@ -33,14 +33,14 @@ export type LedgerGeometryCause = (typeof LEDGER_GEOMETRY_CAUSES)[number];
  * `sampledAt` comes from the clock seam rather than `Date.now`, so a frozen
  * fixture clock names one exact frame.
  */
-export interface LedgerGeometry {
+export interface ScrollGeometry {
   readonly scrollTop: number;
   readonly viewportHeight: number;
   readonly contentHeight: number;
   readonly distanceFromTailPx: number;
   readonly isAtTail: boolean;
   readonly sampledAt: number;
-  readonly cause: LedgerGeometryCause;
+  readonly cause: GeometryChangeCause;
 }
 
 /**
@@ -52,10 +52,10 @@ export interface LedgerGeometry {
  * worth waking its subscribers for, and every one of those subscribers re-renders
  * or re-lays-out when it is woken.
  */
-export function sameSampledGeometry(left: LedgerGeometry, right: LedgerGeometry): boolean {
+export function sameSampledGeometry(left: ScrollGeometry, right: ScrollGeometry): boolean {
   return (
-    Math.abs(left.scrollTop - right.scrollTop) < LEDGER_GEOMETRY_EPSILON_PX &&
-    Math.abs(left.viewportHeight - right.viewportHeight) < LEDGER_GEOMETRY_EPSILON_PX &&
-    Math.abs(left.contentHeight - right.contentHeight) < LEDGER_GEOMETRY_EPSILON_PX
+    Math.abs(left.scrollTop - right.scrollTop) < TRANSCRIPT_GEOMETRY_EPSILON_PX &&
+    Math.abs(left.viewportHeight - right.viewportHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX &&
+    Math.abs(left.contentHeight - right.contentHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX
   );
 }

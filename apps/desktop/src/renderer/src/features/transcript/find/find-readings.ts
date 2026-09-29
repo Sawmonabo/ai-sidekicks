@@ -4,7 +4,7 @@
 // match it offers to jump to has to be a row the viewport can reach. Two things cut
 // that window short of the session — the cap, which drops the oldest rows for good,
 // and the two folds, which hold rows behind a chapter header or a rewound band — and
-// `ledger-find.ts` counts the matches each one hides.
+// `useTranscriptFind.ts` counts the matches each one hides.
 //
 // A COUNT OF WHAT IS HIDDEN IS NOT A NOTICE. This ledger wrote two of its own, and
 // six families wrote their own beside them, which is the drift `primitives/reading/partial-read.ts`

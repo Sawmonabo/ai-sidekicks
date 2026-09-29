@@ -16,29 +16,24 @@ import { render, renderHook } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  type LedgerRowLease,
-  type LedgerViewportRow,
-} from "@renderer/console/ledger/frame/index.js";
+import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
+import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
-import { foldChapterHeaders } from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
+import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
-  useLedgerRowRenderer,
-  type LedgerRowRendererOptions,
-} from "@renderer/console/ledger/pane/feed/surface/LedgerFeedRow.js";
+  useTranscriptRowRenderer,
+  type TranscriptRowRendererOptions,
+} from "../hooks/useTranscriptRowRenderer.js";
 import { TERMINAL_RUN_ID } from "../../transcript-logs.test-support.js";
 import {
-  openSessionStoreWithSeam,
-  openSessionStoreWithTerminalChapter,
+  openSessionStoreWithSystemMessage,
+  openSessionStoreWithTerminalRunGroup,
 } from "../../run-group-logs.test-support.js";
-import { LedgerRowRetention } from "../../window/row-retention.js";
-import {
-  deriveLedgerWindow,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+import { TranscriptRowRetention } from "../../window/row-retention.js";
+import { deriveLedgerWindow, type TranscriptWindowModel } from "../../window/transcript-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
-function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerViewportRow {
+function viewportRowFor(ledgerWindow: TranscriptWindowModel, key: string): ViewportRow {
   const row = ledgerWindow.viewportRows.find((candidate) => candidate.key === key);
   if (row === undefined) {
     throw new Error(`the fixture window holds no viewport row keyed ${key}`);
@@ -48,32 +43,32 @@ function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerVie
 
 /** The options every case starts from, over one folded window. */
 function rendererOptions(
-  ledgerWindow: LedgerWindowModel,
-  overrides: Partial<LedgerRowRendererOptions> = {},
-): LedgerRowRendererOptions {
+  ledgerWindow: TranscriptWindowModel,
+  overrides: Partial<TranscriptRowRendererOptions> = {},
+): TranscriptRowRendererOptions {
   return {
     ledgerWindow,
     openedTerminalRunIds: new Set<string>(),
     hueForActor: () => undefined,
     toggleChapter: () => undefined,
-    rowLease: (): LedgerRowLease | undefined => undefined,
+    rowLease: (): RetainedRowState | undefined => undefined,
     renderTimelineRow: () => <output data-seat-row="yes" />,
     ...overrides,
   };
 }
 
 /** Render whatever the dispatch returned for one key. */
-function renderDispatch(options: LedgerRowRendererOptions, key: string): HTMLElement {
-  const { result } = renderHook(() => useLedgerRowRenderer(options));
+function renderDispatch(options: TranscriptRowRendererOptions, key: string): HTMLElement {
+  const { result } = renderHook(() => useTranscriptRowRenderer(options));
   const { container } = render(<>{result.current(viewportRowFor(options.ledgerWindow, key))}</>);
   return container;
 }
 
 describe("the feed's row dispatch — which of the four a key is", () => {
   /** The chaptered fixture, shut, which is what puts a header key in the list. */
-  function foldedChapterWindow(): LedgerWindowModel {
-    const sessionStore = openSessionStoreWithTerminalChapter();
-    return foldChapterHeaders(
+  function foldedChapterWindow(): TranscriptWindowModel {
+    const sessionStore = openSessionStoreWithTerminalRunGroup();
+    return foldRunGroupHeaders(
       deriveLedgerWindow(sessionStore.snapshot().timeline, false),
       new Set<string>(),
     ).window;
@@ -87,14 +82,14 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       TERMINAL_RUN_ID,
     );
 
-    expect(container.querySelector(".meridian-chapter-header")).not.toBeNull();
+    expect(container.querySelector(".meridian-run-group-header")).not.toBeNull();
     // The seat owns row BODIES and a chapter header is not one — asking it would
     // render a finished run as an ordinary receipt.
     expect(seatCalls).not.toHaveBeenCalled();
   });
 
   it("draws a seam for a row the seam index names, never through the seat", () => {
-    const sessionStore = openSessionStoreWithSeam();
+    const sessionStore = openSessionStoreWithSystemMessage();
     const ledgerWindow = deriveLedgerWindow(sessionStore.snapshot().timeline, false);
     const seamRowId = [...ledgerWindow.seamByRowId.keys()][0];
     if (seamRowId === undefined) {
@@ -106,7 +101,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       seamRowId,
     );
 
-    expect(container.querySelector(".meridian-seam-row__label")).not.toBeNull();
+    expect(container.querySelector(".meridian-system-message__label")).not.toBeNull();
     expect(seatCalls).not.toHaveBeenCalled();
   });
 
@@ -117,7 +112,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     const vanished = viewportRowFor(ledgerWindow, TERMINAL_RUN_ID);
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const { result } = renderHook(() =>
-      useLedgerRowRenderer(
+      useTranscriptRowRenderer(
         rendererOptions(
           // A window with neither the header nor any projected row under that key.
           deriveLedgerWindow([], false),
@@ -162,13 +157,13 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
    * hold — which is the state this boundary was drawn to end.
    */
   function twoProjectionsOverOneLog(): {
-    readonly before: LedgerWindowModel;
-    readonly after: LedgerWindowModel;
+    readonly before: TranscriptWindowModel;
+    readonly after: TranscriptWindowModel;
     readonly rowKey: string;
   } {
-    const sessionStore = openSessionStoreWithTerminalChapter();
+    const sessionStore = openSessionStoreWithTerminalRunGroup();
     const timeline = sessionStore.snapshot().timeline;
-    const retention = new LedgerRowRetention();
+    const retention = new TranscriptRowRetention();
     const before = deriveLedgerWindow(timeline, false, retention);
     const after = deriveLedgerWindow(timeline, false, retention);
     const rowKey = before.viewportRows.find((row) => before.rowsByKey.has(row.key))?.key;
@@ -188,15 +183,15 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
    */
   function seatCallsAcrossTwoProjections(
     secondOptions: (
-      nextWindow: LedgerWindowModel,
+      nextWindow: TranscriptWindowModel,
       renderTimelineRow: (slot: TimelineRowSlotProps) => ReactNode,
-    ) => LedgerRowRendererOptions,
+    ) => TranscriptRowRendererOptions,
   ): number {
     const { before, after, rowKey } = twoProjectionsOverOneLog();
     expect(after).not.toBe(before);
     const seatCalls = vi.fn((): ReactNode => <output data-seat-row="yes" />);
-    const Dispatch = (props: { readonly options: LedgerRowRendererOptions }): ReactNode => {
-      const renderRow = useLedgerRowRenderer(props.options);
+    const Dispatch = (props: { readonly options: TranscriptRowRendererOptions }): ReactNode => {
+      const renderRow = useTranscriptRowRenderer(props.options);
       return renderRow(viewportRowFor(props.options.ledgerWindow, rowKey));
     };
     const view = render(
@@ -223,7 +218,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
   it("negative control: a row whose density moved is redrawn", () => {
     // Without this the case above would pass over a memo that never re-rendered at
     // all — a card frozen at whatever it drew first, which is worse than redrawing it.
-    const openedLease = (): LedgerRowLease => ({ density: "expanded", innerScrollTopPx: 0 });
+    const openedLease = (): RetainedRowState => ({ density: "expanded", innerScrollTopPx: 0 });
     expect(
       seatCallsAcrossTwoProjections((nextWindow, renderTimelineRow) =>
         rendererOptions(nextWindow, { renderTimelineRow, rowLease: openedLease }),

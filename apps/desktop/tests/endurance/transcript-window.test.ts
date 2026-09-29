@@ -55,9 +55,9 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
-import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
 import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
+import { deriveLedgerWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
 /**
  * The length of log this tier measures the ledger at.

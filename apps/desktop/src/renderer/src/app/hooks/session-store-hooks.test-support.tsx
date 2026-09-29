@@ -15,7 +15,10 @@ import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-proj
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { registerRunLifecycleProjectors } from "@renderer/store/session-events/run-lifecycle-projector.js";
+import {
+  RUN_LIFECYCLE_PROJECTOR_OWNER,
+  RUN_LIFECYCLE_PROJECTORS,
+} from "@renderer/store/session-events/run-lifecycle-projector.js";
 import {
   useActiveSessionStore,
   useSessionStoreRegistry,
@@ -115,7 +118,7 @@ function useDefaultedProjectorRegistry(
   }
   if (fallbackRef.current === undefined) {
     const fallback = new ConsoleEntityProjectorRegistry();
-    registerRunLifecycleProjectors(fallback);
+    fallback.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
     fallbackRef.current = fallback;
   }
   return fallbackRef.current;

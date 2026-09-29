@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { LedgerHeadGrowth } from "./viewport-head-insertion.js";
-import { type LedgerViewportRow } from "./viewport-snapshot.js";
+import { HeadInsertion } from "./viewport-head-insertion.js";
+import { type ViewportRow } from "./viewport-snapshot.js";
 
-function rowsFrom(keys: readonly string[]): readonly LedgerViewportRow[] {
+function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
   return keys.map((key) => ({ key, parentKey: undefined, rootCursor: `cursor-${key}` }));
 }
 
@@ -11,14 +11,14 @@ describe("the head-growth reading", () => {
   it("reports nothing on the first set it is shown", () => {
     // Every row is new and none of them arrived UNDER anybody: there was no window
     // for a page to land in front of.
-    expect(new LedgerHeadGrowth().read(rowsFrom(["c", "d"]))).toEqual({
+    expect(new HeadInsertion().read(rowsFrom(["c", "d"]))).toEqual({
       insertedCount: 0,
       headRootCursor: undefined,
     });
   });
 
   it("counts the rows a page brought and names the cursor they start at", () => {
-    const growth = new LedgerHeadGrowth();
+    const growth = new HeadInsertion();
     growth.read(rowsFrom(["c", "d"]));
 
     expect(growth.read(rowsFrom(["a", "b", "c", "d"]))).toEqual({
@@ -28,7 +28,7 @@ describe("the head-growth reading", () => {
   });
 
   it("reports nothing for rows appended at the tail", () => {
-    const growth = new LedgerHeadGrowth();
+    const growth = new HeadInsertion();
     growth.read(rowsFrom(["c", "d"]));
 
     expect(growth.read(rowsFrom(["c", "d", "e"]))).toEqual({
@@ -43,7 +43,7 @@ describe("the head-growth reading", () => {
     // whole projection, so the rows the cap took are back at the front of the very
     // next set. Read against the RETAINED head this is a page of history arriving;
     // read against the incoming one it is the ordinary reconcile it actually is.
-    const growth = new LedgerHeadGrowth();
+    const growth = new HeadInsertion();
     const whole = rowsFrom(["a", "b", "c", "d"]);
     growth.read(whole);
 
@@ -54,7 +54,7 @@ describe("the head-growth reading", () => {
     // A different session's rows, or a window rebuilt from scratch: the key it
     // remembered names nothing, so there is no origin for the arithmetic and no
     // shift to undo.
-    const growth = new LedgerHeadGrowth();
+    const growth = new HeadInsertion();
     growth.read(rowsFrom(["c", "d"]));
 
     expect(growth.read(rowsFrom(["x", "y"]))).toEqual({

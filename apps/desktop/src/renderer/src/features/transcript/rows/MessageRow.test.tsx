@@ -5,8 +5,9 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { inlineCardSeatRegistry, type InlineCardSeatProps } from "@renderer/console/seats/index.js";
-import { MessageCard } from "./MessageRow.js";
-import { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import { MessageRow } from "./MessageRow.js";
+import { classifyTranscriptRow } from "./row-kind.js";
+import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 function renderMessageCard(
@@ -21,22 +22,28 @@ function renderMessageCard(
     readonly reasoningSurface?: React.ReactNode;
   } = {},
 ): HTMLElement {
+  const row = sampleRunRow({
+    type: overrides.type ?? "assistant.message",
+    ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
+    ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+  });
+  const rowKind = classifyTranscriptRow(row);
+  if (rowKind === undefined) {
+    throw new Error(`${row.type} is not a message kind`);
+  }
   const { container } = render(
-    <MessageCard
-      row={sampleRunRow({
-        type: overrides.type ?? "assistant.message",
-        ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
-        ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
-      })}
+    <MessageRow
+      row={row}
+      rowKind={rowKind}
       actorHue={undefined}
       isSuperseded={false}
       density="expanded"
       footnotes={new FootnoteRegistry()}
-      reasoningSurface={overrides.reasoningSurface}
+      thinkingRow={overrides.reasoningSurface}
       {...(overrides.content === undefined ? {} : { content: overrides.content })}
       {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
       {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-      editAffordance={overrides.editAffordance}
+      editControl={overrides.editAffordance}
     />,
   );
   return container;

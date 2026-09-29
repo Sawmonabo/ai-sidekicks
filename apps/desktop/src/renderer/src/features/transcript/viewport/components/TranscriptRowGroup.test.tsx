@@ -8,7 +8,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { LedgerRowGroup } from "./TranscriptRowGroup.js";
+import { TranscriptRowGroup } from "./TranscriptRowGroup.js";
 
 describe("a row group that fails to project", () => {
   let restoreThrowOnReport = false;
@@ -31,11 +31,11 @@ describe("a row group that fails to project", () => {
       throw new Error("the projection had no body for this entry");
     }
     const { container } = render(
-      <LedgerRowGroup groupLabel="This entry">
+      <TranscriptRowGroup groupLabel="This entry">
         <UnreadableRow />
-      </LedgerRowGroup>,
+      </TranscriptRowGroup>,
     );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-transcript-row-failure")).toHaveLength(1);
     expect(screen.getByRole("alert")).toBeDefined();
     expect(screen.getByText(/the projection had no body for this entry/)).toBeDefined();
     expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
@@ -43,11 +43,11 @@ describe("a row group that fails to project", () => {
 
   it("negative control: a row that renders is left alone", () => {
     const { container } = render(
-      <LedgerRowGroup groupLabel="This entry">
+      <TranscriptRowGroup groupLabel="This entry">
         <p>the entry rendered</p>
-      </LedgerRowGroup>,
+      </TranscriptRowGroup>,
     );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(0);
+    expect(container.querySelectorAll(".meridian-transcript-row-failure")).toHaveLength(0);
     expect(screen.getByText("the entry rendered")).toBeDefined();
   });
 });

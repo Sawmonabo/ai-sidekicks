@@ -1,6 +1,6 @@
 // The tool card — one line until opened.
 //
-// Tool rows render as one line until opened. `card-family.ts` owns the five states that
+// Tool rows render as one line until opened. `row-kind.ts` owns the five states that
 // one line reports, and the density
 // budget puts the collapse state in the LIST's hands rather than the row's. So this card renders
 // exactly what its `density` prop says and owns no open state: two rows disagreeing
@@ -8,14 +8,14 @@
 // would.
 //
 // THE HEADER IS THE WHOLE ROW WHEN COLLAPSED, and it carries the result state
-// unconditionally. `card-family.ts`'s ranking rule — never hide a tool error inside a
+// unconditionally. `row-kind.ts`'s ranking rule — never hide a tool error inside a
 // collapsed row without the red mark on the header — is the reason the state chip is
 // outside the disclosure and not
 // inside it — a collapsed error is still an error, and a reader scanning a log of forty
 // tool calls sees the failures without opening one.
 //
 // WHAT IT DOES NOT DO. It does not read a tool FAMILY out of the tool's name — see
-// `card-family.ts` for why that would be the console asserting a fact the wire never
+// `row-kind.ts` for why that would be the console asserting a fact the wire never
 // sent — so every tool renders through this one card, and the name renders wire-verbatim
 // in mono beside it. The same refusal decides how the BODY is drawn: the wire declares
 // no shape for a tool result, so it is drawn as prose rather than as terminal output
@@ -37,19 +37,16 @@ import {
   formatDuration,
   type ChipTone,
 } from "@renderer/console/primitives/index.js";
-import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
-import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./row-kind.js";
-import type { LedgerCardProps } from "./hydrated-row-props.js";
-import { MachineBody } from "@renderer/console/ledger/cards/bodies/index.js";
-import {
-  ToolSubFamilyBadge,
-  declaredToolSubFamily,
-  type ToolSubFamilyRenderer,
-} from "@renderer/console/ledger/cards/tool-families/index.js";
+import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
+import { describeRowKind, toolResultState, type ToolResultState } from "./row-kind.js";
+import type { HydratedRowProps } from "./hydrated-row-props.js";
+import { ToolOutput } from "./bodies/ToolOutput.js";
+import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
+import { readDeclaredToolKind, type ToolKindRenderer } from "./tool-kinds/tool-kinds.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
 
 /** What a mount hands a tool card, beyond the row itself. */
-export interface ToolCardProps extends LedgerCardProps {
+export interface ToolRowProps extends HydratedRowProps {
   /**
    * Open or close this row.
    *
@@ -66,7 +63,7 @@ export interface ToolCardProps extends LedgerCardProps {
    * a compile error at the construction site instead of an absent key that reads the same
    * as a deliberate "none".
    */
-  readonly subFamily: ToolSubFamilyRenderer | undefined;
+  readonly toolKindRenderer: ToolKindRenderer | undefined;
 }
 
 /** How each result state reads, and in which of the console's two hues. */
@@ -74,7 +71,7 @@ const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone
   // The two-hue rule is why only one of these five is colored. Red means a failure;
   // amber means a person is needed. A truncated body and an unreadable one are neither —
   // nobody is being asked for anything and nothing failed — so they say what they are in
-  // words and take the neutral chip. `MachineBody` renders the one genuinely red case,
+  // words and take the neutral chip. `ToolOutput` renders the one genuinely red case,
   // a stored body that does not match its signature, where the body itself is.
   running: { label: "Running", tone: "neutral" },
   ok: { label: "Ok", tone: "neutral" },
@@ -84,8 +81,8 @@ const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone
 };
 
 /** A tool-call row: the family's glyph and label around its declared arguments and result. */
-export function ToolCard(props: ToolCardProps): React.JSX.Element {
-  const family = cardFamilyDescriptor("tool-activity");
+export function ToolRow(props: ToolRowProps): React.JSX.Element {
+  const family = describeRowKind("tool-call");
   const state = toolResultState(props.row.type, props.content);
   const chip = RESULT_STATE_CHIPS[state];
   const payload = projectedPayload(props.row);
@@ -94,12 +91,11 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
   const isOpen = props.density === "expanded";
 
   return (
-    <LedgerRowGroup groupLabel="a tool row">
+    <TranscriptRowGroup groupLabel="a tool row">
       <LedgerRow
-        actorHueStep={hueStepOf(props)}
-        {...(props.actorHue === undefined ? {} : { ringTreatment: props.actorHue.ringTreatment })}
+        agentHueStep={hueStepOf(props)}
         occurredAtIso={props.row.timestamp}
-        actorLabel={props.row.actor ?? family.label}
+        authorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
       >
@@ -118,7 +114,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           {/* BEFORE THE SUMMARY, because the treatment qualifies WHICH tool ran and
               the summary says what it did. Draws nothing at all for a row declaring
               no sub-family, which is every row this build can receive. */}
-          <ToolSubFamilyBadge body={props.subFamily} reading={declaredToolSubFamily(payload)} />
+          <ToolKindBadge body={props.toolKindRenderer} reading={readDeclaredToolKind(payload)} />
           <span className="meridian-tool-card__summary">{clampSummary(props.row.summary)}</span>
           {durationMs === undefined ? null : (
             <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>
@@ -140,7 +136,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           )}
         </div>
         {isOpen ? (
-          <MachineBody
+          <ToolOutput
             content={props.content}
             {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
             // NO SHAPE IS PASSED, BECAUSE THIS CARD HAS NONE TO GIVE. The tool
@@ -150,16 +146,16 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
             // result was reading terminal output into an MCP reply, a web-search
             // answer, and every other ordinary textual result; one that answered
             // "prose" for every result put a shell's escape sequences on the page as
-            // text. `MachineBody` reads the bytes, which is the one thing the wire
+            // text. `ToolOutput` reads the bytes, which is the one thing the wire
             // does supply, and deriving a shape from the tool's NAME stays the
-            // invention `card-family.ts` refuses.
+            // invention `row-kind.ts` refuses.
             sourceId={props.row.id}
             footnotes={props.footnotes}
             label={`Output of ${toolName ?? "an unnamed tool"}`}
           />
         ) : null}
       </LedgerRow>
-    </LedgerRowGroup>
+    </TranscriptRowGroup>
   );
 }
 
@@ -188,6 +184,6 @@ export function clampSummary(summary: string): string {
  * outside the wheel as unattributed and falls back to the neutral control boundary. That
  * is the fail-closed answer, and it is the primitive's rule rather than a second one.
  */
-function hueStepOf(props: Pick<ToolCardProps, "actorHue">): number {
+function hueStepOf(props: Pick<ToolRowProps, "actorHue">): number {
   return props.actorHue?.step ?? -1;
 }

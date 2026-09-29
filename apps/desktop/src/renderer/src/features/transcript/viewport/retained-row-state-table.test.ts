@@ -7,13 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LedgerRowLeaseTable } from "./retained-row-state-table.js";
+import { RetainedRowStateTable } from "./retained-row-state-table.js";
 
 const EXPANDED = { density: "expanded", innerScrollTopPx: 44 } as const;
 
 describe("the row-lease table — parking, not dropping", () => {
   it("hands a parked lease back under the row's own key", () => {
-    const table = new LedgerRowLeaseTable();
+    const table = new RetainedRowStateTable();
     table.setLease("chapter-0", EXPANDED);
     table.park("chapter-0");
     expect(table.parkedCount).toBe(1);
@@ -24,14 +24,14 @@ describe("the row-lease table — parking, not dropping", () => {
     // Without this the case above would pass over a table that parked every key it
     // was handed, filling the bounded table with rows nobody had expanded and
     // evicting the ones somebody had.
-    const table = new LedgerRowLeaseTable();
+    const table = new RetainedRowStateTable();
     table.park("chapter-0");
     expect(table.parkedCount).toBe(0);
     expect(table.lease("chapter-0")).toBeUndefined();
   });
 
   it("answers from the live table first, so a re-read row's current state wins", () => {
-    const table = new LedgerRowLeaseTable();
+    const table = new RetainedRowStateTable();
     table.setLease("chapter-0", EXPANDED);
     table.park("chapter-0");
     table.setLease("chapter-0", { density: "collapsed", innerScrollTopPx: 0 });
@@ -41,7 +41,7 @@ describe("the row-lease table — parking, not dropping", () => {
 
 describe("the row-lease table — the parked bound", () => {
   it("evicts the least recently parked once the bound is passed", () => {
-    const table = new LedgerRowLeaseTable(2);
+    const table = new RetainedRowStateTable(2);
     for (const index of [0, 1, 2]) {
       table.setLease(`chapter-${String(index)}`, { density: "expanded", innerScrollTopPx: index });
     }
@@ -57,7 +57,7 @@ describe("the row-lease table — the parked bound", () => {
   it("negative control: under the bound nothing is evicted at all", () => {
     // Without this the case above would pass over a table that evicted on every
     // park, which would lose the row a person had open a moment ago.
-    const table = new LedgerRowLeaseTable(2);
+    const table = new RetainedRowStateTable(2);
     table.setLease("chapter-0", EXPANDED);
     table.setLease("chapter-1", EXPANDED);
     table.park("chapter-0");
@@ -67,7 +67,7 @@ describe("the row-lease table — the parked bound", () => {
   });
 
   it("re-parking a row keeps it, and moves it to the most recently parked end", () => {
-    const table = new LedgerRowLeaseTable(2);
+    const table = new RetainedRowStateTable(2);
     for (const key of ["chapter-0", "chapter-1"]) {
       table.setLease(key, EXPANDED);
       table.park(key);
@@ -83,7 +83,7 @@ describe("the row-lease table — the parked bound", () => {
     // The TIME half of this module's own bound. The count cap keeps the row a person
     // had open a moment ago; this returns the ones from an hour ago, which the header
     // already says nobody expects to survive.
-    const table = new LedgerRowLeaseTable(4);
+    const table = new RetainedRowStateTable(4);
     for (const key of ["chapter-0", "chapter-1"]) {
       table.setLease(key, EXPANDED);
       table.park(key);
@@ -99,7 +99,7 @@ describe("the row-lease table — the parked bound", () => {
   it("releases nothing when nothing is parked", () => {
     // The negative control for the count: a release that answered with the LIVE size
     // would report memory returned that is still held.
-    const table = new LedgerRowLeaseTable(4);
+    const table = new RetainedRowStateTable(4);
     table.setLease("chapter-0", EXPANDED);
     expect(table.releaseParkedLeases()).toBe(0);
     expect(table.lease("chapter-0")).toStrictEqual(EXPANDED);

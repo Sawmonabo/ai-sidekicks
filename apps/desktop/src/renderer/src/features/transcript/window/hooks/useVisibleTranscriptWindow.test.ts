@@ -9,8 +9,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { useLedgerFind } from "../../find/hooks/useTranscriptFind.js";
-import { useVisibleLedgerWindow, type VisibleLedgerWindow } from "./useVisibleTranscriptWindow.js";
+import { useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
+import {
+  useVisibleTranscriptWindow,
+  type VisibleTranscriptWindow,
+} from "./useVisibleTranscriptWindow.js";
 import {
   EVERY_ROW_QUERY,
   LOG_EVENT_COUNT,
@@ -20,21 +23,19 @@ import {
 import {
   NO_ROWS_REMOVED,
   deriveLedgerWindow,
-  type LedgerWindowModel,
-} from "@renderer/console/ledger/pane/window/ledger-window.js";
+  type TranscriptWindowModel,
+} from "../transcript-window.js";
 
 /**
  * The find state over one visible window, with the upstream stages left unnarrowed.
  *
- * Every case in this file is about the cap, which is the narrowing BELOW the fold —
- * so neither upstream stage removed anything, both report the shared empty set, and
- * the filter and fold counts stay zero throughout. `ledger-find.test.ts` is where
- * those two are driven.
+ * Every case in this file is about the cap, which is the stage BELOW the fold — so
+ * the fold removed nothing, reports the shared empty set, and its count stays zero
+ * throughout. `useTranscriptFind.test.ts` is where that count is driven.
  */
-function findOverVisible(visible: VisibleLedgerWindow): ReturnType<typeof useLedgerFind> {
-  return useLedgerFind({
+function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof useTranscriptFind> {
+  return useTranscriptFind({
     visible,
-    filteredAwayRows: NO_ROWS_REMOVED,
     foldedAwayRows: NO_ROWS_REMOVED,
   });
 }
@@ -43,7 +44,7 @@ describe("the visible ledger window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
     const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
-    const { result } = renderHook(() => useVisibleLedgerWindow(ledgerWindow, retained));
+    const { result } = renderHook(() => useVisibleTranscriptWindow(ledgerWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
     expect(result.current.prunedAwayRows).toHaveLength(LOG_EVENT_COUNT - RETAINED_ROW_COUNT);
     // The partition is DECIDED by this set, and it is published rather than
@@ -57,7 +58,7 @@ describe("the visible ledger window", () => {
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const retainedKeys = new Set(retained.map((row) => row.key));
     const { result } = renderHook(() => {
-      const visible = useVisibleLedgerWindow(ledgerWindow, retained);
+      const visible = useVisibleTranscriptWindow(ledgerWindow, retained);
       return findOverVisible(visible);
     });
 
@@ -84,7 +85,7 @@ describe("the visible ledger window", () => {
     const retainedKeys = new Set(
       ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
     );
-    const wholeLogWindow: VisibleLedgerWindow = {
+    const wholeLogWindow: VisibleTranscriptWindow = {
       rows: ledgerWindow.rows,
       prunedAwayRows: [],
       hasEarlierRows: false,
@@ -103,14 +104,14 @@ describe("the visible ledger window", () => {
 
 describe("the clip the window states", () => {
   /** One loaded log, from which a case keeps the whole window or only its tail. */
-  function loadedWindow(): LedgerWindowModel {
+  function loadedWindow(): TranscriptWindowModel {
     return deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
   }
 
   it("says earlier rows exist exactly when the cap took some", () => {
     const ledgerWindow = loadedWindow();
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
-    const { result } = renderHook(() => useVisibleLedgerWindow(ledgerWindow, retained));
+    const { result } = renderHook(() => useVisibleTranscriptWindow(ledgerWindow, retained));
     expect(result.current.hasEarlierRows).toBe(true);
   });
 
@@ -119,7 +120,7 @@ describe("the clip the window states", () => {
     // way round, which would put a truncation notice on every complete session.
     const ledgerWindow = loadedWindow();
     const { result } = renderHook(() =>
-      useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows),
+      useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),
     );
     expect(result.current.prunedAwayRows).toHaveLength(0);
     expect(result.current.hasEarlierRows).toBe(false);

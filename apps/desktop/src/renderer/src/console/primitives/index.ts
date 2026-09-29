@@ -187,12 +187,10 @@ export {
   /** @consumedBy a view family that has not landed yet */
   REFUSAL_SCOPES,
   /** @consumedBy a view family that has not landed yet */
-  behindProducerReading,
   partialReadNotices,
   /** @consumedBy a view family that has not landed yet */
   readingNoticeFor,
   /** @consumedBy a view family that has not landed yet */
-  uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "@renderer/lib/partial-read.js";
 export type {
@@ -217,7 +215,6 @@ export { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 // THE LATCH ITSELF LEAVES TOO, for the caller whose memory is neither arity's: the
 // sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
 // the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
-export { useReadingAnnouncement } from "@renderer/hooks/useAnnounceOncePerSentence.js";
 export { useReadSettlementAnnouncement } from "@renderer/hooks/useReadSettlementAnnouncement.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
@@ -387,7 +384,6 @@ export {
   formatDuration,
   formatPercent,
   /** @consumedBy a view family that has not landed yet */
-  formatRate,
   formatRelativeTime,
   formatWireDescriptor,
   /** @consumedBy a view family that has not landed yet */
@@ -406,7 +402,6 @@ export {
 // it in its own words: the composer's posture chip renders no facts and so cannot
 // mount the chip above, but a second sentence for one fact is the copy this
 // family owns being written twice.
-export type { FileRestoreDisclosureProps } from "@renderer/features/composer/components/FileRestoreDisclosure/FileRestoreDisclosure.js";
 
 // The overlay shells, each registering what it mounts in the window's airspace — at the
 // primitive layer, never per overlay instance: the anchored four register their popup,
