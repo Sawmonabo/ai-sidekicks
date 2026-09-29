@@ -31,6 +31,8 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
+import { contentBlockSize } from "./content-block-size.js";
+
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
@@ -59,20 +61,6 @@ const RESIZABLE_GROUP_LAYOUT = { display: "flex", flexDirection: "row" } as cons
 interface MountedPane {
   readonly layoutCell: HTMLElement;
   readonly pane: HTMLElement;
-}
-
-/**
- * An element's height inside its block padding. The pane layout's group and cell pad
- * themselves to leave room for the browser's focus mark, so what each hands the box
- * inside it is this, not its outer height.
- */
-function contentBlockSize(element: HTMLElement): number {
-  const style = getComputedStyle(element);
-  return (
-    element.getBoundingClientRect().height -
-    Number.parseFloat(style.paddingBlockStart) -
-    Number.parseFloat(style.paddingBlockEnd)
-  );
 }
 
 async function mountPaneInPaneLayout(): Promise<MountedPane> {
