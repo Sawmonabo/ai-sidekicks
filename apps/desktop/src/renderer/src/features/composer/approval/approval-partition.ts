@@ -13,36 +13,12 @@
 // nothing needs them while the read is still running.
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
-import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { type ReadPhase } from "@renderer/lib/read-phase.js";
-import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {
   readonly pending: readonly ApprovalRecord[];
   readonly history: readonly ApprovalRecord[];
-}
-
-/**
- * The provider-ask origin of every projected approval, keyed by request id.
- *
- * Built over the whole partition rather than per rendered record: the partition's
- * identity changes only when an approval event lands, so one pass per fold serves
- * both lists, where a per-record lookup would rebuild on every render of either.
- *
- * @consumedBy the approvals pane's provider ask framing
- */
-export function providerAsksIn(
-  entities: Readonly<Record<string, StoredEntity>>,
-): ReadonlyMap<string, ProviderAsk> {
-  const asks = new Map<string, ProviderAsk>();
-  for (const [approvalRequestId, entity] of Object.entries(entities)) {
-    const ask = providerAskFor(entity);
-    if (ask !== undefined) {
-      asks.set(approvalRequestId, ask);
-    }
-  }
-  return asks;
 }
 
 /** Neither list has a member until a read has answered. */

@@ -76,22 +76,6 @@
 }
 
 /*
- * A closed control marked with `aria-disabled` and not `disabled`, so the control
- * keeps its place in the tab order and a reader is taken to it and told why — which
- * means the closed LOOK has to be declared, because the browser paints nothing for the
- * attribute the way it does for the property. The same treatment as the rule above it:
- * one closed state, one appearance, whichever fact closed it.
- */
-.meridian-repo-attach__confirm[aria-disabled="true"],
-.meridian-bind__confirm[aria-disabled="true"],
-.meridian-reattach__trigger[aria-disabled="true"],
-.meridian-root-removal__trigger[aria-disabled="true"] {
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-faint);
-  cursor: not-allowed;
-}
-
-/*
  * Focus is visible on every control these dialogs ship, in one rule rather than one
  * per class, so a control added later cannot arrive without it. The regions whose box
  * is declared elsewhere ring themselves there — `attach/attach.css` for the reattach
