@@ -291,8 +291,11 @@ export interface AgentDefinitionListEntry extends AgentDefinition {
   loadError: string | null;
 }
 
-/** Refuses a scope and a project that disagree: a project scope names its project. */
-function refineProjectScope(
+/**
+ * Refuses a scope and a project that disagree: a project scope names its project.
+ * Saved agents and skills share the rule.
+ */
+export function refineProjectScope(
   value: { scope?: AgentDefinitionScope | undefined; projectId?: string | undefined },
   context: z.RefinementCtx,
 ): void {
@@ -301,6 +304,23 @@ function refineProjectScope(
       code: "custom",
       path: ["projectId"],
       message: "projectId is present exactly when scope is project.",
+    });
+  }
+}
+
+/**
+ * Refuses an origin and a plugin name that disagree: a plugin's entry names its
+ * plugin and no other entry does. Saved agents and skills share the rule.
+ */
+export function refinePluginOrigin(
+  value: { origin: AgentDefinitionOrigin; pluginName?: string | undefined },
+  context: z.RefinementCtx,
+): void {
+  if ((value.origin === "plugin") !== (value.pluginName !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["pluginName"],
+      message: "pluginName is present exactly when origin is plugin.",
     });
   }
 }
@@ -320,13 +340,7 @@ export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry>
   })
   .strict()
   .superRefine((entry, context) => {
-    if ((entry.origin === "plugin") !== (entry.pluginName !== undefined)) {
-      context.addIssue({
-        code: "custom",
-        path: ["pluginName"],
-        message: "pluginName is present exactly on a plugin's agent.",
-      });
-    }
+    refinePluginOrigin(entry, context);
     refineProjectScope(entry, context);
   });
 
