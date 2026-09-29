@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 
 import { parseConsolePaneAddress, type ConsolePaneAddress } from "@renderer/console/seats/index.js";
-import type { DeckPane } from "../pane-layout/pane-layout.js";
+import type { SessionPane } from "../pane-layout/pane-layout.js";
 
 /** The focused pane's address, for the composer's send router. */
 export function useFocusedPaneAddress(
-  panes: readonly DeckPane[],
+  panes: readonly SessionPane[],
   focusedPaneId: string | undefined,
 ): ConsolePaneAddress | undefined {
   return useMemo(() => {

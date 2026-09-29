@@ -26,7 +26,7 @@ export type SessionIdentityReadCall = (
  *
  * @consumedBy the session header's title
  */
-export function useSessionHeaderIdentity(
+export function useSessionIdentity(
   read: SessionIdentityReadCall,
   sessionId: string | undefined,
 ): SessionHeaderReadState<SessionIdentity> {

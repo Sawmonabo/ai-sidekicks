@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
@@ -22,8 +22,8 @@ import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-per
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import { DeckLayout } from "./pane-layout/pane-layout-store.js";
-import { DECK_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
+import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { Workspace } from "./SessionScreen.js";
 
 export const SESSION_ID = "session-workspace";
@@ -150,7 +150,7 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
  * hook throws outside the provider by design — so this wrapper is the production
  * mount shape rather than test scaffolding.
  */
-export function renderWorkspace(
+export function renderSessionScreen(
   uiStateStore: UiStateStore,
   store?: SessionStore,
 ): { readonly container: HTMLElement; readonly uiStateStore: UiStateStore } {
@@ -211,13 +211,13 @@ export async function saveLayout(
   partition: string,
   kinds: readonly ("timeline" | "runs")[],
 ): Promise<void> {
-  const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+  const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   for (const kind of kinds) {
     layout.open({ kind, entity: undefined });
   }
   const result = await store.write(
     partition,
-    DECK_LAYOUT_RECORD_KEY,
+    PANE_LAYOUT_RECORD_KEY,
     "layout",
     layout.toSnapshot(),
   );

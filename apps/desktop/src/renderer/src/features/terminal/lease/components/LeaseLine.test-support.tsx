@@ -11,15 +11,15 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
-import { VIEWER_USER } from "../lease-model.test-support.js";
+import { THIS_DEVICE_ID } from "../lease-model.test-support.js";
 import type {
   TerminalLeaseCall,
   TerminalLeaseCalls,
-  TerminalLeaseClaim,
+  UseTakeShellResult,
 } from "../hooks/useTakeShell.js";
 import { LeaseClaimControl } from "./LeaseClaimControl.js";
 import { LeaseLine } from "./LeaseLine.js";
-import type { TerminalViewerIdentity } from "../hooks/useTerminalDeviceIdentity.js";
+import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.js";
 
 /**
@@ -99,22 +99,22 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
  * landed, so a default of anything else would make every case in this file about the
  * withheld state instead of about the state it names.
  */
-export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
+export const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   status: "read",
-  userId: VIEWER_USER,
+  userId: THIS_DEVICE_ID,
 };
 
 /** A claim that has dispatched nothing. */
-export const IDLE_CLAIM: TerminalLeaseClaim = {
+export const IDLE_CLAIM: UseTakeShellResult = {
   isInFlight: false,
-  acquire: () => undefined,
+  take: () => undefined,
 };
 
 /** Render the lease line with its claim control under the given claim and identity. */
 export function renderLease(
   state: TerminalLeaseState,
-  claim: TerminalLeaseClaim = IDLE_CLAIM,
-  viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
+  claim: UseTakeShellResult = IDLE_CLAIM,
+  viewerIdentity: TerminalDeviceIdentity = DEVICE_IDENTITY_READ,
 ): RenderResult {
   return render(
     <LeaseLine
@@ -127,7 +127,7 @@ export function renderLease(
 }
 
 /** The single affordance the line puts in its header, as something a test can press. */
-export function claimControl(container: HTMLElement): HTMLButtonElement {
+export function takeShellButton(container: HTMLElement): HTMLButtonElement {
   const control = container.querySelector(".meridian-lease-line__claim");
   if (!(control instanceof HTMLButtonElement)) {
     throw new Error("the lease line rendered no claim control");

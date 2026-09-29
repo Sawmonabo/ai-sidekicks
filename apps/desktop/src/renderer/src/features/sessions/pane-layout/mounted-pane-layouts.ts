@@ -1,7 +1,7 @@
 // The pane layouts mounted in this window, and the one a palette act reaches: the newest.
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { DeckActName, DeckActs } from "./pane-layout-acts.js";
+import type { PaneLayoutActName, PaneLayoutActs } from "./pane-layout-acts.js";
 
 /**
  * What an act says when no deck is mounted in this window.
@@ -10,15 +10,15 @@ import type { DeckActName, DeckActs } from "./pane-layout-acts.js";
  * page needs to know the deck is not here, and naming which of the five they reached
  * for would answer a question they did not ask.
  */
-export const DECK_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
+export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
   "workspace",
   "workspace.no_mounted_deck",
   "No deck of panes is open in this window. Open a session and try again.",
 );
 
 /** What asking the seat to perform an act produced. */
-export type DeckActOutcome =
-  | { readonly status: "performed"; readonly act: DeckActName }
+export type PaneLayoutActOutcome =
+  | { readonly status: "performed"; readonly act: PaneLayoutActName }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
@@ -28,10 +28,10 @@ export type DeckActOutcome =
  * position: a StrictMode double mount and a route change must not leave the seat
  * holding a deck that is gone. The newest mount is the one a command acts on.
  */
-export class MountedDeckSeat {
-  readonly #mounted: DeckActs[] = [];
+export class MountedPaneLayouts {
+  readonly #mounted: PaneLayoutActs[] = [];
 
-  public adopt(acts: DeckActs): () => void {
+  public adopt(acts: PaneLayoutActs): () => void {
     this.#mounted.push(acts);
     return () => {
       const position = this.#mounted.lastIndexOf(acts);
@@ -41,10 +41,10 @@ export class MountedDeckSeat {
     };
   }
 
-  public perform(act: DeckActName): DeckActOutcome {
+  public perform(act: PaneLayoutActName): PaneLayoutActOutcome {
     const newest = this.#mounted.at(-1);
     if (newest === undefined) {
-      return { status: "refused", refusal: DECK_NOT_MOUNTED_REFUSAL };
+      return { status: "refused", refusal: PANE_LAYOUT_NOT_MOUNTED_REFUSAL };
     }
     newest[act]();
     return { status: "performed", act };
@@ -52,4 +52,4 @@ export class MountedDeckSeat {
 }
 
 /** This window's seat. Module scope is window scope. */
-export const mountedDeck: MountedDeckSeat = new MountedDeckSeat();
+export const mountedPaneLayouts: MountedPaneLayouts = new MountedPaneLayouts();

@@ -6,11 +6,11 @@
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SESSION_ID, memoryStore, renderWorkspace } from "./SessionScreen.test-support.js";
+import { SESSION_ID, memoryStore, renderSessionScreen } from "./SessionScreen.test-support.js";
 
 describe("Workspace — what it composes", () => {
   it("renders the session header above the deck", async () => {
-    const { container } = renderWorkspace(memoryStore());
+    const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
       expect(container.querySelector(".meridian-deck__pane")).not.toBeNull();
     });

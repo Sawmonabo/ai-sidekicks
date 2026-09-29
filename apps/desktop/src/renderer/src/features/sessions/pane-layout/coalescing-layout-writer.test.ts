@@ -8,24 +8,27 @@
 import { describe, expect, it } from "vitest";
 
 import { CoalescingLayoutWriter } from "./coalescing-layout-writer.js";
-import type { DeckSnapshotRecord } from "./pane-layout-snapshot.js";
+import type { PaneLayoutSnapshotRecord } from "./pane-layout-snapshot.js";
 
 const SESSION_A = "session-a";
 const SESSION_B = "session-b";
 
-function snapshotAt(position: number): DeckSnapshotRecord {
-  return { $deck: { version: 1, density: "standard" }, "pane-1": { position, kind: "timeline" } };
+function snapshotAt(position: number): PaneLayoutSnapshotRecord {
+  return {
+    $paneLayout: { version: 1, density: "standard" },
+    "pane-1": { position, kind: "timeline" },
+  };
 }
 
 /** One write as the writer performed it: the partition it named, and what it held. */
 interface PerformedWrite {
   readonly partition: string;
-  readonly snapshot: DeckSnapshotRecord;
+  readonly snapshot: PaneLayoutSnapshotRecord;
 }
 
 /** A write whose settlement the test decides. */
 function heldWrite(): {
-  readonly write: (partition: string, snapshot: DeckSnapshotRecord) => Promise<void>;
+  readonly write: (partition: string, snapshot: PaneLayoutSnapshotRecord) => Promise<void>;
   readonly seen: PerformedWrite[];
   settle: () => void;
 } {
@@ -49,7 +52,7 @@ function heldWrite(): {
 describe("CoalescingLayoutWriter — coalescing", () => {
   it("holds one write in flight and sends only the NEWEST of what arrived meanwhile", async () => {
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -75,7 +78,7 @@ describe("CoalescingLayoutWriter — coalescing", () => {
     // Without this, the case above would pass over a writer that performed one
     // write and then stopped forever.
     const seen: PerformedWrite[] = [];
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async (partition, snapshot) => {
         seen.push({ partition, snapshot });
       },
@@ -96,7 +99,7 @@ describe("CoalescingLayoutWriter — coalescing", () => {
 
   it("reports a rejected write rather than letting it reject unhandled", async () => {
     const failures: unknown[] = [];
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async () => {
         throw new Error("the database is gone");
       },
@@ -115,7 +118,7 @@ describe("CoalescingLayoutWriter — coalescing", () => {
 
   it("keeps writing after a failure, because the next arrangement is still worth saving", async () => {
     let attempt = 0;
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async () => {
         attempt += 1;
         if (attempt === 1) {
@@ -142,7 +145,7 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
     // at write time filed session A's arrangement under session B's partition the
     // moment a person navigated between two sessions the shell already had open.
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -162,7 +165,7 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
     // Without this, the case above would pass over a writer that hard-coded the
     // first partition it ever saw, which files every later session under the first.
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -214,9 +217,9 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
     // Without this the case above would pass over a writer holding one static slot
     // for every caller — which would make one record's write drop the deck's queued
     // arrangement, and the deck's drop the other's.
-    const deckWrites: DeckSnapshotRecord[] = [];
+    const deckWrites: PaneLayoutSnapshotRecord[] = [];
     const secondWrites: SecondRecord[] = [];
-    const deckWriter = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const deckWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async (_partition, snapshot) => {
         deckWrites.push(snapshot);
       },
@@ -246,7 +249,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
     // A retirement that cancelled would throw away the newest arrangement — the one
     // act the person performed last, and the one they expect to find on the way back.
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -267,7 +270,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
 
   it("takes no request once it has been retired", async () => {
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -285,7 +288,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
     // Without this, the case above would pass over a writer that never wrote at all,
     // and "retired" would be indistinguishable from "broken".
     const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");

@@ -23,9 +23,9 @@ export interface TerminalLeaseCalls {
 }
 
 /** What the claim control knows: whether a call is out, and how to make one. */
-export interface TerminalLeaseClaim {
+export interface UseTakeShellResult {
   readonly isInFlight: boolean;
-  readonly acquire: () => void;
+  readonly take: () => void;
 }
 
 /** What a subject that has dispatched nothing renders as. */
@@ -38,11 +38,11 @@ const IDLE_TERMINAL_LEASE_CLAIM = { isInFlight: false };
  * holding the shell, and the fold owns the holder. A rejected call is not caught; it
  * surfaces as an unhandled rejection.
  */
-export function useTerminalLeaseClaim(
+export function useTakeShell(
   bridge: ConsoleBridge,
   sessionId: string,
   calls: TerminalLeaseCalls,
-): TerminalLeaseClaim {
+): UseTakeShellResult {
   const { value: reading, publish } = useSubjectScopedState(
     bridge,
     sessionId,
@@ -70,9 +70,9 @@ export function useTerminalLeaseClaim(
     }
   }, [calls, dispatches, publish, sessionId]);
 
-  const acquire = useCallback(() => {
+  const take = useCallback(() => {
     void takeShell();
   }, [takeShell]);
 
-  return { isInFlight: reading.isInFlight, acquire };
+  return { isInFlight: reading.isInFlight, take };
 }

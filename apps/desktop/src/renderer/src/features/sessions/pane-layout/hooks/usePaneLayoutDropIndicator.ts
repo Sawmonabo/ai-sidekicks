@@ -1,10 +1,10 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import { type DeckDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
+import { type PaneLayoutDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
 
 /** Subscribe to the indicator. The one read path; no component reads `snapshot()`. */
-export function useDeckDropIndicator(
-  coordinator: DeckDragCoordinator,
+export function usePaneLayoutDropIndicator(
+  coordinator: PaneLayoutDragCoordinator,
 ): PaneDropIndicator | undefined {
   const subscribe = useCallback(
     (onStoreChange: () => void) => coordinator.subscribe(onStoreChange),

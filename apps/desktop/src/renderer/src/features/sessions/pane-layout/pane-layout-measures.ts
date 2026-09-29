@@ -20,10 +20,10 @@
  * Order is presentation order: Settings renders them in this sequence, and it runs
  * loosest to tightest because that is how the control reads as a single axis.
  */
-export const DECK_DENSITIES = ["comfortable", "standard", "compact"] as const;
+export const PANE_LAYOUT_DENSITIES = ["comfortable", "standard", "compact"] as const;
 
 /** One density preset. Derived from the enumeration, never restated. */
-export type DeckDensity = (typeof DECK_DENSITIES)[number];
+export type PaneLayoutDensity = (typeof PANE_LAYOUT_DENSITIES)[number];
 
 /**
  * What a new deck runs at, and what a restored snapshot falls back to.
@@ -31,7 +31,7 @@ export type DeckDensity = (typeof DECK_DENSITIES)[number];
  * This family's own default, stated with the presets it chooses between: new panes
  * open at the standard preset.
  */
-export const DEFAULT_DECK_DENSITY: DeckDensity = "standard";
+export const DEFAULT_PANE_LAYOUT_DENSITY: PaneLayoutDensity = "standard";
 
 /**
  * The narrowest a pane may be squeezed to, per preset, in CSS pixels.
@@ -48,7 +48,7 @@ export const DEFAULT_DECK_DENSITY: DeckDensity = "standard";
  * here until its width is decided — a preset whose width defaulted silently would be a
  * preset that does nothing.
  */
-export const DECK_MINIMUM_PANE_WIDTH_PX: Readonly<Record<DeckDensity, number>> = {
+export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensity, number>> = {
   // ~52 characters of body text plus the pane's chrome. One pane fills a laptop
   // half; two fill a wide external display.
   comfortable: 400,

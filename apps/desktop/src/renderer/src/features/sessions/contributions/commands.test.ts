@@ -7,9 +7,13 @@ import type {
   ConsoleCommandSurface,
   KeyBinding,
 } from "@renderer/console/palette/index.js";
-import { MountedDeckSeat } from "../pane-layout/mounted-pane-layouts.js";
+import { MountedPaneLayouts } from "../pane-layout/mounted-pane-layouts.js";
 import { createSpyingPaneLayoutActs } from "../pane-layout/pane-layout-acts.test-support.js";
-import { DECK_COMMAND_OWNER, deckPaletteCommands, registerDeckCommands } from "./commands.js";
+import {
+  PANE_LAYOUT_COMMAND_OWNER,
+  paneLayoutPaletteCommands,
+  registerPaneLayoutCommands,
+} from "./commands.js";
 
 /** What a contribution is, read off the door rather than named a second time. */
 type RecordedContribution = Parameters<ConsoleCommandSurface["contribute"]>[0];
@@ -42,13 +46,13 @@ function commandById(commands: readonly ConsoleCommand[], id: string): ConsoleCo
 
 describe("the deck's palette rows", () => {
   it("offers all five pane acts, each scoped to a window with a session", () => {
-    const commands = deckPaletteCommands(createSpyingPaneLayoutActs());
+    const commands = paneLayoutPaletteCommands(createSpyingPaneLayoutActs());
     expect(commands.map((command) => command.id)).toStrictEqual([
-      "deck.focusNextPane",
-      "deck.focusPreviousPane",
-      "deck.closePane",
-      "deck.movePaneLeft",
-      "deck.movePaneRight",
+      "paneLayout.focusNextPane",
+      "paneLayout.focusPreviousPane",
+      "paneLayout.closePane",
+      "paneLayout.movePaneLeft",
+      "paneLayout.movePaneRight",
     ]);
     for (const command of commands) {
       expect(command.when).toBe("sessionActive");
@@ -57,12 +61,12 @@ describe("the deck's palette rows", () => {
 
   it("runs the act the row names", () => {
     const deckActs = createSpyingPaneLayoutActs();
-    const commands = deckPaletteCommands(deckActs);
-    commandById(commands, "deck.focusNextPane").run();
-    commandById(commands, "deck.focusPreviousPane").run();
-    commandById(commands, "deck.closePane").run();
-    commandById(commands, "deck.movePaneLeft").run();
-    commandById(commands, "deck.movePaneRight").run();
+    const commands = paneLayoutPaletteCommands(deckActs);
+    commandById(commands, "paneLayout.focusNextPane").run();
+    commandById(commands, "paneLayout.focusPreviousPane").run();
+    commandById(commands, "paneLayout.closePane").run();
+    commandById(commands, "paneLayout.movePaneLeft").run();
+    commandById(commands, "paneLayout.movePaneRight").run();
     expect(deckActs.focusNextPane).toHaveBeenCalledTimes(1);
     expect(deckActs.focusPreviousPane).toHaveBeenCalledTimes(1);
     expect(deckActs.closeFocusedPane).toHaveBeenCalledTimes(1);
@@ -75,8 +79,8 @@ describe("the deck's palette rows", () => {
     // capture phase and consumes any press whose command ran, so it would preempt the
     // deck's wide editable-target guard and eat a listbox's arrow keys.
     const surface = new RecordingCommandSurface();
-    registerDeckCommands(surface, new MountedDeckSeat());
-    expect(surface.contribution?.owner).toBe(DECK_COMMAND_OWNER);
+    registerPaneLayoutCommands(surface, new MountedPaneLayouts());
+    expect(surface.contribution?.owner).toBe(PANE_LAYOUT_COMMAND_OWNER);
     expect(surface.contribution?.keyBindings).toStrictEqual([] as readonly KeyBinding[]);
   });
 });

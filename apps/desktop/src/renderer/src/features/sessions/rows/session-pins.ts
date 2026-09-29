@@ -17,39 +17,39 @@ import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 import { DurableViewState } from "../durable-view/durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */
-export const SESSION_PIN_TIERS_KEY = "session-pin-tiers";
+export const PINNED_SESSIONS_KEY = "session-pin-tiers";
 
 /** The literal the `pin` value class stores for a pinned session. */
 const PINNED = "front";
 
 /** The persisted map: session identifier to the pinned literal, pinned sessions only. */
-export type SessionPinMap = Readonly<Record<string, typeof PINNED>>;
+export type SessionPins = Readonly<Record<string, typeof PINNED>>;
 
 /** The empty pin map: what a list shows before a record is read. */
-export const NO_PINS: SessionPinMap = {};
+export const NO_PINS: SessionPins = {};
 
 /** What a surface holds: the map, the refusal, and the one act that changes it. */
 export interface SessionPinBinding {
-  readonly pinned: SessionPinMap;
+  readonly pinned: SessionPins;
   readonly lastRefusal: ConsoleRefusal | undefined;
   readonly setPinned: (sessionId: string, isPinned: boolean) => void;
 }
 
 /** The pin map, durable. One per window; the surface builds it once and holds it. */
 export class SessionPinStore {
-  readonly #state: DurableViewState<SessionPinMap>;
+  readonly #state: DurableViewState<SessionPins>;
 
   public constructor(store: UiStateStore) {
-    this.#state = new DurableViewState<SessionPinMap>({
+    this.#state = new DurableViewState<SessionPins>({
       store,
-      key: SESSION_PIN_TIERS_KEY,
+      key: PINNED_SESSIONS_KEY,
       valueClass: "pin",
       initial: NO_PINS,
-      narrow: narrowSessionPinMap,
+      narrow: narrowSessionPins,
     });
   }
 
-  public get pinned(): SessionPinMap {
+  public get pinned(): SessionPins {
     return this.#state.value;
   }
 
@@ -95,7 +95,7 @@ export class SessionPinStore {
  * pin and keeps everyone else's, where refusing the whole record would silently un-pin
  * a list a person had arranged.
  */
-export function narrowSessionPinMap(raw: unknown): SessionPinMap | undefined {
+export function narrowSessionPins(raw: unknown): SessionPins | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return undefined;
   }

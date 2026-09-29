@@ -3,10 +3,10 @@ import { useEffect } from "react";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
 import {
-  DECK_PANE_DRAG_KEY,
+  PANE_LAYOUT_DRAG_KEY,
   dropEdgeFor,
   paneIdFromDragData,
-  type DeckDragCoordinator,
+  type PaneLayoutDragCoordinator,
 } from "../pane-drag.js";
 
 /**
@@ -18,7 +18,7 @@ import {
  * by which part of it the pointer is over.
  */
 export function usePaneDropTarget(
-  coordinator: DeckDragCoordinator,
+  coordinator: PaneLayoutDragCoordinator,
   paneId: string,
   element: HTMLElement | null,
 ): void {
@@ -32,7 +32,7 @@ export function usePaneDropTarget(
         const draggedPaneId = paneIdFromDragData(source.data);
         return draggedPaneId !== undefined && draggedPaneId !== paneId;
       },
-      getData: () => ({ [DECK_PANE_DRAG_KEY]: paneId }),
+      getData: () => ({ [PANE_LAYOUT_DRAG_KEY]: paneId }),
       onDrag: ({ location }) => {
         coordinator.hover({
           overPaneId: paneId,

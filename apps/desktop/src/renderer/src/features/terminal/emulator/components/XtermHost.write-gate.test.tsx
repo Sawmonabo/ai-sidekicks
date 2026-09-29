@@ -24,7 +24,7 @@ import {
   isEmulatorAcceptingInput,
   mountHost,
   reclaimComponentHolds,
-  surfaceOf,
+  emulatorElementOf,
 } from "./XtermHost.test-support.js";
 
 afterEach(() => {
@@ -44,7 +44,9 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output, read-only");
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe(
+      "Terminal output, read-only",
+    );
   });
 
   it("drops the read-only suffix when this device holds the shell and can reach the wire", async () => {
@@ -56,7 +58,7 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
   it("opens the emulator's own gate for a lease that was already this device's", async () => {
@@ -72,7 +74,7 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
   });
 
   it("negative control: a watcher's emulator is closed, so the case above is not free", async () => {
@@ -84,7 +86,7 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
   it("forwards a lease change without rebuilding the emulator", async () => {
@@ -98,7 +100,7 @@ describe("the write gate reaches assistive technology by name", () => {
         onRendererMode={observed}
       />,
     );
-    const surfaceBefore = surfaceOf(container).firstElementChild;
+    const surfaceBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
       rerender(
         <XtermHost
@@ -114,8 +116,8 @@ describe("the write gate reaches assistive technology by name", () => {
     // same instance — the mount effect did not run a second time — and only the
     // gate moved.
     expect(observed).toHaveBeenCalledTimes(1);
-    expect(surfaceOf(container).firstElementChild).toBe(surfaceBefore);
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(emulatorElementOf(container).firstElementChild).toBe(surfaceBefore);
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
   it("opens the gate on the emulator a new terminal id builds under the same lease", async () => {
@@ -132,7 +134,7 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
 
     act(() => {
       rerender(
@@ -145,8 +147,8 @@ describe("the write gate reaches assistive technology by name", () => {
       );
     });
 
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
   });
 
   it("negative control: a shut lease stays shut across the same terminal id change", async () => {
@@ -170,7 +172,7 @@ describe("the write gate reaches assistive technology by name", () => {
         />,
       );
     });
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
   it("carries the gate on the host box too, for the styling that has no text", async () => {
@@ -215,8 +217,8 @@ describe("the write gate reaches assistive technology by name", () => {
         onKeystroke={sendToWire}
       />,
     );
-    expect(surfaceOf(watching.container).getAttribute("aria-label")).not.toBe(
-      surfaceOf(holding.container).getAttribute("aria-label"),
+    expect(emulatorElementOf(watching.container).getAttribute("aria-label")).not.toBe(
+      emulatorElementOf(holding.container).getAttribute("aria-label"),
     );
   });
 });
@@ -232,7 +234,7 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     const { container } = await mountHost(
       <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
     );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
   it("names the missing channel rather than announcing the surface writable", async () => {
@@ -241,7 +243,7 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     );
     // The old component announced "Terminal output" here — a name that says a
     // person may type into a shell that will discard everything they send.
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe(
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe(
       "Terminal output, read-only: no input channel",
     );
     expect(
@@ -264,8 +266,8 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
         onKeystroke={() => undefined}
       />,
     );
-    expect(surfaceOf(noWriter.container).getAttribute("aria-label")).not.toBe(
-      surfaceOf(noLease.container).getAttribute("aria-label"),
+    expect(emulatorElementOf(noWriter.container).getAttribute("aria-label")).not.toBe(
+      emulatorElementOf(noLease.container).getAttribute("aria-label"),
     );
   });
 
@@ -280,7 +282,7 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
         onKeystroke={() => undefined}
       />,
     );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 });

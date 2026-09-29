@@ -27,7 +27,7 @@ import {
   RUN_QUEUE_CREATE_METHOD,
   SESSION_CREATE_METHOD,
   refuseAmbiguousCreate,
-  refuseDraft,
+  refuseNewSessionDraft,
   type NewSessionDraftRefusal,
   type NewSessionSendResult,
 } from "./new-session-settlement.js";
@@ -175,7 +175,7 @@ async function resolveSession(
     // which call failed, which is what a person pastes into an issue.
     return {
       settlement: "refused",
-      refusal: refuseDraft(
+      refusal: refuseNewSessionDraft(
         "session-create-failed",
         "The session could not be created. Nothing was sent, and the draft is still here.",
       ),
@@ -201,7 +201,7 @@ async function queueFirstTurn(
   if (request.firstTurn.trim().length === 0) {
     return {
       queued: false,
-      refusal: refuseDraft(
+      refusal: refuseNewSessionDraft(
         "first-turn-missing",
         "The session was created, but nothing was said yet — type the first message and press Send again.",
       ),
@@ -219,7 +219,7 @@ async function queueFirstTurn(
     );
     return {
       queued: false,
-      refusal: refuseDraft(
+      refusal: refuseNewSessionDraft(
         "first-turn-failed",
         `The session was created, but the first turn was not queued. ${detail}`,
       ),

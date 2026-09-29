@@ -13,15 +13,15 @@
 // asked with a value nobody can act on.
 
 import { DerivedFigure } from "@renderer/console/primitives/index.js";
-import type { TerminalLeaseHolding } from "../lease-model.js";
+import type { TerminalLeaseHolder } from "../lease-model.js";
 
 /** The holding the statement words. */
-export interface LeaseHoldingStatementProps {
-  readonly holding: TerminalLeaseHolding;
+export interface LeaseHolderSentenceProps {
+  readonly holding: TerminalLeaseHolder;
 }
 
 /** One sentence saying where the shared shell is held. */
-export function LeaseHoldingStatement(props: LeaseHoldingStatementProps): React.JSX.Element {
+export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.Element {
   switch (props.holding) {
     case "not-checked":
       return <DerivedFigure text="The lease has not been read." />;
@@ -32,9 +32,9 @@ export function LeaseHoldingStatement(props: LeaseHoldingStatementProps): React.
       return <DerivedFigure text="The console cannot read where the shell is held." />;
     case "unheld":
       return <DerivedFigure text="Nobody holds the shell." />;
-    case "held-by-you":
+    case "held-by-this-device":
       return <DerivedFigure text="You may type into the shared shell." />;
-    case "held-by-another":
+    case "held-by-another-device":
       return <DerivedFigure text="The shell is held from another device." />;
   }
 }

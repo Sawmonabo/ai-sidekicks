@@ -33,15 +33,19 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type DeckLayout } from "../pane-layout-store.js";
+import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneAddressKey } from "../pane-layout.js";
-import { type DeckRestoreReport } from "../pane-layout-snapshot.js";
+import { type PaneLayoutRestoreReport } from "../pane-layout-snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,
   type PersistedLayoutRecord,
 } from "../coalescing-layout-writer.js";
-import { DECK_LAYOUT_RECORD_KEY, RestoreProgress, refuseWorkspace } from "../layout-persistence.js";
+import {
+  PANE_LAYOUT_RECORD_KEY,
+  RestoreProgress,
+  refusePaneLayoutSave,
+} from "../layout-persistence.js";
 
 /**
  * What a session with nothing to report shows, as one value.
@@ -52,8 +56,8 @@ import { DECK_LAYOUT_RECORD_KEY, RestoreProgress, refuseWorkspace } from "../lay
 const NO_RESTORE_REFUSALS: readonly ConsoleRefusal[] = Object.freeze([]);
 
 /** What the persistence hook binds: the layout, its store, the session, the refusal sink. */
-export interface DeckPersistenceOptions {
-  readonly layout: DeckLayout;
+export interface PaneLayoutPersistenceOptions {
+  readonly layout: PaneLayoutStore;
   readonly uiStateStore: UiStateStore;
   readonly sessionId: string | undefined;
   readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
@@ -66,7 +70,9 @@ export interface DeckPersistenceOptions {
  * one story: the restore has to complete before the first save, or an empty deck
  * would overwrite the record it was about to read.
  */
-export function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRefusal[] {
+export function usePaneLayoutPersistence(
+  options: PaneLayoutPersistenceOptions,
+): readonly ConsoleRefusal[] {
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   // WHAT A RESTORE REFUSED, ADDRESSED BY THE RESTORE THAT REFUSED IT. Held on the same
   // `(arrangement, session)` pair as the gate below, through the same holder, because
@@ -102,7 +108,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
         write: async (partition, snapshot) => {
           const result = await uiStateStore.write(
             partition,
-            DECK_LAYOUT_RECORD_KEY,
+            PANE_LAYOUT_RECORD_KEY,
             "layout",
             snapshot,
           );
@@ -114,7 +120,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
         // of a save would take the window down over a layout the person can redraw.
         onFailed: () => {
           onSaveRefused(
-            refuseWorkspace(
+            refusePaneLayoutSave(
               "layout-save-failed",
               "This window's pane arrangement could not be saved. It is still on screen, and it will be saved again on the next change.",
             ),
@@ -163,7 +169,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           }
         }
       });
-      const readOutcome = await uiStateStore.readOutcome(sessionId, DECK_LAYOUT_RECORD_KEY);
+      const readOutcome = await uiStateStore.readOutcome(sessionId, PANE_LAYOUT_RECORD_KEY);
       watchActsDuringRead();
       if (superseded) {
         return;
@@ -183,7 +189,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       // open session to another the deck can still hold the previous session's panes,
       // and keeping those would move them into a session nobody put them in.
       const actedDuringRead = layout.snapshot().revision !== revisionBeforeRead;
-      let report: DeckRestoreReport | undefined;
+      let report: PaneLayoutRestoreReport | undefined;
       if (!actedDuringRead) {
         report = record === undefined ? undefined : layout.restore(record.value);
       } else {

@@ -27,7 +27,7 @@ import {
   OTHER_SESSION_ID,
   SESSION_ID,
 } from "../components/LeaseLine.test-support.js";
-import { useTerminalLeaseClaim, type TerminalLeaseClaim } from "./useTakeShell.js";
+import { useTakeShell, type UseTakeShellResult } from "./useTakeShell.js";
 
 /**
  * Every frame the hook produced, in render order.
@@ -37,9 +37,9 @@ import { useTerminalLeaseClaim, type TerminalLeaseClaim } from "./useTakeShell.j
  * into a bare array is a number a reader has to reconstruct.
  */
 class ClaimFrameLog {
-  readonly #frames: TerminalLeaseClaim[] = [];
+  readonly #frames: UseTakeShellResult[] = [];
 
-  public record(claim: TerminalLeaseClaim): void {
+  public record(claim: UseTakeShellResult): void {
     this.#frames.push(claim);
   }
 
@@ -47,7 +47,7 @@ class ClaimFrameLog {
     return this.#frames.length;
   }
 
-  public frameAt(frameIndex: number): TerminalLeaseClaim {
+  public frameAt(frameIndex: number): UseTakeShellResult {
     const frame = this.#frames[frameIndex];
     if (frame === undefined) {
       throw new Error(`the hook produced no frame number ${String(frameIndex)}`);
@@ -55,7 +55,7 @@ class ClaimFrameLog {
     return frame;
   }
 
-  public get newestFrame(): TerminalLeaseClaim {
+  public get newestFrame(): UseTakeShellResult {
     return this.frameAt(this.#frames.length - 1);
   }
 }
@@ -66,9 +66,7 @@ function ClaimProbe(props: {
   readonly sessionId: string;
   readonly log: ClaimFrameLog;
 }): React.JSX.Element {
-  props.log.record(
-    useTerminalLeaseClaim(props.heldCalls.bridge, props.sessionId, props.heldCalls.calls),
-  );
+  props.log.record(useTakeShell(props.heldCalls.bridge, props.sessionId, props.heldCalls.calls));
   return <span />;
 }
 
@@ -91,7 +89,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     const log = new ClaimFrameLog();
     const view = renderClaim(heldCalls, log);
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     expect(log.newestFrame.isInFlight).toBe(true);
     const framesBeforeTheSwitch = log.frameCount;
@@ -116,13 +114,13 @@ describe("the terminal lease claim, stamped to its subject", () => {
     const log = new ClaimFrameLog();
     const view = renderClaim(heldCalls, log);
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     const framesBeforeTheSwitch = log.frameCount;
 
     view.showSession(OTHER_SESSION_ID);
     act(() => {
-      log.frameAt(framesBeforeTheSwitch).acquire();
+      log.frameAt(framesBeforeTheSwitch).take();
     });
 
     // The call built during the render that first saw the new session carries that
@@ -154,7 +152,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     const log = new ClaimFrameLog();
     const view = renderClaim(heldCalls, log);
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     expect(log.newestFrame.isInFlight).toBe(true);
 
@@ -165,7 +163,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(firstFrameBack.isInFlight).toBe(false);
 
     act(() => {
-      firstFrameBack.acquire();
+      firstFrameBack.take();
     });
 
     expect(heldCalls.heldCallCount).toBe(2);
@@ -186,7 +184,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     const log = new ClaimFrameLog();
     const view = renderClaim(heldCalls, log);
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     const framesBeforeTheClose = log.frameCount;
 
@@ -207,7 +205,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     renderClaim(heldCalls, log);
 
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     expect(log.newestFrame.isInFlight).toBe(true);
 
@@ -228,10 +226,10 @@ describe("the terminal lease claim, stamped to its subject", () => {
     const log = new ClaimFrameLog();
     renderClaim(heldCalls, log);
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     expect(heldCalls.heldCallCount).toBe(1);
     expect(heldCalls.sessionIdOfCall(0)).toBe(SESSION_ID);
@@ -247,7 +245,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
     // The key is back, so the next press dispatches.
     act(() => {
-      log.newestFrame.acquire();
+      log.newestFrame.take();
     });
     expect(heldCalls.heldCallCount).toBe(2);
   });

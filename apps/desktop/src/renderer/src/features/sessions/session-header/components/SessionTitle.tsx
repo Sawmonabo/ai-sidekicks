@@ -31,9 +31,7 @@ export interface SessionHeaderSessionTitleProps {
  * whole identity until it does, and a skeleton bar beside the id would move it when the
  * title resolved.
  */
-export function SessionHeaderSessionTitle(
-  props: SessionHeaderSessionTitleProps,
-): React.JSX.Element | null {
+export function SessionTitle(props: SessionHeaderSessionTitleProps): React.JSX.Element | null {
   const { title } = props;
   return title === undefined ? null : (
     // Labelled as metadata on the element itself, because that is what it IS: no

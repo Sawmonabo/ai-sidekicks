@@ -29,18 +29,18 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Announce, type AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
 import { type PaneKind } from "@renderer/console/seats/index.js";
-import type { DeckLayout } from "./pane-layout-store.js";
+import type { PaneLayoutStore } from "./pane-layout-store.js";
 
 /**
  * The key a pane drag's payload is carried under.
  *
  * Namespaced rather than a bare `paneId`, because the element adapter's monitor
- * sees every element drag on the page: a `deck.paneId` key is what lets the deck's
+ * sees every element drag on the page: a `paneLayout.paneId` key is what lets the deck's
  * monitor tell a pane header from a ledger row somebody else made draggable, and a
  * payload it does not recognize is one it declines to act on rather than one it
  * misreads.
  */
-export const DECK_PANE_DRAG_KEY = "deck.paneId";
+export const PANE_LAYOUT_DRAG_KEY = "paneLayout.paneId";
 
 /** Which side of a pane a drop would land on. */
 export const PANE_DROP_EDGES = ["before", "after"] as const;
@@ -67,7 +67,7 @@ export interface PaneDropAnnouncement {
  * change, so a pointer crossing a pane without crossing its midpoint costs no
  * render at all — the budget the row's "no per-frame renders" constraint states.
  */
-export class DeckDragCoordinator {
+export class PaneLayoutDragCoordinator {
   readonly #changes = new Emitter<PaneDropIndicator | undefined>("deck drag change");
   #indicator: PaneDropIndicator | undefined;
   #draggedPaneId: string | undefined;
@@ -115,7 +115,7 @@ export class DeckDragCoordinator {
 
 /** Read a pane id off a drag payload, or `undefined` for a drag that is not ours. */
 export function paneIdFromDragData(data: Record<string, unknown>): string | undefined {
-  const paneId = data[DECK_PANE_DRAG_KEY];
+  const paneId = data[PANE_LAYOUT_DRAG_KEY];
   return typeof paneId === "string" ? paneId : undefined;
 }
 
@@ -208,7 +208,7 @@ export function paneDropAnnouncement(
  * than trusting that a defined drop position means a changed deck.
  */
 export function commitPaneDrop(
-  layout: DeckLayout,
+  layout: PaneLayoutStore,
   draggedPaneId: string | undefined,
   indicator: PaneDropIndicator | undefined,
   announce: Announce,

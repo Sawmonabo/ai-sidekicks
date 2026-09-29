@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyDeclaredMonospaceFamily,
   readDeclaredMonospaceFamily,
-  type TypefaceBearingTerminal,
+  type MonospaceTypefaceTarget,
 } from "./xterm-typeface.js";
 
 /** An emulator stand-in that records what was written to it, and how often. */
-function fakeTerminal(fontFamily?: string): TypefaceBearingTerminal & { writeCount: number } {
+function fakeTerminal(fontFamily?: string): MonospaceTypefaceTarget & { writeCount: number } {
   let current = fontFamily;
   const record = {
     writeCount: 0,

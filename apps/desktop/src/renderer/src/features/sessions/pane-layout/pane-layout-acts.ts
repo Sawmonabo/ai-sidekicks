@@ -20,7 +20,7 @@
 // respectively, because only one of them is a fact about the deck.
 
 import type { Announce } from "@renderer/console/primitives/index.js";
-import type { DeckLayout } from "./pane-layout-store.js";
+import type { PaneLayoutStore } from "./pane-layout-store.js";
 import { paneDropAnnouncement } from "./pane-drag.js";
 
 /**
@@ -28,7 +28,7 @@ import { paneDropAnnouncement } from "./pane-drag.js";
  * request: the palette contributes these at composition time, long before a deck exists
  * to act on.
  */
-export interface DeckActs {
+export interface PaneLayoutActs {
   readonly focusNextPane: () => void;
   readonly focusPreviousPane: () => void;
   readonly closeFocusedPane: () => void;
@@ -37,7 +37,7 @@ export interface DeckActs {
 }
 
 /** One act, by name. Derived from the interface, so the two cannot drift. */
-export type DeckActName = keyof DeckActs;
+export type PaneLayoutActName = keyof PaneLayoutActs;
 
 /** What an act says when the deck it reached is focusing nothing. */
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
@@ -50,7 +50,7 @@ export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
  * announcer reached from inside it would make every consumer of a layout a consumer
  * of the announcer too. The acts are the layer where a keystroke becomes a sentence.
  */
-export function deckActsOn(layout: DeckLayout, announce: Announce): DeckActs {
+export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): PaneLayoutActs {
   const focusStep = (step: 1 | -1): void => {
     const before = layout.snapshot().focusedPaneId;
     layout.focusAdjacent(step);

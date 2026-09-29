@@ -3,8 +3,12 @@ import { useEffect } from "react";
 import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
 import { type Announce } from "@renderer/console/primitives/index.js";
-import { commitPaneDrop, paneIdFromDragData, type DeckDragCoordinator } from "../pane-drag.js";
-import { type DeckLayout } from "../pane-layout-store.js";
+import {
+  commitPaneDrop,
+  paneIdFromDragData,
+  type PaneLayoutDragCoordinator,
+} from "../pane-drag.js";
+import { type PaneLayoutStore } from "../pane-layout-store.js";
 
 /**
  * Commit the drop, once, for the whole deck.
@@ -20,9 +24,9 @@ import { type DeckLayout } from "../pane-layout-store.js";
  *
  * @param announce The window's announcer, read from the context by the deck.
  */
-export function useDeckDragMonitor(
-  coordinator: DeckDragCoordinator,
-  layout: DeckLayout,
+export function usePaneLayoutDragMonitor(
+  coordinator: PaneLayoutDragCoordinator,
+  layout: PaneLayoutStore,
   announce: Announce,
 ): void {
   useEffect(

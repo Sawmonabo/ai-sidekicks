@@ -1,16 +1,16 @@
 // The pane layout's durable record: its key, the restore gate, and what a save refuses.
 
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
-import { WORKSPACE_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
+import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
 
 /** The durable record the deck's arrangement is saved under, per session. */
-export const DECK_LAYOUT_RECORD_KEY = "deck-layout";
+export const PANE_LAYOUT_RECORD_KEY = "pane-layout";
 
 /** Why the workspace itself refused. Closed, so a second cause is a decision. */
-export const WORKSPACE_REFUSAL_CODES = ["layout-save-failed"] as const;
+export const PANE_LAYOUT_SAVE_REFUSAL_CODES = ["layout-save-failed"] as const;
 
 /** One workspace refusal code. Derived, so the vocabulary is declared once. */
-export type WorkspaceRefusalCode = (typeof WORKSPACE_REFUSAL_CODES)[number];
+export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[number];
 
 /**
  * How far one surface's restore has got, for one arrangement and one session.
@@ -77,9 +77,12 @@ export class RestoreProgress {
  * would compile and render a code no reader could look up. Everything this surface
  * refuses goes through here instead, where the union is what binds.
  */
-export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): WorkspaceRefusal {
-  return refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail);
+export function refusePaneLayoutSave(
+  code: PaneLayoutSaveRefusalCode,
+  detail: string,
+): WorkspaceRefusal {
+  return refuse(PANE_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
 /** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-type WorkspaceRefusal = NarrowedRefusal<WorkspaceRefusalCode>;
+type WorkspaceRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;

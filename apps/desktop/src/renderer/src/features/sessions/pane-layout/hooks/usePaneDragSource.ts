@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { draggable } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
-import { DECK_PANE_DRAG_KEY, type DeckDragCoordinator } from "../pane-drag.js";
+import { PANE_LAYOUT_DRAG_KEY, type PaneLayoutDragCoordinator } from "../pane-drag.js";
 
 /**
  * Make one pane's header the handle that drags its pane.
@@ -13,7 +13,7 @@ import { DECK_PANE_DRAG_KEY, type DeckDragCoordinator } from "../pane-drag.js";
  * makes it the handle in every deck a person has used.
  */
 export function usePaneDragSource(
-  coordinator: DeckDragCoordinator,
+  coordinator: PaneLayoutDragCoordinator,
   paneId: string,
 ): (element: HTMLElement | null) => void {
   const [handle, setHandle] = useState<HTMLElement | null>(null);
@@ -24,7 +24,7 @@ export function usePaneDragSource(
     }
     return draggable({
       element: handle,
-      getInitialData: () => ({ [DECK_PANE_DRAG_KEY]: paneId }),
+      getInitialData: () => ({ [PANE_LAYOUT_DRAG_KEY]: paneId }),
       onDragStart: () => {
         coordinator.startDrag(paneId);
       },

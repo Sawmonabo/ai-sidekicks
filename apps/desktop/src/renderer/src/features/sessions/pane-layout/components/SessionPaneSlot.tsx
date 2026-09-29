@@ -21,17 +21,17 @@ import {
   type PaneControls,
 } from "@renderer/console/seats/index.js";
 import { PaneBody } from "./PaneBody.js";
-import { PERMILLE_PER_PERCENT, type DeckPane } from "../pane-layout.js";
-import { type DeckDensity } from "../pane-layout-measures.js";
+import { PERMILLE_PER_PERCENT, type SessionPane } from "../pane-layout.js";
+import { type PaneLayoutDensity } from "../pane-layout-measures.js";
 import { minimumPaneWidthPx } from "../pane-layout-density.js";
 import { usePaneDragSource } from "../hooks/usePaneDragSource.js";
 import { usePaneDropTarget } from "../hooks/usePaneDropTarget.js";
-import { type DeckDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
+import { type PaneLayoutDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
 
-export interface DeckPaneSlotProps {
-  readonly pane: DeckPane;
+export interface SessionPaneSlotProps {
+  readonly pane: SessionPane;
   readonly isFocused: boolean;
-  readonly density: DeckDensity;
+  readonly density: PaneLayoutDensity;
   readonly registry: ConsolePaneRegistry;
   /**
    * What this pane's body is handed, or why its address cannot be served.
@@ -42,8 +42,8 @@ export interface DeckPaneSlotProps {
    * take the whole deck down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
-  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
-  readonly dragCoordinator: DeckDragCoordinator;
+  readonly paneContextFor: (pane: SessionPane) => ConsolePaneContext | ConsoleRefusal;
+  readonly dragCoordinator: PaneLayoutDragCoordinator;
   /** The edge a drop would land on, when a drag is currently over this pane. */
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
   readonly onFocus: (paneId: string) => void;
@@ -59,8 +59,8 @@ export interface DeckPaneSlotProps {
  * streaming session, and an unmemoised map re-renders four pane bodies for every
  * event that touches one of them.
  */
-export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
-  function DeckPaneSlot(props: DeckPaneSlotProps): React.JSX.Element {
+export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
+  function DeckPaneSlot(props: SessionPaneSlotProps): React.JSX.Element {
     const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
 

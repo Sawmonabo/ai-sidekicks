@@ -16,12 +16,12 @@ import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
 import {
-  RESTORE_SESSION,
+  RESTORE_SESSION_ID,
   deckLayout,
   drain,
   mountPersistence,
-  saveDeck,
-  saveDeckInAnUnknownGrammar,
+  savePaneLayout,
+  savePaneLayoutInUnknownVersion,
 } from "./usePaneLayoutPersistence.test-support.js";
 
 /** The session a case routes TO. Never the one the record with refusals belongs to. */
@@ -34,7 +34,7 @@ describe("useDeckPersistence — restore refusals belong to the session that rai
     // cleanly, was shown the first session's errors over the second session's deck —
     // with nothing on screen tying them to a session they had left.
     const store = memoryStore();
-    await saveDeckInAnUnknownGrammar(store, RESTORE_SESSION);
+    await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(deckLayout(), store);
     await drain();
     expect(mounted.restoreRefusalCodes()).toStrictEqual(["snapshot-version-unknown"]);
@@ -51,7 +51,7 @@ describe("useDeckPersistence — restore refusals belong to the session that rai
     // The other half of "replace on every settled restore": before one settles there is
     // no reading to show, and the previous session's is not a stand-in for it.
     const store = memoryStore();
-    await saveDeckInAnUnknownGrammar(store, RESTORE_SESSION);
+    await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(deckLayout(), store);
     await drain();
 
@@ -67,8 +67,8 @@ describe("useDeckPersistence — restore refusals belong to the session that rai
     // Replacement rather than clearing: a session that cannot read its own arrangement
     // says so, whatever the session before it said.
     const store = memoryStore();
-    await saveDeck(store, ["timeline"], RESTORE_SESSION);
-    await saveDeckInAnUnknownGrammar(store, SECOND_SESSION);
+    await savePaneLayout(store, ["timeline"], RESTORE_SESSION_ID);
+    await savePaneLayoutInUnknownVersion(store, SECOND_SESSION);
     const mounted = mountPersistence(deckLayout(), store);
     await drain();
     expect(mounted.restoreRefusalCodes()).toStrictEqual([]);
@@ -83,7 +83,7 @@ describe("useDeckPersistence — restore refusals belong to the session that rai
     // Without this, a hook that returned an empty list for every session would pass the
     // two cases above — and no restore would ever report anything.
     const store = memoryStore();
-    await saveDeckInAnUnknownGrammar(store, RESTORE_SESSION);
+    await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(deckLayout(), store);
 
     await drain();

@@ -49,14 +49,14 @@ import {
   isPaneKind,
   parseConsolePaneAddress,
 } from "@renderer/console/seats/index.js";
-import { DEFAULT_DECK_DENSITY, type DeckDensity } from "./pane-layout-measures.js";
-import { isDeckDensity } from "./pane-layout-density.js";
+import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
+import { isPaneLayoutDensity } from "./pane-layout-density.js";
 import {
-  DECK_TOTAL_PERMILLE,
-  normalise,
+  PANE_LAYOUT_TOTAL_PERMILLE,
+  normalize,
   paneAddressKey,
-  type DeckLayoutState,
-  type DeckPane,
+  type PaneLayoutState,
+  type SessionPane,
 } from "./pane-layout.js";
 
 /**
@@ -66,7 +66,7 @@ import {
  * reads the grammar rather than in `core/constants/`. Bump it whenever a member's
  * MEANING changes; a restore of any other value discards the whole record.
  */
-export const DECK_LAYOUT_SNAPSHOT_VERSION = 1;
+export const PANE_LAYOUT_SNAPSHOT_VERSION = 1;
 
 /**
  * The reserved snapshot key carrying the record's own header.
@@ -75,7 +75,7 @@ export const DECK_LAYOUT_SNAPSHOT_VERSION = 1;
  * pane id starts with, so a pane can never collide with the header. Reading it is
  * how a restore learns the version before it interprets anything else.
  */
-export const DECK_SNAPSHOT_HEADER_KEY = "$deck";
+export const PANE_LAYOUT_SNAPSHOT_HEADER_KEY = "$paneLayout";
 
 /**
  * The record shape the persistence chokepoint stores under the `layout` value class.
@@ -85,10 +85,10 @@ export const DECK_SNAPSHOT_HEADER_KEY = "$deck";
  * array of pane objects would be refused at the write, and the refusal would arrive
  * a release after the code that caused it.
  */
-export type DeckSnapshotRecord = Record<string, Record<string, number | boolean | string>>;
+export type PaneLayoutSnapshotRecord = Record<string, Record<string, number | boolean | string>>;
 
 /** Why a restore dropped something. Closed, so an eighth cause is a decision. */
-export const DECK_RESTORE_REFUSAL_CODES = [
+export const PANE_LAYOUT_RESTORE_REFUSAL_CODES = [
   "snapshot-shape-invalid",
   "snapshot-version-unknown",
   "pane-shape-invalid",
@@ -99,42 +99,39 @@ export const DECK_RESTORE_REFUSAL_CODES = [
 ] as const;
 
 /** One restore refusal code. Derived, so the vocabulary is declared once. */
-export type DeckRestoreRefusalCode = (typeof DECK_RESTORE_REFUSAL_CODES)[number];
+export type PaneLayoutRestoreRefusalCode = (typeof PANE_LAYOUT_RESTORE_REFUSAL_CODES)[number];
 
-/** The subsystem name every refusal this module raises carries. */
-export const DECK_LAYOUT_REFUSAL_ORIGIN = "deck-layout";
-
-/** The subsystem name every refusal the session screen itself raises carries. */
-export const WORKSPACE_REFUSAL_ORIGIN = "workspace";
+/** The subsystem name every pane-layout refusal carries, from a restore or a save. */
+export const PANE_LAYOUT_REFUSAL_ORIGIN = "pane-layout";
 
 /** A typed restore refusal — `core`'s one refusal shape, narrowed on `code`. */
-export type DeckRestoreRefusal = NarrowedRefusal<DeckRestoreRefusalCode>;
+export type PaneLayoutRestoreRefusal = NarrowedRefusal<PaneLayoutRestoreRefusalCode>;
 
 /** What one restore did, and everything it refused. Rendered, never swallowed. */
-export interface DeckRestoreReport {
+export interface PaneLayoutRestoreReport {
   readonly restoredPaneCount: number;
-  readonly refusals: readonly DeckRestoreRefusal[];
+  readonly refusals: readonly PaneLayoutRestoreRefusal[];
 }
 
 /** A decoded snapshot: the panes to adopt, the header's choices, and the drops. */
-export interface DecodedDeckSnapshot {
-  readonly panes: readonly DeckPane[];
+export interface DecodedPaneLayoutSnapshot {
+  readonly panes: readonly SessionPane[];
   readonly focusedPaneId: string | undefined;
-  readonly density: DeckDensity;
-  readonly refusals: readonly DeckRestoreRefusal[];
+  readonly density: PaneLayoutDensity;
+  readonly refusals: readonly PaneLayoutRestoreRefusal[];
 }
 
 /** Write a state out. Ephemeral panes are skipped, so a restart reopens no page. */
-export function encodeDeckSnapshot(state: DeckLayoutState): DeckSnapshotRecord {
+export function encodePaneLayoutSnapshot(state: PaneLayoutState): PaneLayoutSnapshotRecord {
   const header: Record<string, number | boolean | string> = {
-    version: DECK_LAYOUT_SNAPSHOT_VERSION,
+    version: PANE_LAYOUT_SNAPSHOT_VERSION,
     density: state.density,
   };
   if (state.focusedPaneId !== undefined) {
     header["focusedPaneId"] = state.focusedPaneId;
   }
 
-  const snapshot: DeckSnapshotRecord = { [DECK_SNAPSHOT_HEADER_KEY]: header };
+  const snapshot: PaneLayoutSnapshotRecord = { [PANE_LAYOUT_SNAPSHOT_HEADER_KEY]: header };
   let position = 0;
   for (const pane of state.panes) {
     if (pane.isEphemeral) {
@@ -162,10 +159,10 @@ export function encodeDeckSnapshot(state: DeckLayoutState): DeckSnapshotRecord {
  * caller's decision and a test can drive the boundary with two panes instead of
  * thirteen.
  */
-export function decodeDeckSnapshot(
+export function decodePaneLayoutSnapshot(
   snapshot: unknown,
   restoredPaneCap: number,
-): DecodedDeckSnapshot {
+): DecodedPaneLayoutSnapshot {
   if (!isWireRecord(snapshot)) {
     return emptyDecode(
       refuseDeckRestore(
@@ -175,8 +172,8 @@ export function decodeDeckSnapshot(
     );
   }
 
-  const header = snapshot[DECK_SNAPSHOT_HEADER_KEY];
-  if (!isWireRecord(header) || header["version"] !== DECK_LAYOUT_SNAPSHOT_VERSION) {
+  const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
+  if (!isWireRecord(header) || header["version"] !== PANE_LAYOUT_SNAPSHOT_VERSION) {
     // Discarded WHOLE. A grammar this build does not know is a grammar whose
     // members it cannot interpret, and a partly-adopted deck hides which part
     // went missing.
@@ -188,10 +185,10 @@ export function decodeDeckSnapshot(
     );
   }
 
-  const refusals: DeckRestoreRefusal[] = [];
+  const refusals: PaneLayoutRestoreRefusal[] = [];
   const candidates: { readonly paneId: string; readonly entry: UnknownRecord }[] = [];
   for (const [paneId, entry] of Object.entries(snapshot)) {
-    if (paneId === DECK_SNAPSHOT_HEADER_KEY) {
+    if (paneId === PANE_LAYOUT_SNAPSHOT_HEADER_KEY) {
       continue;
     }
     if (!isWireRecord(entry)) {
@@ -207,7 +204,7 @@ export function decodeDeckSnapshot(
   }
   candidates.sort((left, right) => readPosition(left.entry) - readPosition(right.entry));
 
-  const panes: DeckPane[] = [];
+  const panes: SessionPane[] = [];
   // Keyed off the DECODED pane rather than off the raw entry, so a record whose
   // entity members are malformed still refuses as `pane-entity-invalid` — a
   // duplicate is a coherent pane at an address already taken, not a broken one.
@@ -244,28 +241,33 @@ export function decodeDeckSnapshot(
 
   const focusedCandidate = header["focusedPaneId"];
   return {
-    panes: normalise(panes),
+    panes: normalize(panes),
     focusedPaneId:
       typeof focusedCandidate === "string" && panes.some((pane) => pane.paneId === focusedCandidate)
         ? focusedCandidate
         : panes[0]?.paneId,
     // An unrecognized preset takes the default rather than a hole: the preset
     // decides a floor, and a floor of `undefined` squeezes panes to nothing.
-    density: isDeckDensity(header["density"]) ? header["density"] : DEFAULT_DECK_DENSITY,
+    density: isPaneLayoutDensity(header["density"])
+      ? header["density"]
+      : DEFAULT_PANE_LAYOUT_DENSITY,
     refusals,
   };
 }
 
 /** This module's refusals, named for the restore they are about. */
-function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
-  return refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail);
+function refuseDeckRestore(
+  code: PaneLayoutRestoreRefusalCode,
+  detail: string,
+): PaneLayoutRestoreRefusal {
+  return refuse(PANE_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
-function emptyDecode(refusal: DeckRestoreRefusal): DecodedDeckSnapshot {
+function emptyDecode(refusal: PaneLayoutRestoreRefusal): DecodedPaneLayoutSnapshot {
   return {
     panes: [],
     focusedPaneId: undefined,
-    density: DEFAULT_DECK_DENSITY,
+    density: DEFAULT_PANE_LAYOUT_DENSITY,
     refusals: [refusal],
   };
 }
@@ -273,8 +275,8 @@ function emptyDecode(refusal: DeckRestoreRefusal): DecodedDeckSnapshot {
 function decodePane(
   paneId: string,
   entry: UnknownRecord,
-  refusals: DeckRestoreRefusal[],
-): DeckPane | undefined {
+  refusals: PaneLayoutRestoreRefusal[],
+): SessionPane | undefined {
   const kind = entry["kind"];
   if (isPaneKind(kind) && isEphemeralPaneKind(kind)) {
     // Nothing this build writes can produce one, so its presence means the record
@@ -325,7 +327,7 @@ function decodePane(
     sizePermille:
       typeof sizePermille === "number" && Number.isFinite(sizePermille) && sizePermille > 0
         ? sizePermille
-        : DECK_TOTAL_PERMILLE,
+        : PANE_LAYOUT_TOTAL_PERMILLE,
     isEphemeral: false,
     sourcePaneId: undefined,
   };

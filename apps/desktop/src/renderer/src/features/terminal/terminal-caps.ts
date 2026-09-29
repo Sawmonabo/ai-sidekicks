@@ -47,4 +47,4 @@ export const TERMINAL_WEBGL_POOL_CAP = 12;
  * because this list is rebuilt on every fold, and an unbounded one would grow
  * with the session's whole log for a panel that shows the last few lines.
  */
-export const TERMINAL_LEASE_LEDGER_CAP = 32;
+export const TERMINAL_LEASE_HISTORY_CAP = 32;

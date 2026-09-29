@@ -27,7 +27,7 @@
 // source of truth for a fact the log already orders.
 
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { TERMINAL_LEASE_LEDGER_CAP } from "../terminal-caps.js";
+import { TERMINAL_LEASE_HISTORY_CAP } from "../terminal-caps.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,
   readTerminalLeaseTransition,
@@ -46,20 +46,20 @@ import {
  * holder is neither the free lease nor whoever held it before. Declared as a tuple
  * for the reason every closed set here is.
  */
-export const TERMINAL_LEASE_HOLDINGS = [
+export const TERMINAL_LEASE_HOLDERS = [
   "not-checked",
   "unheld",
-  "held-by-you",
-  "held-by-another",
+  "held-by-this-device",
+  "held-by-another-device",
   "unrecognized-transition",
 ] as const;
 
 /** One of the holdings above. */
-export type TerminalLeaseHolding = (typeof TERMINAL_LEASE_HOLDINGS)[number];
+export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
 /** What a log of lease transitions folds to, from this device's seat. */
 export interface TerminalLeaseState {
-  readonly holding: TerminalLeaseHolding;
+  readonly holding: TerminalLeaseHolder;
   /** The holder the wire named, or `null` for a free lease. Never inferred. */
   readonly holderUserId: string | null;
   /**
@@ -92,9 +92,9 @@ export interface TerminalLeaseState {
 
 /** What the fold needs beyond the events. */
 export interface TerminalLeaseProjectionInput {
-  /** This device's identity, so `held-by-you` can be told from a device that does not
-   * hold the lease (`held-by-another`). */
-  readonly viewerUserId: string | undefined;
+  /** This device's identity, so `held-by-this-device` can be told from a device that does not
+   * hold the lease (`held-by-another-device`). */
+  readonly thisDeviceId: string | undefined;
 }
 
 /** The state before any transition has been read. */
@@ -118,7 +118,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  *
  * That direction is the whole point. Skipping it left the transition before it
  * standing as the newest state, so a daemon that moved the lease under a reason a
- * later release introduced would leave this surface reading `held-by-you` and
+ * later release introduced would leave this surface reading `held-by-this-device` and
  * stdin open for somebody who no longer holds the shell. An unread transition is
  * ignorance, and ignorance about a write lease reads as no lease at all.
  *
@@ -147,7 +147,7 @@ export function projectTerminalLease(
     unreadTransition = undefined;
     transitionCount += 1;
     transitions.push(transition);
-    if (transitions.length > TERMINAL_LEASE_LEDGER_CAP) {
+    if (transitions.length > TERMINAL_LEASE_HISTORY_CAP) {
       transitions.shift();
     }
   }
@@ -165,7 +165,7 @@ export function projectTerminalLease(
       transitionCount,
       unreadTransition,
       holderUserId,
-      viewerUserId: input.viewerUserId,
+      thisDeviceId: input.thisDeviceId,
     }),
     holderUserId,
     unreadTransition,
@@ -187,8 +187,8 @@ function readHolding(state: {
   readonly transitionCount: number;
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
   readonly holderUserId: string | null;
-  readonly viewerUserId: string | undefined;
-}): TerminalLeaseHolding {
+  readonly thisDeviceId: string | undefined;
+}): TerminalLeaseHolder {
   if (state.unreadTransition !== undefined) {
     return "unrecognized-transition";
   }
@@ -198,5 +198,7 @@ function readHolding(state: {
   if (state.holderUserId === null) {
     return "unheld";
   }
-  return state.holderUserId === state.viewerUserId ? "held-by-you" : "held-by-another";
+  return state.holderUserId === state.thisDeviceId
+    ? "held-by-this-device"
+    : "held-by-another-device";
 }

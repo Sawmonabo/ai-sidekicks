@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { IDLE_CLAIM, leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_USER } from "../lease-model.test-support.js";
+import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
 
 describe("the claim control is gated on knowing which device this is", () => {
   /** The claim control, or `null` — the shape the withheld cases need. */
@@ -21,8 +21,8 @@ describe("the claim control is gated on knowing which device this is", () => {
   }
 
   const HELD_BY_SOMEBODY = leaseState({
-    holding: "held-by-another",
-    holderUserId: OTHER_USER,
+    holding: "held-by-another-device",
+    holderUserId: OTHER_DEVICE_ID,
     transitionCount: 1,
   });
 

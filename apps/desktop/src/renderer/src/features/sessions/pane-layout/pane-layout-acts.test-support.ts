@@ -1,9 +1,9 @@
 import { vi, type Mock } from "vitest";
 
-import type { DeckActs } from "./pane-layout-acts.js";
+import type { PaneLayoutActs } from "./pane-layout-acts.js";
 
 /** One pane layout's acts, each a spy, so a case can say which layout performed. */
-export interface SpyingPaneLayoutActs extends DeckActs {
+export interface SpyingPaneLayoutActs extends PaneLayoutActs {
   readonly focusNextPane: Mock<() => void>;
   readonly focusPreviousPane: Mock<() => void>;
   readonly closeFocusedPane: Mock<() => void>;

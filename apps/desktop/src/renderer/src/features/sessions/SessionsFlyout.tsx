@@ -8,7 +8,7 @@
 import "./sessions.css";
 
 /** The all-sessions destination: its frame, with no list until a read can fill one. */
-export function SessionsSurface(): React.JSX.Element {
+export function SessionsFlyout(): React.JSX.Element {
   return (
     <section className="meridian-sessions" aria-label="Sessions">
       <header className="meridian-sessions__head">

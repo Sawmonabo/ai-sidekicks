@@ -14,16 +14,16 @@
 //     identity has been READ there is no control here at all, and no sentence about
 //     one. `lease-acquisition.ts` owns that fold.
 
-import { resolveTerminalClaimAffordance } from "../take-shell-availability.js";
-import type { TerminalLeaseClaim } from "../hooks/useTakeShell.js";
-import type { TerminalLeaseHolding } from "../lease-model.js";
-import type { TerminalViewerIdentity } from "../hooks/useTerminalDeviceIdentity.js";
+import { resolveTakeShellAvailability } from "../take-shell-availability.js";
+import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
+import type { TerminalLeaseHolder } from "../lease-model.js";
+import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 
 /** What the claim control needs: its call state, the holding, and which device this is. */
 export interface LeaseClaimControlProps {
   /** The claim control's call state. */
-  readonly claim: TerminalLeaseClaim;
-  readonly holding: TerminalLeaseHolding;
+  readonly claim: UseTakeShellResult;
+  readonly holding: TerminalLeaseHolder;
   /**
    * Which device this is, which is what the control is gated on.
    *
@@ -32,20 +32,20 @@ export interface LeaseClaimControlProps {
    * cannot report the outcome of: a take would come back as a hold it could not
    * recognize.
    */
-  readonly viewerIdentity: TerminalViewerIdentity;
+  readonly viewerIdentity: TerminalDeviceIdentity;
 }
 
 /** The button that takes the shell, drawn only where this device may take it. */
 export function LeaseClaimControl(props: LeaseClaimControlProps): React.JSX.Element | null {
   const { claim, holding, viewerIdentity } = props;
-  if (resolveTerminalClaimAffordance({ holding, viewerIdentity }).control === "none") {
+  if (resolveTakeShellAvailability({ holding, viewerIdentity }).control === "none") {
     return null;
   }
   return (
     <button
       type="button"
       className="meridian-lease-line__claim"
-      onClick={claim.acquire}
+      onClick={claim.take}
       disabled={claim.isInFlight}
     >
       Take the shell

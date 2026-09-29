@@ -25,9 +25,9 @@
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { isEphemeralPaneKind } from "@renderer/console/seats/index.js";
-import { DEFAULT_DECK_DENSITY, type DeckDensity } from "./pane-layout-measures.js";
+import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import {
-  DECK_TOTAL_PERMILLE,
+  PANE_LAYOUT_TOTAL_PERMILLE,
   addressesMatch,
   applyPaneSizePercentages,
   carveSplitFrom,
@@ -37,16 +37,16 @@ import {
   paneAddressKey,
   reorder,
   sizesAreEqual,
-  type DeckLayoutState,
-  type DeckPane,
+  type PaneLayoutState,
+  type SessionPane,
   type DeckPaneAddress,
   type PaneSizePercentages,
 } from "./pane-layout.js";
 import {
-  decodeDeckSnapshot,
-  encodeDeckSnapshot,
-  type DeckRestoreReport,
-  type DeckSnapshotRecord,
+  decodePaneLayoutSnapshot,
+  encodePaneLayoutSnapshot,
+  type PaneLayoutRestoreReport,
+  type PaneLayoutSnapshotRecord,
 } from "./pane-layout-snapshot.js";
 
 /**
@@ -60,39 +60,39 @@ import {
  * builds on a display the density presets are drawn for, so the cap binds a
  * defect and never a session.
  */
-export const DECK_RESTORED_PANE_CAP = 12;
+export const PANE_LAYOUT_RESTORED_PANE_CAP = 12;
 
 /** Construction inputs. */
-export interface DeckLayoutOptions {
-  readonly density?: DeckDensity;
+export interface PaneLayoutStoreOptions {
+  readonly density?: PaneLayoutDensity;
   /** Panes a restore may mount. Beyond it the extras are dropped and reported. */
   readonly restoredPaneCap: number;
 }
 
 /** The live pane layout of one session screen; every mutation publishes one new state. */
-export class DeckLayout {
-  readonly #changes = new Emitter<DeckLayoutState>("deck layout change");
+export class PaneLayoutStore {
+  readonly #changes = new Emitter<PaneLayoutState>("deck layout change");
   readonly #restoredPaneCap: number;
-  #state: DeckLayoutState;
+  #state: PaneLayoutState;
   #nextPaneOrdinal = 1;
 
-  public constructor(options: DeckLayoutOptions) {
+  public constructor(options: PaneLayoutStoreOptions) {
     this.#restoredPaneCap = options.restoredPaneCap;
     this.#state = {
       panes: [],
       focusedPaneId: undefined,
-      density: options.density ?? DEFAULT_DECK_DENSITY,
+      density: options.density ?? DEFAULT_PANE_LAYOUT_DENSITY,
       revision: 0,
     };
   }
 
   /** The current state. Always the state the last notification carried. */
-  public snapshot(): DeckLayoutState {
+  public snapshot(): PaneLayoutState {
     return this.#state;
   }
 
   /** Subscribe to transitions. The `useSyncExternalStore` half. */
-  public subscribe(listener: (state: DeckLayoutState) => void): Unsubscribe {
+  public subscribe(listener: (state: PaneLayoutState) => void): Unsubscribe {
     return this.#changes.subscribe(listener);
   }
 
@@ -123,11 +123,11 @@ export class DeckLayout {
     }
 
     const paneId = this.#mintPaneId();
-    const pane: DeckPane = {
+    const pane: SessionPane = {
       paneId,
       kind: address.kind,
       entity: address.entity,
-      sizePermille: DECK_TOTAL_PERMILLE,
+      sizePermille: PANE_LAYOUT_TOTAL_PERMILLE,
       isEphemeral: isEphemeralPaneKind(address.kind),
       sourcePaneId: address.sourcePaneId,
     };
@@ -253,7 +253,7 @@ export class DeckLayout {
     this.#commit({ panes });
   }
 
-  public setDensity(density: DeckDensity): void {
+  public setDensity(density: PaneLayoutDensity): void {
     if (this.#state.density === density) {
       return;
     }
@@ -261,8 +261,8 @@ export class DeckLayout {
   }
 
   /** The record the persistence chokepoint stores under the `layout` value class. */
-  public toSnapshot(): DeckSnapshotRecord {
-    return encodeDeckSnapshot(this.#state);
+  public toSnapshot(): PaneLayoutSnapshotRecord {
+    return encodePaneLayoutSnapshot(this.#state);
   }
 
   /**
@@ -274,8 +274,8 @@ export class DeckLayout {
    * slow read the person arranged panes through — is {@link adoptBeneath}, which
    * carries the merge rule so this path does not have to.
    */
-  public restore(snapshot: unknown): DeckRestoreReport {
-    const decoded = decodeDeckSnapshot(snapshot, this.#restoredPaneCap);
+  public restore(snapshot: unknown): PaneLayoutRestoreReport {
+    const decoded = decodePaneLayoutSnapshot(snapshot, this.#restoredPaneCap);
     this.#nextPaneOrdinal = highestOrdinal(decoded.panes) + 1;
     this.#commit({
       panes: decoded.panes,
@@ -311,8 +311,8 @@ export class DeckLayout {
   public adoptBeneath(
     snapshot: unknown,
     retiredAddressKeys: ReadonlySet<string>,
-  ): DeckRestoreReport {
-    const decoded = decodeDeckSnapshot(snapshot, this.#restoredPaneCap);
+  ): PaneLayoutRestoreReport {
+    const decoded = decodePaneLayoutSnapshot(snapshot, this.#restoredPaneCap);
     const liveAddresses = new Set(this.#state.panes.map(paneAddressKey));
     const adopted = decoded.panes
       .filter((pane) => {
@@ -325,7 +325,7 @@ export class DeckLayout {
     // arrangement to lose: the record's stands unless the person has chosen one, and
     // an untouched deck is still at the default the constructor gave it.
     const density =
-      this.#state.density === DEFAULT_DECK_DENSITY ? decoded.density : this.#state.density;
+      this.#state.density === DEFAULT_PANE_LAYOUT_DENSITY ? decoded.density : this.#state.density;
 
     // The record's panes land IN FRONT of the person's. They were open first, and this
     // deck's own rule is that a pane a person opens goes at the end.
@@ -361,7 +361,7 @@ export class DeckLayout {
     return paneId;
   }
 
-  #commit(change: Partial<DeckLayoutState>): void {
+  #commit(change: Partial<PaneLayoutState>): void {
     this.#state = { ...this.#state, ...change, revision: this.#state.revision + 1 };
     this.#changes.emit(this.#state);
   }

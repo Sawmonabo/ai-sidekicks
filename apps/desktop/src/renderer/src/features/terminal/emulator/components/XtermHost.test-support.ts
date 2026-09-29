@@ -42,7 +42,7 @@ export function typeOneCharacter(surface: HTMLElement): void {
   );
 }
 
-export function surfaceOf(container: HTMLElement): HTMLElement {
+export function emulatorElementOf(container: HTMLElement): HTMLElement {
   const surface = container.querySelector(".meridian-terminal-host__surface");
   if (!(surface instanceof HTMLElement)) {
     throw new Error("XtermHost rendered no surface");

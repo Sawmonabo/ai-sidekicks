@@ -36,7 +36,7 @@ import type { SessionListRow } from "./session-rows.js";
  * A subset of the primitive's five kinds, because only two of them are reachable
  * here: nothing on this surface is filtered.
  */
-export type SessionsAbsenceKind = "not-loaded" | "empty";
+export type SessionListNothingKind = "not-loaded" | "empty";
 
 /** What a caller hands in for the sessions only this window can describe. */
 export interface SessionRowSources {
@@ -55,7 +55,7 @@ export interface SessionRowSources {
  * read would fail to compile here instead of silently landing in whichever arm the
  * `else` happened to be.
  */
-export function sessionsAbsenceKindFor(directory: SessionDirectoryState): SessionsAbsenceKind {
+export function sessionsAbsenceKindFor(directory: SessionDirectoryState): SessionListNothingKind {
   switch (directory.status) {
     case "reading":
       return "not-loaded";

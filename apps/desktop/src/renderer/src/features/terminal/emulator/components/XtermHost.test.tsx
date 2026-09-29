@@ -25,7 +25,7 @@ import {
   mountHost,
   reclaimComponentHolds,
   settleEmulatorLoad,
-  surfaceOf,
+  emulatorElementOf,
   typeOneCharacter,
 } from "./XtermHost.test-support.js";
 
@@ -52,7 +52,7 @@ describe("the emulator's code is fetched, not linked", () => {
     // And once it lands the absence is replaced by the emulator rather than joined
     // by it: a skeleton left beside a live grid would read as a second terminal
     // still loading.
-    expect(surfaceOf(container).childElementCount).toBeGreaterThan(0);
+    expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
     expect(container.querySelector(".meridian-nothing")).toBeNull();
   });
 
@@ -115,7 +115,7 @@ describe("the mount point — one adapter per mount", () => {
     // The library writes its own grid into the box it was opened against, so a
     // non-empty surface is evidence a real emulator attached rather than that a
     // ref was set.
-    expect(surfaceOf(container).childElementCount).toBeGreaterThan(0);
+    expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
   });
 
   it("reports the renderer it settled on, so a surface can say which it got", async () => {
@@ -139,7 +139,7 @@ describe("the mount point — one adapter per mount", () => {
     const { unmount, container } = await mountHost(
       <XtermHost terminalId="host-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    const surface = surfaceOf(container);
+    const surface = emulatorElementOf(container);
     expect(surface.childElementCount).toBeGreaterThan(0);
     unmount();
     // The adapter tore its own DOM down; nothing of the emulator is left behind in
@@ -163,7 +163,7 @@ describe("the emulator outlives the parent's callback identities", () => {
         onRendererMode={observedAtMount}
       />,
     );
-    const emulatorBefore = surfaceOf(container).firstElementChild;
+    const emulatorBefore = emulatorElementOf(container).firstElementChild;
 
     const observedAfterRerender = vi.fn();
     act(() => {
@@ -182,7 +182,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     // Three new functions and the same terminal. A mount effect that depended on
     // their identities would have disposed this emulator and built another, taking
     // the operator's scrollback and everything the shell had printed with it.
-    expect(surfaceOf(container).firstElementChild).toBe(emulatorBefore);
+    expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
     expect(observedAtMount).toHaveBeenCalledTimes(1);
     expect(observedAfterRerender).not.toHaveBeenCalled();
   });
@@ -209,7 +209,7 @@ describe("the emulator outlives the parent's callback identities", () => {
       );
     });
 
-    typeOneCharacter(surfaceOf(container));
+    typeOneCharacter(emulatorElementOf(container));
 
     // Keeping the emulator is only half of it: an adapter still holding the mount
     // pass's function would send keystrokes to a handler the parent has replaced,
@@ -224,11 +224,11 @@ describe("the emulator outlives the parent's callback identities", () => {
     const { container, rerender } = await mountHost(
       <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
     );
-    const emulatorBefore = surfaceOf(container).firstElementChild;
+    const emulatorBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
       rerender(<XtermHost terminalId="host-2" isWriteEnabled label="Terminal output" />);
     });
-    expect(surfaceOf(container).firstElementChild).not.toBe(emulatorBefore);
+    expect(emulatorElementOf(container).firstElementChild).not.toBe(emulatorBefore);
   });
 
   it("negative control: a watcher's keystroke reaches nobody", async () => {
@@ -243,7 +243,7 @@ describe("the emulator outlives the parent's callback identities", () => {
         onKeystroke={watcherKeystrokeHandler}
       />,
     );
-    typeOneCharacter(surfaceOf(container));
+    typeOneCharacter(emulatorElementOf(container));
     expect(watcherKeystrokeHandler).not.toHaveBeenCalled();
   });
 });
@@ -298,7 +298,7 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
 
     expect(modes.length).toBeGreaterThan(0);
     expect(dispose).not.toHaveBeenCalled();
-    expect(surfaceOf(container).childElementCount).toBeGreaterThan(0);
+    expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
     dispose.mockRestore();
   });
 });

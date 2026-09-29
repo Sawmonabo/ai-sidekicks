@@ -7,14 +7,14 @@
 import { describe, expect, it } from "vitest";
 
 import { SessionHeader } from "./SessionHeader.js";
-import { SESSION_ID, renderBar, storeWith } from "./SessionHeader.test-support.js";
+import { SESSION_ID, renderSessionHeader, storeWith } from "./SessionHeader.test-support.js";
 
 /** How the session names itself, where it does. */
 const DISPLAY_TITLE = "Ship the ledger";
 
 describe("the session header — the session it is naming", () => {
   it("renders a display title and says on the element that it is metadata", () => {
-    const bar = renderBar(
+    const bar = renderSessionHeader(
       <SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} title={DISPLAY_TITLE} />,
     );
     const title = bar.querySelector(".meridian-session-header__session-title");
@@ -34,7 +34,9 @@ describe("the session header — the session it is naming", () => {
     // Without this the case above would pass over a header that drew a "not named" badge
     // for every untitled session — which is most of them, and which would report a
     // missing answer where the answer is that this session has no name.
-    const bar = renderBar(<SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} />);
+    const bar = renderSessionHeader(
+      <SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} />,
+    );
 
     expect(bar.querySelector(".meridian-session-header__session-title")).toBeNull();
     expect(bar.textContent).not.toContain(DISPLAY_TITLE);

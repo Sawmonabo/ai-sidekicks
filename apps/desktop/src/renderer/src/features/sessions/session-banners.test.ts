@@ -9,14 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
-  dismissWorkspaceBanner,
-  raiseWorkspaceBanner,
-  workspaceBannerKey,
-  type WorkspaceBanner,
+  dismissSessionBanner,
+  raiseSessionBanner,
+  sessionBannerKey,
+  type SessionBanner,
 } from "./session-banners.js";
 
 const SAVE_FAILED = refuse(
-  "workspace",
+  "pane-layout",
   "layout-save-failed",
   "This window's pane arrangement could not be saved.",
 );
@@ -28,9 +28,9 @@ const STORE_FULL = refuse(
 
 // Any console refusal, not one code's: the builder narrows its `code` to the literal
 // it was handed, and every case below deliberately mixes codes.
-function raiseAll(...refusals: readonly ConsoleRefusal[]): readonly WorkspaceBanner[] {
-  return refusals.reduce<readonly WorkspaceBanner[]>(
-    (current, refusal) => raiseWorkspaceBanner(current, refusal),
+function raiseAll(...refusals: readonly ConsoleRefusal[]): readonly SessionBanner[] {
+  return refusals.reduce<readonly SessionBanner[]>(
+    (current, refusal) => raiseSessionBanner(current, refusal),
     [],
   );
 }
@@ -63,7 +63,7 @@ describe("the workspace banner stack", () => {
     // The render keys on the identity, so a repeat that re-ordered the stack would
     // move a dismiss control out from under the pointer reaching for it.
     const raised = raiseAll(SAVE_FAILED, STORE_FULL);
-    const afterRepeat = raiseWorkspaceBanner(raised, SAVE_FAILED);
+    const afterRepeat = raiseSessionBanner(raised, SAVE_FAILED);
 
     expect(afterRepeat.map((banner) => banner.refusal.code)).toStrictEqual([
       "layout-save-failed",
@@ -75,7 +75,7 @@ describe("the workspace banner stack", () => {
 
   it("dismisses by identity and leaves every other banner as it was", () => {
     const raised = raiseAll(SAVE_FAILED, STORE_FULL);
-    const remaining = dismissWorkspaceBanner(raised, workspaceBannerKey(SAVE_FAILED));
+    const remaining = dismissSessionBanner(raised, sessionBannerKey(SAVE_FAILED));
 
     expect(remaining).toHaveLength(1);
     expect(remaining[0]).toBe(raised[1]);
@@ -86,6 +86,6 @@ describe("the workspace banner stack", () => {
     // whatever it was handed.
     const raised = raiseAll(SAVE_FAILED, STORE_FULL);
 
-    expect(dismissWorkspaceBanner(raised, "no-such-banner")).toStrictEqual(raised);
+    expect(dismissSessionBanner(raised, "no-such-banner")).toStrictEqual(raised);
   });
 });

@@ -1,6 +1,6 @@
 // Which device this is, for the one terminal decision that needs it.
 //
-// `lease-model.ts` tells `held-by-you` from `held-by-another` by comparing the daemon's
+// `lease-model.ts` tells `held-by-this-device` from `held-by-another-device` by comparing the daemon's
 // holder against this device's user, so the claim control is withheld until that
 // identity has been read. The reading is held per `(bridge, sessionId)` by the console's
 // one subject-scoped holder, which reverts it to `not-loaded` on the pass that first
@@ -12,12 +12,12 @@ import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** Which device this is, or that the console has not been told yet. */
-export type TerminalViewerIdentity =
+export type TerminalDeviceIdentity =
   | { readonly status: "not-loaded" }
   | { readonly status: "read"; readonly userId: string };
 
 /** The state before the read lands, as one value, so a render never builds a fresh literal. */
-const NOT_LOADED_VIEWER_IDENTITY: TerminalViewerIdentity = { status: "not-loaded" };
+const NOT_LOADED_VIEWER_IDENTITY: TerminalDeviceIdentity = { status: "not-loaded" };
 
 /** Asks the daemon which user this device is. */
 export type ReadTerminalViewerUser = (request: {
@@ -25,12 +25,12 @@ export type ReadTerminalViewerUser = (request: {
 }) => Promise<{ readonly userId: string }>;
 
 /** Read which identity this device carries, once per bridge-and-session pair. */
-export function useTerminalViewerIdentity(
+export function useTerminalDeviceIdentity(
   bridge: ConsoleBridge,
   sessionId: string,
   readViewerUser: ReadTerminalViewerUser,
-): TerminalViewerIdentity {
-  const { value: identity, publish } = useSubjectScopedState<TerminalViewerIdentity>(
+): TerminalDeviceIdentity {
+  const { value: identity, publish } = useSubjectScopedState<TerminalDeviceIdentity>(
     bridge,
     sessionId,
     () => NOT_LOADED_VIEWER_IDENTITY,

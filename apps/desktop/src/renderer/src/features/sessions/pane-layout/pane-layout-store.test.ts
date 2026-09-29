@@ -7,16 +7,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "./pane-layout-store.js";
-import { DeckLayout } from "./pane-layout-store.js";
-import { DECK_TOTAL_PERMILLE } from "./pane-layout.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout-store.js";
+import { PaneLayoutStore } from "./pane-layout-store.js";
+import { PANE_LAYOUT_TOTAL_PERMILLE } from "./pane-layout.js";
 
-function emptyLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+function emptyLayout(): PaneLayoutStore {
+  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
-function twoPaneLayout(): DeckLayout {
+function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
@@ -133,7 +133,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
 
     const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
     expect(after).toStrictEqual([500, 300, 200]);
-    expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("clamps a width below the floor IN THE STORE, whatever the DOM reported", () => {
@@ -148,7 +148,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
 
     const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
     expect(Math.min(...after)).toBeGreaterThanOrEqual(floorPermille);
-    expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("negative control: with no floor the same layout is adopted unclamped", () => {
@@ -197,7 +197,7 @@ describe("DeckLayout — the split act", () => {
       before[1],
       before[2],
     ]);
-    expect(after.reduce((total, size) => total + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+    expect(after.reduce((total, size) => total + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   it("negative control: an open naming no source re-divides the whole deck", () => {

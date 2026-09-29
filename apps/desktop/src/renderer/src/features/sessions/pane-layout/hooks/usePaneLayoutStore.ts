@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { DeckLayout, type DeckLayoutOptions } from "../pane-layout-store.js";
+import { PaneLayoutStore, type PaneLayoutStoreOptions } from "../pane-layout-store.js";
 
 /**
  * Hold one layout for the lifetime of the component that owns the deck.
@@ -9,7 +9,7 @@ import { DeckLayout, type DeckLayoutOptions } from "../pane-layout-store.js";
  * render, and a `new DeckLayout()` evaluated during a render React discards would
  * leave the deck subscribed to a layout nothing will ever mutate again.
  */
-export function useDeckLayout(options: DeckLayoutOptions): DeckLayout {
-  const [layout] = useState(() => new DeckLayout(options));
+export function usePaneLayoutStore(options: PaneLayoutStoreOptions): PaneLayoutStore {
+  const [layout] = useState(() => new PaneLayoutStore(options));
   return layout;
 }

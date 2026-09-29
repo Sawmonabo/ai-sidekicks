@@ -6,12 +6,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_NOT_MOUNTED_REFUSAL, MountedDeckSeat } from "./mounted-pane-layouts.js";
+import { PANE_LAYOUT_NOT_MOUNTED_REFUSAL, MountedPaneLayouts } from "./mounted-pane-layouts.js";
 import { createSpyingPaneLayoutActs } from "./pane-layout-acts.test-support.js";
 
 describe("which deck a command acts on", () => {
   it("performs on the newest mounted deck", () => {
-    const seat = new MountedDeckSeat();
+    const seat = new MountedPaneLayouts();
     const first = createSpyingPaneLayoutActs();
     const second = createSpyingPaneLayoutActs();
     seat.adopt(first);
@@ -26,7 +26,7 @@ describe("which deck a command acts on", () => {
   });
 
   it("releases by identity, so an earlier unmount does not drop the newest", () => {
-    const seat = new MountedDeckSeat();
+    const seat = new MountedPaneLayouts();
     const first = createSpyingPaneLayoutActs();
     const second = createSpyingPaneLayoutActs();
     const releaseFirst = seat.adopt(first);
@@ -38,13 +38,13 @@ describe("which deck a command acts on", () => {
   });
 
   it("refuses rather than doing nothing when no deck is mounted", () => {
-    const outcome = new MountedDeckSeat().perform("focusNextPane");
-    expect(outcome).toStrictEqual({ status: "refused", refusal: DECK_NOT_MOUNTED_REFUSAL });
+    const outcome = new MountedPaneLayouts().perform("focusNextPane");
+    expect(outcome).toStrictEqual({ status: "refused", refusal: PANE_LAYOUT_NOT_MOUNTED_REFUSAL });
   });
 
   it("negative control: a seat holding one deck performs rather than refusing", () => {
     // Without this the case above would pass over a seat that refused every press.
-    const seat = new MountedDeckSeat();
+    const seat = new MountedPaneLayouts();
     seat.adopt(createSpyingPaneLayoutActs());
     expect(seat.perform("focusNextPane").status).toBe("performed");
   });

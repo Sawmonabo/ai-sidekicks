@@ -190,7 +190,7 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
           className="meridian-terminal-host__surface"
           ref={hostElementRef}
           role="group"
-          aria-label={surfaceName(props.label, writeGate)}
+          aria-label={accessibleNameFor(props.label, writeGate)}
         />
       ) : (
         renderEmulatorAbsence(emulator)
@@ -295,6 +295,6 @@ function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): Te
 }
 
 /** The surface's accessible name, which carries the write gate. */
-function surfaceName(surfaceLabel: string, writeGate: TerminalWriteGate): string {
-  return `${surfaceLabel}${SURFACE_NAME_SUFFIXES[writeGate]}`;
+function accessibleNameFor(label: string, writeGate: TerminalWriteGate): string {
+  return `${label}${SURFACE_NAME_SUFFIXES[writeGate]}`;
 }
