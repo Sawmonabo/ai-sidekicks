@@ -51,7 +51,7 @@ function deferredAct(): {
   };
 }
 
-const PORT_REFUSAL = refuse("browser-pane", "wire-unregistered", "No verb is registered.");
+const PORT_REFUSAL = refuse("browser-pane", "open-external-failed", "The page did not open.");
 
 /** The subject an act belongs to: which bridge it went out on, and for which pane. */
 interface ActSubject {
@@ -132,7 +132,7 @@ describe("the browser pane's act sequence", () => {
     first.serve();
     await settleReactWork();
 
-    expect(result.current.refusal?.code).toBe("wire-unregistered");
+    expect(result.current.refusal?.code).toBe("open-external-failed");
   });
 
   it("lets a local refusal outrank an act dispatched before it", async () => {
@@ -254,7 +254,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     afterRebind.refuseWith(PORT_REFUSAL);
     await settleReactWork();
 
-    expect(acts().refusal?.code).toBe("wire-unregistered");
+    expect(acts().refusal?.code).toBe("open-external-failed");
   });
 
   it("negative control: a re-render that keeps the subject keeps the refusal", async () => {

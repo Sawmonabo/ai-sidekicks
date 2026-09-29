@@ -20,10 +20,10 @@ const SAVE_FAILED = refuse(
   "layout-save-failed",
   "This window's pane arrangement could not be saved.",
 );
-const DETACH_REFUSED = refuse(
-  "auxiliary-handoff",
-  "wire-unregistered",
-  "The window wire is not registered.",
+const STORE_FULL = refuse(
+  "persistence",
+  "quota-exceeded",
+  "The browser storage quota for this window is full.",
 );
 
 // Any console refusal, not one code's: the builder narrows its `code` to the literal
@@ -53,7 +53,7 @@ describe("the workspace banner stack", () => {
       SAVE_FAILED.code,
       "This window's sidebar arrangement could not be saved.",
     );
-    const otherCode = refuse(SAVE_FAILED.origin, "wire-unregistered", SAVE_FAILED.detail);
+    const otherCode = refuse(SAVE_FAILED.origin, "workspace.no_mounted_deck", SAVE_FAILED.detail);
     const otherOrigin = refuse("persistence", SAVE_FAILED.code, SAVE_FAILED.detail);
 
     expect(raiseAll(SAVE_FAILED, otherDetail, otherCode, otherOrigin)).toHaveLength(4);
@@ -62,19 +62,19 @@ describe("the workspace banner stack", () => {
   it("leaves a standing banner in place when a repeat arrives, and its neighbours untouched", () => {
     // The render keys on the identity, so a repeat that re-ordered the stack would
     // move a dismiss control out from under the pointer reaching for it.
-    const raised = raiseAll(SAVE_FAILED, DETACH_REFUSED);
+    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
     const afterRepeat = raiseWorkspaceBanner(raised, SAVE_FAILED);
 
     expect(afterRepeat.map((banner) => banner.refusal.code)).toStrictEqual([
       "layout-save-failed",
-      "wire-unregistered",
+      "quota-exceeded",
     ]);
     // The neighbour is the same entry, not a rebuilt one carrying the same fields.
     expect(afterRepeat[1]).toBe(raised[1]);
   });
 
   it("dismisses by identity and leaves every other banner as it was", () => {
-    const raised = raiseAll(SAVE_FAILED, DETACH_REFUSED);
+    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
     const remaining = dismissWorkspaceBanner(raised, workspaceBannerKey(SAVE_FAILED));
 
     expect(remaining).toHaveLength(1);
@@ -84,7 +84,7 @@ describe("the workspace banner stack", () => {
   it("negative control: dismissing an identity nothing carries removes nothing", () => {
     // Without this, the case above would pass over a dismissal that emptied the stack
     // whatever it was handed.
-    const raised = raiseAll(SAVE_FAILED, DETACH_REFUSED);
+    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
 
     expect(dismissWorkspaceBanner(raised, "no-such-banner")).toStrictEqual(raised);
   });
