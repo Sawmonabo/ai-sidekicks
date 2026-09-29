@@ -21,8 +21,8 @@
 // answer the design forbids, and it would be computed here, in the renderer.
 //
 // WHERE IT IS DRAWN IS THE ROW'S DECISION. The transcript row hands the owner's element to
-// `MessageRow` as its edit control on a user's own message, where it sits beside Copy in
-// the row's hover footer.
+// `MessageRow` as its edit control on a user's own message, where it follows Copy in the
+// row's hover footer: Copy, then Fork, Edit and `Undo to here`.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -49,7 +49,7 @@ export type TimelineRowFooterRenderer = (
 
 const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
   "timeline row footer",
-  "a user message carries one edit control; a second owner would make which one renders depend on import order",
+  "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );
 
 /**
