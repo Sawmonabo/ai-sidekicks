@@ -8,10 +8,9 @@
 // rule and this is a pure function of a command list, a query, and a recents
 // list: no state, nothing to own.
 //
-// The `ConsoleCommand` type ranked here is declared in `command-registry.ts`, the
-// module that holds one. The import below is type-only and erased, so the runtime
-// edge runs one way: the registry reaches down here, and nothing here reaches
-// back.
+// The `ConsoleCommand` type ranked here is declared in `command-types.ts`. The import
+// below is type-only and erased, so the runtime edge runs one way: the registry
+// reaches down here, and nothing here reaches back.
 
 import { PALETTE_RESULT_CAP } from "@renderer/console/core/constants/palette-caps.js";
 import type { ConsoleCommand } from "./command-types.js";
