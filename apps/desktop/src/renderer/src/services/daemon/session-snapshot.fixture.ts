@@ -4,7 +4,7 @@
 // the moment a store opens on it.
 //
 // AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
-// delivered log over this base state, and each plane that needs one owns its own fold.
+// delivered log over this base state, and each reader that needs one owns its own fold.
 // This file is every such fold's opening term and answers nothing about what has
 // happened since.
 //

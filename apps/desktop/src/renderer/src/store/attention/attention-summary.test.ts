@@ -1,4 +1,4 @@
-// What the attention plane may say, and what it must refuse to say.
+// What the attention summary may say, and what it must refuse to say.
 //
 // The closed sets are COUNTED rather than described, because the design's claim is
 // about a number ("`trigger` at exactly six values … Six is closed"), and the fold is
@@ -44,38 +44,38 @@ describe("the closed vocabularies", () => {
 
 describe("the fold over one read", () => {
   it("drops a resolved item, because it is not waiting on anybody", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       item({ id: "live" }),
       item({ id: "done", resolvedAt: "2026-01-01T10:05:00.000Z" }),
     ]);
-    expect(plane.liveItems.map((live) => live.id)).toStrictEqual(["live"]);
+    expect(summary.liveItems.map((live) => live.id)).toStrictEqual(["live"]);
   });
 
   it("splits a session on the axis suppression keys on", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       item({ id: "one" }),
       item({ id: "two", severity: "informational", trigger: "run_completed" }),
     ]);
-    const [group] = plane.groups;
+    const [group] = summary.groups;
     expect(group?.actionable.map((entry) => entry.id)).toStrictEqual(["one"]);
     expect(group?.informational.map((entry) => entry.id)).toStrictEqual(["two"]);
-    expect(plane.hasActionable).toBe(true);
+    expect(summary.hasActionable).toBe(true);
   });
 
   it("reads a session's severity off the projection and answers nothing for one it never mentioned", () => {
-    const plane = new AttentionSummary([item({ sessionId: "session-a" })]);
-    expect(plane.severityFor("session-a")).toBe("actionable");
+    const summary = new AttentionSummary([item({ sessionId: "session-a" })]);
+    expect(summary.severityFor("session-a")).toBe("actionable");
     // Not "informational" and not a cleared marker: the projection said nothing
     // about this session, which is a different fact from saying it is clear.
-    expect(plane.severityFor("session-b")).toBeUndefined();
+    expect(summary.severityFor("session-b")).toBeUndefined();
   });
 
   it("negative control: a session with only informational items is not reported actionable", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       item({ sessionId: "session-c", severity: "informational", trigger: "mention" }),
     ]);
-    expect(plane.severityFor("session-c")).toBe("informational");
-    expect(plane.hasActionable).toBe(false);
+    expect(summary.severityFor("session-c")).toBe("informational");
+    expect(summary.hasActionable).toBe(false);
   });
 });
 
@@ -90,9 +90,9 @@ describe("the order the fold establishes", () => {
   ];
 
   it("puts the oldest live item first whatever order the projection answered in", () => {
-    const plane = new AttentionSummary(NEWEST_FIRST);
+    const summary = new AttentionSummary(NEWEST_FIRST);
 
-    expect(plane.liveItems.map((live) => live.id)).toStrictEqual(["older", "newer"]);
+    expect(summary.liveItems.map((live) => live.id)).toStrictEqual(["older", "newer"]);
   });
 
   it("orders the sessions by their oldest item, not by first appearance", () => {
@@ -100,18 +100,21 @@ describe("the order the fold establishes", () => {
     // `groups` was `Map` insertion order — the projection's own — so this exact
     // input listed the newer session above the older one while the getter promised
     // the reverse. `session-a` appears SECOND in the input and must come first.
-    const plane = new AttentionSummary(NEWEST_FIRST);
+    const summary = new AttentionSummary(NEWEST_FIRST);
 
-    expect(plane.groups.map((group) => group.sessionId)).toStrictEqual(["session-a", "session-b"]);
+    expect(summary.groups.map((group) => group.sessionId)).toStrictEqual([
+      "session-a",
+      "session-b",
+    ]);
   });
 
   it("keeps the projection's own order between two items stamped at one instant", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       item({ id: "second-in-frame", createdAt: "2026-01-01T10:00:00.000Z" }),
       item({ id: "third-in-frame", createdAt: "2026-01-01T10:00:00.000Z" }),
     ]);
 
-    expect(plane.liveItems.map((live) => live.id)).toStrictEqual([
+    expect(summary.liveItems.map((live) => live.id)).toStrictEqual([
       "second-in-frame",
       "third-in-frame",
     ]);
@@ -120,11 +123,11 @@ describe("the order the fold establishes", () => {
   it("sorts an item whose stamp no reader can parse last rather than first", () => {
     // February 30 is the stamp `Date.parse` would answer March 2 for. The console's
     // reader refuses it, and a row that earned no position takes the end.
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       item({ id: "unreadable", createdAt: "2026-02-30T10:00:00.000Z" }),
       item({ id: "readable", createdAt: "2026-01-01T10:00:00.000Z" }),
     ]);
 
-    expect(plane.liveItems.map((live) => live.id)).toStrictEqual(["readable", "unreadable"]);
+    expect(summary.liveItems.map((live) => live.id)).toStrictEqual(["readable", "unreadable"]);
   });
 });

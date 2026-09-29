@@ -218,7 +218,7 @@ describe("the run group disclosure follows the session the pane is a log of", ()
    * One disclosure under a bridge, over a session the caller can move.
    *
    * The pane is not remounted between the two sessions, which is the whole case: the
-   * shell opens session stores and never closes them, so navigating between two open
+   * app window opens session stores and never closes them, so navigating between two open
    * sessions re-renders this position rather than unmounting it.
    */
   function mountDisclosureOver(

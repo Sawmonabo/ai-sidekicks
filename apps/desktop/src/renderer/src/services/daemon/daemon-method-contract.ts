@@ -43,7 +43,7 @@ import type {
  */
 export interface RegisteredDaemonMethodContract {
   // driver — the five client-facing verbs a composer, a run control, or a picker
-  // reaches, registered together because they are one plane rather than five
+  // reaches, registered together because they are one driver interface rather than five
   // decisions. Two of the replies are the empty object and one of the requests is:
   // that is a SHAPE the corpus publishes, so a reply arriving with members is a
   // protocol mismatch this console would otherwise read as a successful stop.
@@ -94,7 +94,7 @@ export interface RegisteredDaemonMethodContract {
     readonly response: ReasoningSurfaceReadResponse;
   };
 
-  // session and presence — the session plane.
+  // session and presence — the session methods.
   readonly "session.create": {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;

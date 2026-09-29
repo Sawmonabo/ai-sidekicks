@@ -3,7 +3,7 @@
 //
 //   • **A modal overlay makes the background inert.** The widget library's dialog
 //     runs under `modal="trap-focus"`, which traps focus and deliberately does not
-//     lock scroll — and leaves inerting the app root to the shell. Without that, the
+//     lock scroll — and leaves inerting the app root to the app's chrome. Without that, the
 //     rail and the whole screen would stay in the accessibility tree underneath an
 //     open dialog, reachable by every assistive-technology reader that does not
 //     follow focus. The overlays region has to sit OUTSIDE whatever carries the

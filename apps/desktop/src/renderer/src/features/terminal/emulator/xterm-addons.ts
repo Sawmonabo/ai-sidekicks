@@ -36,7 +36,7 @@
 // emulator — and its twelve-bytes-per-cell buffer — reachable after the adapter
 // nulled its own handle, which is a disposal that frees nothing. Measured: holding
 // them left almost all of a full instance's bytes retained across a teardown, which
-// is what `test/console/endurance/terminal-endurance.test.ts` holds this object to.
+// is what `tests/endurance/xterm-adapter.test.ts` holds this object to.
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";

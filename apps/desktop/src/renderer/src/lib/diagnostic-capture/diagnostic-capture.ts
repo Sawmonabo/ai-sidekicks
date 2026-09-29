@@ -21,12 +21,12 @@
 // build that dropped it would ship the console whose failures are unreportable.
 //
 // IT OWNS NO WIRE, AND THAT IS DELIBERATE. The capture batches and hands the batch
-// to a forwarder the shell installs; the forwarder is what knows about the bridge.
-// Two reasons. The band is the daemon's, so the module that reaches it belongs with
-// the daemon services and not at the bottom of the import layering — `lib/` imports
-// nothing above it. And an auxiliary window is its own renderer process with its own
-// capture and its own forwarder, so the seam has to be installable rather than resolved
-// at import.
+// to a forwarder the window's composition installs; the forwarder is what knows about
+// the bridge. Two reasons. The band is the daemon's, so the module that reaches it
+// belongs with the daemon services and not at the bottom of the import layering —
+// `lib/` imports nothing above it. And an auxiliary window is its own renderer process
+// with its own capture and its own forwarder, so the seam has to be installable rather
+// than resolved at import.
 //
 // NOTHING HERE SCHEDULES. A batch leaves when a batch is full or when a caller
 // flushes, never on a timer: a capture that woke an idle process to check whether it
@@ -54,7 +54,8 @@ export interface DiagnosticRecord {
 }
 
 /**
- * What the shell installs to carry a batch to the daemon's diagnostic band.
+ * What the window's composition installs to carry a batch to the daemon's diagnostic
+ * band.
  *
  * Takes the JSONL text rather than the records, because JSONL IS the encoding the
  * band ingests and building it here means one encoder rather than one per forwarder.
@@ -107,9 +108,9 @@ export class DiagnosticCapture {
    * Attach the forwarder that carries batches to the band.
    *
    * Installing flushes what has accumulated, because records captured before the
-   * shell finished wiring are exactly the boot failures nobody else will see. A
-   * second install replaces the first and returns a detach that is inert once
-   * replaced — a registry that could be silently re-pointed would let one
+   * window's composition finished wiring are exactly the boot failures nobody else
+   * will see. A second install replaces the first and returns a detach that is inert
+   * once replaced — a registry that could be silently re-pointed would let one
    * subsystem's install drop another's.
    */
   public installForwarder(forwarder: DiagnosticBatchForwarder): DiagnosticForwarderDetach {
@@ -322,8 +323,8 @@ function boundedDetail(detail: string): string {
  * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
  * process's tripwire registry into it and the composition site arms that route, so
  * every invariant breach a window detects is captured; the forwarder that would carry
- * a batch to the daemon's band is the shell's, and the view that READS it is a
- * diagnostics page neither of them has built yet. Until one of those installs a
+ * a batch to the daemon's band is the window composition's, and the view that READS it
+ * is a diagnostics page neither of them has built yet. Until one of those installs a
  * forwarder the capture marks its own forward seam blind and holds what it has under
  * the pending bound, which is the state its marker exists to make legible.
  */

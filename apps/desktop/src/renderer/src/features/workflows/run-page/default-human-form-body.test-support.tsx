@@ -156,7 +156,7 @@ export function fixtureWaitPhase(): HumanFormPhase {
   return wait;
 }
 
-/** The mount point with the shell inside it, over the submit call the case supplies. */
+/** The mount point with the default body inside it, over the submit call the case supplies. */
 export async function renderMountPoint(
   phase: HumanFormPhase | undefined,
   submitForm?: WorkflowHumanFormSubmitCall,

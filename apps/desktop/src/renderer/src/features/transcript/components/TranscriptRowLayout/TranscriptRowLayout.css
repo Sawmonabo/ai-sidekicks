@@ -1,5 +1,5 @@
 /*
- * A transcript row is a flush-left ledger line, drawn as a three-column grid: the 2 px
+ * A transcript row is a flush-left line, drawn as a three-column grid: the 2 px
  * edge, a fixed gutter, one measure.
  *
  * Imported by `TranscriptRowLayout.tsx` alone, so the component cannot render without

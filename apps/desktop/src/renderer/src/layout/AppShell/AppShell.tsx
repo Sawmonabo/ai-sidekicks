@@ -2,7 +2,7 @@
 // and the command palette, around whatever screen `app/` hands it.
 //
 // The frame's background is inert for exactly a modal overlay's lifetime. The widget
-// library's dialog traps focus and leaves inerting the app root to the shell, so this
+// library's dialog traps focus and leaves inerting the app root to the app's chrome, so this
 // is where the flag is folded from its two producers: the palette, whose open state the
 // window owns, and the window store's `isModalDialogOpen`, which is how a card a
 // feature renders says it is up. Neither is a copy of the other.
@@ -23,7 +23,7 @@ import {
 } from "../NavigationRail/rail-navigation.js";
 import { AppFrame } from "./AppFrame.js";
 
-/** What the window hands its shell: its store, its screens, its palette, and the screen. */
+/** What the window hands `AppShell`: its store, its screens, its palette, and the screen. */
 export interface AppShellProps {
   readonly frameStore: WindowStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */

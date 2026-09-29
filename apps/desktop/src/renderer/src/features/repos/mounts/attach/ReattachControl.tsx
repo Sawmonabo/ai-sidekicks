@@ -94,10 +94,10 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
         >
           Re-attach this path
         </AlertDialog.Trigger>
-        {/* The popup shell is the primitive's, which is what puts this confirmation in
-            the window's airspace: a native browser-pane view yields to what is
-            registered there, and a confirmation it painted over is the one thing
-            forbidden outright. */}
+        {/* The portal, backdrop and popup are the primitive's, which is what puts this
+            confirmation in the window's airspace: a native browser-pane view yields to
+            what is registered there, and a confirmation it painted over is the one
+            thing forbidden outright. */}
         <OverlayAlertDialogPopup
           backdropClassName="meridian-reattach__backdrop"
           className="meridian-reattach__dialog"

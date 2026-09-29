@@ -89,11 +89,12 @@ export function usePaneLayoutPersistence(
   const publishRestoreRefusals = restoreRefusals.publish;
 
   // The partition rides the REQUEST rather than being read here. A writer coalesces,
-  // so a queued arrangement settles after the act that queued it — and the session screen
-  // survives a navigation between two already-open sessions, because the shell opens
-  // session stores and never closes them. Reading a mutable current-session holder at
-  // write time filed the older session's arrangement under the newer one's partition
-  // and overwrote a pane layout the person had not touched.
+  // so a queued arrangement settles after the act that queued it — and the session
+  // screen survives a navigation between two already-open sessions, because the session
+  // store registry keeps every store it opened until the window goes away. Reading a
+  // mutable current-session holder at write time filed the older session's arrangement
+  // under the newer one's partition and overwrote a pane layout the person had not
+  // touched.
   //
   // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
   // this is the other one. The store handed down is replaced on a reconnect without

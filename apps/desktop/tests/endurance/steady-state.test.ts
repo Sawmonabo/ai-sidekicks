@@ -218,7 +218,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   // navigated. A churn cycle is two route changes, and the run only measures the
   // mount and unmount churn it claims to if each change is OBSERVED before the
   // next hash is assigned. The cycle used to wait on `.meridian-frame`, which is
-  // the window's permanent shell: it was already on the page, so the wait
+  // the app's permanent chrome: it was already on the page, so the wait
   // returned at once and the second assignment could land before React had
   // mounted the first destination at all.
   //
@@ -233,7 +233,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // `openSettingsRoute` has already waited for its own locator, so the
       // positive half is the wait itself. What is asserted here is the half a
       // wait cannot make: that the OTHER route's locator is absent, which is what
-      // a locator naming the permanent shell could never satisfy.
+      // a locator naming the permanent chrome could never satisfy.
       await openSettingsRoute(consoleApplication);
       expect(await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(

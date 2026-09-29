@@ -5,7 +5,7 @@
 // site. Both are only enforceable if a consumer cannot MOUNT one by hand either: an
 // attach form that rendered its own `Dialog.Portal` never went near the registration,
 // so there was nothing at that site to forget and the rule had nothing to bite on. So
-// the popup shell is the primitive and the body is the caller's.
+// the portal, backdrop, and popup are the primitive and the body is the caller's.
 //
 // WHAT STAYS WITH THE CALLER. `Dialog.Root` — the open state, the modality, and the
 // trigger — is state and not airspace, and a caller that wraps its dialog in a

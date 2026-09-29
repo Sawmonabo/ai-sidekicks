@@ -1,6 +1,6 @@
 // The composer registry: what the session screen hands the message input.
 //
-// The composer is the shell chrome every session view already contains. Two
+// The composer is part of the chrome every session view already contains. Two
 // features meet on it: the session screen mounts it under the pane layout, and the
 // composer feature fills it. Neither imports the other — the session screen reads
 // `findComposerRenderer()` and renders whatever is there, and an empty registry renders

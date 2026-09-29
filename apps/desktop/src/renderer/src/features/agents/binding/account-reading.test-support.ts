@@ -23,7 +23,7 @@ export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
  * One registry account id, branded the way the contract brands one.
  *
  * The cast is this tree's established shape for a branded wire id in a fixture
- * (`settings/pages/provider-accounts/shell/quota-rows.test.ts`): the brand exists to
+ * (`settings/pages/providers/fixtures/quota-rows.test.ts`): the brand exists to
  * stop a caller passing any string on the wire, and a test that parsed one through
  * the schema would be asserting the schema rather than the model under test.
  */

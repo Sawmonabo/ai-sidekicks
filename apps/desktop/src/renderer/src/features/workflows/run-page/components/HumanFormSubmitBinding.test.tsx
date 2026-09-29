@@ -1,6 +1,6 @@
 // The submit channel around a supplied body: what it keeps, and what it hands over. The body
 // here is a press and nothing else, so the cases hold for any body and not only for the
-// console's own shell.
+// console's default body.
 
 import { cleanup, screen } from "@testing-library/react";
 import { act } from "react";

@@ -18,7 +18,7 @@
 // daemon observes health next and publishes `account_changed`, which is the frame that
 // moves an account here. But it IS the node's evidence that one brokered attempt is
 // over, and the view that started that attempt has no other way to learn it: a
-// refused cancellation establishes nothing, so without this the sign-in plane would go
+// refused cancellation establishes nothing, so without this the sign-in flow would go
 // on holding its single-flight claim for the life of the window. So the newest one is
 // held and published, correlated by the caller on its `attemptId` and never taken as a
 // verdict about the account.

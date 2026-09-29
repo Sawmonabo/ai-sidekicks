@@ -96,7 +96,7 @@ describe("the rows are a narrowing of the wire shape, not a second one", () => {
  * cases below make the workflows feature's own claim instead: `parkSchedule`, where
  * the consequence lands, and `workflowInstant`, the single reading both the park
  * classification and the run sort take, refuse each of those shapes — and admit the
- * spellings the plane does declare, which is the control the refusals need.
+ * spellings `workflowInstant` does declare, which is the control the refusals need.
  */
 describe("an armed boundary is an instant or it is unreadable", () => {
   function scheduleFor(autoResumeAt: string): ReturnType<typeof parkSchedule> {
@@ -126,7 +126,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(workflowInstant("2026-01-01").kind).toBe("malformed");
   });
 
-  it("refuses a numeric offset, because this plane declares one encoding", () => {
+  it("refuses a numeric offset, because the workflow projection declares one encoding", () => {
     // Unambiguous to a parser and still not the encoding the wire declares. A console
     // that read a second one is where a producer's encoding change would enter
     // unremarked instead of arriving as the unreadable value it is.

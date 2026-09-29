@@ -145,7 +145,7 @@ export const INTERVAL_AGREEMENT_LOWER_FACTOR: number = 0.5;
  * three times over; anything under one instance cannot be a per-instance leak. The
  * claim is deliberately the weaker one — this row owns the pane-shaped teardown, and
  * the adapter's own churn accounting over a working day of cycles is
- * `terminal-endurance.test.ts`'s and is not duplicated here.
+ * `xterm-adapter.test.ts`'s and is not duplicated here.
  *
  * Scaled by {@link TerminalInstanceSeries.perInstanceBytes} and never by the first
  * instance's delta alone. Both bounds used to hang off that one difference, so a

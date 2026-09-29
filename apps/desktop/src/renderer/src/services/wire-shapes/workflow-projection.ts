@@ -1,6 +1,6 @@
-// The console's declaration of the workflow plane's read shapes.
+// The console's declaration of the workflow engine's read shapes.
 //
-// OWNER. The workflow plane owns the definition, run, gate, phase-output, and
+// OWNER. The workflow engine owns the definition, run, gate, phase-output, and
 // human-form operations, and its operator run control owns the cancel and resume
 // pair. The typed request and reply shapes are registered in the payload contracts,
 // and every vocabulary below is transcribed from that registry rather than

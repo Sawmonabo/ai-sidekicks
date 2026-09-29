@@ -23,7 +23,7 @@
 // a structural port instead of importing the class here — a cycle would fail
 // `structure:layering`, and the shape it asks for is the shape this class has.
 //
-// Printing a reading and exiting on one belong to `budget-harness.mts`, the shell
+// Printing a reading and exiting on one belong to `budget-harness.mts`, the runner
 // the two measuring harnesses run inside.
 
 import path from "node:path";

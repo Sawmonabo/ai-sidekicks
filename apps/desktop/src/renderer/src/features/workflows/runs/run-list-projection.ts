@@ -37,7 +37,7 @@
 //
 // ONE PARSE OF THE START, AND EVERY READER TAKES IT. The reading rides the row, so the
 // sort and the row that PRINTS the start look at the same value. Two readings would
-// split this plane's `"utc-only"` policy from the figure chokepoint's default
+// split `workflowInstant`'s `"utc-only"` policy from the figure chokepoint's default
 // `"any-offset"` one: a start spelled with a numeric offset is legible to the second and
 // malformed to the first, so the list would sort that run last and still print a
 // readable time on it, with nothing on screen saying its stamp had been refused.
@@ -78,7 +78,7 @@ export interface WorkflowRunListRow {
   /** Every phase parked at the moment the snapshot was built. Empty when none is. */
   readonly parkedPhases: readonly WorkflowParkedPhase[];
   /**
-   * The run's start as this plane reads it, malformed included.
+   * The run's start as `workflowInstant` reads it, malformed included.
    *
    * The READING rather than the string, because the row that prints it and the
    * comparator that orders it must not read the wire's spelling twice under two

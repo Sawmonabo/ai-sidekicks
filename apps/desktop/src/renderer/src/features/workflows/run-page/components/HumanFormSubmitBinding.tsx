@@ -20,7 +20,7 @@
 // share a member name would show one branch's typed answer under the other's question,
 // and a press would record it against the phase now on screen. A key on `phaseRunId`
 // makes them two elements, which is React's own way of saying they are two forms, and
-// it is applied HERE so it holds for a supplied body as well as for the console's own shell.
+// it is applied HERE so it holds for a supplied body as well as for the console's default body.
 //
 // `phaseRunId` AND NOT THE PHASE, AND NOT THE REVISION EITHER. The attempt is what the
 // answer is composed against and submitted for — a retry mints a new one — so it is the
@@ -47,7 +47,7 @@ export interface HumanFormSubmitBindingProps {
   /** The wait this channel is the submit for. Present by construction — see the header. */
   readonly phase: HumanFormPhase;
   /**
-   * The supplied body, or `undefined` while there is none and the console's shell stands.
+   * The supplied body, or `undefined` while there is none and the console's default body stands.
    *
    * Required-carrying-undefined rather than optional, because the mount point above always
    * knows which it has and an absent key would read as one that forgot to say.

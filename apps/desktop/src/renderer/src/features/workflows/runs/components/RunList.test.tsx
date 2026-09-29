@@ -109,12 +109,12 @@ describe("the counts the header shows", () => {
 });
 
 /*
- * The start is DISPLAYED under the grammar it is SORTED under, and the two used to be
- * different readers. `run-list-rows.ts` declares this plane `"utc-only"` so an encoding
- * change arrives as the unreadable value it is; the row printed through the figure
- * chokepoint's `formatDateTime`, whose default policy admits a numeric offset. So a run
- * spelled `+02:00` sorted last — under every start the plane could read — and printed a
- * legible time on the row, with nothing saying its stamp had been refused.
+ * The start is DISPLAYED under the grammar it is SORTED under. `run-list-rows.ts`
+ * declares `workflowInstant` `"utc-only"` so an encoding change arrives as the
+ * unreadable value it is, while the figure chokepoint's `formatDateTime` admits a
+ * numeric offset by default. A row printed through that formatter would show a run
+ * spelled `+02:00` sorted last — under every start `workflowInstant` could read — with
+ * a legible time on it and nothing saying its stamp had been refused.
  */
 describe("a start spelled with a numeric offset", () => {
   // 10:00Z, so it is genuinely NEWER than the run below it and belongs above it in a
@@ -130,7 +130,7 @@ describe("a start spelled with a numeric offset", () => {
     ]);
   }
 
-  it("sorts it last and prints it as the unreadable value the plane made it", () => {
+  it("sorts it last and prints it as the unreadable value workflowInstant made it", () => {
     const root = twoRuns();
     expect(rowNames(root)).toStrictEqual(["Utc", "Offset"]);
     expect(startFigures(root)).toStrictEqual([formatDateTime(utcSpelled), "—"]);
@@ -151,7 +151,7 @@ describe("a start spelled with a numeric offset", () => {
     expect(formatDateTime(offsetSpelled)).toBe(formatDateTime("2026-01-01T10:00:00Z"));
   });
 
-  it("negative control: the plane's own reader is the one that refuses it", () => {
+  it("negative control: workflowInstant is the reader that refuses it", () => {
     expect(workflowInstant(offsetSpelled).kind).toBe("malformed");
     expect(workflowInstant(utcSpelled).kind).toBe("instant");
   });

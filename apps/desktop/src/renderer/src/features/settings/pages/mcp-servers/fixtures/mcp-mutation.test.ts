@@ -1,4 +1,4 @@
-// The mutation plane: what a press sends, what comes back, and how a row is keyed.
+// The MCP mutation calls: what a press sends, what comes back, and how a row is keyed.
 //
 // THE KEY IS ASSERTED AS AN IDENTITY AND NOT AS A STRING SHAPE. What matters is that
 // two bindings that differ anywhere in the scope-qualified tuple key differently and

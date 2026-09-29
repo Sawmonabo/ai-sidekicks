@@ -20,7 +20,7 @@
 //
 // Everything else is the real composition: the real `SessionStore`, the real
 // projection, the real `@tanstack/react-virtual` instance, the real row renderer
-// the console actually registers, and the same `SessionScreenShell`
+// the console actually registers, and the same `SessionScreenContainer`
 // wrapper the session screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
@@ -53,7 +53,7 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
-import { SessionScreenShell } from "@renderer/features/transcript/SessionScreenShell.js";
+import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
@@ -113,7 +113,7 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 /**
  * Mount one scenario's transcript the way a window mounts it.
  *
- * `SessionScreenShell` is the production wrapper around the session screen, and it is
+ * `SessionScreenContainer` is the production wrapper around the session screen, and it is
  * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */
@@ -121,9 +121,9 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
-      <SessionScreenShell>
+      <SessionScreenContainer>
         <TranscriptPane context={transcriptPaneContext(scenario.sessionId, sessionStore)} />
-      </SessionScreenShell>
+      </SessionScreenContainer>
     </FixtureBridgeProvider>,
   );
   return container;

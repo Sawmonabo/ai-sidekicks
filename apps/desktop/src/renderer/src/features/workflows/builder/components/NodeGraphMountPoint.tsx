@@ -68,7 +68,7 @@ export interface NodeGraphMountPointProps extends NodeGraphMount {
    * The body, once there is one.
    *
    * Optional and absent everywhere in this repository: the pane mounts the mount point
-   * with no body, so the shell stands. It is a prop rather than a lookup so the
+   * with no body, so the empty frame stands. It is a prop rather than a lookup so the
    * mount obligation above is provably delivered — this directory's own test
    * supplies a body and reads back exactly what the pane promised it.
    */

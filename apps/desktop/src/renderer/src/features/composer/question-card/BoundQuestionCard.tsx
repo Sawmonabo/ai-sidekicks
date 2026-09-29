@@ -22,7 +22,7 @@ import { QuestionCard } from "./QuestionCard.js";
 
 export interface BoundQuestionCardProps {
   /**
-   * The ask this row is blocked on, read off the row by the shell that dispatched here.
+   * The ask this row is blocked on, read off the row by the row component that dispatched here.
    *
    * It carries the run the answer is delivered for, so this row takes no second
    * attribution beside it: the reading and the dispatcher then name one run by

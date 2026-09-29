@@ -143,7 +143,7 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
     // The defect this binding exists for: the writer coalesces, so a request settles
     // later than the act that made it. A writer that read the caller's current session
     // at write time filed session A's arrangement under session B's partition the
-    // moment a person navigated between two sessions the shell already had open.
+    // moment a person navigated between two sessions the window already had open.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,

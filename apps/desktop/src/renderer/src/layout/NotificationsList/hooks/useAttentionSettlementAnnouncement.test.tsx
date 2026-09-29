@@ -45,12 +45,12 @@ function answered(options: {
 }): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionSummary(options.items ?? []),
+    summary: new AttentionSummary(options.items ?? []),
     droppedCount: 0,
     refusedSessions: (options.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,
       refusal: refuse(
-        "attention-plane",
+        "attention-projection",
         "session.not_found",
         "That session is not known to the daemon.",
       ),

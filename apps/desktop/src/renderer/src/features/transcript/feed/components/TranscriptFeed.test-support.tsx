@@ -1,4 +1,4 @@
-// The shared scaffolding every ledger-feed case is driven through.
+// The shared scaffolding every transcript-feed case is driven through.
 //
 // The feed's cases split by SUBJECT across several files — the rows, the absences,
 // the narrowing, and the palette registration — and every one of them needs the same three
@@ -90,7 +90,7 @@ export function renderFeed(
  * A row body that presses its own disclosure through the list's lease.
  *
  * The composed feed hands each row to whichever renderer is registered, and the
- * shell that ships one is `TranscriptRow.tsx` — whose own suite proves it writes
+ * renderer that ships one is `TranscriptRow.tsx` — whose own suite proves it writes
  * the press to the lease. What a FEED case needs is the other half: that a write
  * reaches the window and comes back as the density the row renderer is handed. This row is
  * the smallest thing that can perform the write from inside the tree.

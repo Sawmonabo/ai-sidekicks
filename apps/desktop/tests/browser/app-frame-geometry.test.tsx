@@ -143,7 +143,7 @@ describe("browser — the frame lays out", () => {
   });
 
   it("opens the palette on its chord and lists the frame's own commands", async () => {
-    // The palette is shell chrome: it has to work before any feature has
+    // The palette is part of the app's chrome: it has to work before any feature has
     // registered anything, so the frame's own navigation and appearance commands
     // are what it lists on a first run. Driving it with a real key press rather
     // than by setting state proves the whole path — the chord listener, the

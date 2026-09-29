@@ -11,7 +11,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
  * `.tsx` file declares exactly one component, private ones counted, which is the rule
  * that keeps a component's identity and its file name the same fact.
  *
- * THE START IS DISABLED AND NEVER HIDDEN while another sign-in holds the plane. This
+ * THE START IS DISABLED AND NEVER HIDDEN while another sign-in is running. This
  * machine runs one brokered flow at a time, so a second start would be refused by the
  * daemon — but a control that vanished would leave a person looking for the step they
  * were told to take, with nothing on screen saying why it went. Disabling it keeps the

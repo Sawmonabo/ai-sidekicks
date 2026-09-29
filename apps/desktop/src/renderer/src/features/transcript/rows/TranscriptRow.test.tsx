@@ -1,4 +1,5 @@
-// The shell, and the deletion obligation that makes replacing it work.
+// The transcript's row renderer: the card it routes a row to, the density it hands back
+// to the list, and the one owner it registers under.
 
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
@@ -50,10 +51,10 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 }
 
 /**
- * The shell inside a list that owns its density, which is what a transcript is.
+ * The row renderer inside a list that owns its density, which is what a transcript is.
  *
  * Every routing case above renders the row bare, and that is deliberate: routing is
- * a decision the shell makes alone. Density is not — the shell writes a lease and
+ * a decision the renderer makes alone. Density is not — the renderer writes a lease and
  * the LIST hands the answer back, so a harness that did not close that loop would be
  * asserting over a component that no longer decides anything.
  */
@@ -178,7 +179,7 @@ describe("standing in for the list's density decision", () => {
   });
 
   it("negative control: an untouched row honors a list that opened it", () => {
-    // Without this, a shell that kept any state of its own would pass the case above
+    // Without this, a renderer that kept any state of its own would pass the case above
     // while ignoring the list entirely.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
@@ -188,7 +189,7 @@ describe("standing in for the list's density decision", () => {
 
   it("closes a row the list opened on the first press, not the second", () => {
     // The press inverts the EFFECTIVE density — what is on screen — so one press on
-    // an open row closes it. A shell that inverted some private "have I been
+    // an open row closes it. A renderer that inverted some private "have I been
     // touched" flag would store "open" here and leave the row exactly as it was.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,

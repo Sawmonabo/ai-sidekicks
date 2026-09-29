@@ -83,8 +83,8 @@ export interface TranscriptFeedWindows {
 export function useTranscriptFeedWindows(
   inputs: TranscriptFeedWindowsInputs,
 ): TranscriptFeedWindows {
-  // The same reading `<TranscriptReadState>` draws its shells from, so the empty
-  // sentence and the loading shells cannot both be on screen.
+  // The same reading `<TranscriptReadState>` draws its skeleton rows from, so the empty
+  // sentence and the skeleton rows cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // The fold is the MOUNT's, not the log's: which finished run groups a person has
   // opened is a fact about who is reading, so it is held here and handed to the

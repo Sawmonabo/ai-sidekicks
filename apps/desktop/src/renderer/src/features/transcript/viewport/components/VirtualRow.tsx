@@ -34,7 +34,7 @@ import type { ViewportRow } from "../viewport-snapshot.js";
  * two are one claim about one list, so the row's half is declared where a reader
  * meets the row and the container's half says the same thing about the container.
  */
-const LEDGER_ROW_ROLE = "article" as const;
+const TRANSCRIPT_ROW_ROLE = "article" as const;
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
 export type ViewportRowRenderer = (row: ViewportRow) => React.ReactNode;
@@ -80,7 +80,7 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
     return (
       <WindowedListRow
         as="div"
-        role={LEDGER_ROW_ROLE}
+        role={TRANSCRIPT_ROW_ROLE}
         className="meridian-transcript-viewport__row"
         rowIndex={props.rowIndex}
         totalRowCount={props.totalRowCount}

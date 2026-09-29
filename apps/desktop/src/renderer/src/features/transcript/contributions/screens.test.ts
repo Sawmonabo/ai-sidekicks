@@ -8,7 +8,7 @@ import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { PaneRegistry, ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
-import { SessionScreenShell } from "../SessionScreenShell.js";
+import { SessionScreenContainer } from "../SessionScreenContainer.js";
 import { registerTranscriptScreens } from "./screens.js";
 
 /**
@@ -69,12 +69,12 @@ function renderedElement(node: ReactNode): {
  * on every arm but the refused one and a fixed index would read that `null` as the
  * body on exactly the ordinary case.
  */
-function sessionScreenBodyIn(shell: { props: Record<string, unknown> }): {
+function sessionScreenBodyIn(screenContainer: { props: Record<string, unknown> }): {
   type: unknown;
   key: string | null;
   props: Record<string, unknown>;
 } {
-  const children = shell.props["children"];
+  const children = screenContainer.props["children"];
   const mounted = Array.isArray(children) ? children : [children];
   return renderedElement(mounted[mounted.length - 1] as ReactNode);
 }
@@ -105,9 +105,11 @@ describe("the transcript — which screens it holds", () => {
 describe("the transcript — what it mounts", () => {
   it("mounts the session screen — the session header, the pane layout, and the composer", () => {
     const registry = registeredTranscript();
-    const shell = renderedElement(registry.descriptorFor("session")?.render(screenContext()));
-    expect(shell.type).toBe(SessionScreenShell);
-    const sessionScreenBody = sessionScreenBodyIn(shell);
+    const screenContainer = renderedElement(
+      registry.descriptorFor("session")?.render(screenContext()),
+    );
+    expect(screenContainer.type).toBe(SessionScreenContainer);
+    const sessionScreenBody = sessionScreenBodyIn(screenContainer);
     expect(sessionScreenBody.type).toBe(TestSessionScreenBody);
     expect(sessionScreenBody.props["route"]).toStrictEqual({
       kind: "session",
@@ -117,8 +119,8 @@ describe("the transcript — what it mounts", () => {
 });
 
 describe("the transcript — what decides the mounted subtree's lifetime", () => {
-  // The session screen holds per-session state nothing else resets, and the shell deliberately
-  // OPENS session stores without closing them on navigation — so moving between two
+  // The session screen holds per-session state nothing else resets, and the app window
+  // deliberately OPENS session stores without closing them on navigation — so moving between two
   // already-open sessions RE-RENDERS this position rather than unmounting it. A key on
   // the route's session is what makes the subtree's lifetime match the thing it holds
   // state about; without it the second session inherits the first's panes, run-group
@@ -129,8 +131,10 @@ describe("the transcript — what decides the mounted subtree's lifetime", () =>
 
   it("keys the session screen subtree on the route's session", () => {
     const registry = registeredTranscript();
-    const shell = renderedElement(registry.descriptorFor("session")?.render(screenContext()));
-    expect(sessionScreenBodyIn(shell).key).toBe("session-7");
+    const screenContainer = renderedElement(
+      registry.descriptorFor("session")?.render(screenContext()),
+    );
+    expect(sessionScreenBodyIn(screenContainer).key).toBe("session-7");
   });
 
   it("negative control: a re-render of the SAME session keys identically, so it is not a remount", () => {
@@ -149,12 +153,12 @@ describe("the transcript — what decides the mounted subtree's lifetime", () =>
 
   it("falls back to a named key rather than an absent one when the route names no session", () => {
     const registry = registeredTranscript();
-    const shell = renderedElement(
+    const screenContainer = renderedElement(
       registry.descriptorFor("session")?.render({
         ...screenContext(),
         route: { kind: "settings" },
       } as unknown as ScreenContext),
     );
-    expect(sessionScreenBodyIn(shell).key).toBe("no-session");
+    expect(sessionScreenBodyIn(screenContainer).key).toBe("no-session");
   });
 });

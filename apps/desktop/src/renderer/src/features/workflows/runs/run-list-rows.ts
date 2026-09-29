@@ -1,11 +1,12 @@
 // The console's run and phase rows, DERIVED from the substrate's wire declaration
 // rather than written a second time beside it.
 //
-// `bridge/wire-shapes/workflow-projection.ts` declares the workflow plane's read shapes and the
-// closed vocabularies inside them. This module is the one place the console narrows
-// those shapes for a list: it drops what a row does not show, replaces the phase
-// collection with its own row type, and adds the two members a caller joins in from
-// beside the run read. It declares no status, no park reason, and no second snapshot.
+// `services/wire-shapes/workflow-projection.ts` declares the workflow projection's read
+// shapes and the closed vocabularies inside them. This module is the one place the
+// console narrows those shapes for a list: it drops what a row does not show, replaces
+// the phase collection with its own row type, and adds the two members a caller joins
+// in from beside the run read. It declares no status, no park reason, and no second
+// snapshot.
 //
 // WHY DERIVATION AND NOT A MIRROR. A mirrored shape agrees with its original until
 // the original moves, and then it compiles anyway — which is how a list comes to read
@@ -95,7 +96,7 @@ export type WorkflowRunSnapshot = ProjectedFrom<
    * where the caller holds one.
    *
    * Optional HERE while it is required on the enumeration's own entry
-   * (`bridge/wire-shapes/workflow-projection.ts`), because this row is also built from a single
+   * (`services/wire-shapes/workflow-projection.ts`), because this row is also built from a single
    * run read, which carries the pinned `workflowVersionId` and nothing about the
    * definition. A caller holding an enumeration entry passes it through; one holding
    * only a run passes nothing and the row shows the run's own identity rather than a
@@ -159,15 +160,15 @@ export type WorkflowParkSchedule =
   | { readonly kind: "unreadable"; readonly autoResumeAt: string };
 
 /**
- * Read one of this plane's instants: RFC 3339, in UTC, and nothing wider.
+ * Read one of the workflow projection's instants: RFC 3339, in UTC, and nothing wider.
  *
  * THE ENCODING IS THE WIRE'S RULE RATHER THAN A CONVENTION CHOSEN HERE. The workflow
- * plane states it on the member that carries the consequence —
+ * projection states it on the member that carries the consequence —
  * `WorkflowPhasePark.autoResumeAt` above, and the same sentence on the payload
  * contract this file's header names — and `packages/contracts` cites it back as "the
  * encoding `PhaseState.autoResumeAt` already consumes". `"utc-only"` is that sentence
  * said to the reader: a numeric offset parses unambiguously, so admitting it would
- * cost nothing today, but a plane that declares ONE encoding and a console that
+ * cost nothing today, but a wire that declares ONE encoding and a console that
  * quietly reads a second is where a producer's encoding change enters unremarked
  * instead of arriving as the unreadable value it is.
  *
@@ -194,7 +195,7 @@ export type WorkflowParkSchedule =
  * puts an unreadable start last in BOTH directions.
  *
  * Exported because those two are the only readers of a wire instant in this feature,
- * and the plane's `"utc-only"` declaration said at two call sites is one rule with two
+ * and this reader's `"utc-only"` declaration said at two call sites is one rule with two
  * homes — which is how a console comes to refuse an encoding in one list and accept
  * it in the next.
  */

@@ -26,7 +26,7 @@ import { deriveTranscriptWindow } from "./transcript-window.js";
 
 const SESSION_ID = "session-transcript-row-retention";
 
-/** A log entry the fixture shell can project. The row id it takes is derived from these. */
+/** A log entry the row projection can read. The row id it takes is derived from these. */
 function logEntry(
   sequence: number,
   payload: Readonly<Record<string, unknown>>,

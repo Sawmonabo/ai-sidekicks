@@ -63,7 +63,7 @@ import { lossyStringify } from "./wire-errors.js";
  * The grammar checks the digit groups; the calendar and clock checks in
  * {@link parseInstant} check that the digits name a day and a time that exist, and
  * the {@link InstantOffsetPolicy} check there decides which of the spellings this
- * grammar admits the CALLER's plane declares.
+ * grammar admits the CALLER's wire contract declares.
  *
  * ONE GRAMMAR, not two. A `"utc-only"` reader is this pattern plus a narrowing, and
  * never a second regular expression: two copies of one encoding drift, and the
@@ -126,24 +126,24 @@ export interface MalformedInstant {
 export type InstantReading = Instant | MalformedInstant;
 
 /**
- * Which of RFC 3339's spellings the CALLER's plane declares.
+ * Which of RFC 3339's spellings the CALLER's wire contract declares.
  *
- * A parameter rather than a wider grammar, because the two planes this console reads
- * genuinely declare different encodings and neither one is the module's to choose:
+ * A parameter rather than a wider grammar, because the two wire contracts this console
+ * reads genuinely declare different encodings and neither one is the module's to choose:
  *
  *   • `"any-offset"` — the whole of RFC 3339 section 5.6 the grammar admits: `Z` or
  *     `z`, a signed `HH:MM` offset, and either case of the `T` separator. What the
  *     wire figures and the rate-limit reader take, because a producer there may
  *     legally send any of them and every one names one instant unambiguously.
  *   • `"utc-only"` — `Z` and `T`, exactly. A numeric offset parses unambiguously, so
- *     admitting it would cost nothing today — but a plane that declares ONE encoding
+ *     admitting it would cost nothing today — but a contract that declares ONE encoding
  *     and a reader that quietly accepts a second is the place a producer's encoding
  *     change enters unremarked, and the lowercase separators go with it for the same
  *     reason. Refusing is not strictness for its own sake: it is the reading that
  *     reports the change instead of absorbing it.
  *
  * The default is `"any-offset"` because that is what the grammar above already was,
- * so a caller that has not thought about its plane keeps the behavior it had rather
+ * so a caller that has not thought about its contract keeps the behavior it had rather
  * than silently gaining a refusal.
  */
 export type InstantOffsetPolicy = "any-offset" | "utc-only";
@@ -157,7 +157,7 @@ export type InstantOrder = "oldest-first" | "newest-first";
  * THREE CONJUNCTS, IN THIS ORDER, and none alone is the reading. The grammar answers
  * whether the text is spelled in RFC 3339 section 5.6 at all; the calendar and clock
  * checks then answer whether the digits name a day and a time that exist; and
- * `offsetPolicy` answers whether the spelling is one the CALLER's plane declares. Only a
+ * `offsetPolicy` answers whether the spelling is one the CALLER's contract declares. Only a
  * value past all three is composed into a number, so there is no `Date.parse` here to
  * normalize a day that does not exist into the next one.
  *
@@ -205,7 +205,7 @@ export function parseInstant(
   // Second 60 — the leap second — is the one narrowing the module header records.
   const clockHolds = hour <= 23 && minute <= 59 && second <= 59;
   const offsetHolds = utcMarker !== undefined || (offsetHour <= 23 && offsetMinute <= 59);
-  // One comparison covers both narrowings a Z-only plane makes: an offset spelling
+  // One comparison covers both narrowings a Z-only contract makes: an offset spelling
   // leaves `utcMarker` undefined, and a lowercase `z` is not `Z`.
   const policyHolds = offsetPolicy === "any-offset" || (utcMarker === "Z" && separator === "T");
   if (!calendarHolds || !clockHolds || !offsetHolds || !policyHolds) {

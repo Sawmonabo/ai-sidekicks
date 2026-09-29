@@ -48,7 +48,7 @@ function childTransition(sequence: number, newState: string): ProjectedSessionEv
   });
 }
 
-describe("the shell's child-run summaries", () => {
+describe("the row projection's child-run summaries", () => {
   it("summarizes a child run onto the one row that names it and its parent", () => {
     const birth = childBirth(1, { parentRunId: PARENT_RUN });
     const summaries = deriveChildRunSummaries([
@@ -142,7 +142,7 @@ describe("the shell's child-run summaries", () => {
   });
 });
 
-describe("the shell projection carrying a child-run summary", () => {
+describe("the row projection carrying a child-run summary", () => {
   it("stamps the member on the creation row and on no other row", () => {
     const birth = childBirth(2, { parentRunId: PARENT_RUN });
     const { rows } = projectTranscriptRows([

@@ -1,12 +1,12 @@
-/* The transcript's cross-directory styles: the session screen's shell, the loaded
+/* The transcript's cross-directory styles: the session screen's container, the loaded
  * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
  *
  * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered session screen draws `.meridian-session-screen-shell` before any pane
- * body has loaded.
+ * eagerly registered session screen draws `.meridian-session-screen-container` before
+ * any pane body has loaded.
  *
- *   • `.meridian-session-screen-shell`, the session screen's wrapper (`SessionScreenShell.tsx`,
- *     which imports this sheet).
+ *   • `.meridian-session-screen-container`, the session screen's wrapper
+ *     (`SessionScreenContainer.tsx`, which imports this sheet).
  *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
  *   • `.meridian-transcript-retry`, worn by the viewport's failed-row control and by the
@@ -16,7 +16,7 @@
  * the feature follows the scheme attribute with no conditional in JSX.
  */
 
-/* --- The pane layout's shell --------------------------------------------------- */
+/* --- The session screen's container ---------------------------------------------- */
 
 /*
  * The empty pane layout state: one pane, full width, filling the screen view.
@@ -39,7 +39,7 @@
  * pane that overflows and differ for one that does not, and only this one leaves
  * every already-fitting pane exactly where it was.
  */
-.meridian-session-screen-shell {
+.meridian-session-screen-container {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;

@@ -132,7 +132,7 @@ describe("the act an absence offers", () => {
   it("refuses an absence the pipeline does not name", () => {
     // The compile-time half of the same claim: the act table is keyed by the tuple,
     // so a caller cannot invent a status and reach an arm nothing decided.
-    // @ts-expect-error — not a member of `LEDGER_JUMP_ABSENCES`.
+    // @ts-expect-error — not a member of `ROW_JUMP_ABSENCES`.
     const inventedAbsence: RowJumpAbsence = "withheld-by-a-fourth-narrowing";
 
     expect(ROW_JUMP_ABSENCES).not.toContain(inventedAbsence);

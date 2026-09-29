@@ -1,4 +1,4 @@
-// The attachment card in the ledger, and its registration.
+// The attachment card in the transcript, and its registration.
 //
 // Two claims: the composer registers the `attachment` card, and the body it mounts is the
 // composer's own `AttachmentCard` rather than a second one written for the
@@ -61,13 +61,13 @@ describe("inline attachment card — the registration", () => {
     return registry;
   }
 
-  it("fills the ledger's attachment card body", () => {
+  it("fills the transcript's attachment card body", () => {
     const registry = fill();
     expect(registry.bodyFor("attachment")?.owner).toBe("composer");
     expect(registry.registeredCardKinds()).toContain("attachment");
   });
 
-  it("renders through the registry the ledger reaches it by", () => {
+  it("renders through the registry the transcript reaches it by", () => {
     const registry = fill();
     const { container } = render(<>{registry.render(CARD)}</>);
     expect(container.querySelector(".meridian-attachment-card")).not.toBeNull();

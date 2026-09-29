@@ -12,8 +12,8 @@ export function NotificationsListBody(props: {
   if (props.reading.phase === "reading") {
     return <Nothing kind="not-loaded" placement="block" title="Reading what needs you." />;
   }
-  const { plane, droppedCount, refusedSessions } = props.reading;
-  if (plane.groups.length === 0) {
+  const { summary, droppedCount, refusedSessions } = props.reading;
+  if (summary.groups.length === 0) {
     // Nothing survived the boundary. WHY nothing survived decides what is drawn: a
     // read that answered for every session with an empty projection draws nothing
     // under the heading, because nothing waiting is shown by absence; a read some
@@ -52,11 +52,11 @@ export function NotificationsListBody(props: {
     <>
       <ReadCompleteness reading={props.reading} />
       <ul className="meridian-attention__groups">
-        {plane.groups.map((group) => (
+        {summary.groups.map((group) => (
           <li key={group.sessionId}>
             <SessionNotificationGroup
               group={group}
-              foldInformational={plane.hasActionable}
+              foldInformational={summary.hasActionable}
               onOpen={props.onOpen}
             />
           </li>

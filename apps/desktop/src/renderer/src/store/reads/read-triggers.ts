@@ -45,7 +45,7 @@ export interface ReadTriggerTarget {
    * member existed.
    *
    * IT EXISTS BECAUSE A KIND IS NOT ALWAYS THE WHOLE QUESTION. A session runs many
-   * workflows, and every one of the workflow plane's twenty-four kinds is emitted for
+   * workflows, and every one of the workflow engine's twenty-four kinds is emitted for
    * whichever run the engine advanced — so a run pane declaring the kinds re-read on
    * every OTHER run's phases too, once per pane, for as long as anything in the session
    * was moving. The subject the reading is addressed at is the missing half, and it is

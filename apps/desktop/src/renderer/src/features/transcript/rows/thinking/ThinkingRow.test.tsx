@@ -210,7 +210,7 @@ describe("the states around the read", () => {
 });
 
 describe("the plan-owned body", () => {
-  it("replaces the shell entirely once it is mounted", () => {
+  it("replaces the built-in view entirely once it is mounted", () => {
     const container = renderThinkingRow({
       body: () => <p>the real reasoning body</p>,
       reading: { status: "read", response: { availability: "unavailable" } },

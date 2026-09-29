@@ -3,7 +3,7 @@
 // That a phase parked on a person is answerable from the pane that shows it: the prompt
 // is on screen, the schema draws its controls, a schema outside the drawn set opens the
 // JSON editor, and the press puts the submit with the revision the form was composed
-// against. Every case drives the mount point and not the shell, since the submit and the
+// against. Every case drives the mount point and not the body itself, since the submit and the
 // single-flight guard are the submit binding's. What happens as the mount moves is in
 // `default-human-form-body.transitions.test.ts`; what a supplied body is handed is in
 // `HumanFormSubmitBinding.test.tsx`.

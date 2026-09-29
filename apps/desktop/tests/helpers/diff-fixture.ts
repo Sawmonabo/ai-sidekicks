@@ -1,8 +1,8 @@
 // Diff models the diff views are built and measured against, until a wire makes one.
 //
-// THE FIXTURE SHELL FOR AN ABSENT OWNER. Nothing in the running console produces a
+// THE FIXTURE STAND-IN FOR AN ABSENT OWNER. Nothing in the running console produces a
 // `DiffModel`, because no daemon method returns patch bytes. This module is the
-// shell that stands in the producer's place — DELETED, not filled, the day a wire hands
+// fixture that stands in the producer's place — DELETED, not filled, the day a wire hands
 // the console patch bytes, along with `diff-fixture-shapes.test-support.ts`,
 // `diff-fixture-patch.test-support.ts`, and every import of the three. What survives that
 // deletion is `patch-parse.ts`, which is the producer itself.

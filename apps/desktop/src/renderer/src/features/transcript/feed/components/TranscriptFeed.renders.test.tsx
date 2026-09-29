@@ -20,7 +20,7 @@
 // event that changed nothing visible re-rendered the whole mounted window TWICE —
 // measured on a ten-row window, ten bodies at mount and twenty-one more per event.
 // `transcript-window.ts`'s retention table holds those objects across passes and
-// `LedgerFeedRow`'s memo is what spends the stability, so what an event costs now is
+// `TranscriptFeedRow`'s memo is what spends the stability, so what an event costs now is
 // the rows it actually changed.
 //
 // The mount is composed here rather than taken from `TranscriptFeed.test-support.tsx`

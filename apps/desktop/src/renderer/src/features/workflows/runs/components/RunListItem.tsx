@@ -34,7 +34,7 @@ import type { OpenRun, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunState } from "../run-list-rows.js";
 
 /**
- * What this row prints where the start is a value the plane refused.
+ * What this row prints where the start is a value `workflowInstant` refused.
  *
  * The same em dash `primitives/figures/wire-figures.ts` prints for a figure it cannot stand
  * behind, restated here because that module keeps the glyph private and this row
@@ -48,13 +48,13 @@ const UNREADABLE_START = "—";
 /**
  * The start a row prints, taken from the reading the projection already made.
  *
- * One parse, one truth. The row used to hand `run.startedAt` straight to
- * `formatDateTime`, whose default `"any-offset"` policy is WIDER than the `"utc-only"`
- * one this plane declares and the sort obeys — so a start spelled with a numeric offset
- * sorted last, as the unreadable value the plane made it, and printed a legible time
- * anyway. A reading the plane refused prints the em dash the sort's own placement
- * already stands for; one it admitted goes to the figure chokepoint, which cannot
- * refuse what the stricter reader accepted.
+ * One parse, one truth. `formatDateTime`'s default `"any-offset"` policy is WIDER than
+ * the `"utc-only"` one `workflowInstant` declares and the sort obeys, so handing it
+ * `run.startedAt` directly would print a legible time on a start spelled with a numeric
+ * offset while the sort placed it last as unreadable. A reading `workflowInstant`
+ * refused prints the em dash the sort's own placement already stands for; one it
+ * admitted goes to the figure chokepoint, which cannot refuse what the stricter reader
+ * accepted.
  */
 function startFigureFor(startedAt: InstantReading): string {
   return startedAt.kind === "malformed" ? UNREADABLE_START : formatDateTime(startedAt.text);

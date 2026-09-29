@@ -305,7 +305,7 @@ describe("what became of the answer", () => {
 });
 
 describe("the plan-owned body", () => {
-  it("replaces the shell entirely once it is mounted", () => {
+  it("replaces the built-in card entirely once it is mounted", () => {
     const container = renderCard(pendingAsk(), { body: () => <p>the real ask card</p> });
     expect(container.textContent).toBe("the real ask card");
   });

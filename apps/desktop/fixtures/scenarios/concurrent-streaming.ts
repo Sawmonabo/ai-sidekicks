@@ -627,7 +627,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           // registered session shape has a first-class name field, and
           // `session.created` is `.strict()` with no title member at all. So the
           // console reads one from here or renders the session by its identifier.
-          metadata: { title: "Ship the ledger" },
+          metadata: { title: "Ship the transcript" },
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
         },

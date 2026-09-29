@@ -35,7 +35,7 @@ function refusedSession(sessionId: string): RefusedAttentionSession {
   return {
     sessionId,
     refusal: refuse(
-      "attention-plane",
+      "attention-projection",
       "session.not_found",
       "That session is not known to the daemon.",
     ),
@@ -50,7 +50,7 @@ function answered(options: {
 }): Parameters<typeof describeAttentionSettlement>[0] {
   return {
     phase: "read",
-    plane: new AttentionSummary(options.items ?? []),
+    summary: new AttentionSummary(options.items ?? []),
     droppedCount: options.droppedCount ?? 0,
     refusedSessions: options.refusedSessions ?? [],
     // The sentence is composed from what the read FOUND and from how much of it went

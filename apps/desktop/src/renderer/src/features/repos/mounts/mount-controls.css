@@ -76,7 +76,7 @@
 }
 
 /*
- * A control the shell has closed. `aria-disabled` and not `disabled`, so the control
+ * A closed control marked with `aria-disabled` and not `disabled`, so the control
  * keeps its place in the tab order and a reader is taken to it and told why — which
  * means the closed LOOK has to be declared, because the browser paints nothing for the
  * attribute the way it does for the property. The same treatment as the rule above it:

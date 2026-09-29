@@ -17,7 +17,7 @@ import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
  * One inventory row: the binding's identity, what is known about it, and the two
- * controls this shell sends.
+ * controls this fixture body sends.
  *
  * THE IDENTITY IS THE SCOPE-QUALIFIED TUPLE AND NEVER THE NAME. Two same-named servers
  * in two scopes are two bindings, and a row keyed on the name would collapse them —

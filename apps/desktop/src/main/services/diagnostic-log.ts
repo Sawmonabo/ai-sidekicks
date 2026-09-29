@@ -7,10 +7,10 @@
 // window exists to show them.
 //
 // IT FORWARDS NOWHERE, which is a scope statement rather than an omission. The
-// renderer's capture hands its batches to a forwarder the shell installs; this log
-// writes a file and stops, because the failures it exists to record are the ones that
-// happen before there is a window to install anything into. Whatever reads the file is
-// where the two halves meet, and it is not this module.
+// renderer's capture hands its batches to a forwarder the window's composition
+// installs; this log writes a file and stops, because the failures it exists to record
+// are the ones that happen before there is a window to install anything into. Whatever
+// reads the file is where the two halves meet, and it is not this module.
 //
 // OWN-BUILT ON PURPOSE. No library is adopted here and `electron-log` is deliberately
 // avoided: this is one append path, one rotation rule, and one level filter, and a

@@ -11,7 +11,7 @@ import { WorkflowRunLiveRefresh } from "../run-live-refresh.js";
  * Mint one live-round reading for the window's bridge, the session, and the run shown.
  *
  * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION AND THE RUN. A bridge swapped
- * underneath — the live shell's reconnect — is a different world and mints a fresh
+ * underneath — the live connection's reconnect — is a different world and mints a fresh
  * reading, so the round starts over rather than carrying the previous bridge's count into
  * the new one. The session and the run are the key because a window holds many of both,
  * and because the run is what this reading ADMITS frames against: a pane is retargeted

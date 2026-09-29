@@ -7,14 +7,14 @@
 // exactly like a session that had never had anything happen in it, and a window that
 // knew it was missing rows said so nowhere a person looks.
 //
-// TWO ARMS AND NEVER BOTH, AND THE STANDING CAUSE LEADS. The shells used to win, on
-// the reading that a window which has not been read yet has nothing to be behind ON —
-// and that reading is false for the one cause a first read can raise. `read-failed` is
-// marked when the read is refused or rejects, which leaves the store uninitialized and
-// the cause standing, so the pane drew `aria-busy` loading shells for as long as the
-// failure lasted and never said the read had already ended. The cause decides at any
-// point in the read: while one stands this names it, and only a window with no cause
-// and no first read yet is still filling.
+// TWO ARMS AND NEVER BOTH, AND THE STANDING CAUSE LEADS. Letting the skeleton rows win
+// rests on the reading that a window which has not been read yet has nothing to be
+// behind ON — and that reading is false for the one cause a first read can raise.
+// `read-failed` is marked when the read is refused or rejects, which leaves the store
+// uninitialized and the cause standing, so drawing skeleton rows first would leave
+// `aria-busy` rows up for as long as the failure lasted and never say the read had
+// already ended. The cause decides at any point in the read: while one stands this
+// names it, and only a window with no cause and no first read yet is still filling.
 //
 // THE CATCHING-UP MARK IS STICKY IN THE STORE'S OWN SENSE, which is the one that
 // matters: the cause is cleared by the completed re-pull and by nothing else, so the
@@ -37,17 +37,20 @@ import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSe
 import { Nothing } from "@renderer/console/primitives/index.js";
 
 /**
- * How many row shells a window that has not been read yet draws.
+ * How many skeleton rows a window that has not been read yet draws.
  *
  * Twelve is a screen of transcript at this density: enough that the shape on screen is
  * the shape the rows will take, and few enough that the first read replacing them is
- * one repaint rather than a page of shells collapsing.
+ * one repaint rather than a page of skeleton rows collapsing.
  */
-const LOADING_SHELL_COUNT = 12;
+const SKELETON_ROW_COUNT = 12;
 
-/** The shells, minted once: twelve identical elements need twelve stable keys and nothing else. */
-const LOADING_SHELL_KEYS: readonly string[] = Object.freeze(
-  Array.from({ length: LOADING_SHELL_COUNT }, (_unused, index) => `shell-${String(index)}`),
+/**
+ * The skeleton rows, minted once: twelve identical elements need twelve stable keys and
+ * nothing else.
+ */
+const SKELETON_ROW_KEYS: readonly string[] = Object.freeze(
+  Array.from({ length: SKELETON_ROW_COUNT }, (_unused, index) => `skeleton-row-${String(index)}`),
 );
 
 export interface TranscriptReadStateProps {
@@ -67,7 +70,7 @@ export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.
   const firstReadSettled = useTranscriptFirstReadSettled(props.sessionStore);
   const degradedCause = useSessionStore(props.sessionStore, readDegradedCause);
   // ASKED FIRST, so a first read that has already failed says so instead of drawing
-  // shells for a read that is over. Nothing here mints a second sentence for that
+  // skeleton rows for a read that is over. Nothing here mints a second sentence for that
   // case: the copy below says what is wrong and what is being done about it, and the
   // cause beside it — `read-failed` rather than `sequence-gap` — is what distinguishes
   // the read that ended from the projection that is behind.
@@ -92,7 +95,7 @@ export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.
         aria-busy="true"
         aria-label="Reading this session's entries."
       >
-        {LOADING_SHELL_KEYS.map((key) => (
+        {SKELETON_ROW_KEYS.map((key) => (
           <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />
         ))}
       </div>

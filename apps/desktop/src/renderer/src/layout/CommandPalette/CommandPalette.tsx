@@ -17,7 +17,7 @@
 //     part of the same rule that adopts this library. Trapping focus is not the
 //     same guarantee as leaving the app root: a reader navigating by structure
 //     still reaches the rail and the screen underneath. The `inert` that closes
-//     that gap is the shell's rather than the palette's — this component cannot
+//     that gap is the app chrome's rather than the palette's — this component cannot
 //     know what "the rest of the app" is, and a dialog that inerted its own
 //     container would leave nothing reachable at all — so the frame carries it on
 //     the background wrapper it renders around everything but its overlay region,
@@ -53,7 +53,7 @@ import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandP
  *
  * Controlled on `open`: the frame decides whether it is showing, and the palette
  * asks for a change. The open chord installs ONE listener of its own rather than
- * riding `KeybindingTable`, because it is shell chrome and not a contributed
+ * riding `KeybindingTable`, because it is app chrome and not a contributed
  * command — it has to work before any feature has registered anything, and it has
  * to work while a person is typing in the composer.
  */
@@ -99,7 +99,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
             component's part in it is the kind it names. An open palette is one of the
             seven overlay kinds a native browser-pane view has to yield to, and a view
             painted over it is the one thing the airspace rule forbids outright — so
-            the shell that mounts the popup is also what registers its live
+            the primitive that mounts the popup is also what registers its live
             rectangle, and no component can mount one without. */}
         <OverlayDialogPopup
           airspaceKind="command-palette"

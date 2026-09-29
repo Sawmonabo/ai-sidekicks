@@ -1,4 +1,4 @@
-// The attention plane: what the console may say about "what needs me".
+// The attention summary: what the console may say about "what needs me".
 //
 // The whole answer lives in the daemon's projection: items are read, never counted
 // here. So this module holds a fold and a reading vocabulary — and no derivation of
@@ -43,7 +43,7 @@ export type AttentionReading =
   | { readonly phase: "reading" }
   | {
       readonly phase: "read";
-      readonly plane: AttentionSummary;
+      readonly summary: AttentionSummary;
       /** Members the boundary refused. A fact about the reader, not about attention. */
       readonly droppedCount: number;
       /** Sessions that never answered. Non-empty means the coverage is incomplete. */

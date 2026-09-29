@@ -52,7 +52,7 @@ export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
 /** The drafts mount plus the body, once there is one. */
 export interface DraftsMountPointProps extends DraftsMount {
-  /** The body, once there is one. Absent everywhere here, so the shell stands. */
+  /** The body, once there is one. Absent everywhere here, so the empty frame stands. */
   readonly body?: DraftsBody;
 }
 

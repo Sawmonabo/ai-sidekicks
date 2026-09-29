@@ -1,18 +1,18 @@
 // The console's declaration of a workflow definition's own BODY — the shapes the
 // definition read, the version read, and the authoring write carry.
 //
-// OWNER. The workflow plane owns the three operations; the typed request and reply
+// OWNER. The workflow engine owns the three operations; the typed request and reply
 // shapes are registered in the payload contracts and every vocabulary below is
 // transcribed from that registry rather than re-derived from prose.
 //
 // WHY THIS IS A SIBLING OF `workflow-projection.ts` RATHER THAN MORE OF IT. That
 // module declares what a RUN looks like — states, parks, gates, the summary a picker
-// ranks — and it moves when the run plane moves. This one declares what a DEFINITION
+// ranks — and it moves when the run shapes move. This one declares what a DEFINITION
 // is made of: phase records, gate types, the entry node, the tool bindings a phase
 // references. The two are read by different views and change for different
 // reasons, and holding them in one module took it past the size a reader can carry.
 //
-// WHY THE VOCABULARIES ARE TUPLES. Same rule the run plane already keeps: the tuple is
+// WHY THE VOCABULARIES ARE TUPLES. Same rule the run shapes already keep: the tuple is
 // the declaration and the union derives from it, so a fifth phase type is an amendment
 // to the owning document rather than a string a component invents. The three that a
 // view renders a label for are read through a table keyed by the union, so a widened
@@ -29,15 +29,15 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types this module is
 // DELETED and its importers take them from the contracts package instead — the
-// obligation `workflow-projection.ts` states for the run plane.
+// obligation `workflow-projection.ts` states for the run shapes.
 
 import type { WorkflowDefinitionScope } from "./workflow-projection.js";
 
 /**
  * The scope-qualified MCP server binding a phase's tool reference names.
  *
- * THE MCP PLANE'S SHAPE, DECLARED HERE BECAUSE THE WORKFLOW BINDING COMPOSES IT AND
- * NO CODE PACKAGE CARRIES EITHER. The payload contracts fix the union, and
+ * THE MCP SERVER BINDING'S SHAPE, DECLARED HERE BECAUSE THE WORKFLOW BINDING COMPOSES
+ * IT AND NO CODE PACKAGE CARRIES EITHER. The payload contracts fix the union, and
  * `WorkflowToolBinding` composes it by reference rather than restating its
  * members — a flat restatement would admit the `(codex, local)` combination the union
  * rejects at the schema layer. This is the console's one home for it: the MCP

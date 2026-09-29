@@ -6,7 +6,7 @@
 //
 // WHEN AN ITEM IS NEW, and the whole of it:
 //
-//   • The item is LIVE. A resolved item is already dropped by the plane, so nothing
+//   • The item is LIVE. A resolved item is already dropped by the summary, so nothing
 //     here re-checks `resolvedAt`; what reaches this class is what needs a person.
 //   • The EVENT is NEW TO THIS WINDOW. What is remembered is the canonical event an
 //     item was raised by, not the item's own id, so a re-read that returns the same
@@ -128,7 +128,7 @@ export class AttentionNotifier {
   public arrivalsToAnnounce(reading: AnsweredAttentionReading): readonly AttentionItem[] {
     const liveSourceEventIds = new Set<string>();
     const arrivals: AttentionItem[] = [];
-    for (const item of reading.plane.liveItems) {
+    for (const item of reading.summary.liveItems) {
       liveSourceEventIds.add(item.sourceEventId);
       if (this.#announcedSourceEventIds.has(item.sourceEventId)) {
         continue;

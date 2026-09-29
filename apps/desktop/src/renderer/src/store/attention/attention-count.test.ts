@@ -27,7 +27,7 @@ const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
 describe("attentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       attentionItem({ id: "1", sessionId: "session-a" }),
       attentionItem({ id: "2", sessionId: "session-a" }),
       attentionItem({ id: "3", sessionId: "session-b" }),
@@ -35,7 +35,7 @@ describe("attentionCountOf", () => {
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -44,14 +44,14 @@ describe("attentionCountOf", () => {
   });
 
   it("does not count a session whose attention is informational only", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       attentionItem({ id: "1", sessionId: "session-a" }),
       attentionItem({ id: "2", sessionId: "session-b", severity: "informational" }),
     ]);
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -62,11 +62,11 @@ describe("attentionCountOf", () => {
   it("answers undefined rather than zero when nothing is waiting", () => {
     // The rail's quietest state is the common one, and a badge reading `0` on it
     // would be permanent furniture reporting the absence of news.
-    const plane = new AttentionSummary([]);
+    const summary = new AttentionSummary([]);
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,

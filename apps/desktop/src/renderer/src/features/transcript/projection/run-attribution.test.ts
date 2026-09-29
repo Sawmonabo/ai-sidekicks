@@ -16,7 +16,7 @@ const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
  * The compile-time control for the run-attribution table.
  *
  * The table's live effect is TOTALITY over every run-naming member of the payloads
- * the shell reads: one that grows such a member does not compile until the table
+ * the row projection reads: one that grows such a member does not compile until the table
  * says which run it names. A table missing `parentRunId` is not total, and the
  * directive below asserts exactly that — loosen the table's type and the suppressed
  * error stops occurring, which makes the directive itself the error. The claim

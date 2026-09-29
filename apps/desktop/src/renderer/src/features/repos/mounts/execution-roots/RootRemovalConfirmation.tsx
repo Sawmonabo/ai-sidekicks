@@ -57,10 +57,10 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
         >
           {REMOVAL_LABEL}
         </AlertDialog.Trigger>
-        {/* The popup shell is the primitive's, which is what puts this confirmation in
-            the window's airspace: a native browser-pane view yields to what is
-            registered there, and a confirmation it painted over is the one thing
-            forbidden outright. */}
+        {/* The portal, backdrop and popup are the primitive's, which is what puts this
+            confirmation in the window's airspace: a native browser-pane view yields to
+            what is registered there, and a confirmation it painted over is the one
+            thing forbidden outright. */}
         <OverlayAlertDialogPopup
           backdropClassName="meridian-root-removal__backdrop"
           className="meridian-root-removal__dialog"

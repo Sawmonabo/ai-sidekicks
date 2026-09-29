@@ -1,8 +1,9 @@
 // The human phase's form mount point — where the prompt, the schema-derived controls, and the
 // submission that carries the revision they were composed against are mounted.
 //
-// THE FORM STANDING HERE IS THE CONSOLE'S OWN SHELL (`default-human-form-body.ts`): a real form over
-// the schema the run read carried. The `body` prop replaces it with a supplied body.
+// THE FORM STANDING HERE IS THE CONSOLE'S DEFAULT BODY (`default-human-form-body.ts`): a
+// real form over the schema the run read carried. The `body` prop replaces it with a
+// supplied body.
 //
 // THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE MOUNT POINT. The mount
 // this mount point hands over is therefore the channel's pair — the resolved phase and whichever
@@ -15,7 +16,7 @@
 //
 // THE MOUNT CONTRACT IS `human-form-mount.ts`'S. It states what this pane owes a body and
 // why each member is on it; the types live beside this file rather than in it because the
-// shell below is handed one and would otherwise import the wrapper that renders it.
+// default body is handed one and would otherwise import the wrapper that renders it.
 //
 // AND THIS FILE STILL DECIDES NO ELIGIBILITY. Whether the form may be submitted is the
 // daemon's adjudication, arriving as a typed refusal wherever the press was made. A
@@ -47,7 +48,7 @@ export interface HumanFormMountPointProps {
    */
   readonly phase: HumanFormPhase | undefined;
   /**
-   * A body to stand in place of the console's own shell.
+   * A body to stand in place of the console's default body.
    *
    * A stable reference and never one composed in this render: a component built inline is
    * a new type each time, and React remounts it — losing whatever a person had typed into

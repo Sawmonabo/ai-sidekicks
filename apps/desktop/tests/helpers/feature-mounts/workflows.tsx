@@ -220,10 +220,10 @@ function screenContext(bridge: PlatformBridge): ScreenContext {
 /**
  * The workflows destination, mounted through the rail's own screen registry.
  *
- * Every workflows mount here renders under the bridge provider, as the shell mounts every body: a
- * pane body reads its bridge off its context, but a screen body is handed only the screen context
- * and reaches the bridge through the provider, so a capture mounted bare would throw where the
- * running console does not.
+ * Every workflows mount here renders under the bridge provider, as the running console mounts
+ * every body: a pane body reads its bridge off its context, but a screen body is handed only the
+ * screen context and reaches the bridge through the provider, so a capture mounted bare would
+ * throw where the running console does not.
  *
  * With a session in scope, which is how a person reaches it. The announcer is mounted
  * around it because `useAnnounce` throws outside its provider rather than falling back to

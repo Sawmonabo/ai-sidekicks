@@ -216,7 +216,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("says nothing about an empty session while its first read is in flight", () => {
-    // The pane draws twelve loading shells during this window. The empty sentence
+    // The pane draws twelve skeleton rows during this window. The empty sentence
     // rendered above them said the session was empty at the one moment nobody could
     // know that — two statements about one screen, and this is the false one.
     render(

@@ -22,7 +22,7 @@ export type DaemonStartCall = () => Promise<void>;
  *
  * Nothing here reports success: the supervisor's next report says whether the runtime
  * came back, and a control that painted "connected" because its own call resolved
- * would be synthesizing the one state this plane may never synthesize.
+ * would be synthesizing the one state only the supervisor may report.
  *
  * ONE START AT A TIME, DECIDED IN THE TICK. The supervisor's next report arrives several
  * frames after the press, and every click inside that window would otherwise reach the

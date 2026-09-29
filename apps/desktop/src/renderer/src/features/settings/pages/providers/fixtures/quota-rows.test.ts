@@ -1,4 +1,4 @@
-// The four derivations the accounts shell makes over one account-plane reading.
+// The four derivations the accounts fixture body makes over one account-plane reading.
 //
 // EVERY CASE DRIVES THE REAL FUNCTION. Nothing here reimplements a selection, a
 // supersession rule, or a day count — a test that restated one would pass against a

@@ -10,7 +10,7 @@
 //
 //   1. **Attention severity.** A session that needs a person outranks one that
 //      does not. The severity is READ from the attention projection and never
-//      counted here: `notifications/attention-plane.ts` is its one source, and a
+//      counted here: `store/attention/attention-summary.ts` is its one source, and a
 //      list that recounted it would be a second verdict about the same session,
 //      free to disagree with the one the notification center renders. A row the
 //      projection did not mention carries none, which is not the same as carrying

@@ -56,7 +56,7 @@ interface StreamingProbeProps {
 /**
  * One row body over one lane, and nothing else.
  *
- * Deliberately not a `LedgerFeed`: the feed's window, cap and run groups are
+ * Deliberately not a `TranscriptFeed`: the feed's window, cap and run groups are
  * asserted at the unit tier over structural stand-ins, and mounting them here would
  * make a regression in any of them look like a reveal regression. What this file
  * needs from the tree is a text node a layout engine paints and an engine that
@@ -176,7 +176,7 @@ describe("the visible text of a streaming lane", () => {
   });
 
   it("grows the row's painted box monotonically while it reveals", async () => {
-    // GEOMETRY, WHICH IS WHY IT IS HERE. `LedgerViewport.test.tsx` records that a
+    // GEOMETRY, WHICH IS WHY IT IS HERE. `TranscriptViewport.test.tsx` records that a
     // geometry-dependent transcript assertion "would pass vacuously" under happy-dom,
     // because every rect reads zero there. A box that never shrinks while text
     // arrives is the layout half of "no lane teleports", and only a layout engine

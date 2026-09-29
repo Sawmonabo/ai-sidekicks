@@ -12,7 +12,7 @@
 // clock — so a scenario with no beats at all still has to be walked, or the console
 // on screen is one that has been told nothing about the session it is showing and
 // draws its loading state forever. That was a real reference: the transcript's empty-state
-// baseline was minted over twelve loading shells and a session header reading "Nobody has
+// baseline was minted over twelve skeleton rows and a session header reading "Nobody has
 // joined this session yet." for a scenario whose whole subject is its roster.
 //
 // Held apart from `app-harness.ts`, which mounts and settles React turns: turns

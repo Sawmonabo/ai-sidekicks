@@ -37,7 +37,7 @@ const ON_SESSION: WhenClauseContext = {
 const COMMAND_ID = "test.pauseTheRun";
 const COMMAND_TITLE = "Pause the run";
 
-/** A contributor's own sentence, of the shape a shell block supplies. */
+/** A contributor's own sentence, of the shape a runtime-stopped block supplies. */
 const CLOSED_SENTENCE =
   "The local runtime has been stopped, so run controls cannot be sent until it is running again.";
 

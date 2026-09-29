@@ -19,7 +19,7 @@
 // HERE RATHER THAN INSIDE EITHER LIST, because two of them render a leg: the per-binding
 // legs on a row, and the per-leg outcomes a mutation answers with. Two spellings would
 // drift the moment a member moved, and the two lists would then key one leg two ways.
-// It stays inside this shell rather than beside the leg SHAPES, because both readers are
+// It stays here rather than beside the leg SHAPES, because both readers are
 // this directory's.
 
 import { structuralKey } from "@renderer/lib/structural-key.js";

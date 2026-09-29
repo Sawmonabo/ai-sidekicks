@@ -64,7 +64,7 @@ export type PaletteInvocationRefusalCode = Exclude<CommandInvocationOutcome["sta
  *
  * `core/refusal.ts` states the arrangement: each producer keeps its own closed code
  * union and widens at its boundary, so this renders through the same three refusal
- * renderings as a shell block or a persistence refusal, with no translation where two
+ * renderings as a runtime-stopped block or a persistence refusal, with no translation where two
  * of them are shown at once.
  */
 export interface PaletteInvocationRefusal extends Refusal {

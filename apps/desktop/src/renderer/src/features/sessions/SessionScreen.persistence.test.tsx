@@ -103,7 +103,7 @@ describe("SessionScreen — the saved arrangement", () => {
   });
 });
 
-describe("SessionScreen — navigating between two sessions the shell already has open", () => {
+describe("SessionScreen — navigating between two sessions the window already has open", () => {
   /** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
   function cyclePaneFocus(container: HTMLElement): void {
     const paneLayoutElement = container.querySelector(".meridian-pane-layout");

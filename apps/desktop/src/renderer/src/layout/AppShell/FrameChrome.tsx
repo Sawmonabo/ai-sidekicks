@@ -7,10 +7,10 @@
 // parallel, and it is why the screen arrives as `children` rather than an import: an
 // import would make the frame depend on every feature.
 //
-// THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and the
+// THE BACKGROUND WRAPPER IS THE APP CHROME'S `inert` GUARD, and it is why the rail and the
 // column are wrapped rather than left as direct children. The widget library's dialog
 // runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
-// document's scroll — and leaves inerting the app root to the shell, because the dialog
+// document's scroll — and leaves inerting the app root to the app's chrome, because the dialog
 // cannot know what "the rest of the app" is. Focus containment alone leaves the rail
 // and the whole screen in the accessibility tree, reachable by every reader that
 // navigates by structure rather than by focus. The wrapper carries `display: contents`,

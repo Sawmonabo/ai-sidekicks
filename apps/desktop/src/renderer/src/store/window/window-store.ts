@@ -75,7 +75,7 @@ export interface WindowStoreState {
    * True while a modal dialog the frame cannot NAME owns the window.
    *
    * WHY THE FRAME CANNOT ASK. The adopted dialog component runs under `modal="trap-focus"`,
-   * which traps focus and leaves inerting the app root to the shell — so the shell has to
+   * which traps focus and leaves inerting the app root to the app — so `AppShell` has to
    * know that a dialog is up. It knows that for the palette, whose open state it owns. It
    * cannot know it for a card a feature renders: the frame imports no feature, so there
    * is no seam for the frame to read and the feature has to publish. This is that seam, and it is on the WINDOW store because

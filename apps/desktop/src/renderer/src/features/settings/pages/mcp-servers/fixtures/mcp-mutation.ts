@@ -1,4 +1,4 @@
-// The two governance mutations this shell sends, the idempotency key it mints, and the
+// The two governance mutations this fixture body sends, the idempotency key it mints, and the
 // key a binding is identified by.
 //
 // THE KEY IS THE CALLER'S AND IT IS MINTED ONCE PER PRESS. Every governance mutation
@@ -27,7 +27,7 @@ import type {
 
 import { structuralKey } from "@renderer/lib/structural-key.js";
 
-/** How a mutation this shell sent has settled. */
+/** How a mutation this fixture body sent has settled. */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "sending"; readonly binding: McpServerBindingRef }
@@ -37,7 +37,7 @@ export type McpMutationOutcome =
       readonly result: McpMutationResult;
     };
 
-/** The outcome a shell starts in and returns to. Shared so it has one spelling. */
+/** The outcome a row starts in and returns to. Shared so it has one spelling. */
 export const IDLE_MCP_MUTATION: McpMutationOutcome = { kind: "idle" };
 
 /** Mints the key one press carries. Injected so a test can drive a retry. */
@@ -70,7 +70,7 @@ export function mintIdempotencyKey(): string {
 /**
  * Turn a binding's toggle press into a settled outcome.
  *
- * The binding travels back so this shell renders per-binding outcomes: one aggregate
+ * The binding travels back so this fixture body renders per-binding outcomes: one aggregate
  * verdict could not say WHICH row a result was about.
  */
 export async function setBindingEnabled(options: {

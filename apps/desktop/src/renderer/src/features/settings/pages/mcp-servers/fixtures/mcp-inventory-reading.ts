@@ -1,4 +1,4 @@
-// The inventory read the MCP shell is built on: one reply, three refresh signals.
+// The inventory read the MCP fixture body is built on: one reply, three refresh signals.
 //
 // ONE READ, AND IT IS THE UNIFIED ONE. The design for this page reads a single unified
 // inventory across both providers and every scope, so a page that read per provider
@@ -28,7 +28,7 @@ export interface McpInventory {
   readonly servers: readonly McpServerInventoryEntry[];
 }
 
-/** The read the MCP shell is built on. */
+/** The read the MCP fixture body is built on. */
 export type McpInventoryRead = PushDrivenRead<McpInventory>;
 
 /** Asks the daemon for the unified inventory. */
@@ -40,7 +40,7 @@ export type SubscribeMcpInventoryChanges = (onChange: () => void) => Unsubscribe
 /**
  * Build the inventory read.
  *
- * Constructed by whoever owns its lifetime — the shell's mount effect, never a render
+ * Constructed by whoever owns its lifetime — the fixture body's mount effect, never a render
  * body — and disposed with that owner.
  */
 export function createMcpInventoryRead(options: {

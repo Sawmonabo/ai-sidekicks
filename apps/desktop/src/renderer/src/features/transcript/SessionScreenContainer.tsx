@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import "./transcript.css";
 
-export interface SessionScreenShellProps {
+export interface SessionScreenContainerProps {
   readonly children: ReactNode;
 }
 
@@ -13,6 +13,6 @@ export interface SessionScreenShellProps {
  * It imports the feature's shared sheet, so the sheet loads with the eagerly registered
  * screen rather than with the lazy pane chunk.
  */
-export function SessionScreenShell(props: SessionScreenShellProps): React.JSX.Element {
-  return <div className="meridian-session-screen-shell">{props.children}</div>;
+export function SessionScreenContainer(props: SessionScreenContainerProps): React.JSX.Element {
+  return <div className="meridian-session-screen-container">{props.children}</div>;
 }

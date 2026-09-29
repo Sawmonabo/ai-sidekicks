@@ -47,9 +47,8 @@ import { PreviewPane } from "./PreviewPane.js";
  * one bad row loses that row rather than the pane layout.
  *
  * The body still takes the context whole beneath it — it needs the pane id the browser
- * wire is keyed by, the bridge it dispatches through, the session whose shell frames
- * the trail, and the focus hue that attributes the pane — so no argument is
- * rebuilt here.
+ * wire is keyed by, the bridge it dispatches through, the session that heads the
+ * trail, and the focus hue that attributes the pane — so no argument is rebuilt here.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "browser",

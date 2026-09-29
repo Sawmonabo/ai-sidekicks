@@ -10,7 +10,7 @@ import { SessionHeader } from "./SessionHeader.js";
 import { SESSION_ID, renderSessionHeader, storeWith } from "./SessionHeader.test-support.js";
 
 /** How the session names itself, where it does. */
-const DISPLAY_TITLE = "Ship the ledger";
+const DISPLAY_TITLE = "Ship the transcript";
 
 describe("the session header — the session it is naming", () => {
   it("renders a display title and says on the element that it is metadata", () => {

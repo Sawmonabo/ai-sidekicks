@@ -1,5 +1,5 @@
 /*
- * The pane shell.
+ * The preview pane's box.
  *
  * No literal color: every value is read back out of a Meridian custom property, and
  * the two hues are spent only on their one meaning each: amber where a person is
@@ -9,7 +9,7 @@
  * chrome bar and its address field.
  */
 
-/* --------------------------------------------------------------- pane shell */
+/* ----------------------------------------------------------------- pane box */
 
 /*
  * The pane's body, in two bands: a chrome bar that cannot grow and a

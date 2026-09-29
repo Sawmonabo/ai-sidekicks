@@ -8,7 +8,7 @@
 //   • SELECTING A PROVIDER ENTRY INSERTS NOTHING into the message box and starts no
 //     turn, and the reason is not politeness: a provider entry is listed for discovery
 //     only, and the send path answers a typed one by naming it rather than sending it,
-//     so an insert-then-send affordance would compose text this shell's own send path
+//     so an insert-then-send affordance would compose text the composer's own send path
 //     declines. That is about the PROVIDER half and says nothing about the console's
 //     own commands, which the prefix is reserved FOR — and `/workflow start <name>` is
 //     one of those, intercepted by the runtime and never forwarded anywhere. Typing its

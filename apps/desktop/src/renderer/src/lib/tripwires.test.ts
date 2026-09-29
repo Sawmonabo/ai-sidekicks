@@ -128,7 +128,7 @@ describe("TripwireRegistry — loud in development, recorded in production", () 
     expect(registry.reports()).toHaveLength(1);
   });
 
-  it("takes the arm from the shell at boot rather than fixing it at construction", () => {
+  it("takes the arm at boot rather than fixing it at construction", () => {
     const registry = recordingRegistry();
     registry.report(reportFor("bridge-shape-drift"));
 

@@ -52,7 +52,7 @@ describe("startSignIn", () => {
       accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }).login,
       ACCOUNT_ID,
     );
-    // The account rides the outcome because the plane is what disables the OTHER rows,
+    // The account rides the outcome because the one-at-a-time rule is what disables the OTHER rows,
     // and a flow that recorded only its own progress could say something was running
     // without saying which account was running it.
     expect(state).toEqual({

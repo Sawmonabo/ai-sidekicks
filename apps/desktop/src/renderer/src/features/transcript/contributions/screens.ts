@@ -6,7 +6,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ScreenContext, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
-import { SessionScreenShell } from "../SessionScreenShell.js";
+import { SessionScreenContainer } from "../SessionScreenContainer.js";
 
 /**
  * What the composition root supplies this feature, because this file may not import it.
@@ -71,7 +71,7 @@ type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "cho
  *
  * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The session screen holds per-session
  * state that nothing else resets: the pane layout's arrangement, and the record of which
- * panes are showing in windows of their own. The shell deliberately OPENS session
+ * panes are showing in windows of their own. The app window deliberately OPENS session
  * stores and never closes them on navigation, so moving from one already-open session
  * to another re-renders this position rather than unmounting it — and every one of
  * those pieces would carry the first session's panes and windows into the second. A
@@ -85,7 +85,7 @@ function mountSessionScreen(
 ): ReactNode {
   const sessionId = routeSessionId(context.route);
   return createElement(
-    SessionScreenShell,
+    SessionScreenContainer,
     null,
     // ABOVE the session screen body and never in place of it. The refused arm says the
     // position this session was last read up to could not be resolved and the log was

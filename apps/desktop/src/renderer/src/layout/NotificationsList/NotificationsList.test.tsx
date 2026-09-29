@@ -47,7 +47,7 @@ function readingOf(
 ): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionSummary(items),
+    summary: new AttentionSummary(items),
     droppedCount: 0,
     refusedSessions,
     addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -62,7 +62,7 @@ function refusedSession(sessionId: string): RefusedAttentionSession {
   return {
     sessionId,
     refusal: refuse(
-      "attention-plane",
+      "attention-projection",
       "session.not_found",
       "That session is not known to the daemon.",
     ),
@@ -157,7 +157,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionSummary([item()]),
+          summary: new AttentionSummary([item()]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -182,7 +182,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionSummary([]),
+          summary: new AttentionSummary([]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -226,7 +226,7 @@ describe("a read that did not cover every session", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionSummary([]),
+          summary: new AttentionSummary([]),
           droppedCount: 1,
           refusedSessions: [refusedSession("session-b")],
           addressedSessionIds: ADDRESSED_SESSION_IDS,

@@ -23,8 +23,8 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 // --- Method names ---------------------------------------------------------
 //
-// ONLY THE TWO REGISTERED READS ARE NAMED HERE. The rest of the agent plane has no
-// registered request/response pair, so no method string for it lives here: a constant
+// ONLY THE TWO REGISTERED READS ARE NAMED HERE. No other agent operation has a
+// registered request/response pair, so no method string for one lives here: a constant
 // would name a call nothing serves.
 
 /** The per-driver model catalog, and with it every model's effort vocabulary. */

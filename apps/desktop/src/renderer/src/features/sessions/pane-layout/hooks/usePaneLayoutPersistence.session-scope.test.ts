@@ -1,11 +1,12 @@
 // What a route from one session to another leaves on the pane layout.
 //
-// The session screen stays MOUNTED across a navigation between two open sessions — the shell
-// opens session stores and never closes them — so anything this hook holds for the life
-// of the mount is held across sessions too. The restore refusals were exactly that: a
-// session whose saved arrangement could not be read set them, and a session that
-// restored cleanly never replaced them, so the pane layout went on showing the first session's
-// restore errors under the second session's panes.
+// The session screen stays MOUNTED across a navigation between two open sessions — the
+// session store registry keeps every store it opened until the window goes away — so
+// anything this hook holds for the life of the mount is held across sessions too. The
+// restore refusals were exactly that: a session whose saved arrangement could not be
+// read set them, and a session that restored cleanly never replaced them, so the pane
+// layout went on showing the first session's restore errors under the second
+// session's panes.
 //
 // Every case drives the real hook against a real `PaneLayoutStore` and a real store through
 // `layout-persistence.test-support.tsx`, which is where the mount and the route live.

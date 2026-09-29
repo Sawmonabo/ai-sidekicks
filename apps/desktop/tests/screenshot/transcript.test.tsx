@@ -16,7 +16,7 @@
 // is a perfectly stable image. The loaded arm asserts the window plays the named
 // scenario, every beat reached it, and rows are on screen; the empty arm asserts no beat
 // reached it and the empty sentence is on screen, which a mount alone cannot show,
-// since a window whose first read has not landed draws loading shells.
+// since a window whose first read has not landed draws skeleton rows.
 //
 // `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
 // `__screenshots__/` and compared against nothing, so this file gates on whether each
@@ -77,7 +77,7 @@ interface TranscriptMount {
  *
  * The wait is the harness's, and it names the TRANSCRIPT's scroll container rather than
  * the frame, which is the whole reason it is a wait at all: the frame is the
- * window's permanent shell and is on the page from the first commit, so a wait on it
+ * app's permanent chrome and is on the page from the first commit, so a wait on it
  * hands back a console whose session route has not resolved yet. It observes the
  * MOUNT rather than the arrival of content, which is what the empty-state capture
  * needs it to observe.
@@ -161,8 +161,8 @@ describe("screenshot — the transcript's empty state", () => {
 
     // The same walk the pair above takes, over a script that plays nothing. What it
     // is here for is the OTHER thing a walk does: the window's own first read is
-    // armed on this frozen clock, and an unwalked mount photographs twelve loading
-    // shells — a session whose emptiness the console has not been told yet, which is
+    // armed on this frozen clock, and an unwalked mount photographs twelve skeleton
+    // rows — a session whose emptiness the console has not been told yet, which is
     // a different picture and a different claim from the one this capture is named
     // for.
     const deliveredBeatCount = await walkScenarioToFrozenTick(

@@ -79,7 +79,7 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
  * read it can actually speak for.
  */
 function needsYouClause(reading: AnsweredAttentionReading): string | undefined {
-  const liveCount = reading.plane.liveItems.length;
+  const liveCount = reading.summary.liveItems.length;
   if (liveCount === 1) {
     return "One item needs you.";
   }

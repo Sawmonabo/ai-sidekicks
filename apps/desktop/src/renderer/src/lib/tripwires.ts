@@ -68,7 +68,7 @@ export interface TripwireReport {
   readonly site: string;
 }
 
-/** A sink the shell installs to forward reports to the diagnostic band. */
+/** A sink the window's composition installs to forward reports to the diagnostic band. */
 export type TripwireSink = (report: TripwireReport) => void;
 
 /**
@@ -117,7 +117,7 @@ export class TripwireRegistry {
     return this.#reportEmitter.subscribe(sink);
   }
 
-  /** Whether a report throws. The shell sets this from the build mode at boot. */
+  /** Whether a report throws. The window's composition sets it from the build mode at boot. */
   public setThrowOnReport(throwOnReport: boolean): void {
     this.#throwOnReport = throwOnReport;
   }

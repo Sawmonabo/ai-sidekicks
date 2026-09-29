@@ -2,8 +2,8 @@
 //
 // A MODULE OF ITS OWN BECAUSE FOUR MODULES NEED IT AND ONE OF THEM IS A BODY. The mount point
 // wrapper declares the phase it is handed, the submit channel composes the mount, the
-// console's own shell is handed one, and the submit dispatch reads every member
-// of the request off it — so leaving the type in the wrapper would have made the shell
+// console's default body is handed one, and the submit dispatch reads every member
+// of the request off it — so leaving the type in the wrapper would have made the default body
 // import the wrapper that renders it, and a type-only edge is still an edge:
 // `no-circular` reads the pre-compilation graph. The contract is what all four share, so
 // the contract is what moves.

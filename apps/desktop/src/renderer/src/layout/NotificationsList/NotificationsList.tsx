@@ -1,6 +1,6 @@
 // The notification center: one place that answers "what needs me".
 //
-// Three rules of the notification center and the attention plane decide the shape of
+// Three rules of the notification center and the attention projection decide the shape of
 // this file more than the layout does:
 //
 //   • **It offers no dismiss.** The contract has no dismiss method and no
@@ -17,7 +17,7 @@
 //     a decision already made.
 //
 // THIS COMPONENT PERFORMS NO READ. It is handed the reading, because the
-// all-sessions list beside it takes each row's severity off the same plane and two
+// all-sessions list beside it takes each row's severity off the same projection and two
 // reads would eventually disagree about one question.
 //
 // The preference controls are absent for the same reason and it is stated on
@@ -34,7 +34,7 @@ import "./notifications.css";
 export interface NotificationsListProps {
   /**
    * The projection read's result. The destination performs the read and hands it
-   * here, so the center and the all-sessions list read one plane and cannot
+   * here, so the center and the all-sessions list read one projection and cannot
    * disagree about what needs a person.
    */
   readonly reading: AttentionReading;

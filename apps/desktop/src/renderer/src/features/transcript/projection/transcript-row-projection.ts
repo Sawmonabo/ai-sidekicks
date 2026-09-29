@@ -1,9 +1,7 @@
-// The fixture shell's row projection — this window's event log, read as rows.
+// The log-derived row projection — this window's event log, read as rows.
 //
-// THE SECOND HALF OF THE SHELL, AND IT DIES WITH THE FIRST. `TranscriptRow.tsx`
-// renders one row; this decides which rows there are. Both exist for the same
-// bounded reason and both are deleted by the change that registers the transcript
-// subtree's real rows, because that subtree brings its own read.
+// `TranscriptRow.tsx` renders one row; this decides which rows there are, from the log
+// the store holds rather than from the daemon's own read projection.
 //
 // WHY A PROJECTION IS NEEDED AT ALL, WHICH IS A FACT ABOUT THE WIRE
 //
@@ -13,8 +11,8 @@
 // also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
 // the raw log and not the projection. So the transcript has two honest options: render
 // nothing until a projection reaches it, or state what the log itself supports and
-// NAME every member the log cannot supply. The shell exists to take the second, and
-// this module is where the naming happens.
+// NAME every member the log cannot supply. The transcript takes the second, and this
+// module is where the naming happens.
 //
 // WHAT IS WIRE-VERBATIM HERE
 //
@@ -36,7 +34,7 @@
 //   • A boundary row's `position` — `RunRolledBackEvent.targetPosition`, verbatim,
 //     which is what the arm's own schema refines it against.
 //
-// WHAT THIS MODULE DERIVES LOCALLY, AND WHY EACH IS SOUND FOR A SHELL
+// WHAT THIS MODULE DERIVES LOCALLY, AND WHY EACH IS SOUND FOR A LOG-DERIVED PROJECTION
 //
 //   • `position`. The arm's `position` is the daemon's projection-resolved run
 //     position. What the log supports is the row's ORDINAL WITHIN ITS RUN in this
@@ -53,7 +51,7 @@
 //     it through a read this console does not have. The member is REQUIRED and
 //     non-empty by contract (`wireFreeFormString` layers `.min(1)`), so leaving it
 //     blank is not open either: the contract's own validator refuses the row. So
-//     the shell restates the one human-readable string the delivered envelope
+//     this projection restates the one human-readable string the delivered envelope
 //     actually carries rather than composing a sentence the daemon never said,
 //     and the real summary arrives with the read that brings the real rows.
 //

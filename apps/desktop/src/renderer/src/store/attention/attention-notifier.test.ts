@@ -50,7 +50,7 @@ function settledRead(
 ): AnsweredAttentionReading {
   return {
     phase: "read",
-    plane: new AttentionSummary(items),
+    summary: new AttentionSummary(items),
     droppedCount: 0,
     refusedSessions: [],
     addressedSessionIds,

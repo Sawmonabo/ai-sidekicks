@@ -1,6 +1,6 @@
 // When the attention projection is read, and what makes it be read again.
 //
-// `attention-plane.ts` owns the fold and the reading vocabulary. This module owns the
+// `attention-summary.ts` owns the fold and the reading vocabulary. This module owns the
 // one thing that cannot: a lifetime. It performs the read, holds its result, and
 // re-reads it when the session projections underneath it move — which is what makes
 // the notification center and the all-sessions list report what needs a person NOW
@@ -69,13 +69,13 @@ export interface AttentionProjectionRead {
 export type AttentionProjectionReadCall = () => Promise<AttentionProjectionRead>;
 
 /** The subsystem name a failed attention read names itself with. */
-const ATTENTION_READ_ORIGIN = "attention-plane";
+const ATTENTION_READ_ORIGIN = "attention-projection";
 
 /**
  * Perform the projection read and keep it current.
  *
  * ONE read for the whole destination. The notification center renders it and the
- * all-sessions list takes each row's severity off the same plane, so the two cannot
+ * all-sessions list takes each row's severity off the same read, so the two cannot
  * disagree about what needs a person — which two reads, however carefully written,
  * eventually would.
  *
@@ -114,7 +114,7 @@ export function useAttentionProjection(
   return useMemo(() => attentionReadingFrom(state), [state]);
 }
 
-/** The read's states as the plane's phases. Written once, here. */
+/** The read's states as the attention reading's phases. Written once, here. */
 function attentionReadingFrom(
   state: PushDrivenReadState<AttentionProjectionRead>,
 ): AttentionReading {
@@ -126,7 +126,7 @@ function attentionReadingFrom(
   }
   return {
     phase: "read",
-    plane: new AttentionSummary(state.value.items),
+    summary: new AttentionSummary(state.value.items),
     droppedCount: state.value.droppedCount,
     // Both halves of coverage carried through untouched: which sessions were asked
     // and which of them went unanswered are the reader's facts, and re-deriving

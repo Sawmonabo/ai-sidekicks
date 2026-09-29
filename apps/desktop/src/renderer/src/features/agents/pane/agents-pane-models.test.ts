@@ -335,9 +335,10 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
 /**
  * Let continuations run WITHOUT crossing a macrotask boundary.
  *
- * Deliberately not the shared drain in `bridge/fixture/call-plane/bridge.test-support.ts`, and
- * deliberately not under its name: that one is a `setTimeout(…, 0)` boundary, and
- * every case below asserts that nothing fell due while the window's clock stood still.
+ * Deliberately not the shared drain `crossMacrotaskBoundary` in
+ * `tests/helpers/macrotask-boundary.ts`, and deliberately not under its name: that one
+ * is a `setTimeout(…, 0)` boundary, and every case below asserts that nothing fell due
+ * while the window's clock stood still.
  * Yielding to the macrotask queue is exactly what would let a due timer fire, so it
  * would settle the reads these cases claim are unscheduled and each one would pass
  * with its subject removed. A counted number of passes is the price of that: four,

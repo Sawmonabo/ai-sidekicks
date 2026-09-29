@@ -1,7 +1,7 @@
-// The accounts shell, driven over a registry reading built from the contract types.
+// The accounts fixture body, driven over a registry reading built from the contract types.
 //
 // Every state asserted below is one the wire can carry, and the sign-in cases drive the
-// real plane through plain stub calls.
+// real tracker through plain stub calls.
 
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,7 +25,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("AccountsShell", () => {
+describe("AccountsFixtureBody", () => {
   it("draws a loading absence before the registry answers", () => {
     const { container } = mountAccountsPage({ registry: UNREAD_ACCOUNT_REGISTRY });
     expect(container.textContent).toContain("account registry");
@@ -90,7 +90,7 @@ describe("AccountsShell", () => {
     expect(tokenInput?.value).toBe("");
   });
 
-  // The token is never a value the shell holds, so nothing on the page reads it back
+  // The token is never a value the fixture body holds, so nothing on the page reads it back
   // and no other field on the form is masked. The negative control is the label
   // field, which is ordinary text input and must stay that way.
   it("masks the token field and nothing else", () => {

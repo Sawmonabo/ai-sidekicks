@@ -145,7 +145,7 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   });
 });
 
-describe("parseInstant — the offset policy the caller's plane declares", () => {
+describe("parseInstant — the offset policy the caller's contract declares", () => {
   // The pairing is the point of every case here: the same text, read two ways, with
   // the `"any-offset"` reading as the negative control for the `"utc-only"` refusal.
   // A refusal nobody can show the cost of is a refusal nobody keeps.
@@ -166,7 +166,7 @@ describe("parseInstant — the offset policy the caller's plane declares", () =>
     expect(strict.epochMilliseconds).toBe(Date.UTC(2026, 8, 1, 12, 0, 0, 250));
   });
 
-  it("defaults to any-offset, so a caller that named no plane keeps its reading", () => {
+  it("defaults to any-offset, so a caller that names no policy keeps its reading", () => {
     expect(parseInstant("2026-09-01T10:00:00+02:00").kind).toBe("instant");
     expect(parseInstant("2026-09-01T12:00:00z").kind).toBe("instant");
   });

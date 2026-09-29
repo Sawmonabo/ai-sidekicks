@@ -1,6 +1,6 @@
 // The one Electron launcher, shared by the end-to-end and endurance tiers.
 //
-// Both tiers need the same thing — a real shell, a real renderer, the fixture
+// Both tiers need the same thing — a real main process, a real renderer, the fixture
 // bridge serving the console — and they need it built the same way, or the
 // endurance tier would be measuring a different application from the one the
 // end-to-end tier proved. So the launch lives here and neither tier owns a copy.

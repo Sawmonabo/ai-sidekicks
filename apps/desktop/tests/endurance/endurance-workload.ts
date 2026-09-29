@@ -10,7 +10,7 @@
 //
 // WHY THE ROUTE WAITS NAME A SCREEN AND NOT THE FRAME
 //
-// `.meridian-frame` is the window's permanent shell. It is on the page before a
+// `.meridian-frame` is the app's permanent chrome. It is on the page before a
 // route change and still there after, so a wait on it returns immediately and
 // the next navigation can land before React has mounted anything — which is a
 // churn loop that reports clean heap growth precisely because it never performed
@@ -19,7 +19,7 @@
 // So each transition waits on something only its own destination renders, and
 // the two locators below are asserted route-EXCLUSIVE by
 // `steady-state.test.ts` — the assertion that fails the day either one goes back
-// to naming the shell.
+// to naming the frame.
 //
 // Both are production markup, and neither is a test-only attribute added to the
 // renderer to make this observable.

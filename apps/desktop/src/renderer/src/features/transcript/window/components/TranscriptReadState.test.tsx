@@ -20,7 +20,7 @@ function readStateOf(sessionStore: SessionStore): HTMLElement {
 }
 
 describe("before the first read lands", () => {
-  it("draws a window of row shells rather than an empty session", () => {
+  it("draws a window of skeleton rows rather than an empty session", () => {
     const container = readStateOf(openStore());
     expect(container.querySelectorAll(".meridian-transcript-window-skeleton__row")).toHaveLength(
       12,
@@ -35,10 +35,10 @@ describe("before the first read lands", () => {
 });
 
 describe("when the first read itself failed", () => {
-  it("says so rather than drawing shells for a read that is already over", () => {
+  it("says so rather than drawing skeleton rows for a read that is already over", () => {
     // `OpenSessionEntry` marks `read-failed` when the first read is refused or
     // rejects, and leaves the store uninitialized — so a pane that asked
-    // "initialized?" first drew twelve `aria-busy` shells for as long as the failure
+    // "initialized?" first drew twelve `aria-busy` skeleton rows for as long as the failure
     // stood and never told anybody the read had ended.
     const sessionStore = openStore();
     sessionStore.markDegraded("read-failed");
@@ -72,7 +72,7 @@ describe("once the window has been read", () => {
     ).toBe("sequence-gap");
   });
 
-  it("negative control: the shells are gone, so the two arms are never both drawn", () => {
+  it("negative control: the skeleton rows are gone, so the two arms are never both drawn", () => {
     const sessionStore = openStore();
     sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.markDegraded("stream-diverged");

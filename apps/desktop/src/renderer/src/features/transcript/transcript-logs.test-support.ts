@@ -1,4 +1,4 @@
-// The logs every ledger-feed case is driven over.
+// The logs every transcript-feed case is driven over.
 //
 // Split from the render harness beside it because the two are different jobs and
 // only one of them needs a DOM: these are pure store builders — a real
@@ -83,7 +83,7 @@ export function projectedRowId(sequence: number): string {
 /**
  * A live run whose rows are tool rows, which are the ones that carry a disclosure.
  *
- * The only card in the shell that offers one, so it is the only row through which a
+ * The only card in the transcript that offers one, so it is the only row through which a
  * reader's expansion can be pressed at all — and therefore the only one that can show
  * the lease making the round trip out of the row and back.
  */

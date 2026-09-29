@@ -5,7 +5,7 @@
  * rhythm is a decision made once in `tokens/palette.ts`.
  */
 
-/* --- The session shell -------------------------------------------------- */
+/* --- The session screen's grid ------------------------------------------ */
 
 /*
  * Three rows: the session header, the pane layout, and the composer's region. The pane layout is the

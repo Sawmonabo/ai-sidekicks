@@ -58,10 +58,10 @@ import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The row this file measures. Named once; every figure below comes off it. */
-const FIRST_LEDGER_ROW_BUDGET_ID = "time-to-first-transcript-row";
+const FIRST_TRANSCRIPT_ROW_BUDGET_ID = "time-to-first-transcript-row";
 
 const registry = BudgetRegistry.load();
-const budget = registry.requireBudget(FIRST_LEDGER_ROW_BUDGET_ID);
+const budget = registry.requireBudget(FIRST_TRANSCRIPT_ROW_BUDGET_ID);
 
 /**
  * How long the page function waits for each paint before giving up on it.

@@ -3,7 +3,7 @@
 // WHY IT IS ITS OWN MODULE. `transcript-row-projection.ts` is a projection: it folds
 // this window's log into rows, deriving position, epoch, and identity. Deciding
 // whether a payload member names the row's OWN run is a different job, and its
-// subject is not the shell at all — it is the contracts package's registered payload
+// subject is not the projection at all — it is the contracts package's registered payload
 // shapes. Nothing here reads an event, a store, or a row; it reads an open record
 // and answers with a run id or nothing, which is the whole of it.
 //
@@ -64,7 +64,7 @@ export type RunAttributionRole = "this-run" | "another-run";
  * an arm added there carrying a run-naming member arrives at this table with nobody
  * having to widen a list here. The three shapes named beside it are `run-control.ts`',
  * which that union does not carry — they are the payloads of the run and
- * intervention kinds this shell also reads, and the package publishes no union over
+ * intervention kinds the row projection also reads, and the package publishes no union over
  * them — so those three are enumerated and the claim is bounded to exactly them: a
  * FOURTH run-control shape has to be added here by hand.
  */
@@ -76,7 +76,7 @@ type RunNamingMemberOf<TPayload> = TPayload extends unknown
  * The decision, one row per run-naming member. A COMPILE GATE, and stated as one.
  *
  * WHAT IT IS LOAD-BEARING FOR, exactly: the annotation is a total record over the
- * derived member union, so a payload this shell reads that grows a run-naming member
+ * derived member union, so a payload the row projection reads that grows a run-naming member
  * does not compile until this table says which run that member names — and a member
  * the union does not carry is refused as an excess property, so the table cannot
  * drift ahead of the wire either. That is the whole of its live effect, and
@@ -114,7 +114,7 @@ const ATTRIBUTING_PAYLOAD_MEMBERS: ReadonlySet<string> = new Set(
  * Taken as the open record rather than as an event, because that is all the answer
  * depends on and it keeps this module free of the store's projection contract.
  * Narrowed on the way out: a payload member is `unknown` by that contract — the
- * projector that claims a kind is what narrows it, and the shell claims every kind.
+ * projector that claims a kind is what narrows it, and the row projection claims every kind.
  */
 export function attributedRunIdOf(
   payload: Readonly<Record<string, unknown>> | undefined,

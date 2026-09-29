@@ -1,13 +1,13 @@
-// The child runs this window's log names, summarized — the shell's half of the seam
+// The child runs this window's log names, summarized — the row projection's half of the seam
 // `dispatches/child-run-entries.ts` reads.
 //
 // WHAT WAS MISSING, AND IT WAS A GAP BETWEEN TWO CORRECT MODULES. `ChildRunIndex`
-// finds every row carrying `childRunSummary` and draws it; the shell projection
+// finds every row carrying `childRunSummary` and draws it; the row projection
 // carried that member on no row it ever built, so the child-run treatment was
 // reachable from hand-written fixtures and from nothing a scenario could play. The
 // member is a PROJECTION's, not an event's — no registered payload carries one — so
-// the only honest way to reach it from a log is to derive it, which is what the shell
-// exists to do and what its own header calls naming every member the log cannot
+// the only honest way to reach it from a log is to derive it, which is what the row
+// projection exists to do and what its own header calls naming every member the log cannot
 // supply.
 //
 // WHAT THE LOG ACTUALLY SUPPORTS, WHICH IS WHY THIS IS A DERIVATION RATHER THAN AN
@@ -38,7 +38,7 @@
 // THE SUMMARY IS COMPOSED HERE AND NOT PARSED HERE. A view never runs a contracts
 // schema over a value — the wire's own shapes are narrowed where the daemon call
 // returns and nowhere else — and this value never crossed a wire in the first place: it is the
-// shell's reading of rows the store already holds. So the one refusal a schema would
+// row projection's reading of rows the store already holds. So the one refusal a schema would
 // have performed is performed in code beside the reason for it: a creation row naming
 // ITSELF as its parent produces no summary, because a self-parenting node makes the
 // lineage graph cyclic and every walk of it non-terminating. The `RunId` casts are the
