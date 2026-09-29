@@ -20,6 +20,10 @@ import { consoleTripwires } from "../../core/tripwires.js";
 /** What the stand-in registrar reports, and what the captured record must carry. */
 const COMPOSITION_DETAIL = "a registrar reported while the boards were being composed";
 
+// The setup imports the whole console, and with every package's suite running at once
+// that has taken longer than the default ten-second hook budget.
+const WHOLE_CONSOLE_IMPORT_TIMEOUT_MS = 30_000;
+
 // The real registrar replaced by one that reports. `vi.mock`'s factory is invoked
 // lazily — when `ConsoleRoot.js` first imports this specifier, which is inside the
 // `beforeAll` below — so it reads a `consoleTripwires` binding that has long since
@@ -52,7 +56,7 @@ describe("ConsoleRoot — the tripwire route is armed before the boards are comp
       consoleTripwires.setThrowOnReport(true);
       consoleTripwires.reset();
     }
-  });
+  }, WHOLE_CONSOLE_IMPORT_TIMEOUT_MS);
 
   it("captures a report the composition itself made", () => {
     expect(
