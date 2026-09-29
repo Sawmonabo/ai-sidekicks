@@ -24,8 +24,7 @@
 // no `title` is `aria-hidden` by that component's own contract — so the mark that
 // separates two names cannot be read out as a name.
 
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Glyph, WireFigure } from "@renderer/console/primitives/index.js";
 import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 

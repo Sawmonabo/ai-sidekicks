@@ -10,7 +10,10 @@
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
+import {
+  unreadableDeliveryReading,
+  type ReadingState,
+} from "@renderer/console/primitives/index.js";
 import type {
   AttentionItem,
   AttentionSeverity,
