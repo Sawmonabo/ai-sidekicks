@@ -18,6 +18,8 @@ import { describe, expect, it } from "vitest";
 import { TerminalEmulatorLoader, type TerminalEmulatorModule } from "./emulator-loader.js";
 import { useTerminalEmulator } from "./emulator-state.js";
 
+const REAL_CHUNK_IMPORT_TIMEOUT_MS = 30_000;
+
 /**
  * How many fetches one case asked for, counted across every loader it built.
  *
@@ -148,20 +150,28 @@ describe("the emulator reading, when the chunk refuses", () => {
     expect(refusal.fetchCount).toBe(1);
   });
 
-  it("negative control: a fetch that resolves reports the module and refuses nothing", async () => {
-    // Without it every case above would pass against a hook that answered `failed`
-    // unconditionally, which is a pane that never shows a terminal.
-    //
-    // The real loader, and the chunk is fetched BEFORE the assertion window rather
-    // than inside it. `load()` memoises, so the hook's own call gets the settled
-    // promise and the wait below is a microtask and a commit — where waiting on the
-    // fetch itself let a loaded machine decide the verdict, which is a control that
-    // reports the runner's contention as a defect in the hook.
-    const loader = new TerminalEmulatorLoader();
-    await loader.load();
-    const { result } = renderHook(() => useTerminalEmulator(loader));
-    await waitFor(() => {
-      expect(result.current.status).toBe("loaded");
-    });
-  });
+  // The real chunk import runs inside this case's budget, and with every package's
+  // suite running at once it has taken longer than the default five seconds.
+  it(
+    "negative control: a fetch that resolves reports the module and refuses nothing",
+    {
+      timeout: REAL_CHUNK_IMPORT_TIMEOUT_MS,
+    },
+    async () => {
+      // Without it every case above would pass against a hook that answered `failed`
+      // unconditionally, which is a pane that never shows a terminal.
+      //
+      // The real loader, and the chunk is fetched BEFORE the assertion window rather
+      // than inside it. `load()` memoises, so the hook's own call gets the settled
+      // promise and the wait below is a microtask and a commit — where waiting on the
+      // fetch itself let a loaded machine decide the verdict, which is a control that
+      // reports the runner's contention as a defect in the hook.
+      const loader = new TerminalEmulatorLoader();
+      await loader.load();
+      const { result } = renderHook(() => useTerminalEmulator(loader));
+      await waitFor(() => {
+        expect(result.current.status).toBe("loaded");
+      });
+    },
+  );
 });
