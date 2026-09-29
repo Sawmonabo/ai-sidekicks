@@ -56,8 +56,8 @@
 // THE REACT HALF IS NEXT DOOR, and the split is the one the rule itself draws: every
 // decision in this file is a property of the SUBJECT moving rather than of a render
 // happening, so it is drivable with no renderer at all — a test addresses and commits
-// in the order React would. `subject-scoped-state.ts` decides when React is told, and
-// `subject-scoped-resource.ts` adds the half about a value that has to be disposed
+// in the order React would. `useSubjectScopedState.ts` decides when React is told, and
+// `useSubjectScopedResource.ts` adds the half about a value that has to be disposed
 // rather than dropped.
 //
 // AND WHAT BECOMES OF A VALUE THIS CLASS LETS GO OF IS `unheld-value-disposal.ts`.

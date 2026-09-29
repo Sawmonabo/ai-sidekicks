@@ -18,15 +18,12 @@
 // half it happened to be handed.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
-// root, which is what keeps this family below `bridge/` in the console's DAG.
+// root, which is what keeps `store/` below `services/` in the import direction.
 
 import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
-// Deep rather than through `read/index.js`, for `open-session-entry.ts`'s reason:
-// that door reaches the trigger surface, which reads the session door, which
-// publishes the hooks that reach this module.
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import type { SessionDegradedCause, SessionStore } from "./session-store.js";
 import type { TimelineResumeDecision } from "./timeline-resume.js";

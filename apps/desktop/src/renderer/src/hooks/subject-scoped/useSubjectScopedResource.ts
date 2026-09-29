@@ -1,6 +1,6 @@
 // A resource held per subject, and closed however the render that opened it ended.
 //
-// `subject-scoped-state.ts` holds one VALUE per subject and states what it
+// `useSubjectScopedState.ts` holds one VALUE per subject and states what it
 // deliberately does not do: A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED.
 // Two window subsystems now seed one through that holder — a session-store registry
 // with its event binder, and an open IndexedDB connection — and the pairing they rely

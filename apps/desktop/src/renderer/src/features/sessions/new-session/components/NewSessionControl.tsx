@@ -53,7 +53,7 @@
 // while a send is in flight, and "+ New" is reachable the moment it is — so a send
 // can settle over a composition that is not the one it was sent for. The result, the
 // announcement and the sending flag are therefore held per DRAFT, through
-// `store/subject-scoped/subject-scoped-state.ts`: a publisher captured when Send was pressed names
+// `hooks/subject-scoped/useSubjectScopedState.ts`: a publisher captured when Send was pressed names
 // the draft that pressed it, and installs nothing once the composition on screen is
 // another one. Two sends in flight is the case that has to be per-draft: one boolean
 // over two drafts re-enables Send under a composition that is still waiting.
@@ -62,7 +62,7 @@
 // the bridge it was composed against and sends `session.create` through that one, so
 // a bridge REPLACEMENT — a reconnect, a second window's own instance, the fixture's
 // scenario switch — leaves a draft addressed to a transport that is gone. The draft
-// is held through `store/subject-scoped/subject-scoped-resource.ts` on the bridge, so a replacement
+// is held through `hooks/subject-scoped/useSubjectScopedResource.ts` on the bridge, so a replacement
 // discards it and the control offers "+ New" again on the live one. That loses a
 // composition, and it is the honest half of the trade: the alternative is a Send that
 // looks ordinary and either never lands or lands somewhere the console will not read

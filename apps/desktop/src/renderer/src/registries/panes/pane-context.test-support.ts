@@ -21,10 +21,10 @@
 // mounted with no entity, or a `runs` pane handed one, fails to compile here rather
 // than being invented for by a default.
 //
-// AND IT LIVES IN `registries/panes/` because the suites that mount a pane are in VIEW families
-// — runs, approvals, inspector, browser, terminal — and a sibling may not import a
-// sibling. `console-view-family-isolation` says where a contract those siblings
-// share belongs, and this is the contract `registries/panes/pane-registry.ts` declares: a
+// AND IT LIVES IN `registries/panes/` because the suites that mount a pane are in features
+// — repos, inspector, preview, terminal — and one feature may not import
+// another. `feature-isolation` says what two features share goes through `registries/`,
+// and this is the contract `registries/panes/pane-registry.ts` declares: a
 // builder for `PaneContext` beside the type it builds.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";

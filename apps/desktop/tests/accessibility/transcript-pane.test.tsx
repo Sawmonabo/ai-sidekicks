@@ -41,7 +41,7 @@ import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-// Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
+// Deeply, and not through `features/transcript/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.
 import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";

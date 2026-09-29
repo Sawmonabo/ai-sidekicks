@@ -62,15 +62,10 @@
 // callback the registry supplies, and the reading subscribes to that.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
-// root, which is what keeps this family below `bridge/` in the console's DAG.
+// root, which is what keeps `store/` below `services/` in the import direction.
 
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import type { EntityProjectorTable } from "./entities/entities.js";
-// Deep rather than through `read/index.js`, and `store/reads/read-triggers.ts`'s own reach
-// back into `session/` is why: that door is an edge to the trigger surface, which reads
-// the session door, which publishes the hooks that reach this directory's registry — so a
-// fifth edge from here would close a ring `no-circular` fails. The package's module-shape
-// rule names this deep edge as the remedy for exactly that shape.
 import { ApplyQueue } from "./apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type ApplyOutcome } from "./apply-outcome.js";

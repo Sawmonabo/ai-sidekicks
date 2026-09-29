@@ -47,7 +47,7 @@ export function useSentMessageRecall(
   readDraftText: () => string,
 ): SentMessageRecall {
   // `useState` with an INITIALIZER, which is the console's shape for a per-mount object
-  // (`lib/reads/generation-latch.ts`, `store/subject-scoped/subject-scoped-state.ts`)
+  // (`lib/reads/generation-latch.ts`, `hooks/subject-scoped/useSubjectScopedState.ts`)
   // and the only one that constructs once: `useRef(new SentMessageHistories())`
   // would evaluate the constructor on every render and throw the result away.
   const [histories] = useState(() => new SentMessageHistories());

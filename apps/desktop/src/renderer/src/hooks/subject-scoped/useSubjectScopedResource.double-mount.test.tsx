@@ -1,7 +1,7 @@
 // A `close` that is terminal is re-minted, never re-committed.
 //
-// Split from `subject-scoped-resource.test.tsx` on the seam the hook draws: that file
-// is about WHAT IS OPEN and `subject-scoped-resource.fresh-close.test.tsx` about the
+// Split from `useSubjectScopedResource.test.tsx` on the seam the hook draws: that file
+// is about WHAT IS OPEN and `useSubjectScopedResource.fresh-close.test.tsx` about the
 // identity of the disposal, while this one is about the fact neither could say — that
 // a caller's `close` may END a resource rather than release it.
 //
@@ -13,7 +13,7 @@
 // through it. The browser pane's geometry publisher is exactly that shape: its `close`
 // is a one-way `dispose()` and it reports `isDisposed`.
 //
-// The subjects and the open/close record are `subject-scoped-resource.test-support.ts`,
+// The subjects and the open/close record are `useSubjectScopedResource.test-support.ts`,
 // whose ledger answers the reading by IDENTITY — a re-mint carries the same name as
 // the value it replaces, so a reading keyed on the name would loop.
 

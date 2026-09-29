@@ -2,9 +2,9 @@
 // thresholds, the footnote registry, the tool row's one line, and the ANSI body's
 // first render.
 //
-// Spent under `ledger/cards/` and `ledger/markdown/`, declared here because
-// `cap-constant-home` allows a bound exactly one declaring module; what stays beside
-// those readers is the layout and lag figures that are not ceilings.
+// Spent under `rows/` (`rows/markdown/`, `rows/ansi/` and `ToolRow.tsx`), declared here so
+// each bound has one declaring module; what stays beside those readers is the layout and
+// lag figures that are not ceilings.
 
 /**
  * Bytes of parsed-block cache the renderer retains, across every card.
@@ -60,7 +60,7 @@ export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
  * Footnote definitions a single transcript's registry retains.
  *
  * This console keeps one popover host per transcript with a definition registry keyed by
- * source — `ledger/cards/markdown/footnotes/footnote-registry.ts` states why. Bounded
+ * source — `rows/markdown/footnotes/footnote-registry.ts` states why. Bounded
  * for the reason every cache in the console is: a definition belongs to the message
  * that carried it, and a log holds `TRANSCRIPT_WINDOW_ROW_CAP` rows, so a few definitions
  * per retained row is the whole reachable population and nothing above it can ever be

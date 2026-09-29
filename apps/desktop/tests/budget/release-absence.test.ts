@@ -76,7 +76,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
  * The perf-meter kinds a release renderer must not carry, named rather than derived.
  *
  * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
- * is also a `ledger/frame/viewport/cycle/window-cap.ts` reason code and a
+ * is also a `features/transcript/viewport/window-cap.ts` reason code and a
  * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by surfaces that
  * have nothing to do with the meters: real product strings a clean release build carries
  * for their own reasons, so sweeping the tuple whole would fail on a correct bundle and be

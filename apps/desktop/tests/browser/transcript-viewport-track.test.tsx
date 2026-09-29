@@ -1,9 +1,9 @@
 // Which grid track the transcript's scroll surface lands in, and whether that depends on
 // how many of its siblings happen to be rendering.
 //
-// THE RULE. `ledger/frame/frame.css` gives `.meridian-transcript-viewport` two tracks,
+// THE RULE. `transcript-viewport.css` gives `.meridian-transcript-viewport` two tracks,
 // `auto minmax(0, 1fr)`, written for an error slot above a scroll surface. But
-// `LedgerErrorSlot` returns `null` with no entries, and the head and tail affordances
+// `TranscriptErrors` returns `null` with no entries, and the head and tail affordances
 // are both `position: absolute` and out of flow — so in the ordinary case the surface
 // is the ONLY in-flow child and auto-places into track 1, the `auto` one. The `1fr`
 // track it was written for sits empty below it and absorbs every pixel of free space,

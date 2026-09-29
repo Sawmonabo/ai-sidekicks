@@ -5,9 +5,7 @@
 //   • **Above about 4 kB of source, the work leaves the main thread.** Below it, a
 //     block costs a few milliseconds and a worker round trip would cost more than it
 //     saved. `CODE_WORKER_THRESHOLD_BYTES` is the line, and
-//     `core/constants/ledger-card-caps.ts` — this family's module inside
-//     `core/constants/`, the one directory a bound is declared in — is where its
-//     rationale lives.
+//     `features/transcript/cards/card-caps.ts` is where its rationale lives.
 //   • **The cache is content-addressed and bounded in bytes.** Keyed by language and
 //     source, so the same block re-rendered — a scroll back, a re-mount, the same snippet
 //     quoted twice — is free, and theme-independent because the tokens carry family

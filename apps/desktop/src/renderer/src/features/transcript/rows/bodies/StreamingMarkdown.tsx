@@ -20,7 +20,7 @@
 // body declares; pass two re-reads each block with those identifiers restated ahead of
 // it. A body with no footnotes has an empty preamble and pass two IS pass one.
 //
-// IT DOES NOT SUBSCRIBE TO THE REVEAL ENGINE. `ledger/frame/reveal/reveal-engine.ts` publishes
+// IT DOES NOT SUBSCRIBE TO THE REVEAL ENGINE. `features/transcript/reveal/reveal-engine.ts` publishes
 // text per lane and the transcript's viewport is what reads it; a card that subscribed would
 // be a second subscriber to one fact and would re-render on frames its own text did not
 // change in. The published text arrives as a prop, which is also what lets a settled

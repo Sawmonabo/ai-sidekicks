@@ -245,8 +245,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   // fresh function on every pass, because nothing over there needs a stable one. Named
   // in the effect's dependencies it would re-run the whole settlement on every render
   // of the surface above: the sentence said twice, the session opened twice, the
-  // navigation put twice. Written from a layout effect rather than the render body for
-  // `ledger/pane/feed`'s reason — a pass React discards still runs a render body, and a
+  // navigation put twice. Written from a layout effect rather than the render body because
+  // a pass React discards still runs a render body, and a
   // callback captured there belongs to a tree that never reached the screen.
   const committedSessionCreatedRef = useRef(onSessionCreated);
   useLayoutEffect(() => {

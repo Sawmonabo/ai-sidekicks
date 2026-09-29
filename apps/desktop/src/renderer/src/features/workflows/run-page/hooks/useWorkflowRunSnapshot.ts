@@ -77,7 +77,7 @@ export function useWorkflowRunSnapshot(
 /**
  * The subject this read is held at: the run, and which round of it is being asked.
  *
- * A DERIVED KEY, which is the shape `subject-scoped-state.ts` names for a subject
+ * A DERIVED KEY, which is the shape `useSubjectScopedState.ts` names for a subject
  * compared by value rather than by identity — the comparison happens in one place, on
  * a string, and which facts make up the subject is the caller's to decide. Both facts
  * belong: a new run is a different question, and a new round is the same question put

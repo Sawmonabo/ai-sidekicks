@@ -56,7 +56,7 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
  * script, and refresh it `refreshes` times.
  *
  * The screen is resolved from a registry composed HERE rather than the process-wide
- * one, on `ledger.test.ts`' reasoning: a case that registered into the singleton would
+ * one, because a case that registered into the singleton would
  * be asserting over a board production also fills.
  */
 async function renderSessionScreen(input: {

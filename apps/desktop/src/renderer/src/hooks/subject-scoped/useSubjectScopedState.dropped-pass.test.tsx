@@ -10,7 +10,7 @@
 // discard callback runs from `address` and never from a publish.
 //
 // WHICH DISCARD, MEASURED RATHER THAN ASSUMED. The probe in
-// `subject-scoped-resource.test.tsx` sets state during the render body, which React
+// `useSubjectScopedResource.test.tsx` sets state during the render body, which React
 // answers by re-invoking the component and REUSING the hook cells that pass built —
 // so a memo whose dependencies moved in the dropped pass IS recomputed, and nothing
 // goes stale. That is the right driver for the claim it drives, which is about the
@@ -18,7 +18,7 @@
 // work-in-progress fiber React throws away: the next render rebuilds every hook from
 // the last COMMITTED one, which is the arrangement that leaves a memo comparing this
 // visit's dependencies against a visit two addressings ago. That is the concurrent
-// discard `subject-scoped-resource.ts`'s header names, driven the one way that is
+// discard `useSubjectScopedResource.ts`'s header names, driven the one way that is
 // deterministic rather than timing-dependent.
 //
 // Both claims are paired with a NEGATIVE CONTROL over the identical script, driving

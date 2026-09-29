@@ -17,7 +17,7 @@
 // the life of the MOUNT describes whichever session happened to produce it first: the
 // restore refusals were exactly that, and a session whose saved layout could not be read
 // left its errors standing over the next session's pane layout. Both the gate and the refusals
-// go through `store/subject-scoped/subject-scoped-state.ts` on the same
+// go through `hooks/subject-scoped/useSubjectScopedState.ts` on the same
 // `(arrangement, session)` pair.
 //
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers

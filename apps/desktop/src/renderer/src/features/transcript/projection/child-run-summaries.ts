@@ -1,5 +1,5 @@
 // The child runs this window's log names, summarized — the shell's half of the seam
-// `ledger/structure/child-runs/` reads.
+// `dispatches/child-run-entries.ts` reads.
 //
 // WHAT WAS MISSING, AND IT WAS A GAP BETWEEN TWO CORRECT MODULES. `ChildRunIndex`
 // finds every row carrying `childRunSummary` and draws it; the shell projection

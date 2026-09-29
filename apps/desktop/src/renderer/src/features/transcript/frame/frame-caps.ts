@@ -2,7 +2,7 @@
 // exists to stay under, the reveal engine's per-frame budget, and the two tails it
 // keeps.
 //
-// Spent inside `ledger/frame/`.
+// Spent in `history/`, `reveal/` and `viewport/`.
 
 /**
  * Top-level rows the transcript window retains before the oldest are pruned.

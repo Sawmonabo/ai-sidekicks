@@ -63,7 +63,7 @@ import {
  * The snapshot grammar's version.
  *
  * A schema version rather than a cap, so it lives with the code that writes and
- * reads the grammar rather than in `core/constants/`. Bump it whenever a member's
+ * reads the grammar rather than beside the caps. Bump it whenever a member's
  * MEANING changes; a restore of any other value discards the whole record.
  */
 export const PANE_LAYOUT_SNAPSHOT_VERSION = 1;

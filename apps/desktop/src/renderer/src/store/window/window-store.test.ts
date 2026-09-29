@@ -16,14 +16,14 @@
 //     did, and two subsystems sharing a code word would have overwritten each
 //     other's sentence.
 //   • **The modal-surface cell.** The frame inerts its background for a modal
-//     overlay's lifetime, and it can only ask itself about the palette: a card a
-//     VIEW family renders is one `console-view-family-isolation` forbids the frame
-//     from naming at all. So the card takes a CLAIM here and the frame reads the one
+//     overlay's lifetime, and it can only ask itself about the palette: the frame
+//     imports no feature, so a card a feature renders is one it cannot name at all.
+//     So the card takes a CLAIM here and the frame reads the one
 //     cell that register derives — which makes what the cell PUBLISHES the whole
 //     contract, and the control below is the one that matters: an unchanged write
 //     must publish nothing, because the writer is an effect that re-runs on inputs
 //     the cell does not depend on. Whose claim is whose is
-//     `modal-surface-claims.test.ts`; what reaches the readable is here.
+//     `modal-dialog-claims.test.ts`; what reaches the readable is here.
 //   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
 //     on a transition, so a window that opened without focus received no `blur` to
 //     correct it and claimed an audience it never had. It is read from the document

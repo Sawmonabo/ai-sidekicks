@@ -210,7 +210,7 @@ describe("Meridian palette — a code or command-output body clears the text flo
   // text, and they are measured on `surface-sunken` alone because that is the only
   // ground the console ever paints them on.
   //
-  // This census is the reason the values moved out of `ledger/ledger.css`. As
+  // This census is the reason the values moved out of `features/transcript/transcript.css`. As
   // literals in a stylesheet they were fitted into no gamut and held to no floor, and
   // the light scheme's six bright ANSI names sat between 3.8:1 and 4.5:1 — a WCAG
   // 1.4.3 failure that no test could have caught while the colors lived somewhere

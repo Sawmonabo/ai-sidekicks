@@ -1,6 +1,6 @@
 // The transcript structure's bounds: the run group's two row caps and the find walk.
 //
-// Spent inside `ledger/structure/`.
+// Spent in `feed/`, `run-groups/` and `find/`.
 
 /**
  * Rows a single run group renders before its body clips.

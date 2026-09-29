@@ -1,9 +1,9 @@
 // The session screen's named figures that are not ceilings: the density presets and their pane
 // widths, and the visibility threshold a native view hides at.
 //
-// THE CEILING IS NOT HERE. The restored-pane cap is a bound, and bounds are declared in
-// `core/constants/` and read through the core door, so the cap lives there and this
-// module holds only the figures that are not bounds.
+// THE CEILING IS NOT HERE. The restored-pane cap is a bound, declared beside the store that
+// spends it (`pane-layout-store.ts`), so this module holds only the figures that are not
+// bounds.
 //
 // The density axis travels with its widths: the width table is a total `Record` keyed by the
 // preset union, so a module holding the widths and importing the union from the module that

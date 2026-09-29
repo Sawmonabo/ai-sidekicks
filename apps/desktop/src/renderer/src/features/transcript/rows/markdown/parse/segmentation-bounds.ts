@@ -1,16 +1,11 @@
 // The transcript cards' named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE, and the reason is a rule rather than a preference:
-// `core/constants/` is the one DIRECTORY a bound may be DECLARED in — its trailing
-// separator is load-bearing,
-// so the flat `core/constants.ts` this home was split out of is not part of it — and
-// rejects a view family that declares one of its own, so the seven this module held —
-// the two cache byte caps, the highlight and worker thresholds, the footnote
-// registry's cap, the tool summary's, and the ANSI span cap — are declared there and
-// read through the core door, each carrying the rationale it was written with.
+// THE CEILINGS ARE NOT HERE. The seven the cards spend — the two cache byte caps, the
+// highlight and worker thresholds, the footnote registry's cap, the tool summary's, and
+// the ANSI span cap — are declared in `features/transcript/cards/card-caps.ts`, each
+// carrying the rationale it was written with.
 //
-// What stays is what that gate's own line separates from a ceiling: a figure nothing
-// is checked against. A number that appears inline in this subtree and is not a layout
+// What stays is a figure nothing is checked against. A number that appears inline in this subtree and is not a layout
 // literal is still a review rejection — the rationale is the point, not the constant.
 
 /**

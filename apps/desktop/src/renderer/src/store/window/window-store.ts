@@ -79,9 +79,8 @@ export interface WindowStoreState {
    * WHY THE FRAME CANNOT ASK. The adopted dialog family runs under `modal="trap-focus"`,
    * which traps focus and leaves inerting the app root to the shell — so the shell has to
    * know that a dialog is up. It knows that for the palette, whose open state it owns. It
-   * cannot know it for a card a VIEW family renders: `console-view-family-isolation`
-   * forbids the frame from importing one, so there is no seam for the frame to read and
-   * the family has to publish. This is that seam, and it is on the WINDOW store because
+   * cannot know it for a card a feature renders: the frame imports no feature, so there
+   * is no seam for the frame to read and the feature has to publish. This is that seam, and it is on the WINDOW store because
    * that is what the fact is about — a window with a card up, not a session with one.
    *
    * THE PALETTE IS DELIBERATELY NOT RECORDED HERE. Its open state already has an
@@ -207,7 +206,7 @@ export class WindowStore {
    * Where a family-owned modal surface takes and gives up its claim on the window.
    *
    * Handed out rather than wrapped in a pair of methods on this class, so a claim is
-   * something a surface HOLDS: `modal-surface-claims.ts` states why the register can
+   * something a surface HOLDS: `modal-dialog-claims.ts` states why the register can
    * add and remove only the caller's own id and offers no clear-all.
    */
   public get modalDialogClaims(): ModalDialogClaims {

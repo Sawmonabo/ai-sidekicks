@@ -33,7 +33,7 @@
 // of its FIRST render and keeps writing there, so every later arrangement is filed in
 // a store nothing will ever read again — and the restore, which does move, then reads
 // the newer store's older record. The writer is therefore held per store through
-// `store/subject-scoped/subject-scoped-resource.ts`, which retires the one bound to the store that
+// `hooks/subject-scoped/useSubjectScopedResource.ts`, which retires the one bound to the store that
 // was replaced.
 //
 // RETIREMENT FLUSHES; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
@@ -174,7 +174,7 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
  * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
  * later request in silence — no refusal raised, nothing on screen — so a holder that
  * re-committed one after React's double-mount would leave a person rearranging all
- * session with nothing kept. `store/subject-scoped/subject-scoped-resource.ts` reads `isClosed`
+ * session with nothing kept. `hooks/subject-scoped/useSubjectScopedResource.ts` reads `isClosed`
  * before it commits and mints a fresh writer instead, and the arm's shape is what
  * makes the reading impossible to omit: `{ dispose }` alone matches neither arm.
  *

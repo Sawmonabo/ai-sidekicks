@@ -165,7 +165,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
  *
  * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
  * five and the twelve ANSI ones below were hand-written `oklch()` literals in
- * `ledger/ledger.css`, outside every guarantee this module exists to make — and both
+ * `features/transcript/transcript.css`, outside every guarantee this module exists to make — and both
  * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
  * the thirty-four requests were remapped by the browser to a color no file states,
  * and nothing measured them against their ground, so six sat below rule 3's text

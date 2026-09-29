@@ -24,7 +24,7 @@ export const SESSION_ID = "session-transcript-feed";
  * days would — and ten sites have to move together; miss one and the ordering
  * assertions still pass while the run group boundaries silently shift.
  *
- * `Date.UTC` rather than a parsed literal, for `ledger-cast.ts`' reason: `Date.parse`
+ * `Date.UTC` rather than a parsed literal, because `Date.parse`
  * reads a timezone-less stamp in the host's zone, so a fixture that parsed its own
  * spelling would be asking a reader to trust the one function this console bans.
  */

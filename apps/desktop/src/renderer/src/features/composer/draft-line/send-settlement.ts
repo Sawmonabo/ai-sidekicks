@@ -19,7 +19,7 @@
 // nothing), a settlement would clear a draft typed on the second visit because the
 // first visit's send cleared the first visit's text, and a refusal written on the first
 // visit would read as current again. The visit is the composer's mirror of the holder's
-// own addressing epoch (`store/subject-scoped/subject-scoped-state.ts` states the same
+// own addressing epoch (`hooks/subject-scoped/useSubjectScopedState.ts` states the same
 // fact for the value it holds), so the latch key, the attempt register, and the
 // settlement identity all carry it.
 //

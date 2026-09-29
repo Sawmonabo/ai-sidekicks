@@ -23,7 +23,7 @@ export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[
  * from wherever they are asked.
  *
  * WHAT IT IS ADDRESSED BY IS THE POINT. Held per `(arrangement, session)` through
- * `store/subject-scoped/subject-scoped-state.ts`, so routing to another open session
+ * `hooks/subject-scoped/useSubjectScopedState.ts`, so routing to another open session
  * re-arms it and a `UiStateStore` REPLACEMENT — a reconnect re-mints the store and
  * hands it down without remounting anything — does not. A restore that re-ran there
  * would replace a

@@ -38,7 +38,7 @@
 // from the clock it no longer has, so every deadline on the new clock was already
 // behind it: nothing armed, and every row rendered past its deadline for as long as
 // the surface stayed mounted. Monotonicity is a property of one time base, so the
-// instant is held per clock through `subject-scoped-state.ts` and re-seeded during
+// instant is held per clock through `useSubjectScopedState.ts` and re-seeded during
 // the render that first sees a replacement rather than one frame later.
 
 /**

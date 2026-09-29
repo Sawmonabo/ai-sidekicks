@@ -1,7 +1,7 @@
 // The shipped attachment bounds, and where a staged list and one file stand against them.
 //
 // This module renders nothing, calls nothing, and holds no copy about a refusal. The byte
-// bound is `core/constants/attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
+// bound is `attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
 // the deployment's own bound is made anywhere, so every surface reads the shipped default.
 
 import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
