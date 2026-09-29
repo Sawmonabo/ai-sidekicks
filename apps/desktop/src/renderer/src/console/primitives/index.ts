@@ -230,19 +230,19 @@ export type {
   /** @consumedBy a view family that has not landed yet */
   WindowAbsence,
   /** @consumedBy a view family that has not landed yet */
-  WindowAbsenceNotice,
+  WindowNoticeText,
 } from "@renderer/features/transcript/window-notices.js";
 export {
   /** @consumedBy a view family that has not landed yet */
-  windowAbsenceNotice,
+  buildWindowNoticeText,
   /** @consumedBy a view family that has not landed yet */
-  windowAbsenceNotices,
+  buildWindowNoticeTexts,
 } from "@renderer/features/transcript/window-notices.js";
 export type {
   /** @consumedBy a view family that has not landed yet */
-  WindowAbsencesProps,
+  WindowNoticesProps,
 } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
-export { WindowAbsences } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
+export { WindowNotices } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
 
 // No marker: `InlineRefusal` has its consumers — `components/PaneFrame/PaneFrame.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
@@ -338,9 +338,9 @@ export { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers
 
 export type {
   /** @consumedBy a view family that has not landed yet */
-  LedgerRowProps,
+  TranscriptRowLayoutProps,
 } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
-export { LedgerRow } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
+export { TranscriptRowLayout } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
 
 export type {
   /** @consumedBy a view family that has not landed yet */

@@ -208,12 +208,12 @@ export {
 
 export {
   /** @consumedBy a view family that has not landed yet */
-  TIMELINE_ROW_DENSITIES,
-  registerTimelineRowRenderer,
-  timelineRowRenderer,
-  type TimelineRowDensity,
+  TRANSCRIPT_ROW_DENSITIES,
+  registerTranscriptRowRenderer,
+  findTranscriptRowRenderer,
+  type TranscriptRowDensity,
   type TranscriptRowRenderer,
-  type TimelineRowSlotProps,
+  type TranscriptRowProps,
 } from "@renderer/features/transcript/transcript-row-renderer.js";
 
 // `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an

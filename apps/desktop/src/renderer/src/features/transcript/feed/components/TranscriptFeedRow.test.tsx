@@ -18,7 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
   useTranscriptRowRenderer,
@@ -30,7 +30,10 @@ import {
   openSessionStoreWithTerminalRunGroup,
 } from "../../run-group-logs.test-support.js";
 import { TranscriptRowRetention } from "../../window/row-retention.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../../window/transcript-window.js";
+import {
+  deriveTranscriptWindow,
+  type TranscriptWindowModel,
+} from "../../window/transcript-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
 function viewportRowFor(ledgerWindow: TranscriptWindowModel, key: string): ViewportRow {
@@ -69,7 +72,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   function foldedChapterWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return foldRunGroupHeaders(
-      deriveLedgerWindow(sessionStore.snapshot().timeline, false),
+      deriveTranscriptWindow(sessionStore.snapshot().timeline, false),
       new Set<string>(),
     ).window;
   }
@@ -90,7 +93,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
 
   it("draws a seam for a row the seam index names, never through the seat", () => {
     const sessionStore = openSessionStoreWithSystemMessage();
-    const ledgerWindow = deriveLedgerWindow(sessionStore.snapshot().timeline, false);
+    const ledgerWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline, false);
     const seamRowId = [...ledgerWindow.seamByRowId.keys()][0];
     if (seamRowId === undefined) {
       throw new Error("the seam fixture projected no seam row");
@@ -115,7 +118,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       useTranscriptRowRenderer(
         rendererOptions(
           // A window with neither the header nor any projected row under that key.
-          deriveLedgerWindow([], false),
+          deriveTranscriptWindow([], false),
           { renderTimelineRow: seatCalls },
         ),
       ),
@@ -135,7 +138,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       throw new Error("the chapter fixture projected no ordinary row");
     }
     const seatCalls = vi.fn(
-      (slot: TimelineRowSlotProps): ReactNode => <output data-seat-row={slot.row.id} />,
+      (slot: TranscriptRowProps): ReactNode => <output data-seat-row={slot.row.id} />,
     );
     const container = renderDispatch(
       rendererOptions(ledgerWindow, { renderTimelineRow: seatCalls }),
@@ -164,8 +167,8 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     const timeline = sessionStore.snapshot().timeline;
     const retention = new TranscriptRowRetention();
-    const before = deriveLedgerWindow(timeline, false, retention);
-    const after = deriveLedgerWindow(timeline, false, retention);
+    const before = deriveTranscriptWindow(timeline, false, retention);
+    const after = deriveTranscriptWindow(timeline, false, retention);
     const rowKey = before.viewportRows.find((row) => before.rowsByKey.has(row.key))?.key;
     if (rowKey === undefined) {
       throw new Error("the chapter fixture projected no retained row");
@@ -184,7 +187,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
   function seatCallsAcrossTwoProjections(
     secondOptions: (
       nextWindow: TranscriptWindowModel,
-      renderTimelineRow: (slot: TimelineRowSlotProps) => ReactNode,
+      renderTimelineRow: (slot: TranscriptRowProps) => ReactNode,
     ) => TranscriptRowRendererOptions,
   ): number {
     const { before, after, rowKey } = twoProjectionsOverOneLog();

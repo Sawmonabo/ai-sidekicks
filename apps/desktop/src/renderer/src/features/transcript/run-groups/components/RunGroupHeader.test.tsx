@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import { RunGroupHeader } from "./RunGroupHeader.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
@@ -72,12 +72,12 @@ describe("the chapter header — what one run's line says", () => {
 describe("the header's body — mounted only where there is something folded open", () => {
   it("mounts no body while the chapter is folded", () => {
     expect(
-      renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-run-group-body"),
+      renderHeader(oneRun(RUN_GROUP_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-run-group-body"),
     ).toBeNull();
   });
 
   it("mounts the clipped head once the chapter is open", () => {
-    const body = renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2), true).querySelector(
+    const body = renderHeader(oneRun(RUN_GROUP_VISIBLE_ROW_CAP + 2), true).querySelector(
       ".meridian-run-group-body",
     );
     expect(body).not.toBeNull();

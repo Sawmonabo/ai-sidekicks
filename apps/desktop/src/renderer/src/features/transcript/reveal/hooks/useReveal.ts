@@ -43,7 +43,7 @@ import { type RevealDelta } from "../reveal-model.js";
 /** What a view gets back: the channel its rows read, the drain state, and the acts. */
 export interface RevealBinding {
   /**
-   * The channel handed to `LedgerRowRevealProvider`. Stable for the engine's life, so
+   * The channel handed to `RowRevealProvider`. Stable for the engine's life, so
    * publishing it re-renders no row body on its own.
    */
   readonly channel: RowRevealContextValue;
@@ -72,7 +72,7 @@ export interface UseRevealOptions {
 }
 
 /** Mint one reveal engine for a feed, and bind it to the tree. */
-export function useLedgerReveal(options: UseRevealOptions): RevealBinding {
+export function useReveal(options: UseRevealOptions): RevealBinding {
   const { frameCoordinator } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
   // The engine owns its own state and is not React state; the revision is how the

@@ -30,11 +30,11 @@
 // the log. What it holds instead is a fact every reader has: where the head row was.
 
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
-import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollController } from "../scroll/scroll-chokepoint.js";
 
 export interface ViewportDeferredHoldOptions {
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   /** The retained row keys as they stand when the hold is performed. */
   readonly rowKeys: () => readonly string[];
   /** Where a row's top edge sits, from the measurements the library holds. */
@@ -46,7 +46,7 @@ export interface ViewportDeferredHoldOptions {
 /** The two pending arms, and the rule that picks between them and the third. */
 export class ViewportDeferredHold {
   readonly #anchor: ReadingAnchor;
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   readonly #rowKeys: () => readonly string[];
   readonly #offsetOfIndex: (index: number) => number;
   readonly #holdReadingPosition: () => void;

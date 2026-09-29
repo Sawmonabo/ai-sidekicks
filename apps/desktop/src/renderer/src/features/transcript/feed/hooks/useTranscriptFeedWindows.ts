@@ -29,8 +29,8 @@ import { useEffect } from "react";
 
 import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
 import { type Clock } from "@renderer/lib/clock.js";
-import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
-import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
+import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
   useTranscriptViewport,
   type TranscriptViewportBinding,
@@ -106,8 +106,8 @@ export function useTranscriptFeedWindows(
   // object can order the whole paint: phase one is the viewport's scroll writes and
   // phase two is the reveal drain, and a coordinator minted inside either would order
   // that half against nothing.
-  const frameCoordinator = useLedgerFrameCoordinator(inputs.clock);
-  const reveal = useLedgerReveal({ frameCoordinator });
+  const frameCoordinator = useAnimationFrameCoordinator(inputs.clock);
+  const reveal = useReveal({ frameCoordinator });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: ledgerWindow.viewportRows,

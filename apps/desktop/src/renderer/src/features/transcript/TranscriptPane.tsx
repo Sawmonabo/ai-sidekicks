@@ -5,7 +5,7 @@
 // the focus ring goes. What this pane supplies is what genuinely differs — its kind, the
 // address its trail reads, and the hue it is attributed to.
 //
-// THE ROWS ARRIVE THROUGH THE ROW SEAT. Whatever fills the seat (`registerTimelineRowRenderer`)
+// THE ROWS ARRIVE THROUGH THE ROW SEAT. Whatever fills the seat (`registerTranscriptRowRenderer`)
 // draws each row's body, so the body here is a slot that reads the seat rather than a
 // dispatcher of its own.
 //
@@ -18,7 +18,7 @@ import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import {
   PaneFrame,
-  timelineRowRenderer,
+  findTranscriptRowRenderer,
   type PaneContextOf,
 } from "@renderer/console/seats/index.js";
 import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
@@ -29,17 +29,17 @@ import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind, and a body does not.
  */
-export type TimelinePaneContext = PaneContextOf<"timeline">;
+export type TranscriptPaneContext = PaneContextOf<"timeline">;
 
 /** What a deck hands the timeline pane: its context and the close control it may offer. */
 export interface TranscriptPaneProps {
-  readonly context: TimelinePaneContext;
+  readonly context: TranscriptPaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
 }
 
 /** The timeline pane: the chrome around the feed of the session the route names. */
-export function TimelinePane(props: TranscriptPaneProps): React.JSX.Element {
+export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
   const { context } = props;
 
   // Read through the store's own selector rather than off a snapshot: the pane has
@@ -58,7 +58,7 @@ export function TimelinePane(props: TranscriptPaneProps): React.JSX.Element {
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
       <TranscriptRowHost
-        body={timelineRowRenderer()}
+        body={findTranscriptRowRenderer()}
         paneId={context.paneId}
         sessionStore={context.sessionStore}
       />

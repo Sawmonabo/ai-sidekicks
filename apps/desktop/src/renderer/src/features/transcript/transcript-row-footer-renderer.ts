@@ -36,18 +36,18 @@ export interface TranscriptRowFooterRendererProps {
    * Whether a rollback boundary later in the list supersedes this row.
    *
    * A ranking over the rows AROUND this one, which no single row carries — the same
-   * reason `TimelineRowSlotProps` carries it. A footer control that corrects history
+   * reason `TranscriptRowProps` carries it. A footer control that corrects history
    * needs it: the row it would rewind to has already been rewound past.
    */
   readonly isSuperseded: boolean;
 }
 
 /** The footer body. Returns `React.ReactNode` so the row can render it directly. */
-export type TimelineRowFooterRenderer = (
+export type TranscriptRowFooterRenderer = (
   props: TranscriptRowFooterRendererProps,
 ) => React.ReactNode;
 
-const timelineRowFooterSeat = new SingleEntryRegistry<TimelineRowFooterRenderer>(
+const timelineRowFooterSeat = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
   "timeline row footer",
   "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );
@@ -60,7 +60,7 @@ const timelineRowFooterSeat = new SingleEntryRegistry<TimelineRowFooterRenderer>
  */
 export function registerTranscriptRowFooterRenderer(
   owner: string,
-  render: TimelineRowFooterRenderer,
+  render: TranscriptRowFooterRenderer,
 ): void {
   timelineRowFooterSeat.register({ owner, render });
 }
@@ -76,6 +76,6 @@ export function unregisterTranscriptRowFooterRenderer(): void {
 }
 
 /** The footer body, or `undefined` while the seat is empty. */
-export function findTranscriptRowFooterRenderer(): TimelineRowFooterRenderer | undefined {
+export function findTranscriptRowFooterRenderer(): TranscriptRowFooterRenderer | undefined {
   return timelineRowFooterSeat.renderer();
 }

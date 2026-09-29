@@ -69,7 +69,7 @@ describe("AnimationFrameCoordinator", () => {
     // series bound every further feed is refused, and the p95 an author reads is the
     // p95 of feeds that closed while the feed on screen contributes nothing to it.
     //
-    // The count is the endurance workload's own: `console-workload.ts` alternates the
+    // The count is the endurance workload's own: `endurance-workload.ts` alternates the
     // settings route and the session workspace, the workspace mounts the ledger, and
     // `steady-state.test.ts` drives 200 churn cycles twice.
     const mountCycleCount = 400;

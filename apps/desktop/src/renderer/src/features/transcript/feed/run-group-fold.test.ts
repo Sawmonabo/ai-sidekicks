@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
-import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { RunGroupFoldState } from "../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
@@ -24,7 +24,7 @@ import {
 } from "./run-group-fold.js";
 import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
 import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
+import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 const SESSION_ID = "session-chapter-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -52,7 +52,7 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
 /** That log, folded, with the chapter open or shut. */
 function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
   return foldRunGroupHeaders(
-    deriveLedgerWindow(oneRunLog(memberCount), false),
+    deriveTranscriptWindow(oneRunLog(memberCount), false),
     new Set(isOpen ? [RUN_ID] : []),
   ).window;
 }
@@ -63,13 +63,13 @@ function renderedMemberKeys(model: TranscriptWindowModel): readonly string[] {
 }
 
 describe("an opened chapter admits the cap's own window and no more", () => {
-  const OVER_CAP_MEMBER_COUNT = CHAPTER_VISIBLE_ROW_CAP + ROWS_PAST_THE_CAP;
+  const OVER_CAP_MEMBER_COUNT = RUN_GROUP_VISIBLE_ROW_CAP + ROWS_PAST_THE_CAP;
 
   it("renders exactly the cap when a run longer than it is opened", () => {
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    expect(renderedMemberKeys(model)).toHaveLength(CHAPTER_VISIBLE_ROW_CAP);
+    expect(renderedMemberKeys(model)).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
     // And the body lookup agrees, so nothing can draw a row the cap kept out.
-    expect(model.rows).toHaveLength(CHAPTER_VISIBLE_ROW_CAP);
+    expect(model.rows).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
   });
 
   it("keeps the newest rows and clips the run's older head", () => {
@@ -77,7 +77,7 @@ describe("an opened chapter admits the cap's own window and no more", () => {
     // Reading it the other way round would fade a long run's newest work out of view
     // and leave its opening on screen.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    const everyMemberId = deriveLedgerWindow(oneRunLog(OVER_CAP_MEMBER_COUNT), false).rows.map(
+    const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT), false).rows.map(
       (row: TimelineRow) => row.id,
     );
     const rendered = new Set(renderedMemberKeys(model));
@@ -99,7 +99,7 @@ describe("an opened chapter admits the cap's own window and no more", () => {
   });
 
   it("opens a chapter under the cap whole", () => {
-    const memberCount = CHAPTER_VISIBLE_ROW_CAP - 1;
+    const memberCount = RUN_GROUP_VISIBLE_ROW_CAP - 1;
     const model = foldedOverOneRun(memberCount, true);
     expect(renderedMemberKeys(model)).toHaveLength(memberCount);
     expect(model.chapterByHeaderKey.get(RUN_ID)?.clippedRowCount).toBe(0);
@@ -120,9 +120,9 @@ describe("an opened chapter admits the cap's own window and no more", () => {
     expect(selectRunGroupRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
     expect(
       selectRunGroupRowIdsWithinCap(
-        Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + 1 }, (_u, i) => `r${String(i)}`),
+        Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + 1 }, (_u, i) => `r${String(i)}`),
       ),
-    ).toHaveLength(CHAPTER_VISIBLE_ROW_CAP);
+    ).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
   });
 });
 
@@ -131,7 +131,7 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
 
   /** The chapter as the fold sealed it, before any narrowing. */
   function wholeChapter(): NonNullable<ReturnType<typeof chapterOf>> {
-    const chapter = chapterOf(deriveLedgerWindow(oneRunLog(MEMBER_COUNT), false));
+    const chapter = chapterOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT), false));
     if (chapter === undefined) {
       throw new Error("the fold produced no chapter for a finished run");
     }
@@ -174,7 +174,7 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
  * disclosure that keyed on the wrong member pass.
  */
 function terminalChapter(): RunGroup {
-  const chapter = deriveLedgerWindow(oneRunLog(3), false).chapterByHeaderKey.get(RUN_ID);
+  const chapter = deriveTranscriptWindow(oneRunLog(3), false).chapterByHeaderKey.get(RUN_ID);
   if (chapter === undefined) {
     throw new Error("the fixture log produced no terminal chapter");
   }

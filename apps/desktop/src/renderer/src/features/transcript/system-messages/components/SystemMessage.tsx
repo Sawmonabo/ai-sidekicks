@@ -33,7 +33,7 @@
 // `continuity` or loss value onto a fallback phrase would silently stop reporting
 // the newest kind of loss.
 
-import { Glyph, LedgerRow, Nothing } from "@renderer/console/primitives/index.js";
+import { Glyph, TranscriptRowLayout, Nothing } from "@renderer/console/primitives/index.js";
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import { type SystemMessageReading } from "../system-message-classifier.js";
@@ -53,7 +53,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
   const { seam } = props;
   const binding = SYSTEM_MESSAGE_BINDINGS[seam.kind];
   return (
-    <LedgerRow
+    <TranscriptRowLayout
       agentHueStep={props.actorHue?.step ?? -1}
       occurredAtIso={seam.timestamp}
       authorLabel={seam.actorId ?? "Session"}
@@ -74,7 +74,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
         {seamReason(seam)}
       </p>
       {seamWireAbsence(seam)}
-    </LedgerRow>
+    </TranscriptRowLayout>
   );
 }
 

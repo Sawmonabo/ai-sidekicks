@@ -14,7 +14,7 @@ import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 /**
  * The row objects one derivation publishes, held across its own passes.
  *
- * WHY IT EXISTS, MEASURED. `projectFixtureShellRows` rebuilds every `TimelineRow` on
+ * WHY IT EXISTS, MEASURED. `projectTranscriptRows` rebuilds every `TimelineRow` on
  * every admitted event, and the identity triple beside each one used to be minted
  * fresh with it. Every memo below the feed keys on those identities, so a log that
  * gained one entry handed the viewport a window in which nothing had changed and

@@ -13,7 +13,7 @@
  * rather than paging, and far short of the point where four live chapters cost a
  * frame.
  */
-export const CHAPTER_VISIBLE_ROW_CAP = 120;
+export const RUN_GROUP_VISIBLE_ROW_CAP = 120;
 /**
  * Rows one chapter's body holds at all — the mounted window and the head above it.
  *
@@ -26,7 +26,7 @@ export const CHAPTER_VISIBLE_ROW_CAP = 120;
  * ring is allocated once at this length and then written in place, so nothing about
  * a chapter's retention grows with how long its run streams for.
  */
-export const CHAPTER_BODY_RETAINED_ROW_CAP: number = CHAPTER_VISIBLE_ROW_CAP * 2;
+export const RUN_GROUP_BODY_RETAINED_ROW_CAP: number = RUN_GROUP_VISIBLE_ROW_CAP * 2;
 /**
  * Matches the find field ranks and offers next/previous over.
  *

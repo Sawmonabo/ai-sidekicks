@@ -26,7 +26,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
@@ -45,7 +45,7 @@ const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
  */
 const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
-const OVER_CAP_ROW_COUNT = LEDGER_WINDOW_ROW_CAP + 40;
+const OVER_CAP_ROW_COUNT = TRANSCRIPT_WINDOW_ROW_CAP + 40;
 const CALM = { hasActiveTurn: false, isRevealDraining: false } as const;
 
 function syntheticRows(count: number): readonly ViewportRow[] {
@@ -131,7 +131,7 @@ describe("the ledger viewport binding — a prune the window refused", () => {
     scrollTo(surface, TAIL_OFFSET_PX);
 
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: a re-render that changes nothing leaves the reader's window whole", () => {
@@ -190,7 +190,7 @@ describe("the ledger viewport binding — a prune the write itself refused", () 
 
     expect(refusedUnderTheVeto).toBe("scroll-write");
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: a glide that refuses nothing re-asks for no prune", () => {
@@ -243,7 +243,7 @@ describe("the ledger viewport binding — a prune a pin held back", () => {
     });
 
     expect(binding.result.current.snapshot.reading.mode).toBe(pinnedReadingMode);
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: the window stays whole for as long as the pin is held", () => {

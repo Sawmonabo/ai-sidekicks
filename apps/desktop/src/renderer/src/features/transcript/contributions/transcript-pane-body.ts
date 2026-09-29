@@ -8,12 +8,12 @@
 // initial import graph.
 //
 // THE ROW SEAT IS FILLED HERE BECAUSE THIS CHUNK IS WHAT READS IT. `TranscriptPane.tsx` is
-// the only module that calls `timelineRowRenderer()`, so the seat's reader and the seat's
+// the only module that calls `findTranscriptRowRenderer()`, so the seat's reader and the seat's
 // filler arrive together; filling it from the eager registration would put the whole row
 // subtree, and every markdown dependency behind it, back on the initial graph. The call
 // runs at module scope, once per realm, which is the right number for a process-wide single
 // slot, and a suite that wants the rows without the pane around them calls
-// `registerFixtureShellRows` itself (`tests/accessibility/transcript-pane.test.tsx` does).
+// `registerTranscriptRows` itself (`tests/accessibility/transcript-pane.test.tsx` does).
 //
 // THE SHEETS BELOW STYLE SEVERAL COMPONENTS EACH, across the feature's folders, so the
 // chunk root imports them rather than any one component.
@@ -23,8 +23,8 @@
 import { createElement } from "react";
 
 import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
-import { registerFixtureShellRows } from "./timeline-rows.js";
-import { TimelinePane } from "../TranscriptPane.js";
+import { registerTranscriptRows } from "./timeline-rows.js";
+import { TranscriptPane } from "../TranscriptPane.js";
 
 import "../rows/rows.css";
 import "../rows/bodies/bodies.css";
@@ -33,7 +33,7 @@ import "../viewport/components/transcript-viewport.css";
 import "../window/components/transcript-window.css";
 import "../run-groups/components/run-groups.css";
 
-registerFixtureShellRows();
+registerTranscriptRows();
 
 /**
  * The ledger, at an address the deck resolved to this kind.
@@ -47,5 +47,5 @@ registerFixtureShellRows();
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "timeline",
-  (context) => createElement(TimelinePane, { context }),
+  (context) => createElement(TranscriptPane, { context }),
 );

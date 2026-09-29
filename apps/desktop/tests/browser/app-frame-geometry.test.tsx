@@ -24,7 +24,7 @@ import { LEADING_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
 import { MOTION_DURATIONS_MS } from "@renderer/styles/motion.js";
 import { tokenVariableName } from "@renderer/styles/tokens.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerScrollController } from "@renderer/features/transcript/scroll/scroll-chokepoint.js";
+import { ScrollController } from "@renderer/features/transcript/scroll/scroll-chokepoint.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it
@@ -197,7 +197,7 @@ describe("browser — a pane that changed size reaches the ledger's geometry", (
     document.body.append(scrollSurface);
 
     const clock = new ManualClock();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     try {
       controller.attach(scrollSurface);
       const viewportHeights: number[] = [];

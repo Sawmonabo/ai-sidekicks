@@ -62,7 +62,7 @@ export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
  * This console keeps one popover host per timeline with a definition registry keyed by
  * source — `ledger/cards/markdown/footnotes/footnote-registry.ts` states why. Bounded
  * for the reason every cache in the console is: a definition belongs to the message
- * that carried it, and a log holds `LEDGER_WINDOW_ROW_CAP` rows, so a few definitions
+ * that carried it, and a log holds `TRANSCRIPT_WINDOW_ROW_CAP` rows, so a few definitions
  * per retained row is the whole reachable population and nothing above it can ever be
  * opened.
  */

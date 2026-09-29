@@ -31,7 +31,10 @@ export interface TranscriptComposition {
  * own contribution, `registerTranscriptCommands`, which the composition root calls
  * beside this.
  */
-export function registerLedger(registry: ScreenRegistry, composition: TranscriptComposition): void {
+export function registerTranscriptScreens(
+  registry: ScreenRegistry,
+  composition: TranscriptComposition,
+): void {
   registry.register({
     slot: "workspace",
     owner: TRANSCRIPT_OWNER,

@@ -2,7 +2,7 @@
 // row component its kind names.
 //
 // NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over
-// `TimelineRowSlotProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
+// `TranscriptRowProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
 // three list decisions the seat carries, and nothing else. Modelling the timeline's own
 // entry vocabulary here would author a second body beside the real one.
 //
@@ -29,10 +29,10 @@
 import { useCallback, useState } from "react";
 
 import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
-import { useLedgerRowReveal } from "../reveal/hooks/useRowReveal.js";
+import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
 import {
-  type TimelineRowDensity,
-  type TimelineRowSlotProps,
+  type TranscriptRowDensity,
+  type TranscriptRowProps,
 } from "@renderer/console/seats/index.js";
 import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
@@ -49,11 +49,11 @@ import { ToolRow } from "./ToolRow.js";
  * cards themselves read, so the glyph, the label, and the layout a row gets here are the
  * ones it gets anywhere.
  */
-export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | null {
+export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | null {
   const [footnotes] = useState(() => new FootnoteRegistry());
   const rowLease = useRetainedRowState();
   const rowId = props.row.id;
-  const density: TimelineRowDensity = props.density;
+  const density: TranscriptRowDensity = props.density;
   // THE TOGGLE INVERTS WHAT IS ON SCREEN, which is the density the row was HANDED —
   // the list's answer with the lease already overlaid on it. So the press reverses
   // what a reader can see, and it writes the reversal to the list rather than to this
@@ -80,7 +80,7 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
   // THE LANE IS THE ROW, which is what `MessageContent` already claims of the member it
   // fills: "text the reveal engine is publishing for THIS ROW right now". Keying on the
   // run instead would give two machine rows of one turn one body between them.
-  const liveText = useLedgerRowReveal(rowId);
+  const liveText = useRowReveal(rowId);
 
   if (family === undefined) {
     return null;
@@ -123,6 +123,6 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
 }
 
 /** The edit control the seat's owner draws, or nothing; the message row shows it on a user's own. */
-function editControlOf(props: TimelineRowSlotProps): React.ReactNode {
+function editControlOf(props: TranscriptRowProps): React.ReactNode {
   return findTranscriptRowFooterRenderer()?.({ row: props.row, isSuperseded: props.isSuperseded });
 }

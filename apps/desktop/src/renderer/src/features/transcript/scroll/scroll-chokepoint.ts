@@ -76,7 +76,7 @@ export interface ScrollControllerOptions {
   readonly tailTolerancePx?: number;
 }
 
-export class LedgerScrollController {
+export class ScrollController {
   /** What a sample MEANS, and who is woken by one. One publisher per controller. */
   readonly #geometryPublisher: ScrollGeometryPublisher;
   readonly #writeCountByCaller = new Map<ScrollCaller, number>();

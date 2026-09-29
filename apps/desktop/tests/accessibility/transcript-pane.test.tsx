@@ -44,15 +44,15 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.
-import { registerFixtureShellRows } from "@renderer/features/transcript/contributions/timeline-rows.js";
+import { registerTranscriptRows } from "@renderer/features/transcript/contributions/timeline-rows.js";
 import {
-  TimelinePane,
-  type TimelinePaneContext,
+  TranscriptPane,
+  type TranscriptPaneContext,
 } from "@renderer/features/transcript/TranscriptPane.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-import { unregisterTimelineRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
+import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
 import { TranscriptSurface } from "@renderer/features/transcript/TranscriptSurface.js";
 
 /**
@@ -76,14 +76,14 @@ const SCENARIO_BASE_CURSOR = 0;
  * building it to satisfy a field nothing reads would make the setup the subject.
  * (The bridge the ledger DOES read is the provider's, one level up, which is real.)
  */
-function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TimelinePaneContext {
+function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TranscriptPaneContext {
   return {
     kind: "timeline",
     paneId: "ledger-timeline",
     frameStore: new WindowStore({ initialRoute: { kind: "workspace", sessionId } }),
     sessionStore,
     focusHue: undefined,
-  } as unknown as TimelinePaneContext;
+  } as unknown as TranscriptPaneContext;
 }
 
 /**
@@ -119,7 +119,7 @@ async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
   const { container } = await renderSettled(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
       <TranscriptSurface>
-        <TimelinePane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
+        <TranscriptPane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
       </TranscriptSurface>
     </DesktopBridgeProvider>,
   );
@@ -131,12 +131,12 @@ beforeEach(() => {
   // The row seat, filled with the same shell the console registers. Without it the
   // pane renders its reserved-not-built absence and this whole file would be
   // measuring a grey line where the ledger is supposed to be.
-  registerFixtureShellRows();
+  registerTranscriptRows();
 });
 
 afterEach(async () => {
   // The seat is module-scope, so a filled one would outlive this file.
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
   await emulateSystemScheme("light");
 });
 

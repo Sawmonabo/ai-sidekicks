@@ -71,7 +71,7 @@ export type PruneDeferralReason = (typeof PRUNE_DEFERRAL_REASONS)[number];
 export interface PruneConditions {
   /** A turn is mid-flight; its rows are still being written to. */
   readonly hasActiveTurn: boolean;
-  /** `LedgerScrollController.vetoesPrune()` — a programmatic write is in flight. */
+  /** `ScrollController.vetoesPrune()` — a programmatic write is in flight. */
   readonly scrollControllerVetoes: boolean;
   /** The reveal engine has characters queued for this frame. */
   readonly revealDrainInFlight: boolean;
@@ -141,7 +141,7 @@ export class TranscriptWindow {
   #rows: WindowRow[] = [];
 
   public constructor(options: TranscriptWindowOptions = {}) {
-    this.#topLevelCap = options.topLevelCap ?? LEDGER_WINDOW_ROW_CAP;
+    this.#topLevelCap = options.topLevelCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
     this.#leaseTable = new RetainedRowStateTable(options.parkedLeaseCap);
   }
 
@@ -383,4 +383,4 @@ export class TranscriptWindow {
     return keysFromFloor;
   }
 }
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";

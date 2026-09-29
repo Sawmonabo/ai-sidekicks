@@ -22,7 +22,7 @@ import {
 import { type Clock } from "@renderer/lib/clock.js";
 import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
-import { LEDGER_OVERSCAN_ROWS } from "../viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "../viewport-constants.js";
 import { ViewportController } from "../viewport-controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";
@@ -142,7 +142,7 @@ export function useTranscriptViewport(
 
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
-    overscan: LEDGER_OVERSCAN_ROWS,
+    overscan: TRANSCRIPT_OVERSCAN_ROWS,
     // The attribute the row primitive WRITES, named here rather than left to the
     // library's identically-spelled default: the row and the measurement are two
     // sides of one seam, and a default is not a seam — a rename in the primitive

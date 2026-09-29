@@ -1,6 +1,6 @@
 // What one derivation's rows keep from the one before it.
 //
-// The subject is `TranscriptRowRetention`, driven THROUGH `deriveLedgerWindow` rather than
+// The subject is `TranscriptRowRetention`, driven THROUGH `deriveTranscriptWindow` rather than
 // alone: the retention's value is a property of the derivation that uses it — which
 // objects reach the feed and which of them are recognisable — and a case that called
 // the table directly would prove the table works while saying nothing about whether
@@ -22,7 +22,7 @@ import {
   transcriptFixtureStampAt,
 } from "../transcript-logs.test-support.js";
 import { TranscriptRowRetention } from "./row-retention.js";
-import { deriveLedgerWindow } from "./transcript-window.js";
+import { deriveTranscriptWindow } from "./transcript-window.js";
 
 const SESSION_ID = "session-ledger-row-retention";
 
@@ -56,8 +56,12 @@ describe("the ledger window's row retention", () => {
     // the entries here would hand the projection fresh payload objects and the rows
     // would rightly take new identities, so the case would be measuring the fixture.
     const entries = log(LOG_ENTRY_COUNT);
-    const before = deriveLedgerWindow(entries, false, retention);
-    const after = deriveLedgerWindow([...entries, logEntry(LOG_ENTRY_COUNT, {})], false, retention);
+    const before = deriveTranscriptWindow(entries, false, retention);
+    const after = deriveTranscriptWindow(
+      [...entries, logEntry(LOG_ENTRY_COUNT, {})],
+      false,
+      retention,
+    );
 
     // Every row the first pass published is the SAME object in the second, and so is
     // its place in the virtualizer's identity list. Both halves matter: the feed's row
@@ -79,9 +83,9 @@ describe("the ledger window's row retention", () => {
     // this whole mechanism can cause.
     const retention = new TranscriptRowRetention();
     const first = [logEntry(0, { index: 0 }), logEntry(1, { index: 1 })];
-    const before = deriveLedgerWindow(first, false, retention);
+    const before = deriveTranscriptWindow(first, false, retention);
     const movedEntry = { ...logEntry(1, { index: 1 }), occurredAt: "2026-06-01T00:00:00.000Z" };
-    const after = deriveLedgerWindow(
+    const after = deriveTranscriptWindow(
       [first[0] as ProjectedSessionEvent, movedEntry],
       false,
       retention,
@@ -98,14 +102,14 @@ describe("the ledger window's row retention", () => {
   });
 
   it("negative control: a projection given no retention publishes all-new objects", () => {
-    // This is the code that was here, stated as a case: `deriveLedgerWindow` used to
+    // This is the code that was here, stated as a case: `deriveTranscriptWindow` used to
     // mint every row and every identity triple per call, so a log that gained one entry
     // handed the feed a window in which nothing had changed and nothing was
     // recognisable. Every assertion above would pass over a `toBe` that had quietly
     // become a structural compare; this one fails if it ever does.
     const entries = log(LOG_ENTRY_COUNT);
-    const before = deriveLedgerWindow(entries, false);
-    const after = deriveLedgerWindow(entries, false);
+    const before = deriveTranscriptWindow(entries, false);
+    const after = deriveTranscriptWindow(entries, false);
 
     for (const row of before.rows) {
       expect(after.rowsByKey.get(row.id)).not.toBe(row);
@@ -124,12 +128,12 @@ describe("the ledger window's row retention", () => {
     // hand back the object it had been holding since the row left.
     const retention = new TranscriptRowRetention();
     const entries = log(LOG_ENTRY_COUNT);
-    const held = deriveLedgerWindow(entries, false, retention).rows[0];
+    const held = deriveTranscriptWindow(entries, false, retention).rows[0];
     if (held === undefined) {
       throw new Error("the fixture log projected no rows");
     }
-    deriveLedgerWindow([], false, retention);
-    const readmitted = deriveLedgerWindow(entries, false, retention);
+    deriveTranscriptWindow([], false, retention);
+    const readmitted = deriveTranscriptWindow(entries, false, retention);
 
     expect(readmitted.rowsByKey.get(held.id)).not.toBe(held);
   });

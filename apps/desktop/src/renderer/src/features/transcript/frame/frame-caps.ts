@@ -12,7 +12,7 @@
  * ledger's density, which is as far back as a person reads before reaching for
  * find.
  */
-export const LEDGER_WINDOW_ROW_CAP = 400;
+export const TRANSCRIPT_WINDOW_ROW_CAP = 400;
 /**
  * Rows one backward read of a session's log asks the daemon for.
  *
@@ -20,7 +20,7 @@ export const LEDGER_WINDOW_ROW_CAP = 400;
  * and this is deliberately well under it, because the two numbers bound different
  * things. That one is the largest window a producer may answer with; this is the
  * largest window a PERSON asked for by pressing a control once, and it lands in a
- * viewport whose own retention is {@link LEDGER_WINDOW_ROW_CAP}. Asking for the wire's
+ * viewport whose own retention is {@link TRANSCRIPT_WINDOW_ROW_CAP}. Asking for the wire's
  * ceiling would spend most of a press filling rows the reader then has to scroll past
  * to reach the ones they wanted, and would put three presses over that retention with
  * the prune suppressed underneath them.
@@ -29,7 +29,7 @@ export const LEDGER_WINDOW_ROW_CAP = 400;
  * head far enough to be worth the round trip and near enough that the rows it brought
  * are reachable without a second scroll.
  */
-export const LEDGER_EARLIER_PAGE_ROWS = 50;
+export const TRANSCRIPT_EARLIER_PAGE_ROWS = 50;
 /**
  * Characters the reveal engine publishes per frame, across every lane.
  *
@@ -55,7 +55,7 @@ export const REVEAL_CHECKPOINT_TAIL_CAP = 8;
  * expects the row they had open to still be open, and nobody expects that of a row
  * pruned an hour ago. Parking one window's worth covers a page back and no more.
  */
-export const LEDGER_PARKED_LEASE_CAP = 400;
+export const TRANSCRIPT_PARKED_LEASE_CAP = 400;
 /**
  * How far the reveal gate walks back from a candidate ceiling looking for a
  * literal-safe stopping point.

@@ -22,7 +22,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import { createCountingScrollContainer } from "./scroll-container.test-support.js";
 import { SCROLL_CALLERS } from "./scroll-callers.js";
-import { LedgerScrollController } from "./scroll-chokepoint.js";
+import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
@@ -95,12 +95,12 @@ class RecordingScrollSurface implements ScrollContainer {
 }
 
 let clock: ManualClock;
-let controller: LedgerScrollController;
+let controller: ScrollController;
 let surface: RecordingScrollSurface;
 
 beforeEach(() => {
   clock = new ManualClock();
-  controller = new LedgerScrollController({ clock });
+  controller = new ScrollController({ clock });
   surface = new RecordingScrollSurface(500, 5000);
 });
 

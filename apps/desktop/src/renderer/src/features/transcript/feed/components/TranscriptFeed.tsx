@@ -55,7 +55,7 @@
 import { useCallback, useMemo } from "react";
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
-import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
+import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
 import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
@@ -152,7 +152,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       <TranscriptFeedHeader findAndJump={findAndJump} />
       <div className="meridian-ledger__body">
         <RetainedRowStateProvider channel={rowLeaseChannel}>
-          <LedgerRowRevealProvider channel={windows.reveal.channel}>
+          <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport
               binding={viewport}
               renderRow={renderRow}
@@ -168,7 +168,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                 )
               }
             />
-          </LedgerRowRevealProvider>
+          </RowRevealProvider>
         </RetainedRowStateProvider>
       </div>
       <TranscriptReadState sessionStore={props.sessionStore} />

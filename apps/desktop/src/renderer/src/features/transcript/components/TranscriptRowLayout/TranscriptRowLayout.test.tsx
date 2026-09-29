@@ -26,7 +26,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
 import { formatHueWheelTokenName } from "@renderer/styles/tokens.js";
-import { LedgerRow } from "./TranscriptRowLayout.js";
+import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
 vi.mock(import("@renderer/lib/wire-figures.js"), { spy: true });
@@ -38,7 +38,7 @@ function renderRow(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
   const row = container.firstElementChild;
   if (!(row instanceof HTMLElement)) {
-    throw new Error("LedgerRow rendered no element");
+    throw new Error("TranscriptRowLayout rendered no element");
   }
   return row;
 }
@@ -46,14 +46,16 @@ function renderRow(element: React.JSX.Element): HTMLElement {
 function edgeOf(row: HTMLElement): HTMLElement {
   const edge = row.querySelector(".meridian-ledger-row__edge");
   if (!(edge instanceof HTMLElement)) {
-    throw new Error("LedgerRow rendered no attribution edge");
+    throw new Error("TranscriptRowLayout rendered no attribution edge");
   }
   return edge;
 }
 
-function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {}): HTMLElement {
+function basicRow(
+  overrides: Partial<React.ComponentProps<typeof TranscriptRowLayout>> = {},
+): HTMLElement {
   return renderRow(
-    <LedgerRow
+    <TranscriptRowLayout
       agentHueStep={0}
       occurredAtIso={OCCURRED_AT}
       authorLabel="Ada"
@@ -63,7 +65,7 @@ function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {
   );
 }
 
-describe("LedgerRow — the row is a work-log line, named by its author", () => {
+describe("TranscriptRowLayout — the row is a work-log line, named by its author", () => {
   it("renders an article labelled by the actor element", () => {
     const row = basicRow();
     expect(row.tagName).toBe("ARTICLE");
@@ -75,7 +77,7 @@ describe("LedgerRow — the row is a work-log line, named by its author", () => 
   });
 });
 
-describe("LedgerRow — attribution fails closed rather than into someone else's hue", () => {
+describe("TranscriptRowLayout — attribution fails closed rather than into someone else's hue", () => {
   it("carries the user's own hue token for a step on the wheel", () => {
     const row = basicRow({ agentHueStep: 7 });
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
@@ -112,7 +114,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
   });
 });
 
-describe("LedgerRow — no formatted figure hides the value the daemon sent", () => {
+describe("TranscriptRowLayout — no formatted figure hides the value the daemon sent", () => {
   it("shows the clock reading and carries the exact instant in `title`", () => {
     const gutterFigure = basicRow().querySelector(".meridian-ledger-row__gutter .meridian-figure");
     expect(gutterFigure?.getAttribute("title")).toBe(OCCURRED_AT);
@@ -127,7 +129,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     formatter.mockClear();
 
     const { rerender, container } = render(
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={0}
         occurredAtIso={OCCURRED_AT}
         authorLabel="Ada"
@@ -141,7 +143,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // and none of them moving the instant the row is stamped with.
     for (const kindLabel of ["tool.invoked", "tool.result"]) {
       rerender(
-        <LedgerRow
+        <TranscriptRowLayout
           agentHueStep={0}
           occurredAtIso={OCCURRED_AT}
           authorLabel="Ada"
@@ -156,7 +158,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // ...and the memo is keyed on the instant rather than frozen at mount, so a row
     // whose instant moves is re-read rather than showing the moment before it.
     rerender(
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={0}
         occurredAtIso={LATER_INSTANT}
         authorLabel="Ada"
@@ -177,7 +179,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
   });
 });
 
-describe("LedgerRow — superseded rows and the revealed footer", () => {
+describe("TranscriptRowLayout — superseded rows and the revealed footer", () => {
   it("marks a superseded row in its class and in visible text", () => {
     const row = basicRow({ isSuperseded: true });
     expect(row.classList.contains("meridian-ledger-row--superseded")).toBe(true);

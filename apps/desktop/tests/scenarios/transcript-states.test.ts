@@ -17,7 +17,7 @@ import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
 // The transcript's own readers, reached deeply rather than through a door: this is a
 // claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
 // named by the modules that derive them.
-import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
+import { projectTranscriptRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
 import { deriveSupersededBands } from "@renderer/features/transcript/superseded/superseded-bands.js";
 
@@ -64,8 +64,8 @@ describe("the transcript-states scenario", () => {
 });
 
 /** Every row this scenario's whole script projects to, in log order. */
-function transcriptStatesRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
-  return projectFixtureShellRows(TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event)).rows;
+function transcriptStatesRows(): ReturnType<typeof projectTranscriptRows>["rows"] {
+  return projectTranscriptRows(TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event)).rows;
 }
 
 describe("the three lanes", () => {

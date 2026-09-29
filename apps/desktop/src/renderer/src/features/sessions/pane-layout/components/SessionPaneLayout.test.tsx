@@ -31,7 +31,7 @@ function emptyLayout(): PaneLayoutStore {
  * Every body below renders a marker string and reads nothing from the context —
  * the subject is the deck's frame, not a pane's content — so constructing four
  * stores (one of which opens a database) to satisfy fields nothing reads would make
- * the setup the subject. `TimelinePane.test.tsx` makes the same trade for the same
+ * the setup the subject. `TranscriptPane.test.tsx` makes the same trade for the same
  * reason.
  */
 function paneContextFor(pane: SessionPane): PaneContext {

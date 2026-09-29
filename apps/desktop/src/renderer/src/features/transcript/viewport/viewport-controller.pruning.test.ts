@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
 import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
@@ -84,9 +84,9 @@ describe("the viewport controller — pruning under a reader", () => {
     controller.jumpToTail();
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.snapshot().rowKeys[0]).toBe(
-      `row-${String(LOADED_ROW_COUNT - LEDGER_WINDOW_ROW_CAP)}`,
+      `row-${String(LOADED_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`,
     );
   });
 
@@ -99,7 +99,7 @@ describe("the viewport controller — pruning under a reader", () => {
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
     controller.commitPendingPositionHold();
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.scroll.writeCount("prune-compensation")).toBe(0);
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
   });
@@ -143,9 +143,9 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     controller.retryDeferredPrune();
 
     expect(controller.snapshot().lastPrune?.applied).toBe(true);
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.snapshot().rowKeys[0]).toBe(
-      `row-${String(LOADED_ROW_COUNT - LEDGER_WINDOW_ROW_CAP)}`,
+      `row-${String(LOADED_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`,
     );
   });
 
@@ -174,7 +174,7 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     expect(controller.anchor.state.mode).toBe("following");
     controller.retryDeferredPrune();
 
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.snapshot().lastPrune?.owedBecause).toBeUndefined();
   });
 
@@ -211,7 +211,7 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     controller.anchor.unpin();
     controller.retryDeferredPrune();
 
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("takes them when the write that vetoed the prune has finished", () => {
@@ -242,7 +242,7 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
 
     controller.retryDeferredPrune();
 
-    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: re-asking changes nothing while the reader is still above the tail", () => {

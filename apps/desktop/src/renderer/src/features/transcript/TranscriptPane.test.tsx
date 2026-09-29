@@ -25,14 +25,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { registerTimelineRowRenderer } from "@renderer/console/seats/index.js";
+import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
 import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "./transcript-row-renderer.js";
-import { type TimelinePaneContext } from "./TranscriptPane.js";
+import { unregisterTranscriptRowRenderer } from "./transcript-row-renderer.js";
+import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
   TRANSCRIPT_PANE_SESSION_ID,
   openSessionStoreWithPaneLog,
@@ -49,11 +49,11 @@ function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
 
 afterEach(() => {
   // The seat is module-scope, so a case that filled it would leak into the next.
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
   vi.restoreAllMocks();
 });
 
-describe("TimelinePane — what it hands the chrome", () => {
+describe("TranscriptPane — what it hands the chrome", () => {
   it("mounts at its own kind, so the head wears the timeline glyph and name", () => {
     const pane = renderPane({ context: paneContext() });
     // The chrome derives both from the kind, so the kind is what this asserts: a
@@ -94,7 +94,7 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 });
 
-describe("TimelinePane — the row slot", () => {
+describe("TranscriptPane — the row slot", () => {
   it("says the rows have not been built while the seat is empty", () => {
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
@@ -112,7 +112,7 @@ describe("TimelinePane — the row slot", () => {
     // The two absences are different absences, which is the whole reason they are
     // two: "the console cannot draw this" is a fact about what has shipped, and "no
     // session is open in this pane" is a fact about this pane's address.
-    registerTimelineRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("timeline-pane-test", () => null);
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("No session is open in this pane.");
@@ -125,12 +125,12 @@ describe("TimelinePane — the row slot", () => {
     // Every earlier case here is an absence, and a pane that rendered NOTHING but
     // absences would have passed all of them.
     withLaidOutViewport();
-    registerTimelineRowRenderer("timeline-pane-test", (rowProps) => (
+    registerTranscriptRowRenderer("timeline-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
     ));
     const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({
-      context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
+      context: paneContext({ sessionStore } as Partial<TranscriptPaneContext>),
     });
     const feed = pane.querySelector('[role="feed"]');
     expect(feed).not.toBeNull();
@@ -142,11 +142,11 @@ describe("TimelinePane — the row slot", () => {
   });
 
   it("negative control: the same store with no events shows the empty session", () => {
-    registerTimelineRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("timeline-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
     sessionStore.initialize({ cursor: -1, entities: [] });
     const pane = renderPane({
-      context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
+      context: paneContext({ sessionStore } as Partial<TranscriptPaneContext>),
     });
     expect(pane.textContent).toContain("Nothing has happened in this session yet.");
     expect(pane.querySelectorAll("[data-row-type]")).toHaveLength(0);

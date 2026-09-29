@@ -4,7 +4,7 @@
 // LAUNCH ELECTRON
 //
 // Its two neighbours hold a real window open and read the renderer's heap. This one
-// measures the ledger's own FOLD — `deriveLedgerWindow`, which turns a session's
+// measures the ledger's own FOLD — `deriveTranscriptWindow`, which turns a session's
 // event log into rows, chapters, seams and a superseded index — over a
 // generated session of ten thousand rows.
 //
@@ -57,7 +57,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
-import { deriveLedgerWindow } from "@renderer/features/transcript/window/transcript-window.js";
+import { deriveTranscriptWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
 /**
  * The length of log this tier measures the ledger at.
@@ -165,7 +165,7 @@ function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): nu
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
-    const ledgerWindow = deriveLedgerWindow(timeline, false);
+    const ledgerWindow = deriveTranscriptWindow(timeline, false);
     const elapsedMilliseconds = performance.now() - startedAt;
     if (ledgerWindow.rows.length === 0) {
       throw new Error("the fold produced no rows, so its timing describes nothing");
@@ -220,7 +220,7 @@ describe("endurance — the ledger's fold over a long session", () => {
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const ledgerWindow = deriveLedgerWindow(timeline, false);
+    const ledgerWindow = deriveTranscriptWindow(timeline, false);
 
     // Every event the generator scripts is a registered kind the projection places,
     // so every one becomes a row; a window that dropped an event family would
@@ -314,7 +314,7 @@ describe("endurance — the ledger's fold over a long session", () => {
     // case above sensitive rather than merely quiet.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     const baselineHeapBytes = settledHeapBytes();
-    const heldWindow = deriveLedgerWindow(timeline, false);
+    const heldWindow = deriveTranscriptWindow(timeline, false);
     const heldHeapBytes = settledHeapBytes();
     // Read through the held window AFTER the measurement, so it is unambiguously
     // still reachable at the moment the heap was sampled.
@@ -339,7 +339,7 @@ describe("endurance — the ledger's fold over a long session", () => {
  * be eliminated as dead.
  */
 function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
-  const rowCount = deriveLedgerWindow(timeline, false).rows.length;
+  const rowCount = deriveTranscriptWindow(timeline, false).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

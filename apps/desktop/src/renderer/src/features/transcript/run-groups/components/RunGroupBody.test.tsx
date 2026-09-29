@@ -8,7 +8,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import {
   RUN_GROUP_BODY_FALLBACK_HEIGHT,
   RUN_GROUP_BODY_INTRINSIC_HEIGHT,
@@ -22,7 +22,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 const RUN_ID = "run-a";
 
 function longRun(extraRows: number): readonly TimelineRow[] {
-  return Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + extraRows }, (_unused, index) =>
+  return Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + extraRows }, (_unused, index) =>
     runRow({
       id: `r${String(index + 1)}`,
       sequence: index + 1,
@@ -57,7 +57,7 @@ describe("the chapter body — the head the outer list left out", () => {
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");
     // The rows the outer list mounts are ITS job; the body never draws them twice.
-    expect(body?.textContent).not.toContain(`entry ${String(CHAPTER_VISIBLE_ROW_CAP + 2)}`);
+    expect(body?.textContent).not.toContain(`entry ${String(RUN_GROUP_VISIBLE_ROW_CAP + 2)}`);
   });
 
   it("sets the height the engine agreed to on the scroller itself", () => {
@@ -105,7 +105,7 @@ describe("the top-edge fade — drawn only while something is clipped above", ()
 
 describe("what the body does not hold", () => {
   it("says how many earlier entries are outside its own window", () => {
-    const body = renderBody(longRun(CHAPTER_VISIBLE_ROW_CAP + 3));
+    const body = renderBody(longRun(RUN_GROUP_VISIBLE_ROW_CAP + 3));
     expect(body?.textContent).toContain("3 earlier entries are outside this window.");
   });
 
@@ -114,7 +114,7 @@ describe("what the body does not hold", () => {
       "r1",
       "r2",
       ...Array.from(
-        { length: CHAPTER_VISIBLE_ROW_CAP },
+        { length: RUN_GROUP_VISIBLE_ROW_CAP },
         (_unused, index) => `r${String(index + 3)}`,
       ),
     ];

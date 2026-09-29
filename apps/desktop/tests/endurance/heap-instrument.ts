@@ -1,6 +1,6 @@
 // The endurance tier's heap instrument: how it is read, and the proof it is one.
 //
-// Beside `console-workload.ts` rather than inside it, because the workload's job is
+// Beside `endurance-workload.ts` rather than inside it, because the workload's job is
 // to DRIVE the console — routes, scenario steps, store read-backs — and this one's is
 // to measure it. They meet only at the tier's cases, which drive and then read.
 //

@@ -18,7 +18,7 @@
 import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
@@ -30,7 +30,7 @@ import {
   registerTranscriptCommands,
 } from "../../contributions/commands.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
@@ -39,7 +39,7 @@ export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-ledger-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const SHORT_LOG_EVENT_COUNT = 10;
-export const OVER_CAP_EVENT_COUNT: number = LEDGER_WINDOW_ROW_CAP + 50;
+export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
 
 /**
  * Give the ledger a laid-out, scrollable box for the length of one case.
@@ -66,8 +66,8 @@ export function withLaidOutViewport(): void {
  */
 export function renderFeed(
   sessionStore: SessionStore,
-  onRowMounted?: (mount: TimelineRowSlotProps) => void,
-  renderRowBody?: (mount: TimelineRowSlotProps) => React.JSX.Element,
+  onRowMounted?: (mount: TranscriptRowProps) => void,
+  renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
@@ -98,7 +98,7 @@ export function renderFeed(
  * reaches the window and comes back as the density the seat is handed. This row is
  * the smallest thing that can perform the write from inside the tree.
  */
-export function LeasingRowBody(props: TimelineRowSlotProps): React.JSX.Element {
+export function LeasingRowBody(props: TranscriptRowProps): React.JSX.Element {
   const rowLease = useRetainedRowState();
   return (
     <button

@@ -11,10 +11,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
-  TIMELINE_ROW_DENSITIES,
-  registerTimelineRowRenderer,
-  timelineRowRenderer,
-  unregisterTimelineRowRenderer,
+  TRANSCRIPT_ROW_DENSITIES,
+  registerTranscriptRowRenderer,
+  findTranscriptRowRenderer,
+  unregisterTranscriptRowRenderer,
   type TranscriptRowRenderer,
 } from "./transcript-row-renderer.js";
 
@@ -22,45 +22,45 @@ import {
 const fixtureShellRow: TranscriptRowRenderer = () => null;
 
 afterEach(() => {
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
 });
 
 describe("timeline row slot — the absorb-by-import handover", () => {
   it("hands the list the body itself, not a wrapper", () => {
-    registerTimelineRowRenderer("workspace-fixture-shell", fixtureShellRow);
-    expect(timelineRowRenderer()).toBe(fixtureShellRow);
+    registerTranscriptRowRenderer("workspace-fixture-shell", fixtureShellRow);
+    expect(findTranscriptRowRenderer()).toBe(fixtureShellRow);
   });
 
   it("refuses the real row while the fixture shell is still registered", () => {
     // This IS the handover contract. The timeline subtree's PR must delete the
     // shell's registration in the same diff; if it only adds its own, this refusal fires
     // at import time rather than leaving two bodies and an import-order winner.
-    registerTimelineRowRenderer("workspace-fixture-shell", fixtureShellRow);
+    registerTranscriptRowRenderer("workspace-fixture-shell", fixtureShellRow);
     expect(() => {
-      registerTimelineRowRenderer("timeline-subtree", () => null);
+      registerTranscriptRowRenderer("timeline-subtree", () => null);
     }).toThrow(DuplicateRegistrationError);
-    expect(timelineRowRenderer()).toBe(fixtureShellRow);
+    expect(findTranscriptRowRenderer()).toBe(fixtureShellRow);
   });
 
   it("admits the real row once the shell's registration is gone", () => {
     const realRow: TranscriptRowRenderer = () => null;
-    registerTimelineRowRenderer("workspace-fixture-shell", fixtureShellRow);
-    unregisterTimelineRowRenderer();
-    registerTimelineRowRenderer("timeline-subtree", realRow);
-    expect(timelineRowRenderer()).toBe(realRow);
+    registerTranscriptRowRenderer("workspace-fixture-shell", fixtureShellRow);
+    unregisterTranscriptRowRenderer();
+    registerTranscriptRowRenderer("timeline-subtree", realRow);
+    expect(findTranscriptRowRenderer()).toBe(realRow);
   });
 
   it("replaces when the same owner re-registers, as a hot reload does it", () => {
     const reloaded: TranscriptRowRenderer = () => null;
-    registerTimelineRowRenderer("timeline-subtree", fixtureShellRow);
-    registerTimelineRowRenderer("timeline-subtree", reloaded);
-    expect(timelineRowRenderer()).toBe(reloaded);
+    registerTranscriptRowRenderer("timeline-subtree", fixtureShellRow);
+    registerTranscriptRowRenderer("timeline-subtree", reloaded);
+    expect(findTranscriptRowRenderer()).toBe(reloaded);
   });
 
   it("negative control: an unfilled seat has no body", () => {
     // Without this, every case above would pass over a seat that answered with a
     // body nobody registered — or with one an earlier case left behind.
-    expect(timelineRowRenderer()).toBeUndefined();
+    expect(findTranscriptRowRenderer()).toBeUndefined();
   });
 });
 
@@ -69,7 +69,7 @@ describe("timeline row slot — the density budget vocabulary", () => {
     // Two values and not a spacing scale: the density rule is about what is
     // COLLAPSED. A third member arriving here means the rule grew a state, which is
     // a design question rather than a console one.
-    expect([...TIMELINE_ROW_DENSITIES]).toStrictEqual(["collapsed", "expanded"]);
-    expect(new Set(TIMELINE_ROW_DENSITIES).size).toBe(TIMELINE_ROW_DENSITIES.length);
+    expect([...TRANSCRIPT_ROW_DENSITIES]).toStrictEqual(["collapsed", "expanded"]);
+    expect(new Set(TRANSCRIPT_ROW_DENSITIES).size).toBe(TRANSCRIPT_ROW_DENSITIES.length);
   });
 });

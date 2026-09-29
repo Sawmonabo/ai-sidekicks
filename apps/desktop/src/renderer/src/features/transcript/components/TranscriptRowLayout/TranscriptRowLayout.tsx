@@ -31,7 +31,7 @@ import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
-export interface LedgerRowProps {
+export interface TranscriptRowLayoutProps {
   /** Wheel step, 0 to 11 — drives the 2 px attribution edge. */
   readonly agentHueStep: number;
   readonly occurredAtIso: string;
@@ -45,7 +45,7 @@ export interface LedgerRowProps {
   readonly isSuperseded?: boolean;
 }
 
-export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
+export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.Element {
   const actorId = useId();
 
   // FORMATTED ONCE PER INSTANT, not once per paint.

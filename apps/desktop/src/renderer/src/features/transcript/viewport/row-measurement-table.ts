@@ -29,7 +29,7 @@
 //     distinct virtual key per row keeps every row in the window and counts the
 //     defect, which is degrading rather than discarding.
 
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
@@ -82,7 +82,7 @@ export class RowMeasurementTable {
 
   public constructor(options: RowMeasurementTableOptions = {}) {
     this.#estimatedRowHeightPx = options.estimatedRowHeightPx ?? TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
-    this.#measurementCap = options.measurementCap ?? LEDGER_WINDOW_ROW_CAP;
+    this.#measurementCap = options.measurementCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
   }
 
   /**

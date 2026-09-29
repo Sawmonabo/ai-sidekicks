@@ -9,25 +9,25 @@ import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empt
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
-  registerTimelineRowRenderer,
-  timelineRowRenderer,
-  type TimelineRowSlotProps,
+  registerTranscriptRowRenderer,
+  findTranscriptRowRenderer,
+  type TranscriptRowProps,
 } from "@renderer/console/seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "../transcript-row-renderer.js";
+import { unregisterTranscriptRowRenderer } from "../transcript-row-renderer.js";
 import {
   registerTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,
 } from "../transcript-row-footer-renderer.js";
-import { TRANSCRIPT_ROW_OWNER, registerFixtureShellRows } from "../contributions/timeline-rows.js";
+import { TRANSCRIPT_ROW_OWNER, registerTranscriptRows } from "../contributions/timeline-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 afterEach(() => {
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
 });
 
-function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
+function slotProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
@@ -57,8 +57,8 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
  * asserting over a component that no longer decides anything.
  */
 function MountedInAList(props: {
-  readonly row: TimelineRowSlotProps["row"];
-  readonly listDensity: TimelineRowSlotProps["density"];
+  readonly row: TranscriptRowProps["row"];
+  readonly listDensity: TranscriptRowProps["density"];
   readonly onLeaseWritten?: (rowKey: string, lease: RetainedRowState) => void;
 }): React.JSX.Element {
   const [leased, setLeased] = useState<RetainedRowState | undefined>(undefined);
@@ -217,27 +217,27 @@ describe("standing in for the list's density decision", () => {
 
 describe("claiming the seat", () => {
   it("fills it under the shell's own owner", () => {
-    expect(timelineRowRenderer()).toBeUndefined();
-    registerFixtureShellRows();
-    expect(timelineRowRenderer()).toBe(TranscriptRow);
+    expect(findTranscriptRowRenderer()).toBeUndefined();
+    registerTranscriptRows();
+    expect(findTranscriptRowRenderer()).toBe(TranscriptRow);
   });
 
   it("refuses a second owner rather than replacing the shell", () => {
     // The property the deletion obligation rests on: a change that registered the
     // timeline's own row without deleting this shell stops the timeline rendering at
     // import time, by name, instead of picking a winner by import order.
-    registerFixtureShellRows();
+    registerTranscriptRows();
     expect(() => {
-      registerTimelineRowRenderer("the timeline subtree", () => null);
+      registerTranscriptRowRenderer("the timeline subtree", () => null);
     }).toThrow(/timeline row/);
   });
 
   it("negative control: the same owner may re-register", () => {
     // A hot reload re-runs the owning module, so an unconditional refusal would make
     // the shell undevelopable.
-    registerFixtureShellRows();
+    registerTranscriptRows();
     expect(() => {
-      registerTimelineRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
+      registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
     }).not.toThrow();
   });
 });

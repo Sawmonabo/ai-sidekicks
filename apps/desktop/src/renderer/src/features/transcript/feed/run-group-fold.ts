@@ -17,9 +17,9 @@
 //   • Which chapters a person has opened, which is this mount's and not the log's.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
-import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
+import { type TranscriptRowDensity } from "@renderer/console/seats/index.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
-import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 import { TranscriptRowRetention } from "../window/row-retention.js";
 import {
@@ -142,7 +142,7 @@ export function foldRunGroupHeaders(
 }
 
 /**
- * The chapter rows the cap admits — the NEWEST `CHAPTER_VISIBLE_ROW_CAP` of them.
+ * The chapter rows the cap admits — the NEWEST `RUN_GROUP_VISIBLE_ROW_CAP` of them.
  *
  * Newest and not oldest because `run-groups.ts` says where the clip is drawn: the
  * body "clips behind a top-edge fade", so the rows the cap keeps are the ones at
@@ -154,7 +154,9 @@ export function foldRunGroupHeaders(
  * chapter nothing was taken from allocates nothing.
  */
 export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readonly string[] {
-  return rowIds.length <= CHAPTER_VISIBLE_ROW_CAP ? rowIds : rowIds.slice(-CHAPTER_VISIBLE_ROW_CAP);
+  return rowIds.length <= RUN_GROUP_VISIBLE_ROW_CAP
+    ? rowIds
+    : rowIds.slice(-RUN_GROUP_VISIBLE_ROW_CAP);
 }
 
 /**
@@ -195,6 +197,6 @@ export function narrowRunGroupToAdmittedRows(
 export function densityFor(
   rowId: string,
   collapsedRowIds: ReadonlySet<string>,
-): TimelineRowDensity {
+): TranscriptRowDensity {
   return collapsedRowIds.has(rowId) ? "collapsed" : "expanded";
 }

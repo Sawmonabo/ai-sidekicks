@@ -32,7 +32,7 @@ import {
   type ChildRunEntry,
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
-import { projectFixtureShellRows } from "../projection/transcript-row-projection.js";
+import { projectTranscriptRows } from "../projection/transcript-row-projection.js";
 import { RunGroupIndex, type RunGroup } from "../run-groups/run-groups.js";
 import { SupersededIndex, type SupersededBand } from "../superseded/superseded-bands.js";
 import {
@@ -154,12 +154,12 @@ export function readRunGroupKey(row: TimelineRow): string | undefined {
  * Exported beside the hook so the fold can be driven by a test and by the bench tier
  * with no store and no React at all — `groupRowsByRun`' own precedent, for its reason.
  */
-export function deriveLedgerWindow(
+export function deriveTranscriptWindow(
   timeline: readonly ProjectedSessionEvent[],
   hasUnreceivedEntries: boolean,
   retention: TranscriptRowRetention = new TranscriptRowRetention(),
 ): TranscriptWindowModel {
-  const projection = projectFixtureShellRows(timeline);
+  const projection = projectTranscriptRows(timeline);
   // BEFORE the indexes below read a row, so every one of them — and the feed, and
   // every memo under it — sees the object this window is actually publishing. A
   // fresh retention retains nothing, which is exactly what a one-shot caller wants.

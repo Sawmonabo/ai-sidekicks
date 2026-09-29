@@ -115,7 +115,7 @@ import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrumen
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The real overscan the viewport is constructed with, so the bound below is the
 // window's own declaration and not a figure this file keeps in step by hand.
-import { LEDGER_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -456,11 +456,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         ).toBeLessThan(ledgerWindow.totalRowCount);
         // AND BOUNDED BY THE BOX PLUS ITS DECLARED OVERSCAN, which is the whole of
         // what the mounted range is allowed to be: the rows the box intersects, and
-        // `LEDGER_OVERSCAN_ROWS` either side of them.
+        // `TRANSCRIPT_OVERSCAN_ROWS` either side of them.
         expect(
           ledgerWindow.mountedRowCount - ledgerWindow.visibleRowCount,
           "the ledger mounted more than its overscan beyond the rows the box intersects",
-        ).toBeLessThanOrEqual(2 * LEDGER_OVERSCAN_ROWS);
+        ).toBeLessThanOrEqual(2 * TRANSCRIPT_OVERSCAN_ROWS);
       } finally {
         // Detached before the wrapper closes the window: detaching a DevTools
         // session from a closed application raises, and the raise would replace

@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerScrollController } from "./scroll-chokepoint.js";
+import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
@@ -89,7 +89,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     // viewport against the 32 px box it had at mount for two hundred churn cycles.
     // `clock.runFrame()` is never called below, and that is the whole assertion.
     const observer = installObserverCapture();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     const mounted = growableElement(32, 9000);
     const received: ScrollGeometry[] = [];
 
@@ -108,7 +108,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     // box escapes the frame and the row measurement does not, so a case that passed by
     // running the pass eagerly would be reporting the opposite design.
     const observer = installObserverCapture();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     const measured: number[] = [];
     controller.observeOverflow((geometry) => measured.push(geometry.viewportHeight));
 

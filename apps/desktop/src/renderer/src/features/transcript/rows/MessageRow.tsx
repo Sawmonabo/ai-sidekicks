@@ -39,7 +39,7 @@
 // agent's reply, and is absent while there is none, so it never copies an empty answer.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
+import { Glyph, TranscriptRowLayout } from "@renderer/console/primitives/index.js";
 import { type InlineCardProps } from "@renderer/console/seats/index.js";
 import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { type RowKindDescriptor } from "./row-kind.js";
@@ -110,7 +110,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
 
   return (
     <TranscriptRowGroup groupLabel="a message row">
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={props.actorHue?.step ?? -1}
         occurredAtIso={props.row.timestamp}
         authorLabel={props.row.actor ?? family.label}
@@ -149,7 +149,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             />
           )}
         </div>
-      </LedgerRow>
+      </TranscriptRowLayout>
     </TranscriptRowGroup>
   );
 }

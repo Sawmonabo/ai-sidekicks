@@ -29,7 +29,7 @@
  * push into view, so a fast scroll meets measured rows rather than a blank band,
  * and small enough that the rendered set stays a fraction of the window cap.
  */
-export const LEDGER_OVERSCAN_ROWS = 6;
+export const TRANSCRIPT_OVERSCAN_ROWS = 6;
 
 /**
  * The height a row is assumed to have before it has been measured, in pixels.

@@ -22,17 +22,17 @@ describe("the ledger window — the cap", () => {
     expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
+    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
     // Children never trip the cap: the retained set is the cap's worth of chapters
     // WITH their children, not the cap's worth of rows.
-    expect(window.size).toBe(LEDGER_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
+    expect(window.size).toBe(TRANSCRIPT_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
   it("drops the oldest first, and keeps the newest", () => {
     const window = loadedWindow();
     window.prune(PRUNABLE);
     const retained = window.topLevelRowKeys();
-    expect(retained[0]).toBe(`chapter-${String(TOP_LEVEL_ROW_COUNT - LEDGER_WINDOW_ROW_CAP)}`);
+    expect(retained[0]).toBe(`chapter-${String(TOP_LEVEL_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`);
     expect(retained[retained.length - 1]).toBe(`chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`);
   });
 
@@ -51,7 +51,7 @@ describe("the ledger window — the cap", () => {
     // Without this, every assertion above would pass over a window that had
     // silently ingested nothing at all.
     const window = loadedWindow();
-    expect(window.topLevelRowKeys().length).toBeGreaterThan(LEDGER_WINDOW_ROW_CAP);
+    expect(window.topLevelRowKeys().length).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(window.prune(PRUNABLE).prunedKeys.length).toBeGreaterThan(0);
   });
 });
@@ -168,7 +168,7 @@ describe("the ledger window — the reading floor", () => {
     // told the re-ask there was nothing owed, and on a session that then went quiet
     // those rows stayed resident for the life of the mount.
     expect(outcome.owedBecause).toBe("reading-floor");
-    expect(outcome.topLevelRetained).toBeGreaterThan(LEDGER_WINDOW_ROW_CAP);
+    expect(outcome.topLevelRetained).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
     // Everything above the reader that the cap wanted, and not one row more: the
     // dropped set is the ten chapters before them, with their children.
     expect(outcome.prunedKeys).toStrictEqual(
@@ -223,7 +223,7 @@ describe("the ledger window — the reading floor", () => {
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: nearTheTailRow });
     expect(outcome.applied).toBe(true);
     expect(outcome.owedBecause).toBeUndefined();
-    expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
+    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: a floor at the tail prunes byte-identically to no floor at all", () => {
@@ -242,7 +242,7 @@ describe("the ledger window — the reading floor", () => {
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "a-row-pruned-long-ago" });
     expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
+    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 });
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";

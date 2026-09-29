@@ -16,11 +16,11 @@ import { memo, useRef } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
-import { useLedgerReveal, type RevealBinding } from "../hooks/useReveal.js";
-import { useLedgerRowReveal } from "../hooks/useRowReveal.js";
-import { LedgerRowRevealProvider } from "./RowRevealProvider.js";
+import { useReveal, type RevealBinding } from "../hooks/useReveal.js";
+import { useRowReveal } from "../hooks/useRowReveal.js";
+import { RowRevealProvider } from "./RowRevealProvider.js";
 
 const FIRST_LANE = "session-1:41";
 const SECOND_LANE = "session-1:42";
@@ -38,7 +38,7 @@ const RevealProbe = memo(function RevealProbe(props: {
 }): React.JSX.Element {
   const renderCount = useRef(0);
   renderCount.current += 1;
-  const liveText = useLedgerRowReveal(props.laneId);
+  const liveText = useRowReveal(props.laneId);
   return (
     <p data-lane={props.laneId} data-renders={renderCount.current}>
       {liveText ?? ""}
@@ -58,14 +58,14 @@ function RevealHost(props: {
   readonly laneIds: readonly string[];
   readonly onBinding: (binding: RevealBinding) => void;
 }): React.JSX.Element {
-  const reveal = useLedgerReveal({ frameCoordinator: useLedgerFrameCoordinator(props.clock) });
+  const reveal = useReveal({ frameCoordinator: useAnimationFrameCoordinator(props.clock) });
   props.onBinding(reveal);
   return (
-    <LedgerRowRevealProvider channel={reveal.channel}>
+    <RowRevealProvider channel={reveal.channel}>
       {props.laneIds.map((laneId) => (
         <RevealProbe key={laneId} laneId={laneId} />
       ))}
-    </LedgerRowRevealProvider>
+    </RowRevealProvider>
   );
 }
 

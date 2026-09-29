@@ -5,9 +5,9 @@ import { TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  LEDGER_EARLIER_PAGE_ROWS,
-  LEDGER_PARKED_LEASE_CAP,
-  LEDGER_WINDOW_ROW_CAP,
+  TRANSCRIPT_EARLIER_PAGE_ROWS,
+  TRANSCRIPT_PARKED_LEASE_CAP,
+  TRANSCRIPT_WINDOW_ROW_CAP,
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
@@ -15,12 +15,12 @@ import {
 
 describe("frame caps — the window's caps describe one window", () => {
   it("parks exactly one window's worth of leases", () => {
-    // `LEDGER_PARKED_LEASE_CAP`'s own rationale states the bound as a RELATION —
+    // `TRANSCRIPT_PARKED_LEASE_CAP`'s own rationale states the bound as a RELATION —
     // "parking one window's worth covers a page back and no more" — so the two
     // numbers being equal is the claim, not a coincidence. Above the window's cap it
     // would hold leases for rows a page back cannot reach; below it, paging back one
     // window would find rows that had silently collapsed.
-    expect(LEDGER_PARKED_LEASE_CAP).toBe(LEDGER_WINDOW_ROW_CAP);
+    expect(TRANSCRIPT_PARKED_LEASE_CAP).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("fetches a page the window can hold, and the wire will serve", () => {
@@ -29,8 +29,8 @@ describe("frame caps — the window's caps describe one window", () => {
     // reader can reach the end of it — the round trip spent on rows nobody sees. And
     // past the wire's own ceiling the request is refused by the contract rather than
     // answered, so the control would offer a walk that never takes a step.
-    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
-    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThanOrEqual(TIMELINE_READ_LIMIT_MAX);
+    expect(TRANSCRIPT_EARLIER_PAGE_ROWS).toBeLessThan(TRANSCRIPT_WINDOW_ROW_CAP);
+    expect(TRANSCRIPT_EARLIER_PAGE_ROWS).toBeLessThanOrEqual(TIMELINE_READ_LIMIT_MAX);
   });
 });
 

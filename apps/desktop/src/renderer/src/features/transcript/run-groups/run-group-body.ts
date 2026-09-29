@@ -34,8 +34,8 @@
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
-  CHAPTER_BODY_RETAINED_ROW_CAP,
-  CHAPTER_VISIBLE_ROW_CAP,
+  RUN_GROUP_BODY_RETAINED_ROW_CAP,
+  RUN_GROUP_VISIBLE_ROW_CAP,
 } from "../structure/structure-caps.js";
 
 /**
@@ -134,12 +134,12 @@ export class RunGroupBodyRowWindow {
 
   /** Admit one row of the chapter, in log order. Constant cost, whatever the run. */
   public admit(row: TimelineRow): void {
-    if (this.#retained.length < CHAPTER_BODY_RETAINED_ROW_CAP) {
+    if (this.#retained.length < RUN_GROUP_BODY_RETAINED_ROW_CAP) {
       this.#retained.push(row);
       return;
     }
     this.#retained[this.#oldestIndex] = row;
-    this.#oldestIndex = (this.#oldestIndex + 1) % CHAPTER_BODY_RETAINED_ROW_CAP;
+    this.#oldestIndex = (this.#oldestIndex + 1) % RUN_GROUP_BODY_RETAINED_ROW_CAP;
   }
 
   /**
@@ -152,7 +152,7 @@ export class RunGroupBodyRowWindow {
    */
   public get headRows(): readonly TimelineRow[] {
     const retainedCount = this.#retained.length;
-    const headCount = Math.max(0, retainedCount - CHAPTER_VISIBLE_ROW_CAP);
+    const headCount = Math.max(0, retainedCount - RUN_GROUP_VISIBLE_ROW_CAP);
     if (headCount === 0) {
       return EMPTY_HEAD_ROWS;
     }
@@ -179,7 +179,7 @@ export class RunGroupBodyRowWindow {
  * allocation for rows nothing was going to look at.
  */
 export function countClippedHeadRows(chapterRowCount: number): number {
-  return Math.max(0, chapterRowCount - CHAPTER_VISIBLE_ROW_CAP);
+  return Math.max(0, chapterRowCount - RUN_GROUP_VISIBLE_ROW_CAP);
 }
 
 /**

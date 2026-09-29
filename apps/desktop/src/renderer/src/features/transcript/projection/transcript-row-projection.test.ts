@@ -10,7 +10,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 // that directory and it is a test, so a door line for it would be a door widened for
 // testing, which this package rejects.
 import { deriveSupersededBands } from "../superseded/superseded-bands.js";
-import { projectFixtureShellRows } from "./transcript-row-projection.js";
+import { projectTranscriptRows } from "./transcript-row-projection.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -48,14 +48,14 @@ function rollbackEvent(
 
 /** Every run row's `(position, epoch)`, in log order. Boundaries and general rows omitted. */
 function runOrdinals(
-  rows: ReturnType<typeof projectFixtureShellRows>["rows"],
+  rows: ReturnType<typeof projectTranscriptRows>["rows"],
 ): readonly (readonly [number, number])[] {
   return rows.flatMap((row) => (row.kind === "run" ? [[row.position, row.epoch] as const] : []));
 }
 
 describe("the fixture shell's row projection", () => {
   it("produces rows the contract's own validator accepts", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       event({ sequence: 1, kind: "session.created", payload: { sessionId: SESSION_ID } }),
       runEvent(2, RUN_ONE),
     ]);
@@ -70,7 +70,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("files a run-attributed event on the run arm and an unattributed one on general", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       event({ sequence: 1, kind: "session.created", payload: { sessionId: SESSION_ID } }),
       runEvent(2, RUN_ONE),
     ]);
@@ -82,7 +82,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("numbers positions within each run rather than across the log", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_TWO),
       runEvent(3, RUN_ONE),
@@ -95,7 +95,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("advances a run's epoch past a rollback and leaves the boundary in the epoch it ended", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       event({
         sequence: 2,
@@ -118,7 +118,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("draws nothing for an event the registered census carries no category for", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       event({ sequence: 2, kind: "run.definitely_not_registered" }),
     ]);
@@ -127,7 +127,7 @@ describe("the fixture shell's row projection", () => {
   });
 
   it("draws nothing for a rollback whose payload the contract refuses", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       event({
         sequence: 1,
         kind: "run.rolled_back",
@@ -147,7 +147,7 @@ describe("the fixture shell's row projection", () => {
     // `TimelineRow.id` and answered `not-in-loaded-log` for every real id in a log
     // that was fully loaded.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
-    const projection = projectFixtureShellRows(events);
+    const projection = projectTranscriptRows(events);
 
     const ids = projection.rows.map((row) => row.id);
     expect(ids).toStrictEqual(events.map((admitted) => admitted.id));
@@ -157,7 +157,7 @@ describe("the fixture shell's row projection", () => {
   it("negative control: the composed key is not what a row carries", () => {
     // Without this the case above would pass over a projection whose composition
     // happened to agree with the fixture's id scheme.
-    const projection = projectFixtureShellRows([runEvent(7, RUN_ONE)]);
+    const projection = projectTranscriptRows([runEvent(7, RUN_ONE)]);
     expect(projection.rows[0]?.id).not.toBe(`${SESSION_ID}:7`);
   });
 
@@ -165,19 +165,19 @@ describe("the fixture shell's row projection", () => {
     // The negative control for this file's central claim: a projection that made a
     // sentence up would pass every other case here and fail this one. The contract
     // refuses an empty summary outright, so "say nothing" is not the alternative.
-    const projection = projectFixtureShellRows([runEvent(1, RUN_ONE, "tool.invoked")]);
+    const projection = projectTranscriptRows([runEvent(1, RUN_ONE, "tool.invoked")]);
     expect(projection.rows[0]?.summary).toBe("tool.invoked");
     expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
   });
 
   it("projects an empty log into no rows", () => {
-    expect(projectFixtureShellRows([])).toStrictEqual({ rows: [] });
+    expect(projectTranscriptRows([])).toStrictEqual({ rows: [] });
   });
 });
 
 describe("counting through a rewind", () => {
   it("returns the count to the anchor the rollback landed on", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_ONE),
       runEvent(3, RUN_ONE),
@@ -207,7 +207,7 @@ describe("counting through a rewind", () => {
     // the same anchor — would find BOTH of them above its cutoff and dim a whole
     // re-execution that nothing rewound past.
     const supersededRow = runEvent(8, RUN_ONE);
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_ONE),
       runEvent(3, RUN_ONE),
@@ -229,7 +229,7 @@ describe("counting through a rewind", () => {
   it("negative control: a rewind in one run leaves another run's count alone", () => {
     // Without this, a fix that reset a shared counter rather than the rewound run's
     // own would pass both cases above and renumber every other run in the window.
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_TWO),
       runEvent(3, RUN_TWO),
@@ -269,7 +269,7 @@ describe("which payload member names a row's run", () => {
     // The defect: `intervention.*` spells the affected run `targetRunId`, so every
     // one of them projected as a session-level row and sat outside the run chapter
     // it belongs to — on a ledger whose whole shape is runs.
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       interventionEvent(2, RUN_ONE),
       runEvent(3, RUN_ONE, "run.completed"),
@@ -289,7 +289,7 @@ describe("which payload member names a row's run", () => {
   });
 
   it("leaves every other run-keyed kind exactly where it was", () => {
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_TWO),
       rollbackEvent(3, RUN_ONE, 0),
@@ -310,7 +310,7 @@ describe("which payload member names a row's run", () => {
     // is the same defect in the other direction. What keeps it out here is the
     // CONTRACT's attributing list, which does not carry that spelling; the
     // decision table's own job is the compile gate `run-attribution.test.ts` drives.
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       event({
         sequence: 1,
         kind: "run.queued",
@@ -326,7 +326,7 @@ describe("which payload member names a row's run", () => {
   it("negative control: an event naming no run at all stays a session row", () => {
     // Without this the lookup could answer with any string it found, which would
     // file session rows under whatever the payload happened to carry.
-    const projection = projectFixtureShellRows([
+    const projection = projectTranscriptRows([
       event({
         sequence: 1,
         kind: "session.renamed",

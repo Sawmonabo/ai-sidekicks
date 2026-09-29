@@ -10,8 +10,8 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import {
   LeasingRowBody,
   contributeTranscriptCommands,
@@ -35,11 +35,11 @@ const CHAPTER_DISCLOSURE = ".meridian-run-group-header__disclosure";
 const SEAT_ROW = ".meridian-ledger-viewport__row";
 
 /** A row seat mount with no ledger around it — the refusal case's input. */
-function outsideLedgerSlotProps(): TimelineRowSlotProps {
+function outsideLedgerSlotProps(): TranscriptRowProps {
   return {
     row: {
       id: "row-with-no-ledger",
-      sessionId: "session-ledger-feed" as TimelineRowSlotProps["row"]["sessionId"],
+      sessionId: "session-ledger-feed" as TranscriptRowProps["row"]["sessionId"],
       sequence: 0,
       category: "session_lifecycle",
       kind: "general",
@@ -134,7 +134,7 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
-    expect(LEDGER_WINDOW_ROW_CAP).toBeGreaterThan(1);
+    expect(TRANSCRIPT_WINDOW_ROW_CAP).toBeGreaterThan(1);
     expect(headerByPosition(feed)).not.toBeNull();
   });
 });

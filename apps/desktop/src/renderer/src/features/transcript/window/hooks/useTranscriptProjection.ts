@@ -6,7 +6,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptRowRetention } from "../row-retention.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../transcript-window.js";
+import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcript-window.js";
 
 /**
  * Subscribe to one session's log and project it, UNFURLED.
@@ -38,7 +38,7 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
   );
   const heldRetention = retention.value;
   return useMemo(
-    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention),
+    () => deriveTranscriptWindow(timeline, hasUnreceivedEntries, heldRetention),
     [timeline, hasUnreceivedEntries, heldRetention],
   );
 }

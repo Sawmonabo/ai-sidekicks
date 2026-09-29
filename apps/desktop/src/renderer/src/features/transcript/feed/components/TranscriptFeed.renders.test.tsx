@@ -32,7 +32,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
@@ -54,7 +54,7 @@ afterEach(() => {
 
 interface FeedParentProps {
   readonly sessionStore: SessionStore;
-  readonly renderTimelineRow: (mount: TimelineRowSlotProps) => React.JSX.Element;
+  readonly renderTimelineRow: (mount: TranscriptRowProps) => React.JSX.Element;
   /**
    * Moved to make the parent render, and read by nothing.
    *
@@ -96,7 +96,7 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     // Stable across the re-render below, so the only thing that can move the
     // callback's identity is the dependency this case is about.
-    const renderTimelineRow = (mount: TimelineRowSlotProps): React.JSX.Element => {
+    const renderTimelineRow = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
     };
@@ -131,7 +131,7 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
     withLaidOutViewport();
     let rowBodyRenders = 0;
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
-    const countingRenderer = (mount: TimelineRowSlotProps): React.JSX.Element => {
+    const countingRenderer = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
     };

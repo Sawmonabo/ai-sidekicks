@@ -36,7 +36,7 @@ import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { LedgerScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
 import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 import { HeadInsertion } from "./viewport-head-insertion.js";
@@ -57,7 +57,7 @@ export interface ViewportControllerOptions {
 }
 
 export class ViewportController {
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly anchor: ReadingAnchor;
   readonly measurements: RowMeasurementTable;
   readonly window: TranscriptWindow;
@@ -84,7 +84,7 @@ export class ViewportController {
   #disposed = false;
 
   public constructor(options: ViewportControllerOptions) {
-    this.scroll = new LedgerScrollController({ clock: options.clock });
+    this.scroll = new ScrollController({ clock: options.clock });
     this.anchor = new ReadingAnchor();
     this.measurements = new RowMeasurementTable();
     this.window = new TranscriptWindow();

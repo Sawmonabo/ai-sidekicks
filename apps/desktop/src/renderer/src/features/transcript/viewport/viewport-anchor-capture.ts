@@ -19,12 +19,12 @@
 import { type ScrollGeometry } from "../scroll/geometry-sample.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollController } from "../scroll/scroll-chokepoint.js";
 import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
 export interface ViewportAnchorCaptureOptions {
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
   /** The window's current keys, in order. Read per call — they move every reconcile. */
   readonly rowKeys: () => readonly string[];
@@ -34,7 +34,7 @@ export interface ViewportAnchorCaptureOptions {
 
 export class ViewportAnchorCapture {
   readonly #anchor: ReadingAnchor;
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   readonly #measurements: RowMeasurementTable;
   readonly #rowKeys: () => readonly string[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;

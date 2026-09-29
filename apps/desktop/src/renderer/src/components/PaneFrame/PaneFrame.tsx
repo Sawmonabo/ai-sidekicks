@@ -212,7 +212,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   );
 }
 
-/** Carries the pane's attributed hue into the focus treatments, as `LedgerRow` does. */
+/** Carries the pane's attributed hue into the focus treatments, as `TranscriptRowLayout` does. */
 interface PaneFocusRingStyle extends React.CSSProperties {
   readonly "--meridian-pane-hue": string;
 }

@@ -17,7 +17,7 @@
 // no plan-owned renderer subtree whose owner mounts into it — `timeline/`, … Those
 // reach the frame by calling `registerConsoleSurface`, which is a call and not an
 // import". The same holds here: the console never imports `timeline/`, and
-// `timeline/` reaches the row by calling `registerTimelineRowRenderer`.
+// `timeline/` reaches the row by calling `registerTranscriptRowRenderer`.
 //
 // WHY THE PROPS ARE NOT JUST `row`
 //
@@ -48,13 +48,13 @@ import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
  * comfortable/compact spacing axis would be a second, unrelated meaning wearing
  * the same word.
  */
-export const TIMELINE_ROW_DENSITIES = ["collapsed", "expanded"] as const;
+export const TRANSCRIPT_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 
 /** One row's collapse state. Derived from the enumeration, never restated. */
-export type TimelineRowDensity = (typeof TIMELINE_ROW_DENSITIES)[number];
+export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 
 /** What the timeline list hands each row. */
-export interface TimelineRowSlotProps {
+export interface TranscriptRowProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
   readonly row: TimelineRow;
   /**
@@ -70,11 +70,11 @@ export interface TimelineRowSlotProps {
   readonly actorHue: AgentHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
-  readonly density: TimelineRowDensity;
+  readonly density: TranscriptRowDensity;
 }
 
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
-export type TranscriptRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
+export type TranscriptRowRenderer = (props: TranscriptRowProps) => React.ReactNode;
 
 const timelineRowSeat = new SingleEntryRegistry<TranscriptRowRenderer>(
   "timeline row",
@@ -89,7 +89,7 @@ const timelineRowSeat = new SingleEntryRegistry<TranscriptRowRenderer>(
  * the deletion loud — a second owner is refused by name rather than winning or
  * losing by import order.
  */
-export function registerTimelineRowRenderer(owner: string, render: TranscriptRowRenderer): void {
+export function registerTranscriptRowRenderer(owner: string, render: TranscriptRowRenderer): void {
   timelineRowSeat.register({ owner, render });
 }
 
@@ -100,11 +100,11 @@ export function registerTimelineRowRenderer(owner: string, render: TranscriptRow
  * into the next one. The shell is retired by DELETING its registration, never by
  * calling this.
  */
-export function unregisterTimelineRowRenderer(): void {
+export function unregisterTranscriptRowRenderer(): void {
   timelineRowSeat.unregister();
 }
 
 /** The row body, or `undefined` while the seat is empty. */
-export function timelineRowRenderer(): TranscriptRowRenderer | undefined {
+export function findTranscriptRowRenderer(): TranscriptRowRenderer | undefined {
   return timelineRowSeat.renderer();
 }

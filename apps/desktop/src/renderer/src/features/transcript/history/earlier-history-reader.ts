@@ -48,7 +48,7 @@ import {
   type TimelineReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
+import { TRANSCRIPT_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
@@ -184,7 +184,7 @@ export class EarlierHistoryReader {
           // because a view family may import no other view family.
           sessionId: sessionStore.sessionId as SessionId,
           beforeCursor: beforeCursor as EventCursor,
-          limit: LEDGER_EARLIER_PAGE_ROWS,
+          limit: TRANSCRIPT_EARLIER_PAGE_ROWS,
         },
         { signal: round.signal },
       );

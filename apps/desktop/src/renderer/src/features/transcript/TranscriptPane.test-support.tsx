@@ -10,8 +10,8 @@ import { LEDGER_QUIET_SCENARIO } from "../../../../../fixtures/scenarios/empty-s
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  TimelinePane,
-  type TimelinePaneContext,
+  TranscriptPane,
+  type TranscriptPaneContext,
   type TranscriptPaneProps,
 } from "./TranscriptPane.js";
 
@@ -27,9 +27,9 @@ export const TRANSCRIPT_PANE_SESSION_ID = "session-ledger";
  * the subject.
  */
 export function paneContext(
-  overrides: Partial<TimelinePaneContext> = {},
+  overrides: Partial<TranscriptPaneContext> = {},
   sessionId: string | null = TRANSCRIPT_PANE_SESSION_ID,
-): TimelinePaneContext {
+): TranscriptPaneContext {
   // `null` rather than `undefined` for the session-less arm: passing `undefined`
   // explicitly re-applies a parameter default, so the one case that needs a bare
   // route would silently have got the addressed one.
@@ -45,7 +45,7 @@ export function paneContext(
     }),
     focusHue: undefined,
     ...overrides,
-  } as unknown as TimelinePaneContext;
+  } as unknown as TranscriptPaneContext;
 }
 
 /**
@@ -63,12 +63,12 @@ export function paneContext(
 export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
   const { container } = render(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
-      <TimelinePane {...props} />
+      <TranscriptPane {...props} />
     </DesktopBridgeProvider>,
   );
   const pane = container.querySelector(".meridian-pane");
   if (!(pane instanceof HTMLElement)) {
-    throw new Error("TimelinePane rendered no pane element");
+    throw new Error("TranscriptPane rendered no pane element");
   }
   return pane;
 }

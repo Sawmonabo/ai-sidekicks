@@ -20,20 +20,20 @@ import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { LedgerScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
 export interface LedgerVirtualizerSeamsOptions {
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
   /** The distinct key the measurement ledger projected for a row index. */
   readonly virtualKeyAt: (index: number) => string | undefined;
 }
 
 export class VirtualizerOptions {
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   readonly #measurements: RowMeasurementTable;
   readonly #virtualKeyAt: (index: number) => string | undefined;
 

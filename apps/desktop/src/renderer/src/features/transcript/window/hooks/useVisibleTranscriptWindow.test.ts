@@ -22,7 +22,7 @@ import {
 } from "../visible-window.test-support.js";
 import {
   NO_ROWS_REMOVED,
-  deriveLedgerWindow,
+  deriveTranscriptWindow,
   type TranscriptWindowModel,
 } from "../transcript-window.js";
 
@@ -42,7 +42,7 @@ function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof us
 
 describe("the visible ledger window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
-    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() => useVisibleTranscriptWindow(ledgerWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
@@ -54,7 +54,7 @@ describe("the visible ledger window", () => {
   });
 
   it("walks only rows the viewport can scroll to, and names the matches beyond it", () => {
-    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const retainedKeys = new Set(retained.map((row) => row.key));
     const { result } = renderHook(() => {
@@ -81,7 +81,7 @@ describe("the visible ledger window", () => {
     // to look at. Handed the log instead of the window — which is what the field was
     // handed before — the same query counts every row and steps to the oldest one,
     // which the viewport reconciled away and `jumpToRow` cannot reach.
-    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retainedKeys = new Set(
       ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
     );
@@ -105,7 +105,7 @@ describe("the visible ledger window", () => {
 describe("the clip the window states", () => {
   /** One loaded log, from which a case keeps the whole window or only its tail. */
   function loadedWindow(): TranscriptWindowModel {
-    return deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    return deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
   }
 
   it("says earlier rows exist exactly when the cap took some", () => {

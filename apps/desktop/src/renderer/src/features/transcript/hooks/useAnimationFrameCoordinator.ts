@@ -23,7 +23,7 @@ import { type Clock } from "@renderer/lib/clock.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 
 /** Mint one frame coordinator for a feed, and dispose it with the mount. */
-export function useLedgerFrameCoordinator(clock: Clock): AnimationFrameCoordinator {
+export function useAnimationFrameCoordinator(clock: Clock): AnimationFrameCoordinator {
   const [frameCoordinator, setFrameCoordinator] = useState<AnimationFrameCoordinator>(
     () => new AnimationFrameCoordinator({ clock }),
   );

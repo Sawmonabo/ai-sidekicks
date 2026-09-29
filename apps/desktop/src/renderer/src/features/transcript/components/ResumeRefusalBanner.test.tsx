@@ -25,7 +25,7 @@ import { PaneRegistry, ScreenRegistry } from "@renderer/console/seats/index.js";
 import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionSnapshot } from "@renderer/store/session/session-state.js";
-import { registerLedger } from "../contributions/screens.js";
+import { registerTranscriptScreens } from "../contributions/screens.js";
 
 const SESSION_ID = "session-resume-degraded";
 
@@ -82,7 +82,7 @@ async function renderWorkspaceSurface(input: {
   });
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
   const surfaces = new ScreenRegistry();
-  registerLedger(surfaces, { workspace: () => <div data-testid="workspace-body" /> });
+  registerTranscriptScreens(surfaces, { workspace: () => <div data-testid="workspace-body" /> });
   const descriptor = surfaces.descriptorFor("workspace");
   if (descriptor === undefined) {
     throw new Error("the ledger family registered no workspace surface");

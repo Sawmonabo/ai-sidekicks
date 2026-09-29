@@ -16,8 +16,8 @@
 //     nobody expects that of a row pruned an hour ago. Unbounded, this table would
 //     be the memory leak the cap above it exists to prevent.
 
-import { LEDGER_PARKED_LEASE_CAP } from "../frame/frame-caps.js";
-import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
+import { TRANSCRIPT_PARKED_LEASE_CAP } from "../frame/frame-caps.js";
+import { type TranscriptRowDensity } from "@renderer/console/seats/index.js";
 
 /**
  * Renderer-local state a row body leases from the list.
@@ -27,7 +27,7 @@ import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
  * and hands it down, so the table parking that decision has to park the same type.
  */
 export interface RetainedRowState {
-  readonly density: TimelineRowDensity;
+  readonly density: TranscriptRowDensity;
   /** Offset inside the row's own clamped body, so a re-shown row reopens where it was. */
   readonly innerScrollTopPx: number;
 }
@@ -39,7 +39,7 @@ export class RetainedRowStateTable {
   /** Insertion-ordered, so the cap evicts the least recently parked. */
   readonly #parkedLeaseBySyntheticKey = new Map<string, RetainedRowState>();
 
-  public constructor(parkedLeaseCap: number = LEDGER_PARKED_LEASE_CAP) {
+  public constructor(parkedLeaseCap: number = TRANSCRIPT_PARKED_LEASE_CAP) {
     this.#parkedLeaseCap = parkedLeaseCap;
   }
 

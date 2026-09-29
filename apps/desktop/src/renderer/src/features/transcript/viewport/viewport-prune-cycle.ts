@@ -30,7 +30,7 @@
 import { IdleMemoryTrim, type IdleTrimPass } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollController } from "../scroll/scroll-chokepoint.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { type ViewportConditions } from "./viewport-snapshot.js";
 import {
@@ -43,7 +43,7 @@ export interface ViewportPruneCycleOptions {
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly clock: Clock;
   /** Overridden by tests only; `frame-bounds.ts` owns the shipped dwell. */
   readonly idleTrimDwellMs?: number;
@@ -61,7 +61,7 @@ export class ViewportPruneCycle {
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   /**
    * The time bound on what a pass leaves behind.
    *

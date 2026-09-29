@@ -49,8 +49,8 @@ import {
 import { registerSettingsSurface } from "@renderer/features/settings/index.js";
 import { registerTerminalPanes } from "@renderer/features/terminal/index.js";
 import {
-  registerLedger,
-  registerLedgerPanes,
+  registerTranscriptScreens,
+  registerTranscriptPanes,
   registerTranscriptCommands,
 } from "@renderer/features/transcript/index.js";
 import {
@@ -88,12 +88,12 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
-  registerLedger(surfaces, { workspace: Workspace });
+  registerTranscriptScreens(surfaces, { workspace: Workspace });
   registerSessionsSurface(surfaces);
   registerSettingsSurface(surfaces);
   registerWorkflowSurfaces(surfaces);
 
-  registerLedgerPanes(panes);
+  registerTranscriptPanes(panes);
   registerInspectorPane(panes);
   registerAgentConsolePane(panes);
   registerReposPanes(panes);

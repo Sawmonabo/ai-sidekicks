@@ -123,7 +123,7 @@ const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
  * the caller memoize on the log's identity alone and what makes a replay of the
  * same window byte-identical between runs.
  */
-export function projectFixtureShellRows(
+export function projectTranscriptRows(
   events: readonly ProjectedSessionEvent[],
 ): TranscriptRowProjection {
   if (events.length === 0) {

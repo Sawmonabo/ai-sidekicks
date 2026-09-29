@@ -1,7 +1,7 @@
 // What the ledger window is showing, read from the renderer rather than counted off
 // the page.
 //
-// Its own module because it is a different job from `console-workload.ts`: that one
+// Its own module because it is a different job from `endurance-workload.ts`: that one
 // owns the ACTS this tier performs on a running console — open a route, churn it,
 // read a counter — and this owns one QUESTION and the care it takes to ask it. The
 // care is the whole of the module: which element actually is a row, how long to wait
@@ -16,9 +16,9 @@ import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-di
 /**
  * One ledger row BOX — the element the window mounts, not the card drawn inside it.
  *
- * A different set from `console-workload.ts`' `TRANSCRIPT_ROW_SELECTOR`, and the
+ * A different set from `endurance-workload.ts`' `TRANSCRIPT_ROW_SELECTOR`, and the
  * distinction is load-bearing here. `meridian-ledger-row` is
- * `primitives/figures/LedgerRow.tsx`, a presentation primitive the runs pane uses too and
+ * `components/TranscriptRowLayout/TranscriptRowLayout.tsx`, a presentation primitive the runs pane uses too and
  * that a row body may or may not reach for; `meridian-ledger-viewport__row` is the
  * absolutely-positioned box the virtualizer places, so it is one per mounted virtual
  * item by construction. A windowing claim has to wait on the BOX: waiting on the card

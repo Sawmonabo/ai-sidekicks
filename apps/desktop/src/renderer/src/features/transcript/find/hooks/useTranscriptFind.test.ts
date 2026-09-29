@@ -15,7 +15,7 @@ import {
   useVisibleTranscriptWindow,
   type VisibleTranscriptWindow,
 } from "../../window/hooks/useVisibleTranscriptWindow.js";
-import { deriveLedgerWindow } from "../../window/transcript-window.js";
+import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import {
   EVERY_ROW_QUERY,
   LOG_EVENT_COUNT,
@@ -50,7 +50,7 @@ describe("the walk when the result moves under it", () => {
     );
   }
 
-  const wholeLog = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
+  const wholeLog = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
 
   /**
    * The find state over two stages of one pipeline, the folded one a prefix of the other.
@@ -65,7 +65,7 @@ describe("the walk when the result moves under it", () => {
     readonly folded: number;
   }): RenderHookResult<TranscriptFindState, unknown> {
     const modelOf = (count: number): TranscriptWindowModel =>
-      deriveLedgerWindow(syntheticEventLog(count), false);
+      deriveTranscriptWindow(syntheticEventLog(count), false);
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
       useTranscriptFind({
@@ -165,7 +165,7 @@ describe("the walk when the result moves under it", () => {
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useTranscriptFind({
         visible: useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),

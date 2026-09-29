@@ -23,10 +23,13 @@ import { foldedMessageRunGroupLog } from "../run-group-logs.test-support.js";
 import { jumpOutcomeRowId } from "./event-jump.js";
 import { useDeferredRowJump } from "./hooks/useDeferredRowJump.js";
 import { useTranscriptJumpReach } from "./hooks/useTranscriptJumpReach.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
+import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 /** The loaded projection of a finished chapter beside a live run. */
-const LOADED_WINDOW: TranscriptWindowModel = deriveLedgerWindow(foldedMessageRunGroupLog(), false);
+const LOADED_WINDOW: TranscriptWindowModel = deriveTranscriptWindow(
+  foldedMessageRunGroupLog(),
+  false,
+);
 
 /** A message row of the finished run, which the shut fold keeps off screen. */
 const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(1));

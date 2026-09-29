@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { PaneRegistry, ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 import { TranscriptSurface } from "../TranscriptSurface.js";
-import { registerLedger } from "./screens.js";
+import { registerTranscriptScreens } from "./screens.js";
 
 /**
  * The members the surface passes through, and nothing else.
@@ -45,7 +45,7 @@ function TestWorkspaceBody(): null {
 
 function registeredLedger(): ScreenRegistry {
   const registry = new ScreenRegistry();
-  registerLedger(registry, { workspace: TestWorkspaceBody });
+  registerTranscriptScreens(registry, { workspace: TestWorkspaceBody });
   return registry;
 }
 
@@ -97,7 +97,7 @@ describe("the ledger — which slots it holds", () => {
   it("survives being composed twice, as a hot reload does it", () => {
     const registry = registeredLedger();
     const afterFirst = registry.registeredSlots();
-    registerLedger(registry, { workspace: TestWorkspaceBody });
+    registerTranscriptScreens(registry, { workspace: TestWorkspaceBody });
     expect(registry.registeredSlots()).toStrictEqual(afterFirst);
   });
 });
