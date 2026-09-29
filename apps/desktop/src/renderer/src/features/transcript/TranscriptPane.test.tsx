@@ -5,23 +5,22 @@
 // unattributed pane borrows nobody's hue, and that a mismatched address is refused
 // rather than thrown are all claims about that component, asserted once beside it.
 // Repeating them here would be a second copy that agrees until one of them is edited,
-// and it would make this suite red for a defect in another family's module.
+// and it would make this suite red for a defect in another feature's module.
 //
-// What is left is this family's half, and each of these fails in a way a screenshot
+// What is left is this pane's half, and each of these fails in a way a screenshot
 // would not catch:
 //
 //   • The pane mounts at its own KIND and hands over its own ADDRESS — the session
 //     the route names. A pane that passed the wrong kind draws the wrong glyph and
 //     the wrong name.
-//   • The row slot reads the real seat. A host that held its own idea of whether
-//     rows exist would be a second source of truth for a decision another plan
-//     owns, and would keep rendering the reserved state after `renderer/src/timeline/` landed.
-//   • The two absences are different absences. Both are quiet gray lines; only the
-//     copy tells "the console cannot draw this" from "your session is empty".
+//   • The rows are drawn by the registered row renderer, read from the real registry.
+//   • No open session and an empty session are different absences. Both are quiet
+//     gray lines; only the copy tells "no session is open here" from "your session is
+//     empty".
 //
 // The fixtures live in `TranscriptPane.test-support.tsx`.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
@@ -30,7 +29,7 @@ import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js"
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
 import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
-// Deeply: the teardown is reached by tests alone, so it is not a door line.
+// Deeply: the teardown is reached by tests alone, so the shared entry does not export it.
 import { unregisterTranscriptRowRenderer } from "./transcript-row-renderer.js";
 import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
@@ -47,8 +46,14 @@ function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
   );
 }
 
+beforeEach(() => {
+  // The pane's lazily loaded body registers the renderer before the pane can render,
+  // so every case starts with one registered, as the product does.
+  registerTranscriptRowRenderer("transcript-pane-test", () => null);
+});
+
 afterEach(() => {
-  // The seat is module-scope, so a case that filled it would leak into the next.
+  // The registry is module-scope, so a case's renderer would leak into the next.
   unregisterTranscriptRowRenderer();
   vi.restoreAllMocks();
 });
@@ -94,29 +99,14 @@ describe("TranscriptPane — what it hands the chrome", () => {
   });
 });
 
-describe("TranscriptPane — the row slot", () => {
-  it("says the rows have not been built while the seat is empty", () => {
-    const pane = renderPane({ context: paneContext() });
-    const body = pane.querySelector(".meridian-pane__body");
-    expect(body?.textContent).toContain("The timeline rows have not been built yet.");
-    // The feed itself is the transcript's, and the transcript is not mounted at all while
-    // there is no row body to mount it for.
-    expect(pane.querySelector('[role="feed"]')).toBeNull();
-  });
-
-  it("says no session is open once the seat is filled but the pane has no store", () => {
-    // Driven through the real seat rather than a local stand-in: a host holding its
-    // own idea of whether rows exist would keep rendering the reserved state after
-    // the row subtree landed, and no case here would notice.
-    //
-    // The two absences are different absences, which is the whole reason they are
-    // two: "the console cannot draw this" is a fact about what has shipped, and "no
-    // session is open in this pane" is a fact about this pane's address.
-    registerTranscriptRowRenderer("transcript-pane-test", () => null);
+describe("TranscriptPane — the body", () => {
+  it("says no session is open when the pane has no store", () => {
+    // "No session is open in this pane" is a fact about this pane's address, and the
+    // feed is not mounted at all while there is no log to show.
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("No session is open in this pane.");
-    expect(body?.textContent).not.toContain("The timeline rows have not been built yet.");
+    expect(pane.querySelector('[role="feed"]')).toBeNull();
   });
 
   it("mounts the transcript and renders one row per admitted event", () => {

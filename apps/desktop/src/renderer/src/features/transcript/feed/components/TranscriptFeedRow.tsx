@@ -40,7 +40,7 @@ import {
 /** What one row hands the seat's renderer. */
 export interface TranscriptFeedRowProps extends TranscriptRowProps {
   /** The seat's renderer. STABLE across renders, or this memo moves with it. */
-  readonly renderTimelineRow: TranscriptRowRenderer;
+  readonly renderTranscriptRow: TranscriptRowRenderer;
 }
 
 /**
@@ -58,7 +58,7 @@ export interface TranscriptFeedRowProps extends TranscriptRowProps {
  */
 export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProps> = memo(
   (props: TranscriptFeedRowProps): React.ReactNode =>
-    props.renderTimelineRow({
+    props.renderTranscriptRow({
       row: props.row,
       actorHue: props.actorHue,
       isSuperseded: props.isSuperseded,

@@ -121,7 +121,7 @@ describe("the pane layout's board — a loader-form registration", () => {
     const registry = new PaneRegistry();
     registry.register({
       kind: "browser",
-      owner: "browser",
+      owner: "preview",
       body: () => new Promise<LazyBodyModule<PaneContext>>(() => undefined),
     });
     const { container } = render(

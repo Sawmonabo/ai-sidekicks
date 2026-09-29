@@ -1,9 +1,7 @@
-// The rows' hole, and the three different nothings it can hold.
+// The transcript pane's body: the feed, or the one absence that stands in for it.
 //
-// Its own module for the one-component rule, and the split puts the row renderer's absence
-// where a reader looks for it: the pane above decides the chrome and the address, and
-// this decides what stands in the body while the row renderer, the session, or the rows
-// are not there.
+// Its own module for the one-component rule: the pane above decides the chrome and the
+// address, and this decides what stands in the body while no session is open.
 //
 // NOTHING HERE DRAWS THE BODY BOX. `PaneFrame` renders
 // `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
@@ -15,46 +13,27 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
-/** What the rows' hole needs to choose between its three nothings and the feed. */
+/** What the body needs to choose between the feed and its absence. */
 export interface TranscriptPaneBodyProps {
-  /** The registered row renderer, or `undefined` while none is registered. */
-  readonly body: TranscriptRowRenderer | undefined;
+  /** The registered row renderer. */
+  readonly renderTranscriptRow: TranscriptRowRenderer;
   readonly sessionStore: SessionStore | undefined;
-  /** The pane this body fills, handed on to the feed. */
-  readonly paneId: string;
 }
 
 /**
- * The rows' hole, and the three different nothings it can hold.
+ * The feed of the pane's session, or the sentence for no session.
  *
- * The three are kept apart because a person's next move differs: a row renderer
- * nobody has registered means the feature has not shipped; a route that names no session
- * means there is nothing to be a log OF; and a registered renderer over an open session with
- * no rows means this session has not done anything yet. Collapsing any two of them
- * would tell somebody their session was empty when the truth is that the console
- * cannot draw it, or has not been asked to.
- *
- * The third is the FEED's to render rather than this file's — `TranscriptViewport` shows
- * it inside the scroll container, where a row would appear the moment one arrived —
- * so the empty session is not a case here at all.
+ * A route that names no session means there is nothing to be a log OF, and the pane
+ * says so. An open session with no rows is the FEED's to render rather than this
+ * file's — `TranscriptViewport` shows it inside the scroll container, where a row
+ * would appear the moment one arrived — so the empty session is not a case here.
  */
 export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.Element {
-  const body = props.body;
-  if (body === undefined) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="The timeline rows have not been built yet."
-        detail="The pane is reserved for them — nothing here failed, and nothing is missing from this session."
-      />
-    );
-  }
   if (props.sessionStore === undefined) {
     return (
       <Nothing
         kind="not-loaded"
-        placement="surface"
+        placement="block"
         title="No session is open in this pane."
         detail="Open a session and its log appears here."
       />
@@ -63,9 +42,8 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
   return (
     <TranscriptFeed
       sessionStore={props.sessionStore}
-      paneId={props.paneId}
-      renderTimelineRow={body}
-      feedLabel="Session timeline"
+      renderTranscriptRow={props.renderTranscriptRow}
+      feedLabel="Transcript"
     />
   );
 }

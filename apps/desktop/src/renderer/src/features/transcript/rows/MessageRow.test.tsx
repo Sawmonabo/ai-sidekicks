@@ -57,7 +57,7 @@ function renderMessageCard(
 describe("which body a message renders", () => {
   it("renders a user's row through the row's own summary", () => {
     // The whole of what the wire carries for a user: their words are sealed in
-    // the per-user encrypted column and reach no timeline row.
+    // the per-user encrypted column and reach no `TimelineRow`.
     const container = renderMessageCard({
       type: "user.message",
       summary: "please run the tests",

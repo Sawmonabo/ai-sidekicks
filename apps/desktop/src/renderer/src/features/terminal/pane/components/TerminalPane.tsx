@@ -32,7 +32,7 @@ export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Elem
         {sessionStore === undefined ? (
           <Nothing
             kind="not-checked"
-            placement="surface"
+            placement="block"
             title="This pane is not bound to a session."
             detail="A session's shared shell is reached through the session it belongs to, and this pane was opened without one. Nothing here says the session has no terminal — only that none was addressed."
           />

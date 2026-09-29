@@ -21,7 +21,7 @@ export interface TranscriptRowRendererOptions {
   readonly toggleRunGroup: (runGroup: RunGroup) => void;
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
-  readonly renderTimelineRow: TranscriptRowRenderer;
+  readonly renderTranscriptRow: TranscriptRowRenderer;
 }
 
 /**
@@ -35,7 +35,7 @@ export function useTranscriptRowRenderer(
   options: TranscriptRowRendererOptions,
 ): ViewportRowRenderer {
   const { transcriptWindow, openedTerminalRunIds, hueForActor, toggleRunGroup, rowLease } = options;
-  const renderTimelineRow = options.renderTimelineRow;
+  const renderTranscriptRow = options.renderTranscriptRow;
   return useCallback(
     (row: ViewportRow) => {
       // A RUN GROUP HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
@@ -93,7 +93,7 @@ export function useTranscriptRowRenderer(
             rowLease(projected.id)?.density ??
             densityFor(projected.id, transcriptWindow.collapsedRowIds)
           }
-          renderTimelineRow={renderTimelineRow}
+          renderTranscriptRow={renderTranscriptRow}
         />
       );
     },
@@ -101,7 +101,7 @@ export function useTranscriptRowRenderer(
       hueForActor,
       transcriptWindow,
       openedTerminalRunIds,
-      renderTimelineRow,
+      renderTranscriptRow,
       rowLease,
       toggleRunGroup,
     ],

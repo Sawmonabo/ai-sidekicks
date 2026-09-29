@@ -12,7 +12,7 @@ describe("preview — claiming the pane layout's browser pane", () => {
     registerPreviewPanes(registry);
     const descriptor = registry.descriptorFor("browser");
     expect(descriptor?.kind).toBe("browser");
-    expect(descriptor?.owner).toBe("browser");
+    expect(descriptor?.owner).toBe("preview");
     // Kind and owner are the whole registration: whether the kind may be torn off
     // is the window model's answer, and `seats/pane/pane-kinds.test.ts` holds it.
   });

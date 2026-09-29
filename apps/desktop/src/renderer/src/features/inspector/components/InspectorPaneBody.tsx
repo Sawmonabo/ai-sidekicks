@@ -30,7 +30,7 @@ export function InspectorPaneBody(props: {
     return (
       <Nothing
         kind="not-checked"
-        placement="surface"
+        placement="block"
         title="This pane was opened outside a session."
         detail="Every entity the inspector reads belongs to a session, and a bare route holds none. Open the session this entity belongs to and its record appears."
       />

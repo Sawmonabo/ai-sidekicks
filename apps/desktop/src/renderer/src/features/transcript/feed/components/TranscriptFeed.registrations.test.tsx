@@ -14,7 +14,6 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
-  TRANSCRIPT_FIXTURE_PANE_ID,
   SHORT_LOG_EVENT_COUNT,
   contributeTranscriptCommands,
   dispatchCommand,
@@ -61,7 +60,7 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
     // Not `body`: the log is where the reader was, and it is focusable for exactly
     // this reason.
     expect(document.activeElement).toBe(
-      feed.querySelector(".meridian-transcript-viewport__surface"),
+      feed.querySelector(".meridian-transcript-viewport__scroll-container"),
     );
   });
 
@@ -94,9 +93,8 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
       <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
         <TranscriptFeed
           sessionStore={openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT)}
-          paneId={TRANSCRIPT_FIXTURE_PANE_ID}
-          renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
-          feedLabel="Session timeline"
+          renderTranscriptRow={(mount) => <p>{mount.row.summary}</p>}
+          feedLabel="Transcript"
         />
       </FixtureBridgeProvider>,
     );

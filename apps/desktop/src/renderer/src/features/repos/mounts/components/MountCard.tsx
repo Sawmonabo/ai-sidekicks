@@ -189,7 +189,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
 
       <div className="meridian-mount-card__workspaces">
         {props.workspaces.length === 0 ? (
-          <Nothing kind="empty" placement="surface" title="This mount has no workspaces." />
+          <Nothing kind="empty" placement="block" title="This mount has no workspaces." />
         ) : (
           props.workspaces.map((workspace) => (
             <div className="meridian-mount-card__workspace" key={workspace.id}>

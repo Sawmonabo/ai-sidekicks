@@ -55,7 +55,7 @@ function rendererOptions(
     hueForActor: () => undefined,
     toggleRunGroup: () => undefined,
     rowLease: (): RetainedRowState | undefined => undefined,
-    renderTimelineRow: () => <output data-seat-row="yes" />,
+    renderTranscriptRow: () => <output data-seat-row="yes" />,
     ...overrides,
   };
 }
@@ -83,7 +83,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     const transcriptWindow = foldedRunGroupWindow();
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: seatCalls }),
       TERMINAL_RUN_ID,
     );
 
@@ -102,7 +102,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     }
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: seatCalls }),
       seamRowId,
     );
 
@@ -121,7 +121,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
         rendererOptions(
           // A window with neither the header nor any projected row under that key.
           deriveTranscriptWindow([], false),
-          { renderTimelineRow: seatCalls },
+          { renderTranscriptRow: seatCalls },
         ),
       ),
     );
@@ -143,7 +143,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       (slot: TranscriptRowProps): ReactNode => <output data-seat-row={slot.row.id} />,
     );
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: seatCalls }),
       sessionRow.key,
     );
 
@@ -189,7 +189,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
   function seatCallsAcrossTwoProjections(
     secondOptions: (
       nextWindow: TranscriptWindowModel,
-      renderTimelineRow: (slot: TranscriptRowProps) => ReactNode,
+      renderTranscriptRow: (slot: TranscriptRowProps) => ReactNode,
     ) => TranscriptRowRendererOptions,
   ): number {
     const { before, after, rowKey } = twoProjectionsOverOneLog();
@@ -200,7 +200,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
       return renderRow(viewportRowFor(props.options.transcriptWindow, rowKey));
     };
     const view = render(
-      <Dispatch options={rendererOptions(before, { renderTimelineRow: seatCalls })} />,
+      <Dispatch options={rendererOptions(before, { renderTranscriptRow: seatCalls })} />,
     );
     expect(seatCalls).toHaveBeenCalledTimes(1);
     view.rerender(<Dispatch options={secondOptions(after, seatCalls)} />);
@@ -214,8 +214,8 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     // a new window object — so the lookups really run again; the card behind them does
     // not, because the four values the seat is handed are the same four objects.
     expect(
-      seatCallsAcrossTwoProjections((nextWindow, renderTimelineRow) =>
-        rendererOptions(nextWindow, { renderTimelineRow }),
+      seatCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>
+        rendererOptions(nextWindow, { renderTranscriptRow }),
       ),
     ).toBe(1);
   });
@@ -225,8 +225,8 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     // all — a card frozen at whatever it drew first, which is worse than redrawing it.
     const openedLease = (): RetainedRowState => ({ density: "expanded", innerScrollTopPx: 0 });
     expect(
-      seatCallsAcrossTwoProjections((nextWindow, renderTimelineRow) =>
-        rendererOptions(nextWindow, { renderTimelineRow, rowLease: openedLease }),
+      seatCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>
+        rendererOptions(nextWindow, { renderTranscriptRow, rowLease: openedLease }),
       ),
     ).toBe(2);
   });

@@ -76,7 +76,7 @@ export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.
       <div className="meridian-transcript-window-catch-up">
         <Nothing
           kind="computing"
-          placement="surface"
+          placement="block"
           title="Catching up."
           detail="Entries this window was told about have not arrived. It re-reads from the last position it kept, and this clears when that read lands."
         />

@@ -173,7 +173,7 @@ export function KeyboardPage(): ReactNode {
         {rows.length > 0 && visibleRows.length === 0 ? (
           <Nothing
             kind="empty"
-            placement="surface"
+            placement="block"
             title={`No command matches "${query.trim()}".`}
             detail="The filter matches a command's name, its id, its category, the chord it runs on, and the scope that chord is live in. Clearing the field brings every command back."
           />

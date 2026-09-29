@@ -65,7 +65,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
       {models === undefined ? (
         <Nothing
           kind="not-checked"
-          placement="surface"
+          placement="block"
           title="This console was not handed a session to read agents from."
           detail="The roster and the binding are scoped to one session, so nothing was asked of the background service."
         />

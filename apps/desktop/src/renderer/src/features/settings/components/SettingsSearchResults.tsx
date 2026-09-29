@@ -20,7 +20,7 @@ export function SettingsSearchResults(props: SettingsSearchResultsProps): React.
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title={`Nothing in settings matches “${props.query}”.`}
         detail="Every section was searched by its name, its page heading, and its aliases."
       />

@@ -20,6 +20,7 @@ import {
   PaneFrame,
   findTranscriptRowRenderer,
   type PaneContextOf,
+  type TranscriptRowRenderer,
 } from "@renderer/console/seats/index.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
@@ -58,10 +59,23 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
       <TranscriptPaneBody
-        body={findTranscriptRowRenderer()}
-        paneId={context.paneId}
+        renderTranscriptRow={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
       />
     </PaneFrame>
   );
+}
+
+/**
+ * The registered row renderer, which the pane's lazily loaded body registers before the
+ * pane can render. Its absence is a composition defect rather than a state to draw.
+ */
+function registeredTranscriptRowRenderer(): TranscriptRowRenderer {
+  const renderer = findTranscriptRowRenderer();
+  if (renderer === undefined) {
+    throw new Error(
+      "No transcript row renderer is registered. The transcript pane's body registers it when it loads.",
+    );
+  }
+  return renderer;
 }

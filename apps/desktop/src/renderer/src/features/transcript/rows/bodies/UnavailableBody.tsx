@@ -66,7 +66,7 @@ export function UnavailableBody(props: UnavailableBodyProps): React.JSX.Element 
           value-adjacent badge. */}
       <Nothing
         kind={INTEGRITY_FAILURE_REASONS.has(props.reason) ? "error" : "empty"}
-        placement="surface"
+        placement="block"
         title={REASON_SENTENCES[props.reason]}
         detail="The turn is shown at its position with an empty body."
         action={<WireFigure value={UNAVAILABLE_LOSS_KIND} title="Declared loss" />}

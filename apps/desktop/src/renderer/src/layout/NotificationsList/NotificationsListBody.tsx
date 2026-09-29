@@ -10,7 +10,7 @@ export function NotificationsListBody(props: {
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element | null {
   if (props.reading.phase === "reading") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading what needs you." />;
+    return <Nothing kind="not-loaded" placement="block" title="Reading what needs you." />;
   }
   const { plane, droppedCount, refusedSessions } = props.reading;
   if (plane.groups.length === 0) {
@@ -26,7 +26,7 @@ export function NotificationsListBody(props: {
         <>
           <Nothing
             kind="not-checked"
-            placement="surface"
+            placement="block"
             title="Some sessions could not be checked."
             detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
           />
@@ -41,7 +41,7 @@ export function NotificationsListBody(props: {
       <>
         <Nothing
           kind="not-checked"
-          placement="surface"
+          placement="block"
           title="Nothing in that read could be recognized."
         />
         <ReadCompleteness reading={props.reading} />

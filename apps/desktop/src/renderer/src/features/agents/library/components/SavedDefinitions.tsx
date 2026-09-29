@@ -14,7 +14,7 @@ export function SavedDefinitions(props: {
     return (
       <Nothing
         kind="not-loaded"
-        placement="surface"
+        placement="block"
         title="Reading the sidekicks saved on this node."
       />
     );
@@ -23,7 +23,7 @@ export function SavedDefinitions(props: {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title={`${NO_SAVED_DEFINITIONS}.`}
         detail="Tuning one in a session and saving it puts it here, ready for the next session to start from."
       />

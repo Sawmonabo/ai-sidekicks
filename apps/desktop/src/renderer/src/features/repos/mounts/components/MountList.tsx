@@ -51,7 +51,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
     );
   }
   if (reading.status === "reading") {
-    return <Nothing kind="computing" placement="surface" title="Reading repo mounts." />;
+    return <Nothing kind="computing" placement="block" title="Reading repo mounts." />;
   }
   if (reading.status === "read") {
     // The read answered and found none. That is `empty`, never `not-checked`: the
@@ -59,7 +59,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="No repository is attached to this session."
         detail="Attaching is deliberate — nothing is attached automatically. Once a repository is attached, this section names each mount's resolved root and whether it is still the repository it was attached as."
       />
@@ -68,7 +68,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
   return (
     <Nothing
       kind="not-checked"
-      placement="surface"
+      placement="block"
       title={REPO_MOUNTS_NOT_READ_TITLE}
       detail="This section will name each mount's resolved root and whether it is still the repository it was attached as."
     />

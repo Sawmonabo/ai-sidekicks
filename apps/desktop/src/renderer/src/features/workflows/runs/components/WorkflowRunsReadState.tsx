@@ -35,12 +35,12 @@ export function WorkflowRunsReadState(props: WorkflowRunsReadStateProps): React.
       // No session is in scope, so there is nothing to draw.
       return <></>;
     case "reading":
-      return <Nothing kind="not-loaded" placement="surface" title="Reading this session's runs." />;
+      return <Nothing kind="not-loaded" placement="block" title="Reading this session's runs." />;
     case "served":
       // Narrowed by the same state the projection was built from, so the fallback is
       // unreachable rather than a second empty state competing with the list's own.
       return projection === undefined ? (
-        <Nothing kind="not-loaded" placement="surface" title="Reading this session's runs." />
+        <Nothing kind="not-loaded" placement="block" title="Reading this session's runs." />
       ) : (
         <RunList projection={projection} onOpenRun={props.onOpenRun} />
       );

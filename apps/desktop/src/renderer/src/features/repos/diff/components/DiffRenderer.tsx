@@ -114,7 +114,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   if (index.rowCount === 0) {
     return (
       <div className="meridian-diff meridian-diff--empty">
-        <Nothing kind="empty" placement="surface" title="nothing to review" />
+        <Nothing kind="empty" placement="block" title="nothing to review" />
       </div>
     );
   }

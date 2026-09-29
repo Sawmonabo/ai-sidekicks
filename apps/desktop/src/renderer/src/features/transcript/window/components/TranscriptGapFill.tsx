@@ -65,7 +65,7 @@ export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Elem
     return (
       <Nothing
         kind="not-checked"
-        placement="surface"
+        placement="block"
         title="There is no position to replay from."
         detail="Entries this window was told about have not arrived, and no read of this session has acknowledged a position the stream could be re-opened after. The whole window is re-read instead, which is the repair already under way."
       />
@@ -74,7 +74,7 @@ export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Elem
   return (
     <Nothing
       kind="computing"
-      placement="surface"
+      placement="block"
       title="Replaying the missing entries."
       detail={
         "The stream was re-opened after the last position this window kept. " +

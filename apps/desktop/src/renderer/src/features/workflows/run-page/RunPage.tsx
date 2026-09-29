@@ -56,7 +56,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
     if (entity === undefined) {
       return (
         <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
-          <Nothing kind="empty" placement="surface" title="This pane names no run." />
+          <Nothing kind="empty" placement="block" title="This pane names no run." />
           <ChatStartMountPoint sessionId={sessionStore?.sessionId} />
         </WorkflowStateStrip>
       );

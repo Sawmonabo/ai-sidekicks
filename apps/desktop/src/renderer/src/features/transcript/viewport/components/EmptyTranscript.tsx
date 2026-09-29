@@ -8,7 +8,7 @@ export function EmptyTranscript(): React.JSX.Element {
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title={EMPTY_TRANSCRIPT_WORDS.title}
       detail={EMPTY_TRANSCRIPT_WORDS.detail}
     />

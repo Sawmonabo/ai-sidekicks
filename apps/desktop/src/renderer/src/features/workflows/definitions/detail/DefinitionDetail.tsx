@@ -36,7 +36,7 @@ export function DefinitionDetail(props: DefinitionDetailProps): React.JSX.Elemen
     return <></>;
   }
   if (detail.status === "reading") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading this definition." />;
+    return <Nothing kind="not-loaded" placement="block" title="Reading this definition." />;
   }
   const { definition, version, chain } = detail.detail;
   return (

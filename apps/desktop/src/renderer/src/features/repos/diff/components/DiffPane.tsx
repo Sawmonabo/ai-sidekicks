@@ -90,7 +90,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
         <div className="meridian-diff-pane__absence">
           <Nothing
             kind="not-checked"
-            placement="surface"
+            placement="block"
             title={absence.title}
             detail={absence.detail}
           />

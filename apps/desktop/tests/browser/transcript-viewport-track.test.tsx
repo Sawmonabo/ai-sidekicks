@@ -44,11 +44,11 @@ async function mountViewportSurface(withErrorSlot: boolean): Promise<HTMLElement
     <div style={{ display: "grid", height: `${String(VIEWPORT_BOX_HEIGHT_PX)}px` }}>
       <div className="meridian-transcript-viewport">
         {withErrorSlot ? <div style={{ height: `${String(ERROR_SLOT_HEIGHT_PX)}px` }} /> : null}
-        <div className="meridian-transcript-viewport__surface" />
+        <div className="meridian-transcript-viewport__scroll-container" />
       </div>
     </div>,
   );
-  const surface = container.querySelector(".meridian-transcript-viewport__surface");
+  const surface = container.querySelector(".meridian-transcript-viewport__scroll-container");
   if (!(surface instanceof HTMLElement)) {
     throw new Error("the viewport surface did not mount");
   }
@@ -83,11 +83,11 @@ describe("browser — the transcript's scroll surface takes the viewport's heigh
     const { container } = await renderSettled(
       <div style={{ display: "grid" }}>
         <div className="meridian-transcript-viewport">
-          <div className="meridian-transcript-viewport__surface" />
+          <div className="meridian-transcript-viewport__scroll-container" />
         </div>
       </div>,
     );
-    const surface = container.querySelector(".meridian-transcript-viewport__surface");
+    const surface = container.querySelector(".meridian-transcript-viewport__scroll-container");
     if (!(surface instanceof HTMLElement)) {
       throw new Error("the viewport surface did not mount");
     }

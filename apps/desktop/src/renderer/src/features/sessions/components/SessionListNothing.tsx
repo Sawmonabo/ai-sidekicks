@@ -28,13 +28,13 @@ export function SessionListNothing(props: SessionListNothingProps): React.JSX.El
     // would not render it, which is worse than not passing it, because the code
     // would read as though the control were on screen.
     return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading the sessions on this node." />
+      <Nothing kind="not-loaded" placement="block" title="Reading the sessions on this node." />
     );
   }
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title="There are no sessions on this node yet."
       detail="The node answered, and it has none. Starting one is the way to have the first."
       action={props.action}

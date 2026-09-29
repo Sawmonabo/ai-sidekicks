@@ -104,7 +104,7 @@ export function AccountsFixtureBody(props: {
     return (
       <Nothing
         kind="not-loaded"
-        placement="surface"
+        placement="block"
         title="Reading this machine’s account registry."
       />
     );
@@ -160,7 +160,7 @@ export function AccountsFixtureBody(props: {
         {registry.accounts.length === 0 ? (
           <Nothing
             kind="empty"
-            placement="surface"
+            placement="block"
             title="This machine has no provider accounts."
             detail="A run will refuse until one is registered. Register one below."
           />

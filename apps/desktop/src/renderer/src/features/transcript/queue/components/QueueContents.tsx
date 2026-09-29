@@ -40,11 +40,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
   if (feed.phase === "reading") {
     return (
-      <Nothing
-        kind="not-loaded"
-        placement="surface"
-        title="Reading what is waiting in the queue."
-      />
+      <Nothing kind="not-loaded" placement="block" title="Reading what is waiting in the queue." />
     );
   }
 
@@ -52,7 +48,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="Nothing is waiting."
         detail="The queue is empty. A message sent while a run is working lands here and is delivered in the order it arrived."
       />

@@ -37,14 +37,14 @@ export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
   }
   if (reading.kind === "unrecognized") {
     return (
-      <span className="meridian-tool-sub-family">
+      <span className="meridian-tool-kind-badge">
         <Chip label="Unrecognized tool kind" tone="neutral" />
         <WireFigure value={reading.declared} title="Declared tool sub-family" />
       </span>
     );
   }
   return (
-    <span className="meridian-tool-sub-family">
+    <span className="meridian-tool-kind-badge">
       <Chip label={reading.toolKind} tone="neutral" />
       {reading.serverLabel === undefined ? null : (
         <WireFigure value={reading.serverLabel} title="Server" />

@@ -7,7 +7,7 @@
  * restating a decision the primitives already made.
  */
 
-.meridian-tool-sub-family {
+.meridian-tool-kind-badge {
   display: inline-flex;
   align-items: baseline;
   gap: var(--meridian-space-1);

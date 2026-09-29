@@ -119,7 +119,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           {props.diff === undefined ? (
             <Nothing
               kind="not-checked"
-              placement="surface"
+              placement="block"
               title="This diff has not been read."
               detail={unreadDiffDetail(comparedStates)}
             />

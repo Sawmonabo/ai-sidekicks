@@ -383,11 +383,6 @@ export {
   formatWireString,
 } from "@renderer/lib/wire-figures.js";
 
-// The absent-posture sentence, for the ONE surface outside this family that says
-// it in its own words: the composer's posture chip renders no facts and so cannot
-// mount the chip above, but a second sentence for one fact is the copy this
-// family owns being written twice.
-
 // The overlay shells, each registering what it mounts in the window's airspace — at the
 // primitive layer, never per overlay instance: the anchored four register their popup,
 // the two modal wrappers register the backdrop beside it through the one helper that

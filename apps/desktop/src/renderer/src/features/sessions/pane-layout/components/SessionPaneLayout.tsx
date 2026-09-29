@@ -273,7 +273,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
         </div>
       )}
       {state.panes.length === 0 ? (
-        <Nothing kind="empty" placement="surface" title="No panes are open." />
+        <Nothing kind="empty" placement="block" title="No panes are open." />
       ) : (
         <Group
           className="meridian-pane-layout__group"

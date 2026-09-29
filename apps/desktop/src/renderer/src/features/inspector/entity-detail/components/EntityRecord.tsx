@@ -74,15 +74,13 @@ export interface EntityRecordProps {
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();
   if (!props.isInitialized) {
-    return (
-      <Nothing kind="not-loaded" placement="surface" title={`Reading the ${subject} record.`} />
-    );
+    return <Nothing kind="not-loaded" placement="block" title={`Reading the ${subject} record.`} />;
   }
   if (props.degradedCause !== undefined) {
     return (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title={`The ${subject} record is incomplete.`}
         // The cause is the store's own word, rendered as received. The console
         // does not paraphrase it, and it offers no Retry: nothing reachable from
@@ -95,7 +93,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title={props.absentTitle}
         detail={props.absentDetail}
       />

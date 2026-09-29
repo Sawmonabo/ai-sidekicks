@@ -43,7 +43,7 @@ export {
 export function registerPreviewPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "browser",
-    owner: "browser",
+    owner: "preview",
     // A LOADER AND NOT A `render`. Nothing this family draws is on the flagship first
     // paint — the pane opens from the sidebar or the palette — so the whole subtree
     // travels as its own chunk and the launch does not pay for it. The specifier is

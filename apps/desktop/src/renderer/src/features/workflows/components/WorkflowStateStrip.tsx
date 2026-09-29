@@ -71,9 +71,9 @@ function renderState(props: WorkflowStateStripProps): React.ReactNode {
   const { state } = props;
   switch (state.kind) {
     case "not-loaded":
-      return <Nothing kind="not-loaded" placement="surface" title={state.title} />;
+      return <Nothing kind="not-loaded" placement="block" title={state.title} />;
     case "empty":
-      return <Nothing kind="empty" placement="surface" title={state.title} />;
+      return <Nothing kind="empty" placement="block" title={state.title} />;
     case "refused":
       return <RefusalBanner code={state.refusal.code} detail={state.refusal.detail} />;
     case "ready":

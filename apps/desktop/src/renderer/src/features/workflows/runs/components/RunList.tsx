@@ -37,7 +37,7 @@ export function RunList(props: RunListProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="No runs here."
         detail="A run started from a definition appears here, with whatever it is waiting on said in place."
       />

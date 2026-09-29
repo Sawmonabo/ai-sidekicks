@@ -252,7 +252,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       {isServedEmpty ? (
         <Nothing
           kind="empty"
-          placement="surface"
+          placement="block"
           title="No command matches what you have typed"
           detail="Clear the line to see everything on offer."
         />

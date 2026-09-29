@@ -130,7 +130,7 @@ function renderPrompt(prompt: string | undefined): React.ReactNode {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This ask carried no question."
         detail="The provider blocked on an answer without stating what it was asking."
       />
@@ -283,7 +283,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This ask was answered."
         detail="The delivered answer is shown as the background service recorded it."
         {...(ask.deliveredAnswer === undefined
@@ -295,7 +295,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title={
         ask.state === "expired"
           ? "This ask expired before it was answered."

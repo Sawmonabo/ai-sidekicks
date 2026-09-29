@@ -81,7 +81,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
       <PaneHarnessFrame instanceCount={0} paneKindLabel={undefined}>
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title="This screen was opened at an address it does not serve."
           detail={`The pane harness reads its pane kind off the "#/pane-harness/…" address and this window is on a "${route.kind}" route.`}
         />
@@ -99,7 +99,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
       <PaneHarnessFrame instanceCount={0} paneKindLabel={route.paneKind}>
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title="That address does not name a pane this build can open."
           detail={`${address.code}: ${address.detail}`}
         />
@@ -115,7 +115,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
       <PaneHarnessFrame instanceCount={0} paneKindLabel={address.kind}>
         <Nothing
           kind="empty"
-          placement="surface"
+          placement="block"
           title="No feature has registered a body for this pane kind."
           detail={`"${address.kind}" is one of the pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
         />

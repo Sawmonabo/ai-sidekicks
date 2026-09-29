@@ -106,7 +106,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
       <div className="meridian-run-graph">
         <Nothing
           kind="empty"
-          placement="surface"
+          placement="block"
           title="This run has no phases."
           detail="A run's phase sequence is drawn here once the run reports one."
         />
@@ -119,7 +119,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
       <div className="meridian-run-graph">
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title="The phase sequence could not be drawn."
           detail={repeatedPhaseDetail(layout.repeatedPhaseIds)}
         />
@@ -182,7 +182,7 @@ function renderUnloadedCanvas(
   retryChunk: () => void,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="surface" title="Loading the phase graph" />
+    <Nothing kind="not-loaded" placement="block" title="Loading the phase graph" />
   ) : (
     <RefusalBanner
       {...graphModule.refusal}

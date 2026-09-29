@@ -72,10 +72,8 @@ import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
-  /** The pane this feed is the body of. */
-  readonly paneId: string;
   /** The registered row renderer. Resolved by the pane, so this file reads no registry. */
-  readonly renderTimelineRow: TranscriptRowRenderer;
+  readonly renderTranscriptRow: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */
@@ -117,7 +115,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // the whole object rebuilt `renderRow` on every render of this feed — a find
   // keystroke, a lease write — and `VirtualRow`'s memo compares it, so every
   // mounted row re-rendered for a change none of them could see.
-  const renderTimelineRow = props.renderTimelineRow;
+  const renderTranscriptRow = props.renderTranscriptRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
@@ -125,7 +123,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     hueForActor,
     toggleRunGroup,
     rowLease,
-    renderTimelineRow,
+    renderTranscriptRow,
   });
 
   // The palette's chords act on whichever transcript is mounted when they fire, and cannot

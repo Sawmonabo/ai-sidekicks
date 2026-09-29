@@ -97,7 +97,7 @@ export function MountedFolderList(props: {
   useSettlementAnnouncement(mountSettlementSentence(state));
 
   if (state.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading this session's mounts." />;
+    return <Nothing kind="not-loaded" placement="block" title="Reading this session's mounts." />;
   }
   if (state.kind === "failed") {
     // The control is the way back. A failed READ recovers on its own — the session's
@@ -108,7 +108,7 @@ export function MountedFolderList(props: {
     return (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
@@ -127,7 +127,7 @@ export function MountedFolderList(props: {
   }
   if (state.value.readings.length === 0) {
     return (
-      <Nothing kind="empty" placement="surface" title="This session has mounted no repositories." />
+      <Nothing kind="empty" placement="block" title="This session has mounted no repositories." />
     );
   }
   return (

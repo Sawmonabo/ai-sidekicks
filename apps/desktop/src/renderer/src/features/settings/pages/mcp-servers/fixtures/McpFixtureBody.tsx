@@ -147,18 +147,14 @@ export function McpFixtureBody(props: {
   const state = usePushDrivenRead(inventoryRead);
   if (state.kind === "not-loaded") {
     return (
-      <Nothing
-        kind="not-loaded"
-        placement="surface"
-        title="Reading the servers this node governs."
-      />
+      <Nothing kind="not-loaded" placement="block" title="Reading the servers this node governs." />
     );
   }
   if (state.kind === "failed") {
     return (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
@@ -180,7 +176,7 @@ export function McpFixtureBody(props: {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This node governs no MCP servers."
         detail="That is an ordinary state, not a failure: nothing has been registered for either provider, and an agent here reaches no MCP tool."
       />

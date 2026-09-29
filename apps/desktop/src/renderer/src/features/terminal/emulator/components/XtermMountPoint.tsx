@@ -239,11 +239,11 @@ function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="surface" title="Loading the terminal emulator" />
+    <Nothing kind="not-loaded" placement="block" title="Loading the terminal emulator" />
   ) : (
     <Nothing
       kind="error"
-      placement="surface"
+      placement="block"
       title={emulator.refusal.code}
       detail={emulator.refusal.detail}
     />

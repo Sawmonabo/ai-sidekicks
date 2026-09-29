@@ -141,7 +141,7 @@ function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
       clock={props.clock}
       rows={props.rows}
       renderRow={renderRow}
-      feedLabel="Session timeline"
+      feedLabel="Transcript"
     />
   );
 }
@@ -170,10 +170,10 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={syntheticRows(LONG_LOG_ROW_COUNT)}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
       />,
     );
-    expect(screen.getByRole("feed", { name: "Session timeline" })).toBeDefined();
+    expect(screen.getByRole("feed", { name: "Transcript" })).toBeDefined();
     const mounted = container.querySelectorAll(".meridian-transcript-viewport__row");
     expect(mounted.length).toBeGreaterThan(0);
     expect(mounted.length).toBeLessThan(LONG_LOG_ROW_COUNT / 4);
@@ -191,7 +191,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
       />,
     );
     const sizer = container.querySelector(".meridian-transcript-viewport__sizer");
@@ -210,7 +210,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
       />,
     );
     expect(screen.getByText("Nothing has happened in this session yet.")).toBeDefined();
@@ -225,7 +225,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
         firstReadSettled={false}
       />,
     );
@@ -241,7 +241,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
         firstReadSettled={false}
       />,
     );
@@ -250,7 +250,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
         firstReadSettled
       />,
     );
@@ -265,7 +265,7 @@ describe("the transcript viewport — the feed", () => {
         clock={clock}
         rows={syntheticRows(20)}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
       />,
     );
     // Row measurements coalesce onto one frame; past that a viewport nobody is
@@ -283,7 +283,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={syntheticRows(4)}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
         errorEntries={[
           {
             kind: "row-projection",
@@ -310,7 +310,7 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
       />,
     );
     // Degraded, never discarded: BOTH rows are in the document under keys of their
@@ -329,11 +329,13 @@ describe("the transcript viewport — the feed", () => {
         clock={new ManualClock()}
         rows={syntheticRows(LONG_LOG_ROW_COUNT)}
         renderRow={renderRow}
-        feedLabel="Session timeline"
+        feedLabel="Transcript"
         holder={holder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(".meridian-transcript-viewport__surface");
+    const surface = container.querySelector<HTMLElement>(
+      ".meridian-transcript-viewport__scroll-container",
+    );
     expect(surface).not.toBeNull();
     expect(surface?.scrollTop).toBe(0);
     act(() => {
@@ -358,7 +360,9 @@ describe("the transcript viewport — the feed", () => {
         holder={detachedHolder}
       />,
     );
-    const surface = container.querySelector<HTMLElement>(".meridian-transcript-viewport__surface");
+    const surface = container.querySelector<HTMLElement>(
+      ".meridian-transcript-viewport__scroll-container",
+    );
     expect(surface).not.toBeNull();
     act(() => {
       detachedHolder.binding?.jumpToTail();

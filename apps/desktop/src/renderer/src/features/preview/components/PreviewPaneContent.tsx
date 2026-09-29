@@ -215,7 +215,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
           {geometry.outcome?.status === "suppressed" ? (
             <Nothing
               kind="not-checked"
-              placement="surface"
+              placement="block"
               title="No page is shown here."
               detail={geometry.outcome.refusal.detail}
             />

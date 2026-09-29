@@ -19,7 +19,7 @@
 // canceling and re-pinning are the daemon's adjudications reaching the console as
 // typed refusals, and a line that disabled one would be a renderer deciding a question
 // it does not own. Nor does anything here notify — whether a person is interrupted is
-// the notifications surface's to decide, and this surface mints no OS notification.
+// the notifications feature's to decide, and this line mints no OS notification.
 
 import {
   Chip,

@@ -39,11 +39,11 @@ export type ToolKind = (typeof TOOL_KINDS)[number];
  *
  * NO REGISTERED PAYLOAD CARRIES IT. `ToolActivityPayload` declares `toolName`,
  * `toolCallId` and `durationMs` and nothing else, so the reader below answers
- * `undefined` for every row this console can receive today. It is named here rather
- * than left implicit because this is where the member lands when the timeline read
- * grows one — and because a constant is checkable, where a comment is not.
+ * `undefined` for every row this console can receive today. The value is this
+ * console's own name for the member until the timeline read's contract declares one,
+ * and it is a constant rather than a comment because a constant is checkable.
  */
-export const TOOL_KIND_PAYLOAD_KEY = "toolSubFamily";
+export const TOOL_KIND_PAYLOAD_KEY = "toolKind";
 
 /** The member carrying an MCP call's server label, on the same footing. */
 export const TOOL_SERVER_LABEL_PAYLOAD_KEY = "mcpServerLabel";

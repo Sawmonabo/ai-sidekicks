@@ -73,7 +73,7 @@ describe("the tool kind badge", () => {
       ({ reading }) => <output data-owner-body="yes">{reading.kind}</output>,
     );
     expect(container.querySelector("[data-owner-body='yes']")?.textContent).toBe("declared");
-    expect(container.querySelector(".meridian-tool-sub-family")).toBeNull();
+    expect(container.querySelector(".meridian-tool-kind-badge")).toBeNull();
   });
 
   it("does not reach a supplied renderer when the row declared nothing", () => {

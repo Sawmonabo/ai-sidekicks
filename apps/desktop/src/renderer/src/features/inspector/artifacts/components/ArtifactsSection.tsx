@@ -126,18 +126,16 @@ function renderPanelBody(
   typeFilter: ArtifactTypeFilter,
 ): React.JSX.Element {
   if (props.state.kind === "loading") {
-    return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading this session's artifacts" />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Reading this session's artifacts" />;
   }
   if (props.state.rows.length === 0) {
-    return <Nothing kind="empty" placement="surface" title="Nothing made here yet." />;
+    return <Nothing kind="empty" placement="block" title="Nothing made here yet." />;
   }
   if (visibleRows.length === 0) {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="No artifacts of the type this filter is set to."
         detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
         // The type is a wire word, so it renders through `WireFigure` rather than as

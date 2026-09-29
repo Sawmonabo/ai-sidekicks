@@ -121,14 +121,12 @@ function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
     case "not-asked":
       return null;
     case "reading":
-      return (
-        <Nothing kind="not-loaded" placement="surface" title="Reading this turn's reasoning." />
-      );
+      return <Nothing kind="not-loaded" placement="block" title="Reading this turn's reasoning." />;
     case "refused":
       return (
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title={reading.refusal.code}
           detail={reading.refusal.detail}
         />
@@ -159,7 +157,7 @@ function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.Re
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title={copy.title}
       detail={copy.detail}
       {...(response.availability === "policy_redacted"
