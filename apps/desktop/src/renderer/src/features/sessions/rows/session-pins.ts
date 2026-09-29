@@ -1,6 +1,6 @@
 // Which sessions are pinned, and where that fact lives.
 //
-// Pin and unpin are renderer-local, persisted to shell-local config: pins are
+// Pin and unpin are renderer-local, persisted to machine-local config: pins are
 // per-install view state, they are never auth material, and they never travel.
 //
 // So the pin map is a durable UI-state record in the persistence layer's GLOBAL

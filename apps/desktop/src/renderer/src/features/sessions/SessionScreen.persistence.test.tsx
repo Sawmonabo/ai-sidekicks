@@ -103,7 +103,7 @@ describe("Workspace — the saved arrangement", () => {
   });
 });
 
-describe("Workspace — navigating between two sessions the shell already has open", () => {
+describe("SessionScreen — navigating between two sessions the shell already has open", () => {
   /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
   function cyclePaneFocus(container: HTMLElement): void {
     const paneLayoutElement = container.querySelector(".meridian-pane-layout");

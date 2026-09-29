@@ -6,7 +6,7 @@
 // joins two windows' module graphs.
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
+import { MachineSettingsStore, type MachineSettingsFile } from "./machine-settings-store.js";
 
 /**
  * Who owns this window's preference store.
@@ -27,7 +27,7 @@ import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-set
  * what a render body calls and mutates nothing; {@link acquire} is what an effect or an
  * event handler calls and is the only place a store is minted or disposed.
  */
-class ShellPreferenceStoreHolder {
+class MachineSettingsStoreHolder {
   #bridge: PlatformBridge | undefined;
   #store: MachineSettingsStore | undefined;
 
@@ -43,15 +43,15 @@ class ShellPreferenceStoreHolder {
   }
 
   /**
-   * The store for this bridge, minting one over `carrier` on first ask and on a bridge
-   * change. A store already held for the bridge keeps the carrier it was minted with.
+   * The store for this bridge, minting one over `settingsFile` on first ask and on a bridge
+   * change. A store already held for the bridge keeps the settings file it was minted with.
    *
    * MUTATES, so it is reached from an effect or from an event handler and never
    * from a render body. Idempotent for one bridge, which is what lets strict mode
    * invoke the acquiring effect twice without the second invocation superseding
    * what the first one minted.
    */
-  public acquire(bridge: PlatformBridge, carrier: ShellPreferenceCarrier): MachineSettingsStore {
+  public acquire(bridge: PlatformBridge, settingsFile: MachineSettingsFile): MachineSettingsStore {
     const held = this.storeIfCurrent(bridge);
     if (held !== undefined) {
       return held;
@@ -59,7 +59,7 @@ class ShellPreferenceStoreHolder {
     // The only disposal there is: the store a DIFFERENT bridge supersedes. A page
     // unmounting disposes nothing, because this store's lifetime is the window's.
     this.#store?.dispose();
-    const minted = new MachineSettingsStore(bridge, carrier);
+    const minted = new MachineSettingsStore(bridge, settingsFile);
     this.#bridge = bridge;
     this.#store = minted;
     return minted;
@@ -67,11 +67,11 @@ class ShellPreferenceStoreHolder {
 }
 
 /**
- * This window's shell preferences.
+ * This window's machine settings.
  *
  * Module scope IS window scope here, for the reason
  * `palette/keybindings/keybinding-override-store.ts` gives about the overrides it holds the same
  * way: an auxiliary window is its own renderer process, so no channel joins two
  * windows' module graphs.
  */
-export const machineSettingsHolder: ShellPreferenceStoreHolder = new ShellPreferenceStoreHolder();
+export const machineSettingsHolder: MachineSettingsStoreHolder = new MachineSettingsStoreHolder();

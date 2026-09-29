@@ -10,9 +10,9 @@ import type { MainProcessState } from "../main-process-state.js";
  * moved, so a subscriber re-renders exactly when the fact does.
  */
 export function useMainProcessState(store: WindowStore): MainProcessState {
-  return useStore(store.readable, readShellState);
+  return useStore(store.readable, readMainProcessState);
 }
 
-function readShellState(state: WindowStoreState): MainProcessState {
+function readMainProcessState(state: WindowStoreState): MainProcessState {
   return state.mainProcessState;
 }

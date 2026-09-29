@@ -149,7 +149,7 @@ import {
 // shared with every other Electron harness.
 import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 
-describe("desktop shell substrate boot", () => {
+describe("desktop main process boot", () => {
   it("verifies built bundle exists before spawning Electron", () => {
     // Fail-fast diagnostic. If the test runs without the smoke bundle
     // present, the Electron spawn would fail with a cryptic "cannot
@@ -436,7 +436,7 @@ describe("desktop shell substrate boot", () => {
 
       // The readiness failure, not a bare timeout: classified, and carrying the
       // dump with the at-deadline readings in it.
-      expect(failureMessage).toContain("Desktop shell never became ready");
+      expect(failureMessage).toContain("Desktop main process never became ready");
       expect(failureMessage).toContain(
         `still running at the ${String(FORCED_STALL_SPAWN_TIMEOUT_MS)}ms deadline`,
       );

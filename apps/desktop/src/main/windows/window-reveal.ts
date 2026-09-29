@@ -1,7 +1,7 @@
 // Unobtrusive windows for the automated tiers — test builds only.
 //
 // Every Electron tier (the smoke probe, the GC probe, end-to-end, endurance)
-// launches the real shell with a real window, and a window is revealed through
+// launches the real main process with a real window, and a window is revealed through
 // `BrowserWindow.show()`. On macOS that call ACTIVATES the application: the
 // Dock icon appears, keyboard focus moves to the new window, and an operator on
 // a full-screen Space is switched to the Space the window opened on. One

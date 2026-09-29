@@ -34,11 +34,11 @@ export interface MountedRuntimePage {
   readonly container: HTMLElement;
   readonly ledger: ControlLedger;
   /** Re-render the page under a different supervisor state, over the SAME bridge. */
-  readonly showShellState: (next: MainProcessState) => void;
+  readonly showMainProcessState: (next: MainProcessState) => void;
 }
 
 export function renderRuntimePage(options: {
-  readonly shellState?: MainProcessState;
+  readonly mainProcessState?: MainProcessState;
   /**
    * Whether a dispatched control is recorded and then never answered.
    *
@@ -73,8 +73,8 @@ export function renderRuntimePage(options: {
       await holdOpen();
     },
   };
-  const pageUnder = (shellState: MainProcessState): ReactNode => {
-    const context = settingsPageContextWith(bridge, undefined, { shellState });
+  const pageUnder = (mainProcessState: MainProcessState): ReactNode => {
+    const context = settingsPageContextWith(bridge, undefined, { mainProcessState });
     return (
       <RuntimePage context={context}>
         <DaemonOperationsBlocks context={context} operations={operations} />
@@ -82,12 +82,12 @@ export function renderRuntimePage(options: {
     );
   };
   const { container, rerender } = render(
-    pageUnder(options.shellState ?? UNREPORTED_MAIN_PROCESS_STATE),
+    pageUnder(options.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE),
   );
   return {
     container,
     ledger,
-    showShellState: (next) => {
+    showMainProcessState: (next) => {
       rerender(pageUnder(next));
     },
   };

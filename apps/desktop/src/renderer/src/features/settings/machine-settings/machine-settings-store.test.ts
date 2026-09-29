@@ -1,43 +1,43 @@
-// What a preference carrier's answers leave on screen: the stored value over the default,
-// an accepted write applied into the carrier's own record, and the races between an
+// What the settings file's answers leave on screen: the stored value over the default,
+// an accepted write applied into the settings file's own record, and the races between an
 // opening read and a choice, and between keys.
 
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
+import { MachineSettingsStore, type MachineSettingsFile } from "./machine-settings-store.js";
 import { effectivePreference } from "./machine-settings-snapshot.js";
 
 /** The bridge the store takes its clock from; nothing is scripted and nothing needs to be. */
 function fixtureBridge(): ReturnType<typeof createFixtureBridge> {
-  return createFixtureBridge({ scenario: unscriptedScenario("shell-preferences-test") });
+  return createFixtureBridge({ scenario: unscriptedScenario("machine-settings-test") });
 }
 
-/** A carrier holding `values`, whose write is accepted. */
-function carrierHolding(
+/** A settings file holding `values`, whose write is accepted. */
+function settingsFileHolding(
   values: Readonly<Record<string, boolean>>,
-  write: ShellPreferenceCarrier["write"] = async () => await Promise.resolve(undefined),
-): ShellPreferenceCarrier {
+  write: MachineSettingsFile["write"] = async () => await Promise.resolve(undefined),
+): MachineSettingsFile {
   return { read: async () => await Promise.resolve(values), write };
 }
 
-describe("shell preferences — a carrier that answers", () => {
-  it("prefers the carrier's stored value over the default", async () => {
+describe("machine settings — a settings file that answers", () => {
+  it("prefers the settings file's stored value over the default", async () => {
     const bridge = fixtureBridge();
     const store = new MachineSettingsStore(
       bridge,
-      carrierHolding({ "diagnostics.crashReports": false }),
+      settingsFileHolding({ "diagnostics.crashReports": false }),
     );
     store.start();
     await settleScheduledRead(bridge);
     expect(effectivePreference(store.snapshot(), "diagnostics.crashReports")).toBe(false);
   });
 
-  it("applies an accepted write into the carrier's own record", async () => {
+  it("applies an accepted write into the settings file's own record", async () => {
     const write = vi.fn(async () => await Promise.resolve(undefined));
     const bridge = fixtureBridge();
-    const store = new MachineSettingsStore(bridge, carrierHolding({}, write));
+    const store = new MachineSettingsStore(bridge, settingsFileHolding({}, write));
     store.start();
     await settleScheduledRead(bridge);
     await store.choose("notifications.osToastsMuted", true);
@@ -49,7 +49,9 @@ describe("shell preferences — a carrier that answers", () => {
     const bridge = fixtureBridge();
     const store = new MachineSettingsStore(
       bridge,
-      carrierHolding({ "updates.automatic": true }, () => Promise.reject(new Error("read-only"))),
+      settingsFileHolding({ "updates.automatic": true }, () =>
+        Promise.reject(new Error("read-only")),
+      ),
     );
     store.start();
     await settleScheduledRead(bridge);
@@ -60,15 +62,15 @@ describe("shell preferences — a carrier that answers", () => {
 });
 
 /**
- * A carrier read this test settles by hand.
+ * A settings file read this test settles by hand.
  *
  * The whole subject below is the ORDER two settlements land in, and the shipped
  * builders resolve immediately, so a case built from them could never put a choice
  * between a read's start and its answer.
  */
-/** One carrier read, resolved when a case decides to resolve it. */
+/** One settings file read, resolved when a case decides to resolve it. */
 function heldRead(): {
-  readonly answer: ShellPreferenceCarrier["read"];
+  readonly answer: MachineSettingsFile["read"];
   readonly serve: (values: Readonly<Record<string, boolean>>) => void;
 } {
   let settle: (values: Readonly<Record<string, boolean>>) => void = () => undefined;
@@ -83,8 +85,8 @@ function heldRead(): {
   };
 }
 
-describe("shell preferences — the opening read never lands on a newer choice", () => {
-  it("keeps a value the carrier accepted while the opening read was still in flight", async () => {
+describe("machine settings — the opening read never lands on a newer choice", () => {
+  it("keeps a value the settings file accepted while the opening read was still in flight", async () => {
     // The defect: the write settled first and applied the accepted value, and the
     // read's continuation then replaced the whole record with the snapshot from
     // before the choice — so the switch reverted moments after it was saved.
@@ -126,7 +128,7 @@ describe("shell preferences — the opening read never lands on a newer choice",
   it("negative control: the discard is scoped to the read a choice raced", async () => {
     // Without this, the first case would pass over a store that discarded EVERY
     // read — including one that settled before anybody chose — which would make the
-    // carrier's record unreachable rather than merely superseded.
+    // settings file's record unreachable rather than merely superseded.
     const opening = heldRead();
     const bridge = fixtureBridge();
     const store = new MachineSettingsStore(bridge, {
@@ -148,14 +150,14 @@ describe("shell preferences — the opening read never lands on a newer choice",
 });
 
 /**
- * A carrier write this test settles by hand, so several can be in flight at once.
+ * A settings file write this test settles by hand, so several can be in flight at once.
  *
  * Settlers are held per key AS A LIST, because the case that matters most has two
  * calls outstanding for ONE key: serving that key releases both continuations, which
  * is what lets the supersession rule be observed rather than assumed.
  */
 function heldWrite(): {
-  readonly answer: ShellPreferenceCarrier["write"];
+  readonly answer: MachineSettingsFile["write"];
   readonly serve: (key: string) => void;
 } {
   const settlersByKey = new Map<string, (() => void)[]>();
@@ -180,10 +182,10 @@ function heldWrite(): {
   };
 }
 
-describe("shell preferences — one key's write never discards another's", () => {
+describe("machine settings — one key's write never discards another's", () => {
   it("settles both keys when two writes are in flight together", async () => {
     // The defect: the generation was shared across keys, so choosing B superseded
-    // A's round and A's accepted settlement was discarded. `shellConfigWrite` takes
+    // A's round and A's accepted settlement was discarded. the settings file's write takes
     // one key and leaves the others alone, so the two acts are independent — and
     // this store reads once and never refreshes, so the window showed A's old value
     // for the rest of its life.

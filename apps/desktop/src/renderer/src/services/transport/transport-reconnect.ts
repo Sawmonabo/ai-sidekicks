@@ -6,7 +6,7 @@
 // diagnostics page name all three. Two of the three were wired anywhere in the console
 // and the third was not: the only producer of `RefreshReason`'s `reconnect` was a
 // SESSION store's repair edge, so a window-scoped reading — this node's diagnostics,
-// this node's accounts, the shell's own preferences — had no session, no repair edge,
+// this node's accounts, the machine's own settings — had no session, no repair edge,
 // and no reconnect at all.
 //
 // ONE EMITTER, AND IT OBSERVES RATHER THAN POLLS

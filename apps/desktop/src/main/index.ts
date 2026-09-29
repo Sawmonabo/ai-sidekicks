@@ -120,7 +120,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 // even a smoke bundle never auto-runs a probe.
 //
 // "No test machinery in production binaries" follows from the two rules this
-// shell is built on: the renderer is untrusted, and a disabled sandbox or
+// main process is built on: the renderer is untrusted, and a disabled sandbox or
 // enabled node integration in any window is a build-time error. A release binary
 // must not embed a path that weakens those guarantees, and a probe calling
 // `executeJavaScript` against the renderer is exactly such a path.

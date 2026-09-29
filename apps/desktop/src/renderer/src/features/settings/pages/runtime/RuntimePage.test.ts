@@ -29,7 +29,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
 
   it("shows the attempt count while the ladder is running", () => {
     const { container } = renderRuntimePage({
-      shellState: {
+      mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "reconnecting", attempt: 3, attemptLimit: 5 },
       },
@@ -42,14 +42,14 @@ describe("DaemonPage — the supervisor's numbers", () => {
     // A row reading "attempt — of 5" on a healthy window would be a field with
     // nothing in it pretending to be a measurement.
     const { container } = renderRuntimePage({
-      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
+      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     expect(container.textContent).not.toContain("Attempt");
   });
 
   it("shows the last heartbeat where one was reported, and its absence where none was", () => {
     const withBeat = renderRuntimePage({
-      shellState: {
+      mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "connected" },
         lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
@@ -58,7 +58,7 @@ describe("DaemonPage — the supervisor's numbers", () => {
     expect(withBeat.container.textContent).toContain("2026-01-01T10:00:00.000Z");
 
     const withoutBeat = renderRuntimePage({
-      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
+      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     expect(withoutBeat.container.textContent).toContain("No heartbeat reported");
   });
@@ -91,14 +91,14 @@ describe("DaemonPage — the reported status", () => {
   });
 
   it("asks the runtime again when the supervisor moves under the window", async () => {
-    const { container, ledger, showShellState } = renderRuntimePage({
-      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
+    const { container, ledger, showMainProcessState } = renderRuntimePage({
+      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
     await waitFor(() => {
       expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
     });
 
-    showShellState({ ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } });
+    showMainProcessState({ ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } });
 
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-2");
@@ -110,8 +110,8 @@ describe("DaemonPage — the reported status", () => {
     // satisfy the two cases above and put a call on the wire per pass — and keying the
     // read on the whole connection would put one per attempt of the supervisor's
     // ladder, which is interval polling arriving by the back door.
-    const { ledger, showShellState } = renderRuntimePage({
-      shellState: {
+    const { ledger, showMainProcessState } = renderRuntimePage({
+      mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
         connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
       },
@@ -120,7 +120,7 @@ describe("DaemonPage — the reported status", () => {
       expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
     });
 
-    showShellState({
+    showMainProcessState({
       ...UNREPORTED_MAIN_PROCESS_STATE,
       connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
       lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
@@ -251,9 +251,9 @@ describe("DaemonPage — the two controls", () => {
     expect(container.textContent).not.toContain("stopped.");
   });
 
-  it("offers no start control — starting is a shell act and not a call", () => {
+  it("offers no start control — starting is a main-process act and not a call", () => {
     const { container } = renderRuntimePage({
-      shellState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } },
+      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } },
     });
     const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);
     expect(labels).not.toContain("Start");

@@ -55,7 +55,7 @@ import {
 import { ServerRow } from "./components/ServerRow.js";
 
 /** The daemon verbs the shell drives. */
-export interface McpShellOperations {
+export interface McpServerOperations {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
   readonly sendEnabled: SendMcpEnabled;
@@ -66,7 +66,7 @@ export interface McpShellOperations {
 export function McpFixtureBody(props: {
   readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
-  readonly operations: McpShellOperations;
+  readonly operations: McpServerOperations;
   /** Injected so a suite can assert that one press reused one key. */
   readonly mintKey?: IdempotencyKeyMinter;
 }): ReactNode {

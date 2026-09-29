@@ -19,7 +19,7 @@ import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { McpFixtureBody, type McpShellOperations } from "./McpFixtureBody.js";
+import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 afterEach(() => {
   cleanup();
@@ -96,8 +96,8 @@ const PARTIAL_APPLICATION: McpMutationResult = {
 
 function operationsServing(
   servers: readonly McpServerInventoryEntry[],
-  overrides: Partial<McpShellOperations> = {},
-): McpShellOperations {
+  overrides: Partial<McpServerOperations> = {},
+): McpServerOperations {
   return {
     listInventory: async () => await Promise.resolve({ servers }),
     subscribeInventoryChanges: () => () => undefined,
@@ -115,8 +115,8 @@ function fixtureBridge(): PlatformBridge {
  * The shell as a composition mounts it: the bridge comes from the provider's resolution,
  * which moves one commit after a prop changes.
  */
-function MountedMcpShell(props: {
-  readonly operations: McpShellOperations;
+function MountedMcpPage(props: {
+  readonly operations: McpServerOperations;
   readonly mintKey?: () => string;
 }): React.JSX.Element {
   const bridge = usePlatformBridge();
@@ -131,18 +131,18 @@ function MountedMcpShell(props: {
  * The tree, as an element rather than a render, so a case can re-render the SAME mount
  * at a different bridge the way `PlatformBridgeProvider` does on a reconnect.
  */
-function shellTree(
+function mcpPageTree(
   bridge: PlatformBridge,
-  operations: McpShellOperations,
+  operations: McpServerOperations,
   mintKey?: () => string,
 ): React.JSX.Element {
   return (
     <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         {mintKey === undefined ? (
-          <MountedMcpShell operations={operations} />
+          <MountedMcpPage operations={operations} />
         ) : (
-          <MountedMcpShell operations={operations} mintKey={mintKey} />
+          <MountedMcpPage operations={operations} mintKey={mintKey} />
         )}
       </LiveAnnouncerProvider>
     </PlatformBridgeProvider>
@@ -165,12 +165,12 @@ function firstEnableButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-async function renderSettledShell(
-  operations: McpShellOperations,
+async function renderSettledMcpPage(
+  operations: McpServerOperations,
   mintKey?: () => string,
 ): Promise<{ readonly container: HTMLElement; readonly bridge: PlatformBridge }> {
   const bridge = fixtureBridge();
-  const { container } = render(shellTree(bridge, operations, mintKey));
+  const { container } = render(mcpPageTree(bridge, operations, mintKey));
   await settleScheduledRead(bridge);
   return { container, bridge };
 }
@@ -183,20 +183,20 @@ function rowNamed(container: HTMLElement, serverName: string): Element | undefin
 
 describe("McpShell", () => {
   it("draws a loading absence before the inventory answers", () => {
-    const { container } = render(shellTree(fixtureBridge(), operationsServing([FILESYSTEM])));
+    const { container } = render(mcpPageTree(fixtureBridge(), operationsServing([FILESYSTEM])));
     expect(container.textContent).toContain("servers this node governs");
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(0);
   });
 
   it("lists one row per scope-qualified binding", async () => {
-    const { container } = await renderSettledShell(
+    const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
     );
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(3);
   });
 
   it("renders the daemon's aggregate status rather than folding the legs itself", async () => {
-    const { container } = await renderSettledShell(operationsServing([ISSUE_TRACKER]));
+    const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
     // Its two legs disagree — one `needs-auth`, one `connected` — and the row's own
     // chip carries the daemon's aggregate. A page that folded the legs by eye would
     // have had to pick one of them.
@@ -205,14 +205,16 @@ describe("McpShell", () => {
   });
 
   it("renders names where the wire carries names, and no value anywhere", async () => {
-    const { container } = await renderSettledShell(operationsServing([FILESYSTEM, ISSUE_TRACKER]));
+    const { container } = await renderSettledMcpPage(
+      operationsServing([FILESYSTEM, ISSUE_TRACKER]),
+    );
     expect(container.textContent).toContain("Environment variables read");
     expect(container.textContent).toContain("Headers sent");
     expect(container.textContent).toContain("Bearer token read from");
   });
 
   it("withholds the trust control on the row whose trust store could not be read", async () => {
-    const { container } = await renderSettledShell(
+    const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
     );
     const degradedRow = rowNamed(container, "scratchpad");
@@ -225,7 +227,7 @@ describe("McpShell", () => {
   // The negative control for the case above: every other row DOES offer it, so the
   // withholding is about that row's arm and not about the page having no control.
   it("offers the trust control on the rows whose trust arm arrived", async () => {
-    const { container } = await renderSettledShell(
+    const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
     );
     const trustButtons = [...container.querySelectorAll("button")].filter((button) =>
@@ -235,14 +237,14 @@ describe("McpShell", () => {
   });
 
   it("names no invented status on the degraded row", async () => {
-    const { container } = await renderSettledShell(operationsServing([SCRATCHPAD]));
+    const { container } = await renderSettledMcpPage(operationsServing([SCRATCHPAD]));
     const degradedRow = rowNamed(container, "scratchpad");
     expect(degradedRow?.textContent).toContain("could not be read");
     expect(degradedRow?.textContent).not.toContain("No tool on this binding carries an override");
   });
 
   it("renders a partial application: one leg applied, one failed", async () => {
-    const { container, bridge } = await renderSettledShell(operationsServing([FILESYSTEM]));
+    const { container, bridge } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(bridge);
     expect(container.textContent).toContain("live_reconcile");
@@ -251,7 +253,7 @@ describe("McpShell", () => {
 
   it("sends the key the caller minted for that press", async () => {
     const sendEnabled = vi.fn(async () => await Promise.resolve(PARTIAL_APPLICATION));
-    const { container, bridge } = await renderSettledShell(
+    const { container, bridge } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM], { sendEnabled }),
       () => "one-press",
     );
@@ -264,12 +266,12 @@ describe("McpShell", () => {
   });
 
   it("draws the empty inventory as an ordinary state rather than a failure", async () => {
-    const { container } = await renderSettledShell(operationsServing([]));
+    const { container } = await renderSettledMcpPage(operationsServing([]));
     expect(container.textContent).toContain("governs no MCP servers");
   });
 
   it("draws the refusal where the inventory read could not be put", async () => {
-    await renderSettledShell(
+    await renderSettledMcpPage(
       operationsServing([], {
         listInventory: async () => await Promise.reject(new Error("the daemon is unreachable")),
       }),
@@ -280,7 +282,7 @@ describe("McpShell", () => {
 
 /** Operations whose enablement mutation answers only when the case says so. */
 function operationsHoldingTheirMutation(): {
-  readonly operations: McpShellOperations;
+  readonly operations: McpServerOperations;
   readonly answerHeldMutation: () => void;
 } {
   const waiting: ((result: McpMutationResult) => void)[] = [];
@@ -306,13 +308,13 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
   it("shows no outcome from a bridge the mount no longer holds", async () => {
     const superseded = operationsHoldingTheirMutation();
     const supersededBridge = fixtureBridge();
-    const { container, rerender } = render(shellTree(supersededBridge, superseded.operations));
+    const { container, rerender } = render(mcpPageTree(supersededBridge, superseded.operations));
     await settleScheduledRead(supersededBridge);
     fireEvent.click(firstEnableButton(container));
     expect(container.textContent).toContain("Asking the background service to apply this.");
 
     const replacementBridge = fixtureBridge();
-    rerender(shellTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
+    rerender(mcpPageTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
     await settleScheduledRead(replacementBridge);
     // The replacement answered its own inventory, and the superseded bridge's press
     // is not still reported as in flight against it.
@@ -331,7 +333,7 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
   // than about this shell never rendering one.
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
     const held = operationsHoldingTheirMutation();
-    const { container, bridge } = await renderSettledShell(held.operations);
+    const { container, bridge } = await renderSettledMcpPage(held.operations);
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(bridge);
 

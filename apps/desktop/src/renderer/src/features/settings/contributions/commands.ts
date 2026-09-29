@@ -64,7 +64,7 @@ export function buildBridgeCommands(
         // Requests the check and returns. The updater's own state arrives through
         // `update.subscribe`, which belongs to whichever surface renders it — a
         // command that awaited an outcome here would be a second reader of a state
-        // machine the shell already observes.
+        // machine the main process already observes.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
           bridge.update.requestCheck(),
         );

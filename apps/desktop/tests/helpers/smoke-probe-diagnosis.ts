@@ -330,7 +330,7 @@ export function diagnoseMissingProbe(result: SpawnResult): string {
 // what the real failure would print rather than a re-implementation of it.
 export function renderReadinessFailure(result: SpawnResult): string {
   return (
-    `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
+    `Desktop main process never became ready: ${diagnoseMissingProbe(result)}\n` +
     `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(result.spawnBudgetMs)}ms.\n` +
     `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
     renderDiagnosticDump(result)

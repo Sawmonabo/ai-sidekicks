@@ -11,7 +11,7 @@
 // declared in `vitest/tier-projects.ts` and spread below — there is no
 // `playwright.config.ts` anywhere in this repository, and the two tiers that
 // need a real Electron window do not want one: `e2e` and `endurance` run in a
-// NODE environment where the test file is the DRIVER, and they launch the shell
+// NODE environment where the test file is the DRIVER, and they launch the main process
 // through `tests/helpers/electron-harness.ts`,
 // which holds the single `_electron` call site. Playwright is a library on both
 // halves of this package rather than a second runner — browser mode drives it

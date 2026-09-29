@@ -105,9 +105,9 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // push signal fewer and never as a failure.
   const retainedSessionStore = useOpenSessionStore(context.sessionStoreRegistry, retainedSessionId);
 
-  // The window's shell condition, read from the store the frame keeps live. One
+  // The window's main process condition, read from the store the frame keeps live. One
   // subscription per window, and this is a reader of it rather than a second one.
-  const shellState = useMainProcessState(context.frameStore);
+  const mainProcessState = useMainProcessState(context.frameStore);
 
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
@@ -115,7 +115,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
     selection,
     retainedSessionId,
     retainedSessionStore,
-    shellState,
+    mainProcessState,
     uiStateStore: context.uiStateStore,
     chooseScheme: context.chooseScheme,
   };

@@ -3,7 +3,7 @@
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped shell, and
+// tiers. None of them can catch a defect that exists only in the shipped app, and
 // this tier runs the code path a person installing the application would run.
 //
 // ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`

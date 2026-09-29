@@ -9,7 +9,7 @@ import {
 } from "@renderer/store/reads/read-triggers.js";
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { MachineSettingsStore, ShellPreferenceCarrier } from "../machine-settings-store.js";
+import type { MachineSettingsStore, MachineSettingsFile } from "../machine-settings-store.js";
 import {
   NOTHING_CHOSEN,
   effectivePreference,
@@ -21,7 +21,7 @@ import { machineSettingsHolder } from "../machine-settings-holder.js";
 /** What a page reads and what it presses. One object, so a row takes one prop set. */
 export interface MachineSettingsBinding {
   readonly snapshot: MachineSettingsSnapshot;
-  /** The effective value: what the carrier holds, or the default. */
+  /** The effective value: what the settings file holds, or the default. */
   readonly isEnabled: (key: MachineSettingKey) => boolean;
   readonly isPending: (key: MachineSettingKey) => boolean;
   readonly choose: (key: MachineSettingKey, enabled: boolean) => void;
@@ -42,8 +42,8 @@ const NO_STORE_HELD: ReadTriggerTarget = {
 };
 
 /**
- * Bind this window's shell preferences over `carrier`, the machine's settings file. The
- * caller holds `carrier` stable, because it is an effect dependency.
+ * Bind this window's machine settings over `settingsFile`, the machine's settings file. The
+ * caller holds `settingsFile` stable, because it is an effect dependency.
  *
  * THE STORE IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER, because acquiring
  * can dispose the store a replaced bridge left behind and a memo is not a safe place
@@ -57,7 +57,7 @@ const NO_STORE_HELD: ReadTriggerTarget = {
  */
 export function useMachineSettings(
   bridge: PlatformBridge,
-  carrier: ShellPreferenceCarrier,
+  settingsFile: MachineSettingsFile,
 ): MachineSettingsBinding {
   // Held against the TRANSPORT, through the console's one holder. The seed reads the
   // pure lookup so the SECOND page to bind in a window opens on the store the first
@@ -69,11 +69,11 @@ export function useMachineSettings(
   >(bridge, undefined, () => machineSettingsHolder.storeIfCurrent(bridge));
 
   useEffect(() => {
-    const store = machineSettingsHolder.acquire(bridge, carrier);
+    const store = machineSettingsHolder.acquire(bridge, settingsFile);
     // Idempotent, so strict mode's second invocation asks nothing twice.
     store.start();
     publishAcquiredStore(store);
-  }, [bridge, carrier, publishAcquiredStore]);
+  }, [bridge, settingsFile, publishAcquiredStore]);
 
   const liveStore = machineSettingsHolder.storeIfCurrent(bridge);
   const store = acquiredStore === liveStore ? acquiredStore : undefined;
@@ -100,7 +100,7 @@ export function useMachineSettings(
       // rather than reads: a press must move a store rather than be swallowed by
       // the frame before the effect ran, and the handler settles on the same store
       // that effect acquired because a press cannot outrun a passive effect.
-      void machineSettingsHolder.acquire(bridge, carrier).choose(key, enabled);
+      void machineSettingsHolder.acquire(bridge, settingsFile).choose(key, enabled);
     },
   };
 }

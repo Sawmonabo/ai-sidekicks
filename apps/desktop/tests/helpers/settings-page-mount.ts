@@ -25,7 +25,7 @@ import type { SettingsPageContext } from "@renderer/features/settings/types.js";
  */
 export interface SettingsPageContextOverrides {
   readonly retainedSessionStore?: SessionStore | undefined;
-  readonly shellState?: MainProcessState | undefined;
+  readonly mainProcessState?: MainProcessState | undefined;
   readonly selection?: string | undefined;
   readonly uiStateStore?: UiStateStore | undefined;
 }
@@ -37,8 +37,8 @@ export interface SettingsPageContextOverrides {
  * window that has opened no session, which several cases exist to drive, and a default
  * would silently answer those with a session id instead.
  *
- * `shellState` defaults to the seeded unreported value rather than to a healthy one: a
- * page mounted by a case that says nothing about the shell is a page in a window nobody
+ * `mainProcessState` defaults to the seeded unreported value rather than to a healthy one: a
+ * page mounted by a case that says nothing about the main process is a page in a window nobody
  * has told anything.
  * A case that renders a degraded arm names its own.
  *
@@ -61,7 +61,7 @@ export function settingsPageContextWith(
     selection: overrides.selection,
     retainedSessionId,
     retainedSessionStore: overrides.retainedSessionStore,
-    shellState: overrides.shellState ?? UNREPORTED_MAIN_PROCESS_STATE,
+    mainProcessState: overrides.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE,
     uiStateStore: overrides.uiStateStore ?? testUiStateStore(),
     chooseScheme: () => undefined,
   } satisfies SettingsPageContext;

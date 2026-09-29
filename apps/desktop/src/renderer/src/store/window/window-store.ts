@@ -104,7 +104,7 @@ export interface WindowStoreState {
    */
   readonly isWindowFocused: boolean;
   /**
-   * What the shell has reported about itself, folded with this window's own
+   * What the main process has reported about itself, folded with this window's own
    * recovery state.
    *
    * WINDOW STATE AND NOT SESSION STATE, which is why it is here rather than on a
@@ -113,7 +113,7 @@ export interface WindowStoreState {
    * store with the main one — has its own bridge and therefore its own
    * report.
    *
-   * `store/shell/shell-state.ts` owns the vocabulary and the two derivations every reader
+   * `store/window/main-process-state.ts` owns the vocabulary and the two derivations every reader
    * shares; this store owns the one copy. It is here rather than in the frame family
    * because its readers span the DAG in both directions — the palette below the
    * frame, the settings pages and the sessions list above it — and a value declared
@@ -215,12 +215,12 @@ export class WindowStore {
   }
 
   /**
-   * Record what the shell says about itself.
+   * Record what the main process says about itself.
    *
    * Compared before it is written, because the subscription behind it answers with a
    * fresh object per frame: an unguarded write on every heartbeat would re-render
    * every reader of the state for a value that did not move. The comparison is written
-   * over the connection union in `shell-state.ts`, so a new arm fails to compile there
+   * over the connection union in `main-process-state.ts`, so a new arm fails to compile there
    * rather than comparing false forever.
    */
   public publishMainProcessReport(report: MainProcessState): void {

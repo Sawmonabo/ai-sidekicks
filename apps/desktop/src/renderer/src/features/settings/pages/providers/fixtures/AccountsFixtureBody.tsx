@@ -36,7 +36,7 @@ import {
 import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
 
 /** The daemon verbs the shell drives. Held stable by the caller. */
-export interface AccountsShellOperations {
+export interface AccountOperations {
   readonly login: ProviderAccountLoginCall;
   readonly cancelLogin: ProviderAccountLoginCancelCall;
   readonly register: ProviderAccountRegisterCall;
@@ -61,7 +61,7 @@ export function AccountsFixtureBody(props: {
   readonly registry: AccountListReading;
   /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
   readonly requestRegistryRead: () => void;
-  readonly operations: AccountsShellOperations;
+  readonly operations: AccountOperations;
 }): ReactNode {
   const { registry, requestRegistryRead, operations } = props;
   // The scenario's frozen clock under the fixture, the real one otherwise, so an

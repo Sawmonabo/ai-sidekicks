@@ -11,7 +11,7 @@ import {
   ACCOUNT_REGISTRY,
   UNREAD_ACCOUNT_REGISTRY,
   WIRE_LIMIT_IDS,
-  mountShell,
+  mountAccountsPage,
   pressFirstStartControl,
   selectAccount,
   startControls,
@@ -27,25 +27,25 @@ afterEach(() => {
 
 describe("AccountsShell", () => {
   it("draws a loading absence before the registry answers", () => {
-    const { container } = mountShell({ registry: UNREAD_ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: UNREAD_ACCOUNT_REGISTRY });
     expect(container.textContent).toContain("account registry");
     expect(container.querySelectorAll(".meridian-accounts__row")).toHaveLength(0);
   });
 
   it("lists every account the registry holds", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(container.querySelectorAll(".meridian-accounts__row")).toHaveLength(
       ACCOUNT_REGISTRY.accounts.length,
     );
   });
 
   it("says an account has never been observed rather than dating it", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(container.textContent).toContain("Never observed");
   });
 
   it("offers the sign-in the readiness remedy names", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(startControls(container).length).toBeGreaterThan(0);
   });
 
@@ -53,7 +53,7 @@ describe("AccountsShell", () => {
   // remedy at all, so its readiness row offers nothing. One button per remedy-bearing
   // entry, never one per provider.
   it("offers no sign-in on the entry that needs nothing done", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     const readinessRows = container.querySelectorAll(".meridian-accounts__readiness");
     const rowsOfferingSignIn = [...readinessRows].filter((row) =>
       /start sign-in/iu.test(row.textContent ?? ""),
@@ -66,7 +66,7 @@ describe("AccountsShell", () => {
   // own row. A limit identifier is the provider's spelling and never reaches the screen:
   // a row is named by the provider's label, or by its window length where it gave none.
   it("renders one quota row per limit and draws no limit identifier", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(container.querySelectorAll(".meridian-accounts__quota tbody tr")).toHaveLength(3);
     for (const limitId of WIRE_LIMIT_IDS) {
       expect(container.textContent).not.toContain(limitId);
@@ -74,7 +74,7 @@ describe("AccountsShell", () => {
   });
 
   it("marks a reading taken under an older credential generation", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     // The account is chosen rather than assumed: a stale reading belongs to the entry
     // whose generation has moved past its last probe, and the detail under the list is
     // one account's.
@@ -84,7 +84,7 @@ describe("AccountsShell", () => {
   });
 
   it("offers a token field that is write-only and starts empty", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     const tokenInput = container.querySelector<HTMLInputElement>('input[type="password"]');
     expect(tokenInput).not.toBeNull();
     expect(tokenInput?.value).toBe("");
@@ -94,7 +94,7 @@ describe("AccountsShell", () => {
   // and no other field on the form is masked. The negative control is the label
   // field, which is ordinary text input and must stay that way.
   it("masks the token field and nothing else", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(container.querySelectorAll('input[type="password"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[type="text"]').length).toBeGreaterThan(0);
   });
@@ -103,7 +103,7 @@ describe("AccountsShell", () => {
   // the control would send a second start, and the operator would lose the code they
   // were typing and the only way to stop the flow.
   it("stops offering a start while a sign-in is running, and says what is holding it", async () => {
-    const { container } = mountShell({
+    const { container } = mountAccountsPage({
       registry: ACCOUNT_REGISTRY,
       operations: accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }),
     });
@@ -127,7 +127,7 @@ describe("AccountsShell", () => {
   // controls are pressable, so the assertion is about the flow rather than about a
   // page that never offered a sign-in at all.
   it("offers a pressable start before anything is running", () => {
-    const { container } = mountShell({ registry: ACCOUNT_REGISTRY });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
     expect(startControls(container).length).toBeGreaterThan(0);
     for (const control of startControls(container)) {
       expect(control.disabled).toBe(false);

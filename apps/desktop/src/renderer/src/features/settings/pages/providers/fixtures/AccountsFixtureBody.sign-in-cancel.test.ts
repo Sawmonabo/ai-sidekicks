@@ -17,11 +17,11 @@ import {
 } from "./account-plane-bridge.test-support.js";
 import {
   ACCOUNT_REGISTRY,
-  mountShell,
+  mountAccountsPage,
   pressFirstStartControl,
   registryReportingCompleted,
   startControls,
-  type MountedShell,
+  type MountedAccountsPage,
 } from "./accounts-fixture-body.test-support.js";
 
 afterEach(() => {
@@ -31,8 +31,8 @@ afterEach(() => {
 const SIGN_IN_CARD = '[aria-label="Sign-in in progress"]';
 
 /** Mount the shell with a start and a cancel that answer, and press its start once. */
-async function mountWithLiveSignIn(): Promise<MountedShell> {
-  const mounted = mountShell({
+async function mountWithLiveSignIn(): Promise<MountedAccountsPage> {
+  const mounted = mountAccountsPage({
     registry: ACCOUNT_REGISTRY,
     operations: accountPlaneCalls({
       login: PROVIDER_SIGN_IN_ATTEMPT,

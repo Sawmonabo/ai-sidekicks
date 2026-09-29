@@ -72,14 +72,14 @@ export interface SettingsPageContext {
    */
   readonly retainedSessionStore: SessionStore | undefined;
   /**
-   * What this window has been told about the shell it is running against.
+   * What this window has been told about the main process it is running against.
    *
    * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
    * subscription for it and every consumer — the frame's chip, the palette's
    * read-only line, and the local-runtime page — renders the same value, so the three
    * surfaces cannot report different supervisor states in one window.
    */
-  readonly shellState: MainProcessState;
+  readonly mainProcessState: MainProcessState;
   /**
    * This window's durable store, for the one page that reports on the store itself.
    *

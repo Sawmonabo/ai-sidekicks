@@ -4,8 +4,8 @@
 // focus, on reconnect, and on the terminal events the owning surface names. Three of
 // those four were wired and the third was not — `RefreshReason` named `reconnect`, one
 // session-scoped producer raised it from a session store's own repair edge, and a
-// window-scoped reading (this node's diagnostics, this node's accounts, the shell's
-// preferences) had no session, therefore no repair edge, and therefore no reconnect at
+// window-scoped reading (this node's diagnostics, this node's accounts, the machine's
+// settings) had no session, therefore no repair edge, and therefore no reconnect at
 // all.
 //
 // WHY THE INTERFACE IS HERE AND THE EMITTER IS NOT

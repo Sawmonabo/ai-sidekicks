@@ -1,7 +1,7 @@
-// The store that folds one carrier's answers into a shell preference snapshot.
+// The store that folds the settings file's answers into a machine settings snapshot.
 //
-// The vocabulary it folds into is `shell-preference-snapshot.ts`; who owns a store for
-// how long, and how React acquires one, is `shell-preferences-holder.ts`.
+// The vocabulary it folds into is `machine-settings-snapshot.ts`; who owns a store for
+// how long, and how React acquires one, is `machine-settings-holder.ts`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
@@ -23,7 +23,7 @@ import {
 /**
  * The machine's settings file, as the store reads and writes it.
  */
-export interface ShellPreferenceCarrier {
+export interface MachineSettingsFile {
   readonly read: () => Promise<Readonly<Record<string, boolean>>>;
   readonly write: (request: {
     readonly key: MachineSettingKey;
@@ -32,27 +32,27 @@ export interface ShellPreferenceCarrier {
 }
 
 /**
- * The shell preference set for one window.
+ * The machine settings for one window.
  *
  * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
- * it owns a read, a write generation, and a teardown. {@link useShellPreferences} is
+ * it owns a read, a write generation, and a teardown. {@link useMachineSettings} is
  * the React binding and holds nothing of its own.
  */
 export class MachineSettingsStore implements ReadTriggerTarget {
   /** No terminal event refreshes this read; the window triggers are the whole story. */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
-  readonly #carrier: ShellPreferenceCarrier;
-  readonly #changes = new Emitter<void>("shell preference change");
+  readonly #settingsFile: MachineSettingsFile;
+  readonly #changes = new Emitter<void>("machine settings change");
   #snapshot: MachineSettingsSnapshot = NOTHING_CHOSEN;
   #started = false;
   #disposed = false;
   /**
    * Which acts this store has in flight, keyed by what each one is an act ON.
    *
-   * SUPERSESSION BETWEEN WRITES IS PER KEY, because the carrier's write is per key:
-   * `shellConfigWrite` takes one key and leaves the others alone, so choosing B while
+   * SUPERSESSION BETWEEN WRITES IS PER KEY, because the settings file's write is per key:
+   * The settings file's write takes one key and leaves the others alone, so choosing B while
    * A is in flight replaces nothing of A's. Sharing one round made B's choice discard
-   * A's settlement, leaving the carrier holding a value this window went on rendering
+   * A's settlement, leaving the settings file holding a value this window went on rendering
    * the old one for — for the rest of the window, since this store reads once and
    * never refreshes. Keying the latch on the preference key states that directly,
    * which is the shape it was built for.
@@ -74,8 +74,8 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   readonly #pendingWriteKeys = new Set<MachineSettingKey>();
   readonly #scheduler: RefreshScheduler;
 
-  public constructor(bridge: PlatformBridge, carrier: ShellPreferenceCarrier) {
-    this.#carrier = carrier;
+  public constructor(bridge: PlatformBridge, settingsFile: MachineSettingsFile) {
+    this.#settingsFile = settingsFile;
     this.#scheduler = new RefreshScheduler({
       clock: resolveBridgeClock(bridge),
       perform: async () => {
@@ -93,7 +93,7 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   }
 
   /**
-   * Read the carrier on mount.
+   * Read the settings file on mount.
    *
    * Idempotent, because React mounts an effect twice under strict mode — and the
    * scheduler behind {@link requestRead} collapses the pair in any case.
@@ -135,7 +135,7 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   /**
    * Choose one preference.
    *
-   * The value is offered to the carrier and applied on its answer. A second press while
+   * The value is offered to the settings file and applied on its answer. A second press while
    * one is in flight supersedes it rather than queueing behind it. A rejected write is
    * not caught; the key stops pending and the stored value stands.
    */
@@ -150,7 +150,7 @@ export class MachineSettingsStore implements ReadTriggerTarget {
     });
     let isApplied = false;
     try {
-      await this.#carrier.write({ key, enabled });
+      await this.#settingsFile.write({ key, enabled });
       isApplied = true;
     } finally {
       if (this.#settle(key, write)) {
@@ -184,15 +184,15 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   /**
    * The opening read, whose result a later choice discards rather than installs.
    *
-   * A read that settled after a choice would replace the carrier's whole record with
-   * the snapshot from before it, and the switch would revert moments after the carrier
+   * A read that settled after a choice would replace the settings file's whole record with
+   * the snapshot from before it, and the switch would revert moments after the settings file
    * took it. Discarding costs the other keys their stored values until the next read.
    */
   async #read(): Promise<void> {
     // A joiner's handle rather than a taken key: this read holds nothing a later act
     // has to wait for, and settling through it ends the round it minted.
     const opening = this.#acts.currentClaim(this, OPENING_READ_KEY);
-    const values = await this.#carrier.read();
+    const values = await this.#settingsFile.read();
     if (this.#disposed) {
       return;
     }

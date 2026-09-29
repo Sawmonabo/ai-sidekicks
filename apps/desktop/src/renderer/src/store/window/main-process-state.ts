@@ -1,4 +1,4 @@
-// What the shell knows about itself.
+// What the main process knows about itself.
 //
 // The console's honest chrome has three facts behind it and they arrive together:
 // which step of the daemon supervisor's own state machine this window is on, which
@@ -18,7 +18,7 @@
 // the comparison every consumer shares.
 //
 // THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries the
-// shell's status yet, so the ordinary state of a shipped window is "nobody has said".
+// main process's status yet, so the ordinary state of a shipped window is "nobody has said".
 // That is not `connected` and it is not `offline`: a window that synthesised
 // `connected` from a call that happened to succeed would be doing exactly what the
 // console's trust stance forbids, and one that assumed `offline` would report a working
@@ -34,7 +34,7 @@
  * verdict the daemon reached, and a floor comparison performed here would be the
  * second source of truth the corpus forbids.
  */
-export interface ShellNegotiation {
+export interface MainProcessNegotiation {
   readonly compatible: boolean;
   /** The daemon's chosen protocol version, verbatim. */
   readonly daemonProtocolVersion: string;
@@ -84,7 +84,7 @@ export type DaemonConnection =
 export type DaemonTransport = "os-local" | "loopback";
 
 /** Whether long-lived auth material can be persisted at all on this host. */
-export type ShellKeystoreState = "available" | "unavailable";
+export type MainProcessKeystoreState = "available" | "unavailable";
 
 /**
  * The whole report, as one window holds it.
@@ -103,11 +103,11 @@ export interface MainProcessState {
    * version a connected runtime speaks. One home for the handshake's facts means a
    * surface never has to ask which arm it may read the version from.
    */
-  readonly negotiation: ShellNegotiation | undefined;
+  readonly negotiation: MainProcessNegotiation | undefined;
   /** The last heartbeat the supervisor observed, verbatim from the wire. */
   readonly lastHeartbeatAt: string | undefined;
   readonly transport: DaemonTransport | undefined;
-  readonly keystore: ShellKeystoreState | undefined;
+  readonly keystore: MainProcessKeystoreState | undefined;
 }
 
 /** What a window holds before anything has reported. The store is born on it. */
@@ -137,8 +137,8 @@ export function mainProcessReportsAreEqual(
     left.lastHeartbeatAt === right.lastHeartbeatAt &&
     left.transport === right.transport &&
     left.keystore === right.keystore &&
-    shellNegotiationsAreEqual(left.negotiation, right.negotiation) &&
-    shellConnectionsAreEqual(left.connection, right.connection)
+    mainProcessNegotiationsAreEqual(left.negotiation, right.negotiation) &&
+    daemonConnectionsAreEqual(left.connection, right.connection)
   );
 }
 
@@ -170,7 +170,7 @@ export function describeDaemonConnection(connection: DaemonConnection): string {
   }
 }
 
-function shellConnectionsAreEqual(left: DaemonConnection, right: DaemonConnection): boolean {
+function daemonConnectionsAreEqual(left: DaemonConnection, right: DaemonConnection): boolean {
   if (left.kind !== right.kind) {
     return false;
   }
@@ -199,9 +199,9 @@ function shellConnectionsAreEqual(left: DaemonConnection, right: DaemonConnectio
 }
 
 /** The handshake's facts, compared member by member. Absent equals absent. */
-function shellNegotiationsAreEqual(
-  left: ShellNegotiation | undefined,
-  right: ShellNegotiation | undefined,
+function mainProcessNegotiationsAreEqual(
+  left: MainProcessNegotiation | undefined,
+  right: MainProcessNegotiation | undefined,
 ): boolean {
   if (left === undefined || right === undefined) {
     return left === right;

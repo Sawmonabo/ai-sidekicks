@@ -31,7 +31,7 @@ function contextFor(): SettingsPageContext {
     openPage: () => undefined,
     retainedSessionId: undefined,
     retainedSessionStore: undefined,
-    shellState: UNREPORTED_MAIN_PROCESS_STATE,
+    mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     selection: undefined,
     uiStateStore: testUiStateStore(),
     chooseScheme: () => undefined,

@@ -3,7 +3,7 @@
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped shell, and
+// tiers. None of them can catch a defect that exists only in the shipped app, and
 // this tier runs the code path a person installing the application would run.
 //
 // ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
@@ -12,7 +12,7 @@
 // timeouts are read from a test context this runner does not provide. Waiting is
 // explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
 //
-// THE INCIDENT: the shell opened a window and the console was not in it.
+// THE INCIDENT: the main process opened a window and the console was not in it.
 //
 // Two shapes of the same report, and the seams they land on are different. The window
 // is served from a scheme that was never registered as standard, so the document has

@@ -1,4 +1,4 @@
-// The supervisor states the shell suite drives over.
+// The supervisor states the main-process suites drive over.
 
 import type { DaemonConnection } from "@renderer/store/window/main-process-state.js";
 

@@ -1,4 +1,4 @@
-// What the shell reported, and whether two reports say the same thing.
+// What the main process reported, and whether two reports say the same thing.
 
 import { describe, expect, it } from "vitest";
 
@@ -7,7 +7,7 @@ import {
   mainProcessReportsAreEqual,
   type MainProcessState,
 } from "./main-process-state.js";
-import { REPORTED_CONNECTIONS } from "@test/helpers/shell-states.js";
+import { REPORTED_CONNECTIONS } from "@test/helpers/main-process-states.js";
 
 describe("describeDaemonConnection", () => {
   it("answers a non-empty sentence for every supervisor state", () => {

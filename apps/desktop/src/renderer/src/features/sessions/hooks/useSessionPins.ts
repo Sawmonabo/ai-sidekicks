@@ -17,7 +17,7 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
  * This window's pin map, held for as long as the window is open.
  *
  * ONE HOLDER PER WINDOW AND NOT ONE PER MOUNT, on the precedent
- * `settings/shared/shell-preferences/shell-preferences-holder.ts` states in its own
+ * `features/settings/machine-settings/machine-settings-holder.ts` states in its own
  * words: module scope IS window scope here, since an auxiliary window is its own
  * renderer process and no channel joins two windows' module graphs. Minted inside the
  * hook instead, a second visit to the sessions destination built a second store over

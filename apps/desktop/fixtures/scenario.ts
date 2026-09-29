@@ -78,7 +78,7 @@ export interface Scenario {
    */
   readonly refusesSubmittedResumeCursor?: boolean;
   /**
-   * What the shell's updater reports, where the scenario states one.
+   * What the main process's updater reports, where the scenario states one.
    *
    * OPTIONAL, and the default is a bare `idle` carrying no last-check instant. That
    * default is load-bearing rather than incidental: `UpdateState`'s `idle` arm carries

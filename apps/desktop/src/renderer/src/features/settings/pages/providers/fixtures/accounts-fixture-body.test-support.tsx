@@ -23,11 +23,11 @@ import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,
-  type AccountsShellOperations,
+  type AccountOperations,
 } from "./AccountsFixtureBody.js";
 
 /** A mounted shell, and the handles a case needs to change what it is handed. */
-export interface MountedShell {
+export interface MountedAccountsPage {
   readonly container: HTMLElement;
   /** Re-render the same mount with another registry reading. */
   readonly showRegistry: (registry: AccountListReading) => void;
@@ -167,12 +167,12 @@ export function registryReportingCompleted(attemptId: string): AccountListReadin
  * A verb the case does not supply never answers. The operations object is created once so
  * a re-render does not rebuild the sign-in plane.
  */
-export function mountShell(options: {
+export function mountAccountsPage(options: {
   readonly registry: AccountListReading;
-  readonly operations?: Partial<AccountsShellOperations>;
-}): MountedShell {
+  readonly operations?: Partial<AccountOperations>;
+}): MountedAccountsPage {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
-  const operations: AccountsShellOperations = {
+  const operations: AccountOperations = {
     login: () => NEVER_SETTLES,
     cancelLogin: () => NEVER_SETTLES,
     register: () => NEVER_SETTLES,
