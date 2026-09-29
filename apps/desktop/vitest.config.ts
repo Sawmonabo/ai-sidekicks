@@ -25,6 +25,7 @@ import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
 import { CONSOLE_TIER_PROJECTS } from "./vitest/console-projects";
+import { PATH_ALIASES } from "./vitest/path-aliases";
 
 export default defineConfig({
   test: {
@@ -44,6 +45,7 @@ export default defineConfig({
     }),
     projects: [
       {
+        resolve: { alias: PATH_ALIASES },
         test: {
           name: "main",
           environment: "node",
@@ -116,6 +118,7 @@ export default defineConfig({
         // (vitest-dev/vitest#8431). Conditions replace vitest's defaults, so
         // `import` / `default` are re-listed.
         resolve: {
+          alias: PATH_ALIASES,
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },
         ssr: {

@@ -305,7 +305,7 @@ export { payloadNamesSession } from "./wire-session-attribution.js";
 // unknown into displayable text. Until this line existed the door published nothing for
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
-export { lossyStringify } from "../../../../shared/wire-errors.js";
+export { lossyStringify } from "@shared/wire-errors.js";
 
 // The leaf's code-scoped envelope reader, re-published on exactly the reasoning above.
 //
@@ -316,7 +316,7 @@ export { lossyStringify } from "../../../../shared/wire-errors.js";
 // propagate out of the `catch` that exists to classify the failure. The store family
 // sits below `bridge/` and may not reach `src/shared/` itself, so it takes the reader
 // through the floor that already owns this leaf's vocabulary.
-export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js";
+export { readWireErrorEnvelopeWithCode } from "@shared/wire-errors.js";
 
 // The shell's shutdown budget, on the same rule and for the same reason. It is
 // DECLARED in `src/shared/shutdown-budget.ts` because the main process's quit path

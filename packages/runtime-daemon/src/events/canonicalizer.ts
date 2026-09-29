@@ -683,7 +683,7 @@ function assertNoToJsonOverride(value: unknown): void {
  * WHY A REGEX AND NOT `String.prototype.isWellFormed()`. The platform primitive is
  * the ES2024 spelling of exactly this predicate and would be the obvious choice,
  * but it does not typecheck here: the repo compiles at `lib: ["es2023"]`
- * (`tsconfig.node22.json`, inherited by both the src and the test project), and
+ * (`tsconfig.node.json`, inherited by both the src and the test project), and
  * referencing it fails with TS2550 — verified by compiling it, not assumed. Moving
  * the repo-wide lib floor to `es2024` for one guard is a toolchain change with a
  * far wider blast radius than the four lines below, and a `@ts-expect-error` cast

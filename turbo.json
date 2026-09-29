@@ -6,7 +6,7 @@
   },
   "globalDependencies": [
     "tsconfig.base.json",
-    "tsconfig.node22.json",
+    "tsconfig.node.json",
     "tsconfig.node24.json",
     "eslint.config.mjs"
   ],

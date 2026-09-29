@@ -12,10 +12,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  lossyStringify,
-  UNREPRESENTABLE_VALUE_TEXT,
-} from "../../../../../../shared/wire-errors.js";
+import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "@shared/wire-errors.js";
 import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
 import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";

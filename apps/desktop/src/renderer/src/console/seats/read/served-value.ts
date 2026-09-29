@@ -17,7 +17,7 @@ import {
   normalizeWireRejection,
   type ConsoleRefusal,
 } from "../../core/index.js";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "@shared/wire-errors.js";
 import type { DaemonReply } from "../../bridge/index.js";
 import { READ_FAILED } from "./read-failure-codes.js";
 

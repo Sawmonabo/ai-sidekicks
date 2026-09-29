@@ -5,7 +5,7 @@
   // `dist/`; integration tests under `test/` are outside the production
   // `include` glob entirely. This config covers BOTH via a `noEmit` typecheck
   // pass — `rootDir` widens to the package root so `test/**/*` is in-scope.
-  "extends": "../../tsconfig.node22.json",
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",

@@ -21,7 +21,7 @@
 //     refused is still offered, and its refusal is rendered when it comes back:
 //     offer, then render the refusal.
 
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
+import { lossyStringify } from "@shared/wire-errors.js";
 
 import { KeyedRegistry, PALETTE_RECENTS_CAP } from "../../core/index.js";
 import type { ConsoleCommand } from "./contributions.js";

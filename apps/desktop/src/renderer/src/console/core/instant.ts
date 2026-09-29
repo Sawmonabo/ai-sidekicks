@@ -49,7 +49,7 @@
 // represent one, so it reads as malformed here. Nothing this console talks to emits
 // one, and it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
 
-import { lossyStringify } from "../../../../shared/wire-errors.js";
+import { lossyStringify } from "@shared/wire-errors.js";
 
 /**
  * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,

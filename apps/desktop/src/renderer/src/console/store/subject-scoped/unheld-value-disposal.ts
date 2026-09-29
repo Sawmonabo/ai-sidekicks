@@ -44,7 +44,7 @@
 // render commits, and a live effect is holding it at that moment; handing it here
 // would ask a caller to release what it is still reading through.
 
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "@shared/wire-errors.js";
 
 import { reportTripwire } from "../../core/index.js";
 

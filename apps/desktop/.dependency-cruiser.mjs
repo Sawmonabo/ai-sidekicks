@@ -10,10 +10,9 @@
 // Resolution runs through `enhanced-resolve` with an explicit extension list, NOT through
 // `--ts-config`. dependency-cruiser resolves a tsconfig's `extends` chain against the process
 // directory rather than against the tsconfig's own directory, so a tsconfig whose `extends`
-// climbs above its package only loads when the cruise runs from that exact directory — and this
-// tree declares no path aliases, so the flag would buy a working-directory constraint and
-// nothing else. The extension list is what makes this tree's `./foo.js` specifiers resolve to
-// `foo.ts` sources.
+// climbs above its package only loads when the cruise runs from that exact directory. The path
+// aliases come from `tsconfig.paths.json`, which extends nothing, so it has no such chain. The
+// extension list is what makes this tree's `./foo.js` specifiers resolve to `foo.ts` sources.
 //
 // Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`.
 //
@@ -438,5 +437,6 @@ export default {
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],
     },
+    tsConfig: { fileName: "tsconfig.paths.json" },
   },
 };

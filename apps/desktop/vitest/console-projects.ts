@@ -39,6 +39,7 @@ import {
   SCREENSHOT_TIER_TIMEOUT_MS,
 } from "./screenshot-pins.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
+import { PATH_ALIASES } from "./path-aliases.js";
 
 // ALWAYS WRITE, NEVER COMPARE. Called while this module is evaluated, which is while
 // Vitest resolves its configuration and before any project's snapshot mode is decided,
@@ -259,14 +260,18 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
 ];
 
 /**
- * The same tiers, each resolving `~icons/*`.
+ * The same tiers, each resolving `~icons/*` and the path aliases.
  *
- * Declared as a map rather than as a `plugins` line repeated per tier, because
- * a tier that forgot the line would fail at import with a specifier no reader
- * could place — and it would fail only for the tiers that happen to render a
- * glyph, which is a hole nothing reports. A fresh plugin per tier: a Vite
- * plugin instance belongs to the config that installs it.
+ * Declared as a map rather than as lines repeated per tier, because a tier that
+ * forgot one would fail at import with a specifier no reader could place — and
+ * only for the tiers that happen to reach it, which is a hole nothing reports. A
+ * fresh plugin per tier: a Vite plugin instance belongs to the config that
+ * installs it.
  */
 export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = CONSOLE_TIERS.map(
-  (tier) => ({ ...tier, plugins: [iconCompilationPlugin()] }),
+  (tier) => ({
+    ...tier,
+    resolve: { ...tier.resolve, alias: PATH_ALIASES },
+    plugins: [iconCompilationPlugin()],
+  }),
 );

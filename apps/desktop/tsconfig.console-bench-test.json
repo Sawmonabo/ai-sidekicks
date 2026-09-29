@@ -26,7 +26,7 @@
   // `document` is a defect the compiler should still catch. That is the
   // architecture and Electron configs' own stated reasoning and it applies here
   // unchanged.
-  "extends": "../../tsconfig.node22.json",
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     // The `isolatedDeclarations` pairing the sibling configs document: the base

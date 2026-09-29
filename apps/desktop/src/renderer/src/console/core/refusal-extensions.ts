@@ -36,7 +36,7 @@
 // of one, and `wire-rejection.ts` classifies on them — a member in both places would
 // be read twice and could be classified one way and rebuilt another.
 
-import { readGuardedProperty } from "../../../../shared/wire-errors.js";
+import { readGuardedProperty } from "@shared/wire-errors.js";
 
 import { parseInstant } from "./instant.js";
 import type { ConsoleRefusal } from "./refusal.js";

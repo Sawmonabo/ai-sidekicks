@@ -20,7 +20,7 @@ import {
   nullPrototypeValue,
   readableOnce,
   revokedProxy,
-} from "../../../../shared/wire-errors.test-support.js";
+} from "@shared/wire-errors.test-support.js";
 import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   // Electron renderer-process target — browser-context (React 19, no Node types).
-  // Extends `tsconfig.base.json` DIRECTLY (not tsconfig.node22.json) because the
+  // Extends `tsconfig.base.json` DIRECTLY (not tsconfig.node.json) because the
   // renderer runs in a Chromium V8 environment, not Node. DOM lib types are
   // required; Node types are explicitly excluded (no `types: ["node"]`).
   //
@@ -17,7 +17,7 @@
   // bundle failure. Renderer test files are typechecked by the sibling
   // `tsconfig.test.json` (noEmit, `composite: false`) so they never enter the
   // `tsc -b` composite-references walk.
-  "extends": "../../../../tsconfig.base.json",
+  "extends": ["../../../../tsconfig.base.json", "../../tsconfig.paths.json"],
   "compilerOptions": {
     "target": "es2023",
     "lib": ["es2023", "dom", "dom.iterable"],

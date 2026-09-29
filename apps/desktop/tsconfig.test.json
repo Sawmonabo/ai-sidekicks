@@ -11,7 +11,7 @@
   // and broaden `include` to also accept `test/**/*`. The narrower `dist`
   // / `node_modules` excludes remain; `rootDir` is omitted so TS infers it
   // as the longest common ancestor of the include set.
-  "extends": "../../tsconfig.node22.json",
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     // `isolatedDeclarations` (inherited from base) requires either `declaration`

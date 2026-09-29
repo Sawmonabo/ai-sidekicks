@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { everyTrapThrows, readableOnce } from "../../../../shared/wire-errors.test-support.js";
+import { everyTrapThrows, readableOnce } from "@shared/wire-errors.test-support.js";
 import {
   CONSOLE_REFUSAL_EXTENSION_MEMBERS,
   readRefusalExtensions,

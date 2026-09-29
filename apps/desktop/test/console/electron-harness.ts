@@ -32,10 +32,10 @@
 // A CI runner without a display server needs an X server. `_electron.launch`
 // takes an executable path rather than a shell command, so a per-spawn
 // `xvfb-run` wrapper is not available the way it is for the smoke test's
-// `spawn` — and it is not wanted either: the `test-node22` job stands one Xvfb up for
+// `spawn` — and it is not wanted either: the `desktop` job stands one Xvfb up for
 // the whole run and exports `$DISPLAY` to every later step, which both tiers
 // inherit through `process.env`. They run in the aggregate `test` script's last
-// group and in that job's desktop step, both on the fixture build.
+// group and in that job's Electron leg, both on the fixture build.
 //
 // That display is not a GL driver, and a hosted runner has no GPU behind it, so
 // the software graphics stack such a host needs is stated in the launch's own

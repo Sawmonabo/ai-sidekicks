@@ -18,7 +18,7 @@
   // Reached by the package `typecheck` script in the same commit, per the
   // desktop structure rule that a new `tsconfig*.json` no script or `references`
   // entry reaches is a config that checks nothing.
-  "extends": "../../tsconfig.node22.json",
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "./scripts",

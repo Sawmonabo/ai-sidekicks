@@ -10,7 +10,7 @@
   // from double-counting the renderer files under this config's Node settings
   // (which would re-trigger TS17004 / TS6142 / TS2584 by stripping the renderer
   // of JSX + DOM lib).
-  "extends": "../../tsconfig.node22.json",
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",

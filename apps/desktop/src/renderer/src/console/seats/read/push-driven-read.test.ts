@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
+import { lossyStringify } from "@shared/wire-errors.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import { PushDrivenRead } from "./push-driven-read.js";
 import { PUSH_DRIVEN_READ_FAILURE_CODES } from "./read-failure-codes.js";

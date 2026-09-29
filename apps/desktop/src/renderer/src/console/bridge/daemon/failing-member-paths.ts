@@ -5,7 +5,7 @@
 // one reading it takes of a validator's error object — a different job with a
 // different hazard, and together they were one file past the package's ceiling.
 
-import { lossyStringify, readGuardedProperty } from "../../../../../shared/wire-errors.js";
+import { lossyStringify, readGuardedProperty } from "@shared/wire-errors.js";
 
 /**
  * How many failing member paths a refusal sentence names before it stops.

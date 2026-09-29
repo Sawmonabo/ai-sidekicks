@@ -156,15 +156,15 @@ const RENDERER_RESTRICTED_PATTERNS = [
       "The renderer is untrusted: daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.desktopBridge`).",
   },
   {
-    // Relative-path escape into the main/preload subtrees. `**` matches
-    // zero-or-more path segments so this catches any depth: `../main/x`,
-    // `../../main/x`, `../../../main/x`, etc., and the same for `preload`. The
+    // Escape into the main/preload subtrees, relative or through their aliases. `**`
+    // matches zero-or-more path segments so this catches any depth: `../main/x`,
+    // `../../main/x`, `@main/x`, etc., and the same for `preload`. The
     // renderer-untrusted boundary means renderer source must NEVER reach into
     // another process's source — the only legitimate channel is the
     // preload-exposed `window.desktopBridge` bridge.
-    group: ["**/main/**", "**/preload/**"],
+    group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
     message:
-      "The renderer is untrusted: relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.desktopBridge` bridge.",
+      "The renderer is untrusted: imports into `main/**` or `preload/**`, relative or through `@main` / `@preload`, are forbidden. The renderer's only cross-process surface is the `window.desktopBridge` bridge.",
   },
 ];
 
@@ -560,7 +560,7 @@ export default [
                 "Daemon / control-plane subpaths are forbidden in `src/shared/**`, which is bundled into the renderer.",
             },
             {
-              group: ["**/main/**", "**/preload/**"],
+              group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
               message:
                 "`src/shared/**` is bundled into the renderer: it must never reach into `main/**` or `preload/**`. Dependencies point the other way: main imports shared, never the reverse.",
             },

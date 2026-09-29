@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "../../../../shared/wire-errors.js";
+import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "@shared/wire-errors.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
 describe("normalizeWireRejection — the detail is a sentence, never the rejection", () => {

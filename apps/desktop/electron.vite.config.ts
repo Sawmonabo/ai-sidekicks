@@ -89,6 +89,7 @@ import {
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/renderer-scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
+import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
@@ -199,6 +200,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
 
   return {
     main: {
+      resolve: { alias: PATH_ALIASES },
       // Vite's `define` is a textual substitution before parsing. The shape
       // `JSON.stringify(boolean)` produces the string `"true"` / `"false"`,
       // which Vite injects as the boolean literal at the use site. Rollup's
@@ -229,6 +231,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     preload: {
+      resolve: { alias: PATH_ALIASES },
       build: {
         outDir: "out/preload",
         sourcemap: "hidden",
@@ -249,6 +252,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     renderer: {
+      resolve: { alias: PATH_ALIASES },
       // The console's icon family, compiled to components at build time rather
       // than fetched or inlined as markup. The options live in one module the
       // Vitest tiers call too — see `vitest/icon-compilation.ts` for why the

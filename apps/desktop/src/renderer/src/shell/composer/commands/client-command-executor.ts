@@ -26,11 +26,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import {
-  isErrorInstance,
-  lossyStringify,
-  readGuardedProperty,
-} from "../../../../../shared/wire-errors.js";
+import { isErrorInstance, lossyStringify, readGuardedProperty } from "@shared/wire-errors.js";
 import { useLatestRef } from "../../../console/primitives/index.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";

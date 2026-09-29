@@ -17,7 +17,7 @@
   // one that happened to also include it, and every explanation either file gave
   // of its own scope was false. A second project over one directory is a second
   // set of compiler options over it.
-  "extends": "../../tsconfig.node22.json",
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     // `isolatedDeclarations` (inherited from base) requires either `declaration`
