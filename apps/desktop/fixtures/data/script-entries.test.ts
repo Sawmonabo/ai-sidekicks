@@ -24,7 +24,7 @@ import {
   RUN_IMPLEMENTER,
   SESSION_ID,
   startedAtMs,
-} from "@renderer/console/bridge/scenario/ledger/ledger-cast.js";
+} from "../scenarios/transcript-states.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,

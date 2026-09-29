@@ -112,7 +112,7 @@ import {
 } from "./endurance-workload.js";
 import { readLedgerWindow } from "./transcript-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The real overscan the viewport is constructed with, so the bound below is the
 // window's own declaration and not a figure this file keeps in step by hand.
 import { LEDGER_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
@@ -443,7 +443,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // is what has to be grown until the ledger overflows.
         expect(
           ledgerWindow.viewportScrollHeightPx,
-          "the flagship script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in bridge/scenario/flagship/flagship.ts until it does",
+          "the flagship script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
         ).toBeGreaterThan(ledgerWindow.viewportClientHeightPx);
         expect(
           ledgerWindow.mountedRowCount,

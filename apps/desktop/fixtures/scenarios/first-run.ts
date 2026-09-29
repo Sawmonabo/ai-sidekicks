@@ -13,7 +13,8 @@
 // honest rendering of a console whose onboarding wire is not registered.
 //
 // Its beat and its replies are held to the shipped wire contract by
-// `scenario/wire-truth/wire-truth.ts`, exactly as the flagship's are; that file's header
+// `tests/helpers/scenario-contract-check/contract-check.ts`, exactly as every other
+// scenario's are; that file's header
 // carries the reasoning, and the two consequences visible here are the same two:
 // the identifiers are the UUIDs the branded id types declare, and `session.created`
 // carries `{sessionId, config, metadata}` — the registered payload — rather than a

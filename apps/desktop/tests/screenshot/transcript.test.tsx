@@ -70,8 +70,8 @@ import {
 import {
   FLAGSHIP_SCENARIO,
   FLAGSHIP_SCENARIO_ID,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import { LEDGER_SCENARIO_ID } from "@renderer/console/bridge/scenario/ledger/ledger.js";
+} from "../../fixtures/scenarios/concurrent-streaming.js";
+import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */

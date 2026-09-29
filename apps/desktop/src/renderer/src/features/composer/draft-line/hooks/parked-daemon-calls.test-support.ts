@@ -18,7 +18,7 @@
 // from `apps/desktop/test/...`.
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { interventionResponse, sendCallsAnswering } from "../send-router.test-support.js";
 

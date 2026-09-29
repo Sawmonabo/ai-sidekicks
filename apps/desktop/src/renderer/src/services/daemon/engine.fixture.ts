@@ -292,7 +292,7 @@ export class ScenarioEngine {
     // entry that is not yet due makes `deliveredBeatCount` and the set actually
     // delivered the same claim, whatever order the script is written in.
     //
-    // Scripts are held to nondecreasing `atMs` by `scenario/wire-truth/wire-truth.ts`, so a
+    // Scripts are held to nondecreasing `atMs` by `tests/helpers/scenario-contract-check/contract-check.ts`, so a
     // shipped scenario reaches here already ordered. This is the runtime half of
     // that pair rather than a restatement of it: the check reports an author error
     // before the scenario ships, and this makes the error cost a late beat instead

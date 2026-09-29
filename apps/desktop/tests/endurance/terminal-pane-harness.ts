@@ -27,7 +27,7 @@ import { expect } from "vitest";
 
 import type { ConsoleApplication } from "../helpers/electron-harness.js";
 import { advanceScenario, readAppliedEventCount } from "./endurance-workload.js";
-import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** The pane kind the address names. The harness is per kind; this row is this one. */
 const MEASURED_PANE_KIND = "terminal";

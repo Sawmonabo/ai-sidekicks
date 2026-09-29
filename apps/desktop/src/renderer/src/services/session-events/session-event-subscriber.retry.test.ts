@@ -22,7 +22,7 @@ import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";

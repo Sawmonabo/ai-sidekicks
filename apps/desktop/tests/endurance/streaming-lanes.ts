@@ -6,14 +6,12 @@
 // sampled window contained four concurrent streaming lanes, and the only thing that
 // can establish it is the script the window played. A constant `4` written into the
 // harness would go on passing over a scenario that had stopped streaming, which is
-// exactly the failure the row exists to catch — and is exactly what the row's first
-// enforced revision did, against a scenario with no assistant beat in it at all.
+// exactly the failure the row exists to catch.
 //
-// It sits beside the scenarios rather than in the endurance tier because two callers
-// need it: that tier's frame-time harness, and the unit test that holds the flagship
-// script to its own claim. A copy in each would be two definitions of "streaming"
-// that drift, and the drift would be silent — both copies would still return a
-// number.
+// Two callers need it: the endurance tier's frame-time harness, and the unit test that
+// holds the concurrent-streaming script to its own claim. A copy in each would be two
+// definitions of "streaming" that drift, and the drift would be silent: both copies
+// would still return a number.
 //
 // WHAT "STREAMING" MEANS HERE, STATED SO IT CANNOT BE WIDENED BY ACCIDENT
 //
@@ -30,7 +28,7 @@
 // state the frame cost being measured actually belongs to.
 //
 // The families are read from the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) rather
-// than from a `kind.startsWith("run.")` test, for the reason `wire-truth.ts` gives:
+// than from a `kind.startsWith("run.")` test, for the reason `tests/helpers/scenario-contract-check/contract-check.ts` gives:
 // the census is the wire's own answer to which family a type is in, and a prefix
 // test is this module's guess at it.
 

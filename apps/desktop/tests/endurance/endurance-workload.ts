@@ -52,7 +52,7 @@ import {
   type ScenarioFixtureHandle,
 } from "../../test/console/fixture-handles.js";
 import { LEDGER_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
  * How every launch in this tier is asked for: the flagship script, and the

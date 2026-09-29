@@ -31,8 +31,7 @@ import {
 import type { ConsoleBridge } from "./platform-bridge.js";
 import { FIXTURE_APP_META, createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
-import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
+import { findScenario } from "../../../../../fixtures/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 
 /**
@@ -51,7 +50,7 @@ function resolveLiveBridgeFrom(installed: unknown): ConsoleBridge | undefined {
 }
 
 function fixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: consoleScenario(FIRST_RUN_SCENARIO_ID) });
+  return createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 }
 
 function shapesOf(left: ConsoleBridge, right: ConsoleBridge): readonly string[] {
@@ -178,17 +177,5 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // And the same object with that namespace intact IS admitted, so the case above
     // fails for the array and not for the way this literal was built.
     expect(resolveLiveBridgeFrom({ ...installed })).toBeDefined();
-  });
-});
-
-describe("the scenario lookup", () => {
-  it("resolves every scenario on the board", () => {
-    for (const scenario of CONSOLE_SCENARIOS) {
-      expect(consoleScenario(scenario.id).id).toBe(scenario.id);
-    }
-  });
-
-  it("negative control: an unknown scenario id is refused rather than defaulted", () => {
-    expect(() => consoleScenario("no-such-scenario")).toThrow(RangeError);
   });
 });

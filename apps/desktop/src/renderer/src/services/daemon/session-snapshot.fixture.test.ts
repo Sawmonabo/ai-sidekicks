@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { ScenarioEngine } from "./engine.fixture.js";
 import { fixtureSessionAnswers } from "./session-answers.fixture.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import type { SessionSnapshot } from "@renderer/store/session/session-store.js";
 
 /** The base state the fixture's session read serves for the flagship's own session. */

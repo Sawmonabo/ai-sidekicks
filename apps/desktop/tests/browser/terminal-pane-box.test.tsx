@@ -31,7 +31,7 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 // what that stylesheet computes to.
 import "@renderer/console/terminal/index.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** A deck slot of a fixed height, which is the only case the rule is about. */
 const SLOT_HEIGHT_PX = 400;

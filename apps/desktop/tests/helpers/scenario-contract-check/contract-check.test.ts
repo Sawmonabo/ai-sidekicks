@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../../fixtures/index.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
@@ -25,6 +25,13 @@ describe("scenario wire truth — the shipped seat board", () => {
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
       ),
     ).toStrictEqual([]);
+  });
+});
+
+describe("the catalog", () => {
+  it("carries unique ids, so the picker and the lookup cannot collide", () => {
+    const ids = CONSOLE_SCENARIOS.map((scenario) => scenario.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

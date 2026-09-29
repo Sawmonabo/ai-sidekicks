@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";

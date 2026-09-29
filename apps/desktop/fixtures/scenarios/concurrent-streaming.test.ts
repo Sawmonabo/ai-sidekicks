@@ -10,12 +10,11 @@
 // that restated the beats it expects would pass over a script that had lost them.
 //
 // The wire-truth predicate is asserted elsewhere and is not repeated here: whether a
-// beat is a shape a daemon can emit is `wire-truth.*.test.ts`'s question, and whether
+// beat is a shape a daemon can emit is the contract-check tests' question, and whether
 // the session tells the whole story is this one's.
 
 import { describe, expect, it } from "vitest";
-
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "./concurrent-streaming.js";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 
 /** Every kind the flagship plays, in script order. */

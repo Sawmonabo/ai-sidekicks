@@ -7,11 +7,10 @@
 // become and the number the reader would then report.
 
 import { describe, expect, it } from "vitest";
-
 import {
   FLAGSHIP_LANE_COUNT,
   FLAGSHIP_SCENARIO,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
+} from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
 import type { ScenarioBeat } from "../../fixtures/scenario.js";
 

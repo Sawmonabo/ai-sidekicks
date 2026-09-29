@@ -12,7 +12,7 @@ import { ScenarioEngine } from "./engine.fixture.js";
 import {
   FLAGSHIP_SCENARIO,
   FLAGSHIP_SCENARIO_ID,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
+} from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 describe("ScenarioFixtureControl — the handle a driver holds", () => {
   it("names the scenario its engine is playing", () => {

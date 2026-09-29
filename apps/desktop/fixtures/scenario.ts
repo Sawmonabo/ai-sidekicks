@@ -9,19 +9,16 @@
 // (the screenshot tier pins a frame by advancing to an exact tick), and a scenario
 // that cannot reach the network or the clock cannot accidentally become flaky.
 //
-// WHAT IS NOT HERE. The engine that plays one, which is `engine.ts`. The
-// two were one file until the seam this package's module rules split on
-// was drawn between them, and that seam is exactly this one — WHAT a scenario
-// is, against HOW it is played. The split is load-bearing rather than tidy: a seat
-// board, the scenario manifest, and the wire-truth predicate that holds every scenario
-// to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
-// and never reach the engine's teardown rules or its held-reply queue.
+// WHAT IS NOT HERE. The engine that plays one, `services/daemon/engine.fixture.ts`:
+// this module says WHAT a scenario is, the engine says HOW it is played. The catalog in
+// `fixtures/index.ts` and the contract check that holds every scenario to the wire's own
+// truth describe scenarios and play none, so they stop here and never reach the
+// engine's teardown rules or its held-reply queue.
 //
-// AND THE REPLY TABLE IS NOT HERE EITHER, for that same rule applied a second time:
-// `reply.ts` owns how one request/response CALL settles — the three arms, the
-// refusal shape, and what a computed reply is handed — which is a different question
-// from who this scenario is about and what it plays, and the module that settles one
-// reply and the walk that audits every one of them both stop there.
+// The reply table is not here either: `services/daemon/scenario-reply.fixture.ts` owns
+// how one request/response call settles (the three arms, the refusal shape, and what a
+// computed reply is handed), which is a different question from who this scenario is
+// about and what it plays.
 import type { UpdateState } from "@shared/preload-api.js";
 
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
@@ -40,7 +37,7 @@ export interface ConsoleScenario {
   /** What this scenario is for, so a reader knows which to reach for. */
   readonly purpose: string;
   readonly sessionId: string;
-  /** Users in join order — the hue allocator's input (rule 2). */
+  /** Users in join order: the hue allocator's input. */
   readonly userIdsInJoinOrder: readonly string[];
   /**
    * Which of those users this window IS, where the scenario states one.
@@ -53,8 +50,9 @@ export interface ConsoleScenario {
    *
    * When present it must be one of `userIdsInJoinOrder`: an identity outside
    * that list is the caller of some other session, and every surface that resolves it
-   * would look it up and find nothing. `scenario/wire-truth/wire-truth.ts` holds every
-   * scenario to that, the substrate's own two included.
+   * would look it up and find nothing.
+   * `tests/helpers/scenario-contract-check/contract-check.ts` holds every scenario to
+   * that.
    */
   readonly callerUserId?: string;
   readonly beats: readonly ScenarioBeat[];
@@ -82,14 +80,13 @@ export interface ConsoleScenario {
   /**
    * What the shell's updater reports, where the scenario states one.
    *
-   * OPTIONAL, and the default is the one the fixture answered before this member
-   * existed: a bare `idle` carrying no last-check instant. That default is load-
-   * bearing rather than incidental — `UpdateState`'s `idle` arm carries an optional
-   * `lastCheckedAt`, and a fixture that supplied one on every scenario would make
-   * the never-checked arm unreachable in the deck, which is the arm a fresh install
+   * OPTIONAL, and the default is a bare `idle` carrying no last-check instant. That
+   * default is load-bearing rather than incidental: `UpdateState`'s `idle` arm carries
+   * an optional `lastCheckedAt`, and a fixture that supplied one on every scenario
+   * would make the never-checked arm unreachable, and that is the arm a fresh install
    * is actually in.
    *
-   * The updater is a SHELL surface rather than a daemon one, so it is a scenario
+   * The updater is a main-process surface rather than a daemon one, so it is a scenario
    * member and not a `replies` row: the reply table is keyed by daemon method or
    * control-plane procedure name, and `update.getState` is neither.
    */

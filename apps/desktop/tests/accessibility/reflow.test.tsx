@@ -36,8 +36,7 @@ import {
   plantHorizontalOverflow,
   restoreTesterViewport,
 } from "./reflow.js";
-
-import { FLAGSHIP_SCENARIO_ID } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";

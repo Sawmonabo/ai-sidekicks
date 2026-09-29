@@ -39,8 +39,7 @@
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../../../test/console/console-harness.js";
-
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";

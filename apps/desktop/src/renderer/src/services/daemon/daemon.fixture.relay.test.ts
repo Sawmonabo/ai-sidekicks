@@ -23,7 +23,7 @@ import {
   lastScriptedBeatMs,
   type FixtureUnderTest,
 } from "@test/helpers/fixture-bridge.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;

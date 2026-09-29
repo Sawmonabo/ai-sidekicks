@@ -17,7 +17,7 @@
 
 import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";

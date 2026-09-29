@@ -38,7 +38,7 @@ import {
   lastScriptedBeatMs,
   subscribeThroughBridge,
 } from "@test/helpers/fixture-bridge.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */

@@ -1,31 +1,25 @@
-// What the ledger scenarios claim, held to the wire and to the design.
+// What the transcript-states scenario claims, played through the transcript's own readers.
 //
-// Two different kinds of claim, and both are worth a case:
-//
-//   • WIRE TRUTH — every beat is an event the daemon can emit, carrying the payload
-//     the strict layer registers. Checked through `findScenarioWireTruthDefects`,
-//     the same predicate every shipped scenario is held to, never a second reading
-//     of the census here.
-//   • COMPOSITION — the three lanes really do end in three different conditions,
-//     the rewind boundary really is followed by rows it supersedes, and the quiet
-//     session really is empty. These are what the ledger frame is built against, so
-//     a scenario that quietly lost one would leave a surface untested and green.
+// COMPOSITION — the three lanes really do end in three different conditions, and the
+// rewind boundary really is followed by rows it supersedes. These are what the transcript
+// frame is built against, so a scenario that quietly lost one would leave a surface
+// untested and green. Whether each beat is one a daemon can emit is the catalog-wide
+// contract check's question.
 
 import { describe, expect, it } from "vitest";
-
-import { RUN_ARCHITECT_CHILD, RUN_IMPLEMENTER, SUBAGENT_REVIEWER } from "./ledger-cast.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { LEDGER_SCENARIO } from "./ledger.js";
-import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../../../../../../fixtures/scenario.js";
-// The ledger family's own readers, reached deeply rather than through its door: this
-// is a claim about what THIS SCENARIO reaches, so the three treatments it has to
-// reach are named by the modules that derive them.
+import {
+  LEDGER_SCENARIO,
+  RUN_ARCHITECT_CHILD,
+  RUN_IMPLEMENTER,
+  SUBAGENT_REVIEWER,
+} from "../../fixtures/scenarios/transcript-states.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
+// The transcript's own readers, reached deeply rather than through a door: this is a
+// claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
+// named by the modules that derive them.
 import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
 import { deriveSupersededBands } from "@renderer/features/transcript/superseded/superseded-bands.js";
-
-const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [LEDGER_SCENARIO, LEDGER_QUIET_SCENARIO];
 
 /** The run one beat belongs to, or `undefined` when it names none. */
 function runIdOf(beat: ScenarioBeat): string | undefined {
@@ -52,57 +46,30 @@ function finalRunStates(scenario: ConsoleScenario): ReadonlyMap<string, string> 
   return states;
 }
 
-describe("the ledger scenarios", () => {
-  it("script only events the daemon can emit, in the payloads it registers", () => {
-    expect(findScenarioWireTruthDefects(LEDGER_SCENARIOS)).toStrictEqual([]);
-  });
-
-  it("would report a defect if one of them played an unregistered kind", () => {
-    // The negative control for the case above. `run.started` reads exactly like a
-    // real event and is not one, which is the defect class the predicate exists for
-    // — so a clean sweep is only worth something if this fails.
-    const defects = findScenarioWireTruthDefects([
-      {
-        ...LEDGER_SCENARIO,
-        beats: [{ atMs: 0, event: { ...LEDGER_SCENARIO.beats[0]!.event, kind: "run.started" } }],
-      },
-    ]);
-    expect(defects).toHaveLength(1);
-    expect(defects[0]?.reason).toContain("not a registered event type");
-  });
-
-  it("carries unique ids, so the picker and the manifest lookup cannot collide", () => {
-    const ids = LEDGER_SCENARIOS.map((scenario) => scenario.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
+describe("the transcript-states scenario", () => {
   it("names a caller who is actually in the roster", () => {
-    for (const scenario of LEDGER_SCENARIOS) {
-      expect(scenario.userIdsInJoinOrder).toContain(scenario.callerUserId);
-    }
+    expect(LEDGER_SCENARIO.userIdsInJoinOrder).toContain(LEDGER_SCENARIO.callerUserId);
   });
 
   it("scripts no reply for a call the method registry does not carry", () => {
-    // `session.list` is the specific one this family shipped by mistake once: the
-    // registry carries `session.read` and no list verb, so a scripted answer to it
-    // puts a call in front of a surface that has nowhere to send it.
-    const calls = LEDGER_SCENARIOS.flatMap((scenario) =>
-      scenario.replies.map((reply) => reply.call),
-    );
+    // `session.list` reads exactly like a real method: the registry carries
+    // `session.read` and no list verb, so a scripted answer to it puts a call in front
+    // of a surface that has nowhere to send it.
+    const calls = LEDGER_SCENARIO.replies.map((reply) => reply.call);
     expect(calls).not.toContain("session.list");
     expect(calls).toContain("session.read");
   });
 });
 
 /** Every row this scenario's whole script projects to, in log order. */
-function ledgerScenarioRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
+function transcriptStatesRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
   return projectFixtureShellRows(LEDGER_SCENARIO.beats.map((beat) => beat.event)).rows;
 }
 
-describe("the three-lane ledger scenario", () => {
+describe("the three lanes", () => {
   it("ends its three LANES in three different conditions at once", () => {
     // The child run under the architect is a fourth run and not a fourth lane: the
-    // ledger folds it into its parent's chapter as a summary rather than drawing it
+    // transcript folds it into its parent's chapter as a summary rather than drawing it
     // beside the three, so it is subtracted here rather than counted as one of them.
     const laneStates = [...finalRunStates(LEDGER_SCENARIO)]
       .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)
@@ -156,9 +123,9 @@ describe("the three-lane ledger scenario", () => {
   });
 });
 
-describe("the ledger scenario's folded bodies", () => {
+describe("the folded bodies", () => {
   it("summarizes the architect's child run, and marks it incomplete", () => {
-    const entries = new ChildRunIndex(ledgerScenarioRows()).childRunEntries();
+    const entries = new ChildRunIndex(transcriptStatesRows()).childRunEntries();
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.summary.runId).toBe(RUN_ARCHITECT_CHILD);
@@ -172,7 +139,7 @@ describe("the ledger scenario's folded bodies", () => {
   });
 
   it("draws the subagent's start as a handoff and suppresses its completion", () => {
-    const rows = ledgerScenarioRows();
+    const rows = transcriptStatesRows();
     const handoffs = new ChildRunIndex(rows).handoffEntries();
     const subagentRowIds = rows
       .filter((row) => row.type.startsWith("subagent."))
@@ -210,7 +177,7 @@ describe("the ledger scenario's folded bodies", () => {
   });
 
   it("folds a superseded band over the rows the rewind left behind", () => {
-    const bands = deriveSupersededBands(ledgerScenarioRows());
+    const bands = deriveSupersededBands(transcriptStatesRows());
 
     expect(bands).toHaveLength(1);
     expect(bands[0]?.runId).toBe(RUN_IMPLEMENTER);
@@ -218,11 +185,5 @@ describe("the ledger scenario's folded bodies", () => {
     // ended — and it holds the rows whose position exceeds the cutoff the wire named.
     expect(bands[0]?.epoch).toBe(0);
     expect(bands[0]?.rowIds.length).toBeGreaterThan(0);
-  });
-});
-
-describe("the quiet ledger scenario", () => {
-  it("plays no beats at all, which is the one state a script cannot reach", () => {
-    expect(LEDGER_QUIET_SCENARIO.beats).toStrictEqual([]);
   });
 });

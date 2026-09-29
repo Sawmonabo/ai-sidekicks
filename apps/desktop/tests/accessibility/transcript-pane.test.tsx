@@ -40,7 +40,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 import { LEDGER_QUIET_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
-import { LEDGER_SCENARIO } from "@renderer/console/bridge/scenario/ledger/ledger.js";
+import { LEDGER_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door

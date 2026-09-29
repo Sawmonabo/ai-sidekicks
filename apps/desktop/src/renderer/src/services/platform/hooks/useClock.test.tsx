@@ -22,7 +22,7 @@ import { useConsoleBridge } from "./usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./useClock.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO_ID } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO_ID } from "../../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface ClockProbeProps {
   /** Every clock a render was handed, so its identity across renders is readable. */

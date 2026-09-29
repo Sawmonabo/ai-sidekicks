@@ -27,7 +27,7 @@ import type { FunctionComponent } from "react";
 import { renderSettled } from "../console-harness.js";
 
 import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
-import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";

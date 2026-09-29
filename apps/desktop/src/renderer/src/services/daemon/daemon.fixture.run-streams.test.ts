@@ -37,7 +37,7 @@ import {
   subscribeThroughBridge,
 } from "@test/helpers/fixture-bridge.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioWireTruthDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 import {
   RUN_QUEUE_EVENT_STREAM,

@@ -1,9 +1,8 @@
 // The run and rollback legs: what a beat has to carry for the stream that delivers it.
 //
-// One file per axis of the predicate, beside the aggregate entry rather than inside
-// `wire-truth/`, because every case here drives `findScenarioWireTruthDefects` and not
-// the leg module directly — the aggregate is the only surface a family's scenario is
-// ever measured through, and a test that reached past it would be checking a function
+// One file per axis of the predicate. Every case here drives
+// `findScenarioWireTruthDefects` and not the leg module directly: the aggregate is the
+// only surface a scenario is ever measured through, and a test that reached past it would be checking a function
 // no scenario meets.
 //
 // EVERY CASE IS BUILT FROM A SHIPPED BEAT. The flagship's own `run.starting` beat is
@@ -12,8 +11,7 @@
 // accepts.
 
 import { describe, expect, it } from "vitest";
-
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 

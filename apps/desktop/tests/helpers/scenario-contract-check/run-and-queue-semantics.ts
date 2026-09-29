@@ -13,7 +13,7 @@
 //     defines one for no state. It is checked here rather than by either schema
 //     layer because neither can see it — the census knows kinds, the strict layer
 //     registers no variant for the run-lifecycle kinds at all, and the machine is
-//     prose in `docs/domain/run-state-machine.md`.
+//     prose, not code.
 //   • The queue payload's own required member. The five `queue_item.*` kinds are
 //     census-only in the strict layer too, so a beat that omits `state` — which
 //     the queue event family makes required — passes all three schema legs. This
@@ -211,10 +211,9 @@ function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undef
  * A beat claiming a run moved from a state to itself, or `undefined` when it claims
  * no such thing.
  *
- * A rule the strict layer cannot enforce and the census cannot see. The state
- * machine (`docs/domain/run-state-machine.md`, the single authoritative reference
- * for every allowed run state transition) has no
- * row whose `From` and `To` are the same state, so a self-transition is an event no
+ * A rule the strict layer cannot enforce and the census cannot see. The run state
+ * machine, the one reference for every allowed transition, has no row whose `From`
+ * and `To` are the same state, so a self-transition is an event no
  * daemon produces. It reads as a real one, though: both values are registered
  * members of the vocabulary, the payload variant that would have caught it is not
  * registered for the run-lifecycle kinds, and a surface built against such a beat

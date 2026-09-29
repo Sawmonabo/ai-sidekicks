@@ -27,7 +27,7 @@ import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekic
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "@test/helpers/fixture-bridge.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,

@@ -10,7 +10,7 @@
 //
 // It cannot be one of those runs, and the reason is structural rather than a
 // preference: the endurance scenario is deliberately absent from
-// `bridge/scenario/corpus.ts`, so no launched console can be asked to play it. The
+// `fixtures/index.ts`, so no launched console can be asked to play it. The
 // scenario module says why — nobody wants a ten-thousand-row session in the fixture
 // picker, and every suite that iterates the shipped set would pay for one. A
 // launched console therefore reaches this workload through no path at all, and the

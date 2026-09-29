@@ -14,8 +14,7 @@
 // the members of a well-formed transition. So the structured one is expressed over the
 // raw one rather than beside it, and there is a single answer to what an event's id,
 // session, and instant look like.
-
-import { TERMINAL_SCENARIO_CAST } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO_CAST } from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";

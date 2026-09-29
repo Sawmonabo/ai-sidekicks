@@ -99,7 +99,7 @@ import {
   TEARDOWN_RESIDUE_FACTOR,
   type TerminalInstanceSeries,
 } from "./terminal-instance-series.js";
-import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/terminal.js";
+import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,

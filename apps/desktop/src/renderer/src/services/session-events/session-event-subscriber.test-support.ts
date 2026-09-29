@@ -16,7 +16,7 @@
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventBinder } from "./session-event-subscriber.js";
 

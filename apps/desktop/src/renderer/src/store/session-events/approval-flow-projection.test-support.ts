@@ -6,7 +6,7 @@
 // shape the other could not produce.
 
 import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
-import { APPROVALS_SCENARIO } from "@renderer/console/bridge/scenario/approvals/approvals.js";
+import { APPROVALS_SCENARIO } from "../../../../../fixtures/scenarios/approval-request.js";
 import { SessionStore } from "../session/session-store.js";
 import {
   type ConsoleSessionEvent,

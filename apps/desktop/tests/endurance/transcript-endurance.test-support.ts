@@ -1,6 +1,6 @@
 // The endurance scenario — a session as long as the ledger claims to survive.
 //
-// Not a picker scenario, and deliberately not on `scenario/corpus.ts`: nobody wants
+// Not a picker scenario, and deliberately not in `fixtures/index.ts`: nobody wants
 // to open a ten-thousand-row session from a menu, and a manifest entry that heavy
 // would be paid for by every suite that iterates the shipped set. It is a
 // GENERATOR the endurance and bench tiers call with the row count they are

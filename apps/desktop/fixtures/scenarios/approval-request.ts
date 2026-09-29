@@ -1,4 +1,4 @@
-// The approvals scenario: one request already approved, and three still waiting, all
+// The approval-request scenario: one request already approved, and three still waiting, all
 // raised by one agent in one run of the user's session.
 //
 // The three waiting are a destructive git command, a file write, and a provider
@@ -12,7 +12,7 @@
 // payload a surface does not read is still a payload a daemon emits, and a beat
 // carrying a thinner one would be teaching the wire a shape it does not have.
 //
-// `scenario/wire-truth/wire-truth.ts` holds the beats to the census
+// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
 // (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. The `approval.*`
 // beats reach the census leg alone, since nothing has registered their variants
@@ -24,19 +24,43 @@
 // `ApprovalRequestId` are branded ids the contracts declare over UUID values, and a
 // readable `approval-01` also renders at a third of the width a real one does — a
 // design lie in a fixture whose whole job is to be measured.
-import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
+
 import {
-  SESSION_ID,
-  USER_YOU,
-  AGENT_IMPLEMENTER,
-  AGENT_REVIEWER,
-  RUN_ID,
-  APPROVAL_RESOLVED,
-  APPROVAL_PENDING_GIT_RESET,
-  APPROVAL_PENDING_WRITE,
-  APPROVAL_PENDING_ASK,
-  DRIVER_ASK_ID,
-} from "./identifiers.js";
+  UserIdSchema,
+  RunIdSchema,
+  SessionIdSchema,
+  type UserId,
+  type RunId,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
+import type { ConsoleScenario } from "../scenario.js";
+
+// UUID v7 values whose leading bytes are this scenario's own start instant, so a
+// reader scanning a rendered id can still tell one fixture apart from another.
+//
+// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST. A scenario constant is
+// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
+// so a malformed id surfaced at the first `.strict()` reply that carried it, which
+// takes the whole reply down and names the reply rather than the value. Parsing at
+// declaration fails the module instead, naming the constant. `AGENT_*` stays
+// unbranded: the corpus registers no `AgentId` brand to mint one through.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
+export const USER_YOU: UserId = UserIdSchema.parse("019b7a33-3300-79a4-8110-cca0117a0510");
+export const AGENT_IMPLEMENTER = "019b7a33-3300-7a6e-8110-d1a4c1150501";
+export const AGENT_REVIEWER = "019b7a33-3300-7a6e-8120-d1a4c1150502";
+export const RUN_ID: RunId = RunIdSchema.parse("019b7a33-3300-740e-8110-d1a4c1150511");
+
+export const APPROVAL_RESOLVED = "019b7a33-3300-7f01-8110-d1a4c1150521";
+export const APPROVAL_PENDING_GIT_RESET = "019b7a33-3300-7f01-8120-d1a4c1150522";
+export const APPROVAL_PENDING_WRITE = "019b7a33-3300-7f01-8130-d1a4c1150523";
+export const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
+
+/**
+ * The originating driver ask, carried on the `approval.requested` EVENT payload.
+ *
+ * Registered there and persisted on the request row.
+ */
+export const DRIVER_ASK_ID = "ask-permission-force-push";
 
 export const APPROVALS_SCENARIO: ConsoleScenario = {
   id: "approvals",

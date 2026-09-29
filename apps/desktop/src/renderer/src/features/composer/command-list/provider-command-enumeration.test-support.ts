@@ -7,7 +7,7 @@
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
 import { addressedProviderBinding, type AddressedProviderBinding } from "./command-list-entries.js";
 

@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
 import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";

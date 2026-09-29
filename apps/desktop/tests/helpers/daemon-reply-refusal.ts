@@ -12,7 +12,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
  * A session id the branded schema accepts, taken from a shipped scenario.

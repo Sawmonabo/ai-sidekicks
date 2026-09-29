@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { USER_YOU } from "@renderer/console/bridge/scenario/flagship/flagship-cast.js";
+import { USER_YOU } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
 import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";

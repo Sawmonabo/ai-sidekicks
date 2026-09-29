@@ -31,7 +31,7 @@ import {
 } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { readWireErrorEnvelope, type WireErrorEnvelope } from "@shared/wire-errors.js";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";

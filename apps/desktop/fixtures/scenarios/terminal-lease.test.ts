@@ -1,24 +1,20 @@
-// What the terminal scenario promises the pane built against it.
+// What the terminal-lease scenario promises the pane built against it.
 //
-// WIRE TRUTH IS NOT HERE, AND DELIBERATELY SO. `bridge/scenario/wire-truth/wire-truth.ts` is
-// the one predicate every scenario on the seat board is measured through — the event
-// census, the canonical envelope, the log position and tick each beat takes, and one
-// scripted answer per call — and the script below sits on that board, so every one
-// of those legs already runs against it.
+// WIRE TRUTH IS NOT HERE, AND DELIBERATELY SO.
+// `tests/helpers/scenario-contract-check/contract-check.ts` is the one predicate every
+// scenario in the catalog is measured through — the event census, the canonical
+// envelope, the log position and tick each beat takes, and one scripted answer per call —
+// and this scenario is in the catalog, so every one of those legs already runs against it.
 //
-// WHAT IS HERE IS WHAT NOTHING ELSE COVERS: the lease the terminal script has to end
-// on. `console/terminal/index.test.ts` already holds that scenario to reaching all
-// five `pty.control_changed` reasons and to the present-and-null holder member;
-// repeating either here would be a second implementation.
-//
+// WHAT IS HERE IS WHAT NOTHING ELSE COVERS: the lease the script has to end on.
+
 // Every clean assertion below has a negative control that fails, because a
 // predicate that accepted everything would satisfy the positive half of all of
 // them.
 
 import { describe, expect, it } from "vitest";
-
-import { TERMINAL_SCENARIO } from "./terminal/terminal.js";
-import type { ScenarioBeat } from "../../../../../../fixtures/scenario.js";
+import { TERMINAL_SCENARIO } from "./terminal-lease.js";
+import type { ScenarioBeat } from "../scenario.js";
 
 describe("the terminal scenario ends held", () => {
   /** Who holds the lease once these beats have played, or `null` for a free one. */

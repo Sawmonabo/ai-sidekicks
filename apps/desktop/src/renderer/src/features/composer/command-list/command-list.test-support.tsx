@@ -18,7 +18,7 @@ import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";

@@ -28,13 +28,13 @@ import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
 import { type ConsoleBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
-import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
+import { findScenario } from "../../../../../fixtures/index.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
   FLAGSHIP_SCENARIO,
   FLAGSHIP_SCENARIO_ID,
-} from "@renderer/console/bridge/scenario/flagship/flagship.js";
+} from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface BridgeProbeProps {
   readonly onObserve: (bridge: ConsoleBridge) => void;
@@ -210,7 +210,7 @@ function lastClock(observed: readonly ConsoleClock[]): ConsoleClock {
 describe("useConsoleClock — the clock is a fact about the bridge", () => {
   const flagshipBridge = (): ConsoleBridge => createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
   const firstRunBridge = (): ConsoleBridge =>
-    createFixtureBridge({ scenario: consoleScenario(FIRST_RUN_SCENARIO_ID) });
+    createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {
     // The READING is what moves, not the identity. One `ForwardingConsoleClock` per

@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";

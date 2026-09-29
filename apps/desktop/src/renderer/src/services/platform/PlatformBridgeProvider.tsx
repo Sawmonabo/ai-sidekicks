@@ -23,7 +23,7 @@ import { BridgeContext, type BridgeResolution } from "./bridge-context.js";
 import { consoleClockFor } from "./hooks/useClock.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
+import { findScenario } from "../../../../../fixtures/index.js";
 import { DEFAULT_SCENARIO_ID } from "@renderer/console/bridge/scenario/selection.js";
 import { ScenarioFixtureControl } from "../daemon/selection.fixture.js";
 
@@ -214,7 +214,7 @@ function resolveBridge(
     return {
       status: "ready",
       bridge: createFixtureBridge({
-        scenario: consoleScenario(scenarioId ?? DEFAULT_SCENARIO_ID),
+        scenario: findScenario(scenarioId ?? DEFAULT_SCENARIO_ID),
       }),
     };
   }

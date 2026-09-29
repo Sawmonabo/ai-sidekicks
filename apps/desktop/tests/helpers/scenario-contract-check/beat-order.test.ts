@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioWireTruthDefects } from "./contract-check.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 

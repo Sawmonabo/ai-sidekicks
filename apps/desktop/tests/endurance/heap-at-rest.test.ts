@@ -58,7 +58,7 @@ import {
   openFlagshipSessionRoute,
 } from "./endurance-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import {
   ConsoleBudgetRegistry,
   evaluateBudget,
