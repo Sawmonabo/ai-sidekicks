@@ -22,7 +22,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     // Both handles name one round: the claim that took the key is still current, and
     // the joined handle settles through it.
     const latch = new GenerationLatch();
-    const started = latch.takeShell(SUBJECT_ONE, "preferences");
+    const started = latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
     expect(started?.isCurrent).toBe(true);
     expect(joined.isCurrent).toBe(true);
@@ -32,7 +32,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
 
   it("goes stale with the round it joined, and not on its own", () => {
     const latch = new GenerationLatch();
-    const started = latch.takeShell(SUBJECT_ONE, "preferences");
+    const started = latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
     latch.supersede(SUBJECT_ONE, "preferences");
     expect(started?.isCurrent).toBe(false);
@@ -44,7 +44,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     // Without this, "goes stale" above would be satisfied by a handle that reported
     // itself stale from the moment it was minted.
     const latch = new GenerationLatch();
-    latch.takeShell(SUBJECT_ONE, "preferences");
+    latch.claim(SUBJECT_ONE, "preferences");
     const elsewhere = latch.currentClaim(SUBJECT_ONE, "appearance");
     latch.supersede(SUBJECT_ONE, "preferences");
     expect(elsewhere.isCurrent).toBe(true);
@@ -55,13 +55,13 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     const latch = new GenerationLatch();
     const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
     expect(minted.isCurrent).toBe(true);
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeUndefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
   });
 
   it("answers the round a supersede-and-claim installed, not the one it displaced", () => {
     const latch = new GenerationLatch();
-    const displaced = latch.takeShell(SUBJECT_ONE, "goal");
+    const displaced = latch.claim(SUBJECT_ONE, "goal");
     latch.supersedeAndClaim(SUBJECT_ONE, "goal");
     const joined = latch.currentClaim(SUBJECT_ONE, "goal");
     expect(displaced?.isCurrent).toBe(false);
@@ -75,7 +75,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     // claim interface invites would delete the key out from under the write still in
     // flight, and the next press would dispatch a duplicate.
     const latch = new GenerationLatch();
-    latch.takeShell(SUBJECT_ONE, "preferences");
+    latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
     // @ts-expect-error TS2339: `release` does not exist on `CurrentGenerationClaim`.
     const release: unknown = joined.release;
@@ -84,15 +84,15 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
 
   it("leaves the write that took the key holding it after the joiner settles", () => {
     const latch = new GenerationLatch();
-    const write = latch.takeShell(SUBJECT_ONE, "preferences");
+    const write = latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
     expect(joined.settle(() => undefined)).toBe(true);
     expect(write?.isCurrent).toBe(true);
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeUndefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
     // Negative control: the taker's own release does free it, so the claim above is
     // about WHO may give the key back rather than about a key nothing can free.
     write?.release();
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeDefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeDefined();
   });
 
   it("ends a round it minted on a free key when that round settles", () => {
@@ -101,10 +101,10 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     // refuse every later act on it.
     const latch = new GenerationLatch();
     const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeUndefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
     expect(minted.settle(() => undefined)).toBe(true);
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeDefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeDefined();
   });
 
   it("frees a minted round's key even when the settlement itself throws", () => {
@@ -126,7 +126,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     const successor = latch.supersedeAndClaim(SUBJECT_ONE, "preferences");
     expect(minted.settle(() => undefined)).toBe(false);
     expect(successor.isCurrent).toBe(true);
-    expect(latch.takeShell(SUBJECT_ONE, "preferences")).toBeUndefined();
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
   });
 
   it("holds nothing for a subject once every minted round has settled", () => {
@@ -150,7 +150,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
 
   it("holds one entry however many readers join one round", () => {
     const latch = new GenerationLatch();
-    latch.takeShell(SUBJECT_ONE, "preferences");
+    latch.claim(SUBJECT_ONE, "preferences");
     for (let read = 0; read < 1000; read += 1) {
       latch.currentClaim(SUBJECT_ONE, "preferences");
     }

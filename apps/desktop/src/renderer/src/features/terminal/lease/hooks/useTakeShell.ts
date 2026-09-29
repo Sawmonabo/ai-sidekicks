@@ -48,14 +48,14 @@ export function useTakeShell(
     sessionId,
     () => IDLE_TERMINAL_LEASE_TAKE,
   );
-  // The latch refuses a second take while one is live, which is the rule the control's
+  // The latch refuses a second claim while one is live, which is the rule the control's
   // disabled state renders. Its claim is also the serial a settlement compares against,
   // so an earlier press's `finally` cannot clear the flag a later press set.
   const dispatches = useGenerationLatch();
 
   const takeShell = useCallback(async (): Promise<void> => {
     // `publish` is the visit key: the holder re-mints it on each re-seed.
-    const dispatch = dispatches.takeShell(publish, sessionId);
+    const dispatch = dispatches.claim(publish, sessionId);
     if (dispatch === undefined) {
       return;
     }

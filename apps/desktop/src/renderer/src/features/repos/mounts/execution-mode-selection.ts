@@ -70,7 +70,7 @@ export class ExecutionModeSelections {
    * follow it.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
-    const claim = this.#inFlight.takeShell(this, workspaceId);
+    const claim = this.#inFlight.claim(this, workspaceId);
     if (claim === undefined) {
       return;
     }

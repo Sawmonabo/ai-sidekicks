@@ -250,7 +250,7 @@ async function dispatchAct<TValue>(
   call: () => Promise<TValue>,
   describe: (value: TValue) => ServedActReading,
 ): Promise<void> {
-  const claim = runtime.latch.takeShell(runtime.calls, actKey(action, runtime.workflowRunId));
+  const claim = runtime.latch.claim(runtime.calls, actKey(action, runtime.workflowRunId));
   if (claim === undefined) {
     publishOutcome(runtime, action, {
       kind: "refused",

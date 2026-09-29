@@ -138,7 +138,7 @@ export class ActController<TSettlement extends ActSettlementArm> {
     send: () => Promise<TReplyValue>,
     settle: (value: TReplyValue) => ActOwnArm<TSettlement>,
   ): Promise<void> {
-    const round = this.#rounds.takeShell(this, ACT_KEY);
+    const round = this.#rounds.claim(this, ACT_KEY);
     if (round === undefined || this.#disposed) {
       round?.release();
       return;

@@ -140,7 +140,7 @@ export class GenerationLatch {
    * `undefined` rather than a claim that reports itself stale, so a caller cannot
    * dispatch first and discover afterwards that it was not admitted.
    */
-  public takeShell(subject: object, key: string): GenerationClaim | undefined {
+  public claim(subject: object, key: string): GenerationClaim | undefined {
     return this.#serialsFor(subject).has(key) ? undefined : this.#takeKey(subject, key);
   }
 

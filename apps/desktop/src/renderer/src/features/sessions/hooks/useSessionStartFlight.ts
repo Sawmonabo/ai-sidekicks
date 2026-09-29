@@ -75,7 +75,7 @@ export function useSessionStartFlight(subject: object, putsTheCall: boolean): Se
     if (!putsTheCall) {
       return true;
     }
-    const claim = latch.takeShell(subject, SESSION_CREATE_KEY);
+    const claim = latch.claim(subject, SESSION_CREATE_KEY);
     if (claim === undefined) {
       return false;
     }

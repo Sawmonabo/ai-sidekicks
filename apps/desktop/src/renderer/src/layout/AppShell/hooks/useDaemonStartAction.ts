@@ -33,7 +33,7 @@ export type DaemonStartCall = () => Promise<void>;
 export function useDaemonStartAction(startDaemon: DaemonStartCall): () => Promise<void> {
   const starts = useGenerationLatch();
   return useCallback(async () => {
-    const start = starts.takeShell(startDaemon, DAEMON_START_KEY);
+    const start = starts.claim(startDaemon, DAEMON_START_KEY);
     if (start === undefined) {
       return;
     }

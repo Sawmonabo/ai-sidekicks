@@ -25,7 +25,7 @@ describe("useGenerationLatch — one register per mount", () => {
         }}
       />,
     );
-    const claim = latch?.takeShell(SUBJECT_ONE, "compact");
+    const claim = latch?.claim(SUBJECT_ONE, "compact");
     expect(claim?.isCurrent).toBe(true);
     act(() => {
       view.unmount();
@@ -44,7 +44,7 @@ describe("useGenerationLatch — one register per mount", () => {
         }}
       />,
     );
-    const abandoned = firstLatch?.takeShell(SUBJECT_ONE, "compact");
+    const abandoned = firstLatch?.claim(SUBJECT_ONE, "compact");
     act(() => {
       first.unmount();
     });
@@ -56,7 +56,7 @@ describe("useGenerationLatch — one register per mount", () => {
       />,
     );
     expect(secondLatch).not.toBe(firstLatch);
-    expect(secondLatch?.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(secondLatch?.claim(SUBJECT_ONE, "compact")).toBeDefined();
     expect(abandoned?.settle(() => undefined)).toBe(false);
   });
 });
