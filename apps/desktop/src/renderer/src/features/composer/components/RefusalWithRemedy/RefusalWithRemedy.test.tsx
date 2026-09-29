@@ -6,7 +6,8 @@
 // rendering is asserted to draw the card, the escalation being a separate act by a
 // view that holds a frame store. And it could invent a move for a code the table
 // does not answer for — so the unlisted code is asserted to render exactly what it
-// renders without this component at all.
+// renders without this component at all. A remedy also renders one way everywhere, so
+// the move is asserted to arrive through the shared remedy region and nowhere else.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -80,7 +81,23 @@ describe("whose words reach the screen", () => {
     const message = shape.querySelector(".meridian-refusal__message");
 
     expect(message?.textContent).toBe(ALREADY_SENT.detail);
-    expect(shape.querySelector(".meridian-refusal__next-move")).not.toBeNull();
+    expect(
+      shape.querySelector(".meridian-refusal__action .meridian-refusal-remedy__move")?.textContent,
+    ).toBe(refusalRemedyFor(ALREADY_SENT.code)?.nextMove);
+  });
+
+  it("draws the move through the shared remedy region in every shape", () => {
+    // Inline, card, and the banner code drawn as a card: one region, one element for the
+    // move, so a remedy reads the same wherever its refusal lands.
+    for (const refusal of [ALREADY_SENT, GONE_SESSION]) {
+      const shape = renderRefusal(<RefusalWithRemedy refusal={refusal} />);
+      const moves = shape.querySelectorAll(
+        ".meridian-refusal-remedy > .meridian-refusal-remedy__move",
+      );
+
+      expect(moves).toHaveLength(1);
+      expect(moves[0]?.textContent).toBe(refusalRemedyFor(refusal.code)?.nextMove);
+    }
   });
 
   it("offers no action at all for an unlisted code", () => {
@@ -90,19 +107,21 @@ describe("whose words reach the screen", () => {
 
     expect(shape.textContent).toContain(UNLISTED.detail);
     expect(shape.querySelector(".meridian-refusal__action")).toBeNull();
-    expect(shape.querySelector(".meridian-refusal__next-move")).toBeNull();
+    expect(shape.querySelector(".meridian-refusal-remedy")).toBeNull();
   });
 });
 
 describe("what a caller can say that the table cannot", () => {
-  it("renders the caller's own detail after the console's move", () => {
+  it("renders the caller's own detail inside the remedy region, after the console's move", () => {
     const shape = renderRefusal(
       <RefusalWithRemedy refusal={ALREADY_SENT} detailAction={<em>binding-a</em>} />,
     );
-    const action = shape.querySelector(".meridian-refusal__action");
+    const region = shape.querySelector(".meridian-refusal__action .meridian-refusal-remedy");
 
-    expect(action?.textContent).toContain(refusalRemedyFor(ALREADY_SENT.code)?.nextMove);
-    expect(action?.textContent).toContain("binding-a");
+    expect(region?.firstElementChild?.textContent).toBe(
+      refusalRemedyFor(ALREADY_SENT.code)?.nextMove,
+    );
+    expect(region?.lastElementChild?.textContent).toBe("binding-a");
   });
 
   it("opens the action row for a caller's detail even where the table answers nothing", () => {
@@ -111,6 +130,6 @@ describe("what a caller can say that the table cannot", () => {
     );
 
     expect(shape.querySelector(".meridian-refusal__action")?.textContent).toBe("binding-a");
-    expect(shape.querySelector(".meridian-refusal__next-move")).toBeNull();
+    expect(shape.querySelector(".meridian-refusal-remedy__move")).toBeNull();
   });
 });

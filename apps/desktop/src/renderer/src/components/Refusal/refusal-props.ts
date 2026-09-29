@@ -41,7 +41,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
  * re-declared beside it.
  *
  * These props used to spell out their own `code: string; detail: string`, which is
- * `core/refusal.ts`'s shape written a second time — so a rename there would have
+ * `lib/refusal.ts`'s shape written a second time — so a rename there would have
  * left this file compiling against a field the console no longer produces. Picking
  * makes the three renderers move with the value: a producer holding a
  * `Refusal` spreads it (`<RefusalCard {...refusal} />`) and a producer

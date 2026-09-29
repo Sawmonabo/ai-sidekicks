@@ -1,6 +1,6 @@
 // The inline shape: beside the control that was pressed.
 //
-// `refusal-contract.ts` states the grammar all three shapes obey and declares the
+// `refusal-props.ts` states the grammar all three shapes obey and declares the
 // props they share; this module decides only what "nothing changed" looks like —
 // one line beside the control, with the control still there.
 

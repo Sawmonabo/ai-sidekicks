@@ -133,10 +133,6 @@
         // worktree popover and the context ring's compaction popover (session design S-125,
         // S-312, S-890).
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
-        // The one render path of a refusal's remedy: the refusal with its remedy draws its
-        // next move through this component (build unit PRIM, the refusal words behind the
-        // refusal card).
-        "src/renderer/src/components/Refusal/RefusalRemedyContent.tsx",
         // The row that offers wire identifiers to choose between: the sessions list (build
         // units A6 to A13) and the Workflows scope picker.
         "src/renderer/src/components/WireChoiceList/WireChoiceList.tsx",

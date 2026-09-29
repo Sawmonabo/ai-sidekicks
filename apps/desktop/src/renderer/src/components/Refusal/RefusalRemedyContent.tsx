@@ -28,11 +28,7 @@ export interface RefusalRemedyContentProps {
   readonly children?: React.ReactNode;
 }
 
-/**
- * The remedy under a refusal: its next move and any exclusive cases.
- *
- * @consumedBy a refusal that offers the person a remedy
- */
+/** The remedy under a refusal: its next move and any exclusive cases. */
 export function RefusalRemedyContent(props: RefusalRemedyContentProps): React.JSX.Element {
   const { remedy, children } = props;
   const distinctions = remedy !== undefined && "distinctions" in remedy ? remedy.distinctions : [];

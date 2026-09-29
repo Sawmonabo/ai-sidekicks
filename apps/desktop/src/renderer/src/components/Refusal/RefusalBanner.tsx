@@ -1,6 +1,6 @@
 // The banner shape: across the frame, because what the whole room can do has changed.
 //
-// `refusal-contract.ts` states the grammar all three shapes obey and declares the
+// `refusal-props.ts` states the grammar all three shapes obey and declares the
 // props they share; this module decides only the two things that are the banner's
 // own — whether a person can put it away, and that it does not speak for itself.
 

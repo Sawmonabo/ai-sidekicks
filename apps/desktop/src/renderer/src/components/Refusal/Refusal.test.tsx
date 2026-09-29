@@ -4,7 +4,7 @@
 // module that declares it rather than beside any one shape — every case below
 // drives all three, and a case that drove one would say nothing about the
 // agreement. `RefusalProps` is a `Pick` of
-// `core/refusal.ts`'s `Refusal`, so a refusal built by `refuse()` reaches
+// `lib/refusal.ts`'s `Refusal`, so a refusal built by `refuse()` reaches
 // every one of the three renderers without a translation step — and the test drives
 // exactly that, because a props shape that merely HAPPENS to have the same two
 // field names would pass a per-component test and fail the moment core renamed one.

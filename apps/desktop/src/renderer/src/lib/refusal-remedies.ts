@@ -43,8 +43,6 @@ export type RefusalRendering = "inline" | "card" | "banner";
  * What a component does about one named refusal, beyond rendering the daemon's words, in
  * one of two variants: the app-wide table's entry, or a feature table's entry with the
  * exclusive cases one code stands for.
- *
- * @consumedBy the remedy content a refusal draws its next move through
  */
 export type RefusalRemedy = AppRefusalRemedy | CasedRefusalRemedy;
 
