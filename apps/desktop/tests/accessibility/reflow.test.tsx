@@ -29,7 +29,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 import {
   describeHorizontalOverflow,
   narrowTesterViewportTo,

@@ -11,7 +11,7 @@
 // wrong thing. `ConsoleRoot.test-support.tsx` records the identical finding on the
 // surface board; this is the mount every browser tier shares.
 //
-// IT BELONGS TO THE BROWSER TIER BECAUSE THE HARNESS DOES. `console-harness.tsx` imports
+// IT BELONGS TO THE BROWSER TIER BECAUSE THE HARNESS DOES. `app-harness.ts` imports
 // `vitest/browser` for the CDP and user-event seams the three browser tiers share, so it
 // cannot be driven from a happy-dom project at all — and the subject here is that file's
 // own settle rather than any surface it mounts.
@@ -22,7 +22,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 import { consolePaneRegistry } from "@renderer/console/seats/index.js";
@@ -35,7 +35,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 const SYNTHETIC_KIND = "diff";
 
 /** Named so a duplicate claim would fail by naming this file rather than a family. */
-const SYNTHETIC_OWNER = "console-harness-settle-case";
+const SYNTHETIC_OWNER = "app-harness-settle-case";
 
 /** What the loaded body prints, so the assertion is about content and not about a class. */
 const LOADED_BODY_TEXT = "the body the loader carried";

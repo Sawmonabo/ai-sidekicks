@@ -7,7 +7,7 @@
 //
 // AND THE RESERVATION A REGISTERED PAGE DRAWS BEFORE ITS BODY LANDS. Every settings
 // registration this console ships takes the registry's LOADER form, so an unpreloaded
-// registration draws the region it reserves. `test/console/surfaces/
+// registration draws the region it reserves. `feature-mounts/
 // pane-body-resolution.ts` is the same rule on the two boards in `seats/`; this is that
 // rule on the settings board, which is the settings family's own.
 

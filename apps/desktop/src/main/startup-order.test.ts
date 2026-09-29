@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "@test/helpers/electron-mock.js";
 
-// The one shared `electron` mock (`test/helpers/electron-mock.ts`), with its
+// The one shared `electron` mock (`tests/helpers/electron-mock.ts`), with its
 // ordered log on — sequence is the whole subject of this file. Its
 // `app.whenReady()` is a DEFERRED the test resolves by hand through
 // `releaseReady()`: awaiting the dynamic `import()` below already drains

@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountAgentsPane } from "./agent-mounts.js";
 import { captureSettled } from "./settled-capture.js";
 

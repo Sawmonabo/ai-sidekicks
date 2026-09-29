@@ -107,10 +107,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
     test: {
       name: "screenshot",
-      include: [
-        "tests/screenshot/**/*.test.{ts,tsx}",
-        "test/console/screenshot/**/*.test.{ts,tsx}",
-      ],
+      include: ["tests/screenshot/**/*.test.{ts,tsx}"],
       globals: true,
       // DERIVED from the wait a capture at the window ceiling is given, never
       // written down — `screenshot-pins.ts` owns the arithmetic and says why the
@@ -137,10 +134,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
     test: {
       name: "accessibility",
-      include: [
-        "tests/accessibility/**/*.test.{ts,tsx}",
-        "test/console/accessibility/**/*.test.{ts,tsx}",
-      ],
+      include: ["tests/accessibility/**/*.test.{ts,tsx}"],
       globals: true,
       browser: browserModeOptions(),
     },
@@ -163,7 +157,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     test: {
       name: "bundle",
       environment: "node",
-      include: ["tests/budget/**/*.test.ts", "test/console/budget/**/*.test.ts"],
+      include: ["tests/budget/**/*.test.ts"],
     },
   },
   {

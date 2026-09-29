@@ -4,8 +4,8 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier both need the same surfaces this family ships, and a per-tier copy
 // of the mount would be two chances to compose them differently and then read the
-// results as if they were comparable. Three modules divide that job: `console-harness.tsx`
-// owns HOW the console is mounted, `repos-mount-harness.ts` owns what SETTLED means and
+// results as if they were comparable. Three modules divide that job: `app-harness.ts`
+// owns HOW the app is mounted, `repos-mount-harness.ts` owns what SETTLED means and
 // how a tier waits for it, and `repos-fixtures.ts` owns what the surfaces are drawn
 // against.
 //
@@ -40,7 +40,7 @@ import {
   sessionOperations,
 } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
-import { renderSettled } from "../../../test/console/console-harness.js";
+import { renderSettled } from "../app-harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
 import { requireElement, requireLabelledRegion, type MountedView } from "./mount-queries.js";
 

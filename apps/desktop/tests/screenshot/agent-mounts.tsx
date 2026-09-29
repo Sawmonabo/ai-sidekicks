@@ -1,7 +1,7 @@
 // The agents family's surface, mounted once for the tiers that look at it.
 //
 // Not a test file — no `include` glob reaches it as one. It sits beside the other
-// family mount modules for their reason: `console-harness.tsx` owns HOW the console is
+// family mount modules for their reason: `app-harness.ts` owns HOW the app is
 // mounted, and a module named for a family owns WHAT of that family is mounted into it.
 //
 // The console pane is mounted over an unscripted fixture bridge, with the roster handed in
@@ -22,7 +22,7 @@
 import { waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 
 import {
   AGENT_ON_CLAUDE,

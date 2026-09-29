@@ -365,7 +365,7 @@ export function readinessFailure(deadline: LaunchDeadline, error: unknown): unkn
       "which every phase before the frame witness SHARES — process launch, first window, the " +
       "document's `load`, the console's frame element, the visibility read — rather than each " +
       "receiving its own; the witness's interval is reserved beyond this budget, so a launch that " +
-      "overruns reports here rather than as the enclosing tier's timeout (test/console/launch-deadline.ts)",
+      "overruns reports here rather than as the enclosing tier's timeout (tests/helpers/launch-deadline.ts)",
     { cause: error },
   );
 }

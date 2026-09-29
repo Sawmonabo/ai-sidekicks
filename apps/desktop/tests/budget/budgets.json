@@ -46,7 +46,7 @@
         "canonicalUnit": "bytes"
       },
       "status": "enforced",
-      "measuredBy": "apps/desktop/test/console/budget/bundle-budget.test.ts",
+      "measuredBy": "apps/desktop/tests/budget/bundle-budget.test.ts",
       "subjectSymbol": "rendererBundleAssetClassOf",
       "refusalControlBytes": 13300,
       "notes": "Minted 2026-09-08 with the narrowing of its sibling `renderer-initial-bundle` to code, so the font bytes are gated rather than excluded. Raw rather than compressed because `woff2` is a Brotli container and gzip over one buys nothing: across the four shipped faces the compressed sum measured 220 441 B against 220 440 B raw on 2026-09-09 — 1 B, 0.0005 %, and pointing the wrong way, since the two mono faces gzip 33 B and 28 B LARGER than they started while the two sans faces come back 6 B and 54 B smaller. Re-derived from `out/renderer/assets` at gzip level 9, which is what `measure-bundle.mts` compresses with, and identical at level 6. A compressed figure here would be an arithmetic fiction stated to more digits of precision than it has. Why 232 kB, why its headroom is 5.2 % rather than the ten percent a smaller subject allowed, and why this is a harness row rather than a product one, are in `harnessBudgetDerivation` — stated once for the set, never copied into a row. Measured on the same walk as its sibling, so the two figures can never disagree about which assets the initial graph holds. The two italic faces are counted here and are requested by a session only when a run matches their rule; a ceiling that bounded only what one session fetched would bound nothing.",

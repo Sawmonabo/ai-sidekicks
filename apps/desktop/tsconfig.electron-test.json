@@ -65,7 +65,6 @@
     // `document.activeElement`, which is browser code, and it imports the launcher,
     // which drags `launch-readiness.ts`'s callbacks in with it.
     "tests/helpers/palette-interaction.ts",
-    "test/console/fixture-handles.ts",
     // These tiers import renderer constants — a database name, a partition, a key
     // — so that a rename breaks the test at compile time instead of leaving it
     // reading a record nothing writes. That pulls the renderer's transitive module

@@ -782,11 +782,7 @@ export default [
     },
   },
   {
-    files: ["test/**/*.{ts,tsx}"],
-    rules: { "no-restricted-syntax": ["error", ...TEST_SYNTAX_BANS] },
-  },
-  {
-    files: ["tests/**/*.{ts,tsx}", "test/console/**/*.{ts,tsx}", "fixtures/**/*.ts"],
+    files: ["tests/**/*.{ts,tsx}", "fixtures/**/*.ts"],
     rules: { "no-restricted-syntax": ["error", ...TIER_SYNTAX_BANS] },
   },
   {
@@ -906,12 +902,7 @@ export default [
   // absent: it settles before the statement after it, so it leaves no child for a test
   // to own.
   {
-    files: [
-      "tests/**/*.{ts,tsx}",
-      "test/**/*.{ts,tsx}",
-      "src/main/**/*.ts",
-      "scripts/**/*.{ts,mts}",
-    ],
+    files: ["tests/**/*.{ts,tsx}", "src/main/**/*.ts", "scripts/**/*.{ts,mts}"],
     rules: {
       "no-restricted-imports": [
         "error",

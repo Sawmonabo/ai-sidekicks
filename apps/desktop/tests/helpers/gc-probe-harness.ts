@@ -2,14 +2,14 @@
 //
 // Extracted from `../lifecycle.gc.test.ts`, which had grown past this package's
 // split threshold with its spawner taking more of the file than its assertions.
-// The split is by ROLE and not by size, the same cut `electron-probe.ts` records
+// The split is by ROLE and not by size, the same cut `smoke-probe-harness.ts` records
 // for the smoke probe: everything here is about GETTING a probe reading out of a
 // real Electron process — isolating a profile, arranging the activation gates,
 // spawning through the one owner, scanning the tagged line, and releasing what
 // the spawn was holding — and none of it decides whether a reading is
 // acceptable. That decision is the suite's, and it stayed there.
 //
-// It is a SIBLING of `electron-probe.ts` rather than a second copy of it. Those
+// It is a SIBLING of `smoke-probe-harness.ts` rather than a second copy of it. Those
 // two probes read different readings, arrange different activation gates, and
 // carry different diagnostics, so one function could not serve both without a
 // mode flag; what they genuinely share they take from one home — the bundle
@@ -74,7 +74,8 @@ import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
-import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "../../test/helpers/electron-probe.js";
+import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./smoke-probe-harness.js";
+import { needsXvfb } from "./display-readiness.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
 
@@ -122,10 +123,6 @@ interface GcProbeSpawnResult {
   readonly elapsedMs: number;
 }
 
-function needsXvfb(): boolean {
-  return process.platform === "linux" && !process.env["DISPLAY"];
-}
-
 /**
  * Spawn Electron on the GC probe path and resolve with what it emitted.
  *
@@ -148,7 +145,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   // to do with BrowserWindow GC reachability.
   // `mkdtempSync` returns a unique path; `removeProfileDirectory` below is what
   // takes it off disk, from both of the paths that can reach it.
-  // `electron-probe.ts` isolates its own profile the same way, for the
+  // `smoke-probe-harness.ts` isolates its own profile the same way, for the
   // same reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
 

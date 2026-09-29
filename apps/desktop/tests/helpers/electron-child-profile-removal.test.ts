@@ -16,7 +16,7 @@
 // ordered teardown runs after the last attempt, and a harness that passes none
 // accumulates one profile per overrun. Both of this package's Electron spawners
 // now pass one —
-// `helpers/electron-probe.ts` for the smoke probe and `helpers/gc-probe.ts`
+// `smoke-probe-harness.ts` for the smoke probe and `gc-probe-harness.ts`
 // for the GC probe — and the cases below are what makes that a property rather
 // than a convention.
 //

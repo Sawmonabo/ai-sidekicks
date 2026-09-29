@@ -274,7 +274,7 @@ export class CaptureWindow {
  *
  * THE MATCHER IS THE WRITER AND NOT A GATE. The tier runs in the `all` snapshot-update
  * mode, in which `toMatchScreenshot` writes the image and passes whether or not one was
- * already there — `vitest/console-projects.ts` pins that mode, so a bare
+ * already there — `vitest/tier-projects.ts` pins that mode, so a bare
  * `vitest run --project=screenshot` behaves as the package script does. What
  * survives of the matcher is its stability retry, which is worth keeping: an image taken
  * while the page is still painting is a bad picture for a person too.

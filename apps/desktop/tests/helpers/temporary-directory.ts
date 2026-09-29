@@ -1,11 +1,11 @@
 // The temporary trees a case plants on disk, and the removal that is part of planting
 // one.
 //
-// CONSOLE-WIDE SCAFFOLDING, WHICH IS WHY IT IS FLAT. This is one of `test/console/`'s
+// SHARED SCAFFOLDING, WHICH IS WHY IT IS FLAT. This is one of `tests/helpers/`'
 // role files beside `bounded-cleanup.ts`, `cleanup-contract.ts` and
 // `launch-profile.ts`, and any tier may consume it: the budget tier plants fixture
 // documents a loader must refuse, and a tier that needs a tree that is wrong in exactly
-// one way needs the same pair. It lived under `test/console/budget/` first, which made a
+// one way needs the same pair. It lived under the budget tier's directory first, which made a
 // TIER directory own a cross-tier cleanup role — so the next tier to plant a tree had
 // two choices and both are wrong: import the budget tier, or write the removal again.
 //

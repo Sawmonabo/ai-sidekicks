@@ -149,7 +149,7 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
 
 describe("the terminal-instance memory budget row", () => {
   // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are the
-  // budget tier's to hold (`test/console/budget/budget-registry.test.ts`) and are deliberately
+  // budget tier's to hold (`scripts/budget/budget-registry.test.ts`) and are deliberately
   // not restated here. What only THIS file can say is that it is the harness the row
   // names — so a reading that moves away, or a row flipped back to ungated while this
   // gate keeps running and passing, fails here.

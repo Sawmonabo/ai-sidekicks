@@ -27,7 +27,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 import {
   mountWorkflowBuilderPane,

@@ -88,7 +88,7 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
 
 describe("the renderer heap-at-rest budget row", () => {
   // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are
-  // the budget tier's to hold (`test/console/budget/heap-budget.test.ts`) and are
+  // the budget tier's to hold (`scripts/budget/measure-heap.test.ts`) and are
   // deliberately not restated here. What only THIS file can say is that it is the
   // harness the row names — so a reading that moves away, or a row flipped back
   // to ungated while this gate keeps running and passing, fails here.

@@ -34,7 +34,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderSettled } from "../../test/console/console-harness.js";
+import { emulateSystemScheme, renderSettled } from "../helpers/app-harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";

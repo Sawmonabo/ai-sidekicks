@@ -434,7 +434,7 @@ async function readSettledHeapBytes(consoleApplication: AppUnderTest): Promise<n
  * uncollected, a later mount triggers a major collection that reclaims them, and the
  * second instance reads as NEGATIVE — minus 5.8 MB per instance, against a real
  * per-instance cost of about 4 MB. The sampling discipline is kept and a collection
- * is put in front of it, which is exactly what `test/console/heap-sampling.ts` does
+ * is put in front of it, which is exactly what `heap-sampling.ts` does
  * for the in-process readers of it — five modules at this revision, every one of them
  * in THIS tier rather than spread across two.
  *

@@ -51,3 +51,13 @@ export function requireElement(container: HTMLElement, selector: string): HTMLEl
   }
   return element;
 }
+
+/**
+ * What the pane chrome calls a pane of one kind mounted over `sessionId`.
+ *
+ * The chrome names a pane by every scope its address carries and then by what the pane
+ * is, so two terminals in one layout are told apart by the session each holds.
+ */
+export function paneTrailName(sessionId: string | undefined, paneWord: string): string {
+  return `${sessionId ?? "No session"} ${paneWord}`;
+}

@@ -24,7 +24,7 @@
 // or a packaged root holding no binary, is a failure rather than another skip. A skip
 // nobody can distinguish from a pass is how a check like this rots.
 //
-// IN `test/helpers/` AND THEREFORE IN `main-unit`: it drives no window, needs no built
+// IN `tests/helpers/` AND THEREFORE IN `main-unit`: it drives no window, needs no built
 // bundle, and reads only a packaged artifact or a synthetic root it writes itself, so
 // it belongs in the project a person runs before pushing rather than behind a launcher.
 // It reads no source, configuration, or documentation text: the posture it holds a
@@ -47,8 +47,8 @@ import { fileURLToPath } from "node:url";
 import { getCurrentFuseWire, FuseState, FuseV1Options } from "@electron/fuses";
 import { afterEach, describe, expect, it } from "vitest";
 
-// Derived here rather than taken from `electron-probe.ts`' export of the same value:
-// that module resolves an `xdpyinfo` probe at import time by spawning it, which is the
+// Derived here rather than taken from `smoke-probe-harness.ts`' export of the same value:
+// that module loads an `xdpyinfo` probe that spawns at import time, which is the
 // right cost for a launcher and the wrong one for a file that launches nothing.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");

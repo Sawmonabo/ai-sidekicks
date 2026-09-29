@@ -1,4 +1,4 @@
-// What `test/console/phase-graph-settled.ts` is for, held to by a graph and by a surface
+// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a surface
 // that draws none.
 //
 // Neither tier that consumes the helper can check it. The screenshot tier takes images

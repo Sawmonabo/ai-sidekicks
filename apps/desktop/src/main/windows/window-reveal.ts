@@ -29,7 +29,7 @@
 //      which is worse than a focus steal. With throttling off, frames are still
 //      drawn and swapped and the document stays `visible`, so the unrevealed
 //      window runs the same code at the same rate a focused one does.
-//      `test/console/electron-harness.ts` asserts both — the visibility state
+//      `tests/helpers/electron-harness.ts` asserts both — the visibility state
 //      and that animation frames are actually delivered — on every launch
 //      rather than trusting it.
 //
@@ -61,8 +61,8 @@ declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
 /**
  * The environment variable the automated tiers set to `"1"`.
  *
- * Imported by every harness that spawns Electron (`test/console/electron-harness.ts`,
- * `test/helpers/electron-probe.ts`, `test/lifecycle.gc.test.ts`) rather than
+ * Imported by every harness that spawns Electron (`tests/helpers/electron-harness.ts`,
+ * `tests/helpers/smoke-probe-harness.ts`, `tests/helpers/gc-probe-harness.ts`) rather than
  * retyped, so a rename here is a compile error there and not a tier that
  * quietly starts stealing focus again.
  */

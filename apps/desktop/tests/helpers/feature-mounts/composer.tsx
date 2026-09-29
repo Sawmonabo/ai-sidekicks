@@ -6,7 +6,7 @@
 // the family mounts, not in the drawer that holds everything. The screenshot tier and the
 // accessibility tier need the same compositions, and a per-tier copy of the mount
 // would be two chances to compose them differently and then read the results as if
-// they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
+// they were comparable. `app-harness.ts` owns HOW the app is mounted, one
 // level down; this owns WHAT of this family is mounted into it.
 //
 // THE COMPOSER STATES ARE ADDRESSES, NOT VARIANTS. `chip-models.ts` resolves the send
@@ -38,7 +38,7 @@
 
 import type { ReactElement } from "react";
 
-import { renderSettled } from "../../../test/console/console-harness.js";
+import { renderSettled } from "../app-harness.js";
 import { COMPOSER_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";

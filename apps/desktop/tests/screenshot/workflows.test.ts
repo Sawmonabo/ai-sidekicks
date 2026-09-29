@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import {
   mountWorkflowBuilderPane,
   mountWorkflowRunPane,

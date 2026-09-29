@@ -59,7 +59,7 @@ export default defineConfig({
           // tier for two `process.kill(pid, 0)` assertions: the Electron
           // download, the smoke bundle, and the serialized queue below. A file
           // that does not spawn Electron belongs in `main-unit`.
-          include: ["tests/*.test.ts", "test/*.test.ts"],
+          include: ["tests/*.test.ts"],
           // Two files under this glob each spawn a full Electron/Chromium
           // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.
           // Vitest's default `fileParallelism: true` runs them CONCURRENTLY,

@@ -10,7 +10,7 @@
 // `launch-deadline.ts` makes that one shared clock divided into three named
 // slices, and the arithmetic runs here against an INJECTED clock, so the phase
 // arithmetic is checked without waiting for any of it to elapse. The tier
-// timeouts a launch has to fit inside are derived in `vitest/console-projects.ts`
+// timeouts a launch has to fit inside are derived in `vitest/tier-projects.ts`
 // through `tierTimeoutFor`, so a tier cannot carry a literal in the first place.
 //
 // The three things the deadline sits beside are their own subjects and their own

@@ -25,7 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 // The ledger frame's door, imported for its side effect: the family's stylesheet lives

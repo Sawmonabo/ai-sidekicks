@@ -30,12 +30,9 @@ import { cdp, server, userEvent } from "vitest/browser";
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { CONSOLE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import {
-  consolePaneRegistry,
-  consoleSurfaceRegistry,
-} from "../../src/renderer/src/console/seats/index.js";
+import { consolePaneRegistry, consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { type ConsoleScheme } from "@renderer/styles/tokens.js";
 
 /**
@@ -120,7 +117,7 @@ export async function emulateSystemScheme(scheme: ConsoleScheme): Promise<void> 
  * so naming it here would export a type no caller's `RenderResult` matches. The
  * three tiers use the container and nothing else.
  */
-export interface ConsoleMount {
+export interface AppMount {
   /** The viewport-sized element the console was rendered into. */
   readonly container: HTMLElement;
 }
@@ -149,7 +146,7 @@ export interface ConsoleMount {
  * (`surfaces/composer.tsx`); a caller mounting `ConsoleRoot`, which builds its own
  * bridge, has only this.
  */
-export async function renderSettled(element: ReactElement): Promise<ConsoleMount> {
+export async function renderSettled(element: ReactElement): Promise<AppMount> {
   const container: HTMLElement = document.createElement("div");
   container.style.width = "100vw";
   container.style.height = "100vh";
@@ -275,7 +272,7 @@ export async function awaitSessionRouteMounted(container: HTMLElement): Promise<
  * same turn as the unmount would race the connection it is deleting behind, and
  * `blocked` is what such a race looks like from here.
  */
-export async function resetDurableConsoleState(): Promise<void> {
+export async function resetDurableAppState(): Promise<void> {
   cleanup();
   await settleOneTurn();
   await deleteConsoleDatabase();

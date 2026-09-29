@@ -20,10 +20,10 @@
 // readings themselves are the real ones, imported from the module the mounts use — a
 // local re-reading of the selector would prove nothing about either wait.
 //
-// WHY THIS TIER. The module under test mounts a React seat through `console-harness.tsx`
-// and reaches the console's own barrels, so it belongs to a browser-mode project rather
-// than a Node one — and this is the project whose glob claims a `test/console/browser/`
-// file, and whose neighbours already drive that mount. The cases below build detached
+// WHY THIS TIER. The module under test mounts a React seat through `app-harness.ts`
+// and reaches the renderer's own barrels, so it belongs to a browser-mode project rather
+// than a Node one — and this is the project whose glob claims a `tests/browser/`
+// file, and whose neighbors already drive that mount. The cases below build detached
 // documents and mount nothing, which is what lets them state the shapes a mount cannot.
 
 import { describe, expect, it } from "vitest";

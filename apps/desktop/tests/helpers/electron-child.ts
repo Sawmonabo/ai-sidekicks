@@ -197,7 +197,7 @@ export interface ElectronChildSpawnOptions {
 /**
  * Spawn Electron with its lifetime bound to the current test.
  *
- * The single spawn chokepoint for `apps/desktop/test/**`, enforced by
+ * The single spawn chokepoint for `apps/desktop/tests/**`, enforced by
  * `no-restricted-imports` and `no-restricted-syntax` in
  * `apps/desktop/eslint.config.mjs`: a second `spawn` reach anywhere under that
  * tree — static, dynamic `import()`, or `require` — is a red check, because a

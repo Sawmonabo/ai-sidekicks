@@ -93,11 +93,9 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import {
-  SCENARIO_FIXTURE_GLOBAL,
-  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  TRIPWIRE_FIXTURE_GLOBAL,
-} from "../../test/console/fixture-handles.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/lib/tripwires.js";
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,

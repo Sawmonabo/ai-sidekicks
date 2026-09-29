@@ -1,7 +1,7 @@
 // Killing a spawned Electron tree, once, for every harness that spawns one.
 //
-// Two harnesses spawn Electron — the smoke probe in `electron-probe.ts`
-// and the console launcher behind `test/console/bounded-cleanup.ts` — and each
+// Two harnesses spawn Electron — the smoke probe in `smoke-probe-harness.ts`
+// and the tier launcher behind `bounded-cleanup.ts` — and each
 // grew its own copy of the same platform facts. They had already diverged:
 // only one of them read `taskkill`'s exit status, so the other reported a kill it
 // had not performed. A rule with two homes is a rule that will disagree with

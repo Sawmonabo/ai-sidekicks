@@ -18,7 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../../test/console/console-harness.js";
+import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountDiffPane, mountRepoSection } from "../helpers/feature-mounts/repos.js";
 import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import {

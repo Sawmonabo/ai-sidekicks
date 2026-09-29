@@ -11,31 +11,31 @@
 // subject is missing reports green for a bundle nobody measured. The console
 // budget Turbo task declares a `dependsOn: ["build"]` edge, so the build is
 // present by construction in CI and in `pnpm test`; a bare `vitest run` in a
-// clean checkout fails with the command that produces one. The refusal tests at
-// the bottom are what make that claim evidence rather than an assumption.
+// clean checkout fails with the command that produces one. The measurer's refusals
+// are in `scripts/budget/measure-bundle.test.ts`.
 
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "../../../scripts/budget/budget-registry.mjs";
-import { evaluateBudget } from "../../../scripts/budget/budget-evaluation.mjs";
-import { formatUnavailableBudgetReport } from "../../../scripts/budget/budget-report.mjs";
-import { type Budget } from "../../../scripts/budget/budget-document.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
+import { formatUnavailableBudgetReport } from "../../scripts/budget/budget-report.mjs";
+import { type Budget } from "../../scripts/budget/budget-document.mjs";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
   RENDERER_BUNDLE_BUDGET_ID,
   RENDERER_BUNDLE_GATES,
   RENDERER_FONTS_BUDGET_ID,
-  RENDERER_MANIFEST_RELATIVE_PATH,
   RendererBundleMeasurer,
   RendererBundleOutputMissingError,
   formatRendererBundleReport,
   rendererBundleAssetClassOf,
   type RendererBundleMeasurement,
-} from "../../../scripts/budget/measure-bundle.mjs";
-import { TemporaryDirectoryTrail } from "@test/helpers/temporary-directory.js";
+} from "../../scripts/budget/measure-bundle.mjs";
+import { TemporaryDirectoryTrail } from "../helpers/temporary-directory.js";
+import { plantRendererOutput } from "../helpers/renderer-output-fixture.js";
 
 const registry = BudgetRegistry.load();
 
@@ -102,24 +102,6 @@ const plantedFixtures = new TemporaryDirectoryTrail();
 afterEach(() => {
   plantedFixtures.removeAll();
 });
-
-/** A renderer out-dir holding a manifest and, optionally, the files it names. */
-function outputDirectoryWithManifest(
-  name: string,
-  manifest: unknown,
-  emittedFiles: ReadonlyMap<string, string> = new Map(),
-): string {
-  const directory = plantedFixtures.create(`console-bundle-${name}-`);
-  const manifestPath = path.join(directory, ...RENDERER_MANIFEST_RELATIVE_PATH.split("/"));
-  mkdirSync(path.dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest), "utf8");
-  for (const [relativePath, sourcePath] of emittedFiles) {
-    const emittedPath = path.join(directory, ...relativePath.split("/"));
-    mkdirSync(path.dirname(emittedPath), { recursive: true });
-    copyFileSync(sourcePath, emittedPath);
-  }
-  return directory;
-}
 
 /** A one-entry manifest over `assetPaths`, the shape Vite writes for the entry document. */
 function manifestNaming(assetPaths: readonly string[]): unknown {
@@ -212,41 +194,6 @@ describe("renderer initial-graph budgets", () => {
   });
 });
 
-// Negative controls. Each is a way a measurement could report green over bytes
-// nobody bounded; the harness must refuse or fail rather than pass.
-describe("initial-graph measurement refusals", () => {
-  it("refuses a tree with no chunk manifest", () => {
-    const directory = plantedFixtures.create("console-bundle-empty-");
-    expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(
-      RendererBundleOutputMissingError,
-    );
-  });
-
-  it("refuses a manifest that marks no entry", () => {
-    const directory = outputDirectoryWithManifest("no-entry", {
-      "src/lazy.ts": { file: "assets/lazy.js" },
-    });
-    expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(/isEntry/);
-  });
-
-  it("refuses a manifest naming a file the tree does not hold", () => {
-    const directory = outputDirectoryWithManifest("absent-file", {
-      "index.html": { file: "assets/index.js", isEntry: true },
-    });
-    expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(/assets\/index\.js/);
-  });
-
-  it("refuses an asset whose extension belongs to neither class", () => {
-    // The fail-closed half of the split: an unclassified asset sums into neither
-    // row, which is the same silent under-count as a file that is not there.
-    expect(rendererBundleAssetClassOf("assets/logo.png")).toBeUndefined();
-    const directory = outputDirectoryWithManifest("unclassified", {
-      "index.html": { file: "assets/logo.png", isEntry: true },
-    });
-    expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(/asset class/);
-  });
-});
-
 describe("the two rows bound disjoint bytes", () => {
   const fontAssets = measurement.assets.filter((asset) => asset.assetClass === "font");
 
@@ -272,7 +219,8 @@ describe("the two rows bound disjoint bytes", () => {
     if (stylesheet === undefined || face === undefined) {
       return;
     }
-    const directory = outputDirectoryWithManifest(
+    const directory = plantRendererOutput(
+      plantedFixtures,
       "one-of-each",
       manifestNaming([stylesheet.relativePath, face.relativePath]),
       new Map([
@@ -304,7 +252,8 @@ describe("the two rows bound disjoint bytes", () => {
         path.join(rendererOutputDirectory, asset.relativePath),
       ]),
     );
-    const directory = outputDirectoryWithManifest(
+    const directory = plantRendererOutput(
+      plantedFixtures,
       "additional-face",
       manifestNaming([...emittedFaces.keys(), additionalFacePath]),
       emittedFaces,

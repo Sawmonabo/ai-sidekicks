@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../../test/console/console-harness.js";
+import { renderSettled } from "../helpers/app-harness.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";

@@ -28,10 +28,10 @@ import {
   awaitSessionRouteMounted,
   emulateSystemScheme,
   renderSettled,
-  resetDurableConsoleState,
+  resetDurableAppState,
   SESSION_ROUTE_BODY_SELECTOR,
   SESSION_ROUTE_MOUNT_DEADLINE_MS,
-} from "../../test/console/console-harness.js";
+} from "../helpers/app-harness.js";
 import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clock.js";
 import { requireCapturedElement } from "./captured-element.js";
 
@@ -98,7 +98,7 @@ beforeEach(async () => {
   // The database this window opens outlives the file that opened it: browser mode
   // gives every file in a session one origin, so an arrangement another file
   // persisted would be restored into these mounts and photographed here.
-  await resetDurableConsoleState();
+  await resetDurableAppState();
   document.location.hash = "";
   installMeridianTokens(document);
 });

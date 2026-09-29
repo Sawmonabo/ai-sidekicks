@@ -3,10 +3,10 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier need the surfaces this family ships, and a per-tier copy of the
 // mount would be two chances to compose them differently and then read the results as
-// if they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
+// if they were comparable. `app-harness.ts` owns HOW the app is mounted, one
 // level down; this module owns WHAT of this family is mounted into it.
 //
-// ONE FILE PER FAMILY, UNDER `test/console/surfaces/`. The tier root holds the roles
+// ONE FILE PER FAMILY, UNDER `tests/helpers/feature-mounts/`. The tier root holds the roles
 // every tier reaches for — the harness, the graph-readiness wait, the source walk —
 // and a mount that is one family's is not one of them. Seven families each dropping a
 // `<family>-surfaces.tsx` beside those would bury the shared set in the family set,
@@ -48,7 +48,7 @@
 
 import type { FunctionComponent } from "react";
 
-import { renderSettled } from "../../../test/console/console-harness.js";
+import { renderSettled } from "../app-harness.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -100,7 +100,7 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  * The workflows pane body the deck holds for a kind, loaded.
  *
  * The resolution — build a family-scoped registry, preload, read the descriptor, throw
- * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * by name — lives once in `pane-body-resolution.ts`; what stays here is
  * this family's registrar and the `{ context }` prop shape its mounts below render with.
  */
 async function paneBodyComponent(

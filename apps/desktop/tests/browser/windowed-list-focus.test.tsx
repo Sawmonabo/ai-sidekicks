@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { pressKeys, renderSettled } from "../../test/console/console-harness.js";
+import { pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import { DiffFileList } from "@renderer/features/repos/diff/components/DiffFileList.js";
 import { buildDiffFixture } from "../helpers/diff-fixture.js";

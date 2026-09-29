@@ -65,7 +65,7 @@ import { existsSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { ELECTRON_BIN, MAIN_ENTRY, PRELOAD_ENTRY } from "../test/helpers/electron-probe.js";
+import { ELECTRON_BIN, MAIN_ENTRY, PRELOAD_ENTRY } from "./helpers/smoke-probe-harness.js";
 import {
   GC_PROBE_TAG,
   GC_TEST_TIMEOUT_MS,

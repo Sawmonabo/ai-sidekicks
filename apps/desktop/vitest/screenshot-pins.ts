@@ -78,7 +78,7 @@ export const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
     // of where the machine was rather than of what the console shows. `locale`
     // rides beside it for the same reason one step further out: the month name,
     // the digit shapes, and the 12-versus-24-hour clock are all locale-resolved.
-    // `test/console/screenshot/rendering-conditions.test.ts` drives both.
+    // `tests/screenshot/rendering-conditions.test.ts` drives both.
     timezoneId: "UTC",
     locale: "en-US",
   },
@@ -152,7 +152,7 @@ export const LONGEST_CAPTURE_STABILITY_WAIT_MS: number = stabilityWaitMsFor(
  * measured in, so four times the per-window wait. Left at the inherited 15 000 ms, a
  * capture handed a 20 000 ms wait could never spend it: Vitest's own timeout would fire
  * first and report "Test timed out", which names neither the wait nor the surface. That
- * is the inversion `test/console/launch-deadline.ts` describes for the Electron tiers,
+ * is the inversion `tests/helpers/launch-deadline.ts` describes for the Electron tiers,
  * reaching this one by a different route — a bound that outlives the budget enclosing it
  * is a bound nothing can reach.
  *
@@ -192,10 +192,10 @@ export const SCREENSHOT_TIER_TIMEOUT_MS: number =
  * text snapshot anywhere in this package would rewrite itself instead of failing.
  * There is none, and `eslint.config.mjs` refuses `toMatchSnapshot`,
  * `toMatchInlineSnapshot`, and `toMatchFileSnapshot` in every directory the `lint`
- * script reads — `src/**`, `test/**`, `scripts/**`, `build/**`, and this one — so
+ * script reads — `src/**`, `tests/**`, `scripts/**`, `build/**`, and this one — so
  * there cannot be one without that rule being answered first. The enumeration is
  * load-bearing rather than decorative: five of the six `include` entries of the
- * `main-unit` project sit outside the renderer and `test/**` unions, and they run
+ * `main-unit` project sit outside the renderer and `tests/**` unions, and they run
  * under this mode like every other project here.
  *
  * `??=` rather than `=`: a developer who typed `UPDATE_SNAPSHOT=none` in front of

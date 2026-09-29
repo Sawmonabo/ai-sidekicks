@@ -58,7 +58,7 @@ const COARSE_LAUNCH_OPTIONS: LaunchAppOptions = {
  * A global rather than a closure, because the plant and the release are two separate
  * round trips into the renderer and nothing in the driver process can hold a
  * reference to a renderer object across them. Named distinctly from the build's own
- * fixture handles (`fixture-handles.ts`) so a collision cannot make one case's
+ * fixture globals (`FIXTURE_GLOBAL_NAMES`) so a collision cannot make one case's
  * scaffolding another case's subject.
  */
 const PLANTED_ALLOCATION_GLOBAL = "__consoleHeapInstrumentPlantedAllocation";

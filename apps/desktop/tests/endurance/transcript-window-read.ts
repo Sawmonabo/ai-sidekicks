@@ -12,8 +12,8 @@ import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
-  type LedgerWindowReading,
-} from "../../test/console/fixture-handles.js";
+} from "@renderer/services/session-events/session-diagnostics-handle.js";
+import { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 
 /**
  * One ledger row BOX — the element the window mounts, not the card drawn inside it.

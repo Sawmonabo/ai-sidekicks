@@ -1,7 +1,7 @@
 // The readiness a surface owes any tier that reads it, when a lazily-drawn graph is
 // on it.
 //
-// Not a test file — no `include` glob reaches it. It lives in `test/console/` rather
+// Not a test file — no `include` glob reaches it. It lives in `tests/helpers/` rather
 // than in one tier's directory because two tiers ask the same question of the same
 // surface: the screenshot tier asks it before a capture, and the accessibility tier
 // asks it before an axe run. One home, for the reason a second copy would rot — the

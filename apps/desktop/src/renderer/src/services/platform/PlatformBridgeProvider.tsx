@@ -181,7 +181,7 @@ class ResolvedConsoleBridge {
  * effect, never a method on `ResolvedConsoleBridge`: Rollup drops an unreferenced
  * function and `scenario-selection.js` with it, but it keeps every method of a class
  * that is constructed, so a method here would carry the fixture handle's name into
- * the release bundle — which `test/console/budget/release-absence.test.ts` refuses.
+ * the release bundle — which `tests/budget/release-absence.test.ts` refuses.
  *
  * The install runs from an effect rather than the constructor because React may
  * discard a render pass, and a handle installed during one would point at an engine
