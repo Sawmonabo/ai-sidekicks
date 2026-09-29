@@ -42,4 +42,7 @@ export {
   useAttentionProjection,
   type AttentionProjectionReadCall,
 } from "@renderer/store/attention/hooks/useAttentionProjection.js";
-export { useAttentionSettlementAnnouncement } from "@renderer/layout/NotificationsList/hooks/useAttentionSettlementAnnouncement.js";
+export {
+  /** @consumedBy the notifications list the rail's bell opens */
+  useAttentionSettlementAnnouncement,
+} from "@renderer/layout/NotificationsList/hooks/useAttentionSettlementAnnouncement.js";
