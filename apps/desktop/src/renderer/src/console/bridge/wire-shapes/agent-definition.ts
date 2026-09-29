@@ -5,17 +5,10 @@
 // the payload contracts register its shapes; `packages/contracts` carries none of
 // them, and neither does
 // the client SDK. A definitions page whose stored row exists nowhere would have to
-// invent it inside a view family, which is what the growth slate exists to prevent —
-// so the shape is declared here, on the substrate, behind the
-// `agent-definition-registry` slate row, and every call to it goes through the
-// growth port.
+// invent it inside a view family, so the shape is declared here, on the substrate.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures/agent-definitions.ts` imports them from the contracts
-// instead. The slate row leaves `growth-slate.ts` and the growth slate in the same
-// PR, and `failure-modes.test.ts` then fails on the port entries
-// that still claim fixture-only — which is the reminder this file wants at that
-// moment.
+// is DELETED and its importers take them from the contracts package instead.
 //
 // WHY THE DRAFT AND THE STORED ROW ARE TWO SHAPES AND NOT ONE. The registered
 // contract makes the difference load-bearing, so collapsing them would erase it. On
@@ -90,6 +83,8 @@ export interface AgentDefinition {
  * registered update is exactly this with every axis optional and a `definitionId`
  * added. Two hand-written axis lists would drift the first time an axis landed on
  * one and not the other, and the compiler would have nothing to say about it.
+ *
+ * @consumedBy the agent definition editor's create and update calls
  */
 export interface AgentDefinitionDraft {
   readonly name: string;

@@ -2,8 +2,7 @@
 //
 // Its own module because a `.tsx` declares one component, and the split is load-
 // bearing rather than clerical: the record's hooks live below this branch, so a body
-// that ran inside the frame would call them conditionally. `ApprovalsPaneBody.tsx`
-// and `RunsPaneBody.tsx` are the same shape one directory over.
+// that ran inside the frame would call them conditionally.
 
 import { Nothing } from "../../primitives/index.js";
 import { type PaneContextOf } from "../../seats/index.js";

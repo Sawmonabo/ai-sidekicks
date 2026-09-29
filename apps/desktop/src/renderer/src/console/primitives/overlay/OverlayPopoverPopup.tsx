@@ -31,6 +31,7 @@ export interface OverlayPopoverPopupProps {
   readonly children: React.ReactNode;
 }
 
+/** @consumedBy a popover that must register its airspace over a native view */
 export function OverlayPopoverPopup(props: OverlayPopoverPopupProps): React.JSX.Element {
   const airspaceRef = useAirspaceRegistration("popover");
   return (

@@ -5,7 +5,8 @@
 // too: it is a decision about a destination, not about a layout, and a test can drive it
 // without mounting a pane.
 
-import type { GrowthNavigationState } from "../../bridge/index.js";
+import type { PreviewPage } from "@ai-sidekicks/contracts";
+
 import type { ReadingState } from "../../primitives/index.js";
 
 /**
@@ -13,14 +14,14 @@ import type { ReadingState } from "../../primitives/index.js";
  *
  * `ended` is a fact and not the absence of one: a subscription that finished cleanly
  * is neither a reading nor a refusal, and a pane holding the last state it was sent
- * would present a URL, a title and two history flags as current while nothing reports
+ * would present an address, a title and two history depths as current while nothing reports
  * them. It carries no last state for that reason.
  */
 export type NavigationReading =
   /** No answer has come back yet, which is not the same as "no page". */
   | Extract<ReadingState, { readonly kind: "reading" }>
   | (Extract<ReadingState, { readonly kind: "served" }> & {
-      readonly state: GrowthNavigationState;
+      readonly state: PreviewPage;
     })
   /** The producer finished. The pane was being told, and is not being told now. */
   | { readonly kind: "ended" };

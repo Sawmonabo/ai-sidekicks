@@ -12,36 +12,17 @@
 // of those kinds is an invariant breach the console cannot fix and its author cannot
 // see, which is exactly the class the diagnostic band exists for.
 //
-// SEVERITY IS A MAPPING AND NOT A CONSTANT. Five of the six kinds are console
-// invariant breaches and are errors; `cleanup-refused` is the daemon answering
-// honestly about something the console asked for, so it is a warning. Recording it
-// at the same severity as a broken store invariant would teach an operator to
-// discount both.
+// EVERY RECORD IS AN ERROR. Every tripwire kind is a console invariant breach, so none
+// reaches the band at a lower severity.
 
 import type { ConsoleClock } from "../clock.js";
 import { consoleDiagnosticCapture } from "./diagnostic-capture.js";
-import type { DiagnosticCapture, DiagnosticSeverity } from "./diagnostic-capture.js";
+import type { DiagnosticCapture } from "./diagnostic-capture.js";
 import { consoleTripwires } from "../tripwires.js";
-import type { TripwireKind, TripwireRegistry, TripwireReport } from "../tripwires.js";
+import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
 
 /** The subsystem name every routed record carries. */
 const TRIPWIRE_SOURCE = "console/core/tripwires";
-
-/**
- * How bad each tripwire kind is once it reaches the band.
- *
- * Total over `TripwireKind` by construction — a seventh kind added to that tuple is
- * a compile error here, which is what keeps a new tripwire from arriving at the band
- * under whatever severity a default would have picked.
- */
-const SEVERITY_BY_TRIPWIRE_KIND: Readonly<Record<TripwireKind, DiagnosticSeverity>> = {
-  "bridge-shape-drift": "error",
-  "persistence-value-class": "error",
-  "apply-chokepoint-bypass": "error",
-  "wire-figure-formatting": "error",
-  "surface-render-failure": "error",
-  "cleanup-refused": "warning",
-};
 
 /**
  * Route one registry's reports into one capture until the returned function is
@@ -59,7 +40,7 @@ export function routeTripwiresToDiagnosticCapture(
   return registry.subscribeToReports((report: TripwireReport) => {
     capture.record({
       at: at(),
-      severity: SEVERITY_BY_TRIPWIRE_KIND[report.kind],
+      severity: "error",
       source: TRIPWIRE_SOURCE,
       kind: report.kind,
       detail: `${report.site}: ${report.detail}`,

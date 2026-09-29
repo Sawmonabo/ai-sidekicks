@@ -22,7 +22,6 @@
 //     screenshot baseline does not shift when the developer's machine does.
 
 import type {
-  AuxiliaryWindowControls,
   CpInput,
   CpOutput,
   CpProcedure,
@@ -101,20 +100,13 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
         // matches its signature by doing nothing observable rather than throwing
         // from a `void` method the caller cannot catch.
       },
+      getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       openExternal: () => refuseAbsentCapability("native.openExternal"),
       copyToClipboard: async () => {
         // Clipboard writes are safe to no-op: nothing reads the result back, and a
         // refusal here would make every "copy id" affordance untestable.
       },
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
-    },
-    shell: {
-      // The fixture is a scripted SESSION, not a scripted shell: no scenario opens a
-      // second window, so nothing here could ever press the chord that raises this.
-      // It answers with a disposer and reports nothing — the `attentionSubscribe`
-      // posture, and a reading rather than a refusal: this bridge is not declining to
-      // say when the shell asked, it has no shell behind it that could ask.
-      subscribeToComposerFocusRequest: (): Unsubscribe => () => undefined,
     },
     update: {
       // The scenario's own declaration, or the bare `idle` this fixture answered
@@ -130,7 +122,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       requestCheck: () => refuseAbsentCapability("update.requestCheck"),
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
-    window: WINDOWLESS_AUXILIARY_CONTROLS,
     app: FIXTURE_APP_META,
   };
 
@@ -151,19 +142,3 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     scenarioEngine,
   };
 }
-
-/**
- * The `window` namespace a fixture carries.
- *
- * Present because the fixture is shape-identical to `DesktopBridge` namespace for
- * namespace, and refusing because there is no process here that could open a window.
- * The two subscriptions hand back a disposer and report nothing, which is what a
- * signal with no producer behind it is.
- */
-const WINDOWLESS_AUXILIARY_CONTROLS: AuxiliaryWindowControls = {
-  detachPane: () => refuseAbsentCapability("window.detachPane"),
-  focusAuxiliary: () => refuseAbsentCapability("window.focusAuxiliary"),
-  closeAuxiliary: () => refuseAbsentCapability("window.closeAuxiliary"),
-  subscribePaneErrors: () => () => undefined,
-  subscribePaneReturns: () => () => undefined,
-};

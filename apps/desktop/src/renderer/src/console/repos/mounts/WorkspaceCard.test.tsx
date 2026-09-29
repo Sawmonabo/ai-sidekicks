@@ -40,8 +40,8 @@ function renderRow(
   );
 }
 
-/** The one workspace whose row offers a root to prepare, in the mode that materializes one. */
-const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "worktree" });
+/** A workspace whose row offers a root to prepare, in the mode that provisions one. */
+const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "provisioned-worktree" });
 
 /** A withholding mount's real posture, composed by the module the card reads it from. */
 const DETACHED_MOUNT_BIND_CONTROLS = bindControlPosture(mount({ state: "detached" }));
@@ -53,9 +53,8 @@ describe("WorkspaceCard — the root", () => {
   });
 
   it("says the root is pending while the workspace is provisioning", () => {
-    // `WorkspaceBindResponse.fsRoot` is absent for a writable bind until provisioning
-    // completes; an empty cell would read as "this workspace has no root", which is a
-    // different and false fact.
+    // A row's `fsRoot` is absent until its execution root is prepared; an empty cell
+    // would read as "this workspace has no root", which is a different and false fact.
     const { container, getByText } = renderRow(
       workspace({ state: "provisioning", fsRoot: undefined }),
     );
@@ -88,9 +87,14 @@ describe("WorkspaceCard — the stale row", () => {
 
 describe("WorkspaceCard — two chips, and no third axis", () => {
   it("wears exactly the binding and the lifecycle position", () => {
-    const { container } = renderRow(workspace({ state: "busy", executionMode: "worktree" }));
+    const { container } = renderRow(
+      workspace({ state: "busy", executionMode: "provisioned-worktree" }),
+    );
     const chips = container.querySelectorAll(".meridian-chip__label");
-    expect([...chips].map((chip) => chip.textContent)).toStrictEqual(["worktree", "busy"]);
+    expect([...chips].map((chip) => chip.textContent)).toStrictEqual([
+      "provisioned-worktree",
+      "busy",
+    ]);
   });
 
   it("negative control: no chip anywhere reads as a mount health verdict", () => {
@@ -123,7 +127,7 @@ describe("WorkspaceCard — one posture for both binding controls", () => {
     // Which call a prepare sends and whether it asks a reuse question are both read
     // off `workspace.executionMode`, which is the member the pending switch is about
     // to change — so a prepare sent now is a prepare for the mode being left.
-    const { container } = renderRow(WRITABLE_ROW, { pendingMode: "ephemeral clone" });
+    const { container } = renderRow(WRITABLE_ROW, { pendingMode: "bound-root" });
 
     expect(branchInput(container)?.disabled).toBe(true);
     expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();

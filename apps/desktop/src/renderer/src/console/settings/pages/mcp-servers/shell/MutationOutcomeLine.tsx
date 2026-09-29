@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Chip, Nothing, WireFigure } from "../../../../primitives/index.js";
-import type { GrowthMcpLiveApplicationResult } from "../../../../bridge/index.js";
+import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";
 
@@ -65,7 +65,7 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
  * mutation can reach several sessions holding one binding open — so the two lists that
  * render a leg key it one way rather than two.
  */
-function renderLiveResults(results: readonly GrowthMcpLiveApplicationResult[]): ReactNode {
+function renderLiveResults(results: readonly McpLiveApplicationResult[]): ReactNode {
   if (results.length === 0) {
     return (
       <p className="meridian-settings-page__aside">

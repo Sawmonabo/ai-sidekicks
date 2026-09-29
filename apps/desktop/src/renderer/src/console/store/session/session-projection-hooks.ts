@@ -42,6 +42,8 @@ export function useSessionInitialised(store: SessionStore): boolean {
  *
  * A number, so `Object.is` still decides the re-render and an unchanged store still
  * costs a pointer comparison.
+ *
+ * @consumedBy a surface that re-renders whenever the session projection moves
  */
 export function useSessionProjectionRevision(store: SessionStore): number {
   return useStore(store.readable, readRevision);
@@ -63,6 +65,8 @@ export function useSessionProjectionRevision(store: SessionStore): number {
  * so a transition between two causes costs no render to a surface that renders
  * neither. A reader that renders the cause itself takes `useSessionStore` with a
  * selector that returns the stored value.
+ *
+ * @consumedBy a surface that says when the session projection is incomplete
  */
 export function useSessionDegraded(store: SessionStore): boolean {
   return useStore(store.readable, readDegraded);

@@ -73,12 +73,7 @@ export type { GlyphName } from "./glyphs.js";
 // the ratio back off a compiled face. A door line for a value no surface sets would
 // read as a token a surface may set, and `barrel-census` fails a line with no
 // production reader in any case.
-export {
-  GLYPH_DEFAULT_SIZE,
-  GLYPH_SIZE_CHROME,
-  GLYPH_SIZE_DENSE,
-  GLYPH_SIZE_ROW,
-} from "./glyphs.js";
+export { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "./glyphs.js";
 
 export type { ActorHueAssignment, ActorRingTreatment } from "./actor-hue.js";
 export { ActorHueAllocator } from "./actor-hue.js";

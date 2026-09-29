@@ -2,10 +2,9 @@
 //
 // SPLIT FROM `NewSessionControl.tsx`, which renders. That file owns the markup, the
 // labels, and which control is drawn in which state; this one owns the draft's
-// lifetime, the per-draft send report, the settlement, and the two guards behind Send
-// — and together they were one file past the package's ceiling. The seam is the one the
-// component already had: it reads a composition and renders it, and every rule below
-// can be checked without rendering anything at all.
+// lifetime, the per-draft send report, the settlement, and the guards behind Send. The
+// seam is the one the component already had: it reads a composition and renders it,
+// and every rule below can be checked without rendering anything at all.
 //
 // THE DRAFT IS THE SOURCE OF TRUTH and this hook subscribes to it rather than keeping
 // selections of its own: two copies of what a person has chosen is how a discard
@@ -210,9 +209,9 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
         publishReport({ isSending: false, result: sendResult });
       },
       () => {
-        // A send that rejected outright USED to publish `NO_SEND_YET`, which cleared
-        // the result: no banner, no announcement, no diagnostic, and a Send button
-        // that answered a press by doing nothing. The draft names the fault in its own
+        // A send that rejects outright does not publish `NO_SEND_YET`, which would clear
+        // the result: no banner, no announcement, no diagnostic, and a Send button that
+        // answers a press by doing nothing. The draft names the fault in its own
         // vocabulary instead, so the refusal renders in the slot every other outcome
         // uses and the announce effect below says it out loud.
         //

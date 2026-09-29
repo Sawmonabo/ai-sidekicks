@@ -29,8 +29,8 @@
 //     join log — order-dependent state no single row can see.
 //   • `isSuperseded` is a rollback-boundary ranking over the rows AROUND this one.
 //     Only `TimelineRow`'s `run` arm carries a `superseded` marker at all; a
-//     `general` or `legacy_stub` row after a boundary is superseded too and says
-//     so nowhere in its own shape.
+//     `general` row after a boundary is superseded too and says so nowhere in its
+//     own shape.
 //   • `density` is the list's collapse state for this row, under the timeline's
 //     density budgets.
 

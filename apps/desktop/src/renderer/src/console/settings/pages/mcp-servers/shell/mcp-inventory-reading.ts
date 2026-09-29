@@ -16,7 +16,7 @@
 // so nothing above the daemon polls.
 
 import type { ConsoleClock, Unsubscribe } from "../../../../core/index.js";
-import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 import { PushDrivenRead } from "../../../../seats/index.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
@@ -24,7 +24,7 @@ export const MCP_INVENTORY_READ_ORIGIN = "mcp-servers";
 
 /** What the inventory read answers with. */
 export interface McpInventory {
-  readonly servers: readonly GrowthMcpInventoryEntry[];
+  readonly servers: readonly McpServerInventoryEntry[];
 }
 
 /** The read the MCP shell is built on. */

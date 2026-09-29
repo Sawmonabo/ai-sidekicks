@@ -51,6 +51,8 @@ const EMPTY_CHORD_MIRROR_KEY = "";
  * so a later clear is a no-op, while a publication whose reply was lost may well have
  * landed — and a clear the register decided to skip would leave that mirror installed
  * forever.
+ *
+ * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
 export class ChordMirrorPublication {
   /** Empty rather than absent: a host nobody has published to claims no chord. */
@@ -71,8 +73,10 @@ export class ChordMirrorPublication {
  * One projection as a single value an effect can be keyed on.
  *
  * An unreadable registry and an empty projection compose to the same key, and that is
- * correct rather than a conflation: 12.4's fourth rule sends both to the page, so both
+ * correct rather than a conflation: the handback sends both to the page, so both
  * are "this pane claims nothing" and the host is owed the same sentence for either.
+ *
+ * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
 export function composeChordMirrorKey(mirrorChords: readonly string[] | undefined): string {
   return mirrorChords === undefined
@@ -80,7 +84,11 @@ export function composeChordMirrorKey(mirrorChords: readonly string[] | undefine
     : mirrorChords.join(MIRROR_CHORD_SEPARATOR);
 }
 
-/** The chords a key carries, as the wire takes them. Empty key, empty list. */
+/**
+ * The chords a key carries, as the wire takes them. Empty key, empty list.
+ *
+ * @consumedBy the preview pane's handback, which tells the host the chords the page claims
+ */
 export function readChordMirrorKey(mirrorKey: string): readonly string[] {
   return mirrorKey === EMPTY_CHORD_MIRROR_KEY ? [] : mirrorKey.split(MIRROR_CHORD_SEPARATOR);
 }

@@ -7,7 +7,7 @@ import {
   WireFigure,
   formatDateTime,
 } from "../../../../primitives/index.js";
-import type { GrowthMcpServerLegStatus } from "../../../../bridge/index.js";
+import type { McpServerLegStatus } from "@ai-sidekicks/contracts";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import { toneForServerStatus } from "./server-status-tone.js";
 
@@ -33,7 +33,7 @@ import { toneForServerStatus } from "./server-status-tone.js";
  * agree with its aggregate and another's do not, and the disagreement is the point.
  */
 export function ServerLegs(props: {
-  readonly legs: readonly GrowthMcpServerLegStatus[] | undefined;
+  readonly legs: readonly McpServerLegStatus[] | undefined;
 }): ReactNode {
   const { legs } = props;
   if (legs === undefined || legs.length === 0) {

@@ -11,7 +11,7 @@
 // control.
 
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
-import { artifactManifestRowFromSummary } from "../artifacts/artifact-model.js";
+import { artifactManifestRowFrom } from "../artifacts/artifact-model.js";
 import type { ArtifactActionHost } from "./artifact-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import {
@@ -83,10 +83,7 @@ export class ArtifactPaneActions {
         ...reading,
         // The reply nests the envelope beside the payload members, so the row is built
         // from `manifest` and not from the reply.
-        artifacts: withReplacedRow(
-          reading.artifacts,
-          artifactManifestRowFromSummary(answer.manifest),
-        ),
+        artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(answer.manifest)),
       });
       return { status: "settled" };
     } finally {

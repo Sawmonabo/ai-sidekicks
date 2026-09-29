@@ -1,7 +1,7 @@
 // The terminal scenario's clock, and the two beat shapes its script writes many of.
 //
-// Split out of `terminal.ts` on the same seam `scenario.ts` split from
-// `scenario-engine.ts`: that file declares WHAT this session does, in order, and
+// Split out of `terminal.ts` on the same seam `vocabulary.ts` split from
+// `engine.ts`: that file declares WHAT this session does, in order, and
 // this one owns the envelope every beat of it is built from. The script reads as a
 // table once the envelope stops being retyped on every beat.
 //

@@ -11,7 +11,7 @@
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GrowthArtifactRead } from "../../bridge/index.js";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
 import { handAnsweredCall } from "../held-calls.test-support.js";
 import {
@@ -148,7 +148,7 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     // A payload is bounded only by the ingest cap, so a second press before the first
     // settles would be a second download of the same bytes. The arm the reading is on holds
     // the control, so a second press is never offered.
-    const readCall = handAnsweredCall<GrowthArtifactRead>();
+    const readCall = handAnsweredCall<ArtifactReadResponse>();
     const artifactRead = vi.fn(readCall.invoke);
     const subject = hostSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
@@ -214,7 +214,7 @@ describe("artifact payload — the reader is stamped to its subject", () => {
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         // Never answers: the fetch stays on the wire for the rest of the case.
-        readArtifact: () => new Promise<GrowthArtifactRead>(() => undefined),
+        readArtifact: () => new Promise<ArtifactReadResponse>(() => undefined),
       }),
     );
     const { getByRole, rerender } = renderHost(subject);

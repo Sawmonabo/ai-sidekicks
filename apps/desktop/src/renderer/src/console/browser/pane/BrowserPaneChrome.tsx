@@ -25,7 +25,7 @@ import {
 } from "./address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "./handback/chord-claim.js";
 import { isFilesystemDestination, type NavigationReading } from "./navigation-state.js";
-import { pagesOf, type PageListReading } from "./page-state.js";
+import { activePageOf, type PageListReading } from "./page-state.js";
 import { TabStrip } from "./chrome/TabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
@@ -73,12 +73,11 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
   const paneActs = useBrowserPaneActs(bridge, paneId);
   const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
-  const openPages = pagesOf(pages);
   const addressFieldId = useId();
   // Only a served reading reports a page. Any other arm leaves every history control
   // disabled and the address field with nothing to follow.
   const reported = navigation.kind === "served" ? navigation.state : undefined;
-  const reportedUrl = reported?.url;
+  const reportedUrl = reported?.address;
 
   const onCloseTabChord = useCallback(
     (event: React.KeyboardEvent<HTMLElement>): void => {
@@ -87,7 +86,7 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
       }
       event.preventDefault();
       event.stopPropagation();
-      const selected = openPages.find((page) => page.isSelected);
+      const selected = activePageOf(pages);
       if (selected === undefined) {
         refuseLocally(
           "no-selected-page",
@@ -97,7 +96,7 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
       }
       acts.closePage(selected.pageId);
     },
-    [acts, openPages, refuseLocally],
+    [acts, pages, refuseLocally],
   );
 
   const openInSystemBrowser = useCallback((): void => {
@@ -163,12 +162,12 @@ export function BrowserPaneChrome(props: BrowserPaneChromeProps): React.JSX.Elem
         <form onSubmit={submitDestination} className="meridian-browser-chrome">
           <ChromeControl
             label="Back"
-            disabled={reported?.canGoBack !== true}
+            disabled={(reported?.backDepth ?? 0) === 0}
             onActivate={acts.goBack}
           />
           <ChromeControl
             label="Forward"
-            disabled={reported?.canGoForward !== true}
+            disabled={(reported?.forwardDepth ?? 0) === 0}
             onActivate={acts.goForward}
           />
           {/* One slot, two acts: the view's reported load state swaps reload for stop. */}

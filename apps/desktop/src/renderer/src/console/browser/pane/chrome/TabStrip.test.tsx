@@ -83,19 +83,15 @@ function trailingSlot(): HTMLElement {
 }
 
 describe("the tab strip's frame", () => {
-  it("marks a background page and a loading one from the reported frame", () => {
+  it("marks the active page and a loading one from the reported frame", () => {
     renderStrip({
       kind: "served",
       frame: {
-        contextName: null,
-        pages: [
-          page({ pageId: "page-a", isLoading: true, isShown: false, isSelected: true }),
-          page({ pageId: "page-b", isShown: true }),
-        ],
+        pages: [page({ pageId: "page-a", isLoading: true }), page({ pageId: "page-b" })],
+        activeIndex: 0,
       },
     });
     expect(screen.getByText("Loading")).toBeTruthy();
-    expect(screen.getByText("background")).toBeTruthy();
     // `"page"` and not `"true"`: the strip is a set of pages and `aria-current` has a
     // token for exactly that, which tells a screen reader WHICH kind of current this
     // is rather than only that something is.
@@ -117,7 +113,7 @@ describe("the tab strip's presence", () => {
   it("draws nothing for one page, and a strip for two", () => {
     const one = render(
       <TabStrip
-        reading={{ kind: "served", frame: { contextName: null, pages: [page({ pageId: "a" })] } }}
+        reading={{ kind: "served", frame: { pages: [page({ pageId: "a" })], activeIndex: 0 } }}
         onSelect={vi.fn()}
         onClose={vi.fn()}
         onReorder={vi.fn()}
@@ -127,7 +123,7 @@ describe("the tab strip's presence", () => {
     one.unmount();
     renderStrip({
       kind: "served",
-      frame: { contextName: null, pages: [page({ pageId: "a" }), page({ pageId: "b" })] },
+      frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
     });
     expect(document.querySelectorAll(".meridian-browser-tab")).toHaveLength(2);
   });

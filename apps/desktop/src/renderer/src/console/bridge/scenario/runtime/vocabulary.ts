@@ -9,7 +9,7 @@
 // (the screenshot tier pins a frame by advancing to an exact tick), and a scenario
 // that cannot reach the network or the clock cannot accidentally become flaky.
 //
-// WHAT IS NOT HERE. The engine that plays one, which is `scenario-engine.ts`. The
+// WHAT IS NOT HERE. The engine that plays one, which is `engine.ts`. The
 // two were one file until the seam this package's module rules split on
 // was drawn between them, and that seam is exactly this one — WHAT a scenario
 // is, against HOW it is played. The split is load-bearing rather than tidy: a seat
@@ -18,7 +18,7 @@
 // and never reach the engine's teardown rules or its held-reply queue.
 //
 // AND THE REPLY TABLE IS NOT HERE EITHER, for that same rule applied a second time:
-// `scenario-reply.ts` owns how one request/response CALL settles — the three arms, the
+// `reply.ts` owns how one request/response CALL settles — the three arms, the
 // refusal shape, and what a computed reply is handed — which is a different question
 // from who this scenario is about and what it plays, and the module that settles one
 // reply and the walk that audits every one of them both stop there.

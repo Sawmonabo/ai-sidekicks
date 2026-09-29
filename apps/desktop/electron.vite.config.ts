@@ -1,9 +1,11 @@
 // electron-vite v5 configuration — three build targets (main / preload / renderer).
 //
 // The renderer loads over a custom protocol (not file://); sourcemaps are
-// emitted as "hidden" so they are available for Sentry upload but NOT
-// referenced from the shipped bundle. Source-code protection (bytecodePlugin)
-// is deferred.
+// emitted as "hidden" so they are available for reading a crash report's stack
+// but NOT referenced from the shipped bundle. The release fixture gate
+// (`test/console/budget/release-absence.test.ts`) reads the same maps, and fails
+// rather than passing if a target stops writing them. Source-code protection
+// (bytecodePlugin) is deferred.
 //
 // The module-system choice per target was decided empirically:
 //
@@ -144,6 +146,41 @@ function isFixtureCorpusModule(moduleId: string): boolean {
   return FIXTURE_CORPUS_DIRECTORIES.some((directory) => normalized.includes(directory));
 }
 
+/**
+ * Fixture-only modules that live outside the corpus directories.
+ *
+ * They are not in `FIXTURE_CORPUS_DIRECTORIES` because the build does not need to be told
+ * about them: what they declare is read only inside folded `__SIDEKICKS_CONSOLE_FIXTURES__`
+ * branches, so they leave the bundle without a side-effect declaration. They are named here
+ * so the release gate can prove that they did.
+ */
+const FIXTURE_ONLY_PATHS: readonly string[] = [
+  "/src/renderer/src/console/core/fixture-globals.ts",
+  "/src/renderer/src/console/frame/pane-harness/",
+];
+
+/** A test suite or its scaffolding, which no build of any flavor ships. */
+const TEST_MODULE_PATTERN = /\.test(?:-support)?\.[cm]?tsx?$/u;
+
+/**
+ * Does a release build owe this module's absence?
+ *
+ * True for the fixture corpus, for the fixture-only modules outside it, and for every test
+ * and test-support file. `test/console/budget/release-absence.test.ts` reads the release
+ * build's source maps, which list every module that rendered code into a shipped file, and
+ * fails on any module this answers true for. The tree-shaking declaration below reads the
+ * narrower {@link isFixtureCorpusModule}, because only the corpus needs its side effects
+ * declared away.
+ */
+export function isFixtureOnlyModule(moduleId: string): boolean {
+  const normalized = moduleId.split("\\").join("/");
+  return (
+    isFixtureCorpusModule(normalized) ||
+    FIXTURE_ONLY_PATHS.some((path) => normalized.includes(path)) ||
+    TEST_MODULE_PATTERN.test(normalized)
+  );
+}
+
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
 // this module is imported by `src/main/renderer-scheme.test.ts` — which asserts
 // the dev server emits the same Content-Security-Policy the protocol handler
@@ -236,8 +273,8 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // users, charge them the bytes on every bundle-budget run, and leave a
       // switch that flips the app into fixture data in production. As a literal,
       // Rollup folds `if (false)` and drops the whole subtree, which
-      // `test/console/budget/release-absence.test.ts` asserts by sweeping the built
-      // bundle for the scenario corpus's own label and purpose strings.
+      // `test/console/budget/release-absence.test.ts` asserts by reading the release
+      // build's source maps: no module `isFixtureOnlyModule` names may appear in them.
       //
       // True only under `--mode=fixtures` (the gallery and screenshot builds) and
       // in the Vitest console projects, which set the same define.
@@ -313,7 +350,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
           // It is not mode-scoped, and does not need to be: in a fixture build the
           // corpus is referenced, so nothing about it is unused and nothing is
           // dropped. `test/console/budget/release-absence.test.ts` gates the outcome
-          // on the built artifact, with a planted negative control.
+          // on the release build's source maps, with a planted negative control.
           treeshake: {
             moduleSideEffects: (moduleId: string) => !isFixtureCorpusModule(moduleId),
           },

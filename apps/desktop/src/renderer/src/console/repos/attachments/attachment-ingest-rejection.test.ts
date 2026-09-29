@@ -7,9 +7,11 @@
 // it is reported on the diagnostic band. A rejected port call is neither: it propagates out
 // of the driver unchanged.
 
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ATTACHMENT_CHUNK_BYTE_CAP, RealClock } from "../../core/index.js";
+import { RealClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
@@ -17,6 +19,7 @@ import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { PAYLOAD_READ_REFUSAL_CODE } from "./attachment-ingest-chunks.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {
+  INGEST_SESSION_ID,
   SMALL_SOURCE,
   ScriptedIngestPort,
   clientOver,
@@ -42,7 +45,7 @@ describe("ingest client — a file that stops being readable", () => {
     const movable = movableSourceOver(
       "attachment-moved",
       "capture.bin",
-      ATTACHMENT_CHUNK_BYTE_CAP * 2,
+      ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2,
     );
     movable.moveFile();
     client.attach(movable.source);
@@ -62,7 +65,9 @@ describe("ingest client — a file that stops being readable", () => {
     // happened, which would report a healthy upload as a failure.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    client.attach(
+      sourceOver("attachment-two", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
+    );
     await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
@@ -126,7 +131,7 @@ describe("ingest driver — a rejected port call reaches the caller", () => {
       ledger.declare(SMALL_SOURCE);
       const driver = new AttachmentIngestStreamDriver({
         port,
-        sessionId: "session-1",
+        sessionId: INGEST_SESSION_ID,
         clock: new RealClock(),
         ledger,
         reclaimer: new AttachmentSpoolReclaimer(port),

@@ -26,6 +26,8 @@
  * Two files and three hunks, one of them a rename with no textual change at all — the
  * case a renderer deriving its file notes from `hunks.length` reports as nothing
  * having happened.
+ *
+ * @consumedBy the diff pane's scripted diff replies
  */
 export const RUN_ATTRIBUTED_DIFF_PATCH: string = `diff --git a/packages/runtime-daemon/src/rate-limit/lease-store.ts b/packages/runtime-daemon/src/rate-limit/lease-store.ts
 index 1f0a3c9..8b41d02 100644
@@ -71,6 +73,8 @@ rename to packages/runtime-daemon/src/rate-limit/lease-timing.ts
  * patch declares and carries no text for. The last two are the reason `DiffFile` has
  * extended-header members at all — a file with no hunks is a file something happened
  * to, and both of these say what.
+ *
+ * @consumedBy the diff pane's scripted diff replies
  */
 export const WORKSPACE_FALLBACK_DIFF_PATCH: string = `diff --git a/apps/desktop/src/renderer/src/console/repos/repos.css b/apps/desktop/src/renderer/src/console/repos/repos.css
 index 4c1e8a7..d90fe31 100644

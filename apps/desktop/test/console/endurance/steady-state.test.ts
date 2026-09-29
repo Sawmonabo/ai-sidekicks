@@ -49,7 +49,7 @@
 // workload.
 //
 // The second reading is the session store's, and it is asserted to GROW. The
-// fixture bridge serves the growth port's session read, so a store this window
+// fixture bridge serves the session read, so a store this window
 // opens reaches a base state, the binder takes the wire subscription, and the
 // scenario's beats travel the whole path a daemon's would: subscription, apply
 // chokepoint, store. That is what makes this a workload rather than a navigation

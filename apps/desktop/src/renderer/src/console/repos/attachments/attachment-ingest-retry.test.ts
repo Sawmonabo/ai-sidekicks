@@ -5,9 +5,10 @@
 // every request: only a collaborator on the other side of the seam can witness whether a
 // retry re-opened the stream or went on from the offset it stood at.
 
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import {
   SMALL_SOURCE,
@@ -33,13 +34,13 @@ describe("ingest client — retry resumes what the file made unreadable", () => 
     const client = clientOver(port);
     // Three chunks, and the file goes after the first read: chunk 0 is acknowledged, then
     // chunk 1 cannot be read.
-    const byteLength = ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7;
+    const byteLength = ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2 + 7;
     const movable = movableSourceOver("attachment-1", "notes.md", byteLength, 1);
     client.attach(movable.source);
     await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.state).toBe("refused");
     expect(client.snapshot[0]?.disposition).toBe("retry-in-place");
-    expect(client.snapshot[0]?.receivedBytes).toBe(ATTACHMENT_CHUNK_BYTE_CAP);
+    expect(client.snapshot[0]?.receivedBytes).toBe(ATTACHMENT_INGEST_CHUNK_MAX_BYTES);
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0]);
 
     movable.restoreFile();

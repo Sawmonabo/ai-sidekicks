@@ -10,11 +10,16 @@ import { act } from "@testing-library/react";
 import { type Mock, vi } from "vitest";
 
 import type {
-  GrowthArtifactPayloadEncoding,
-  GrowthArtifactRead,
-  GrowthArtifactState,
-  GrowthArtifactSummary,
-} from "../../bridge/index.js";
+  ArtifactId,
+  ArtifactManifest,
+  ArtifactPayloadEncoding,
+  ArtifactReadResponse,
+  ArtifactState,
+  RunId,
+  SessionId,
+  UserId,
+} from "@ai-sidekicks/contracts";
+
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -35,24 +40,22 @@ export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299";
 /**
  * One manifest row as the daemon serves it, with every member populated.
  *
- * Typed by the port's own vocabulary, so the fixture fails to compile the day the wire
+ * Typed by the contract's own manifest, so the fixture fails to compile the day the wire
  * grows a member or narrows one of these unions.
  */
-export const SERVED_SUMMARY: GrowthArtifactSummary = {
-  artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
-  sessionId: "019b7b30-0280-7c11-8420-b1a5c0de2200",
-  runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
-  createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
+export const SERVED_SUMMARY: ArtifactManifest = {
+  id: "019b7b30-0280-7c11-8420-b1a5c0de2201" as ArtifactId,
+  sessionId: "019b7b30-0280-7c11-8420-b1a5c0de2200" as SessionId,
+  runId: "019b7b30-0280-7c11-8420-b1a5c0de2202" as RunId,
+  createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203" as UserId,
   artifactType: "diff",
   digest: "sha256:2b4c",
   size: 4096,
   annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
-  visibility: "shared",
   state: "published",
-  replicationStatus: "pinned",
   metadata: { mediaType: "text/x-patch", turnOrdinal: 12 },
   createdAt: "2026-09-02T07:00:00.000Z",
-} as const;
+};
 
 /**
  * The same row with the one member a case varies.
@@ -60,12 +63,12 @@ export const SERVED_SUMMARY: GrowthArtifactSummary = {
  * `state` is the wire's own union rather than `string`, so a case that varies it to a
  * value the contract does not carry is a compile error.
  */
-export function summary(state: GrowthArtifactState): GrowthArtifactSummary {
+export function summary(state: ArtifactState): ArtifactManifest {
   return { ...SERVED_SUMMARY, state };
 }
 
 /** One served list of exactly the row above. */
-export const LISTED_ONE_ROW: readonly GrowthArtifactSummary[] = [SERVED_SUMMARY];
+export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
 
 /**
  * One served read, which is a manifest plus a way to reach the bytes.
@@ -73,22 +76,22 @@ export const LISTED_ONE_ROW: readonly GrowthArtifactSummary[] = [SERVED_SUMMARY]
  * The reply nests the envelope beside a payload handle rather than being it. This is the
  * deferred arm, which is what a metadata read lands on.
  */
-export function deferredRead(state: GrowthArtifactState): GrowthArtifactRead {
+export function deferredRead(state: ArtifactState): ArtifactReadResponse {
   return { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` };
 }
 
 /** A served payload read on the inline arm, with the bytes and the encoding to read them by. */
 export function inlineRead(
   payload: string,
-  encoding: GrowthArtifactPayloadEncoding,
-): GrowthArtifactRead {
+  encoding: ArtifactPayloadEncoding,
+): ArtifactReadResponse {
   return { manifest: summary("published"), payload, payloadEncoding: encoding };
 }
 
 /** One served inline utf8 payload for a named artifact. */
-export function inlinePayloadRead(artifactId: string, text: string): GrowthArtifactRead {
+export function inlinePayloadRead(artifactId: string, text: string): ArtifactReadResponse {
   return {
-    manifest: { ...SERVED_SUMMARY, artifactId },
+    manifest: { ...SERVED_SUMMARY, id: artifactId as ArtifactId },
     payloadHandle: "sha256:2b4c",
     payloadEncoding: "utf8",
     payload: text,
@@ -146,9 +149,9 @@ export async function settleAct(): Promise<void> {
 export function readerWithHeldPayloadFetch(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
   readonly artifactRead: Mock<ReadArtifact>;
-  readonly releaseRead: (answer: GrowthArtifactRead) => void;
+  readonly releaseRead: (answer: ArtifactReadResponse) => void;
 } {
-  const readCall = handAnsweredCall<GrowthArtifactRead>();
+  const readCall = handAnsweredCall<ArtifactReadResponse>();
   const artifactRead = vi.fn<ReadArtifact>(readCall.invoke);
   const reader = new ArtifactPaneReader({
     listArtifacts: async () => LISTED_ONE_ROW,

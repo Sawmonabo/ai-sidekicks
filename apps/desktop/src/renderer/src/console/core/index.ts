@@ -8,7 +8,7 @@
 // above it. No store, no bridge, no React, no DOM beyond what the clock needs. If
 // a symbol here ever needs a type from `store/` or `bridge/`, it is not core.
 
-export { base64DecodedByteLength, encodeBase64 } from "./base64.js";
+export { encodeBase64 } from "./base64.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 // The clock seam's third implementation: one identity over a clock the window
 // replaces underneath a live mount.
@@ -68,7 +68,6 @@ export { BROAD_ALLOW_LIST_THRESHOLD } from "./constants/approvals-caps.js";
 export { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./constants/artifact-caps.js";
 export {
   ATTACHMENT_BYTE_CAP_DEFAULT,
-  ATTACHMENT_CHUNK_BYTE_CAP,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
@@ -79,7 +78,6 @@ export {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
-  DIFF_PATCH_CHARACTER_CAP,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
 } from "./constants/diff-caps.js";
 export { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./constants/fixture-caps.js";
@@ -133,14 +131,7 @@ export {
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
 } from "./constants/refresh-caps.js";
-export {
-  AWAITING_RUN_IDS_NAMED_CAP,
-  INTERVENTION_OUTCOME_CAP,
-  PROJECTED_RUN_CAP,
-  QUEUE_ROWS_RENDERED_CAP,
-  RUN_STATUS_ROW_CAP,
-  SEATED_KNOWN_RUN_CAP,
-} from "./constants/runs-caps.js";
+export { INTERVENTION_OUTCOME_CAP, QUEUE_ROWS_RENDERED_CAP } from "./constants/runs-caps.js";
 export { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "./constants/session-goal-caps.js";
 export {
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -148,17 +139,12 @@ export {
 } from "./constants/session-store-caps.js";
 export { ATTENTION_NOTIFIED_ITEM_CAP } from "./constants/sessions-caps.js";
 export { MOUNT_INVENTORY_READ_CAP } from "./constants/settings-caps.js";
-export { INTERRUPTED_RUN_IDS_NAMED_CAP } from "./constants/shell-caps.js";
 export {
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
 } from "./constants/terminal-caps.js";
-export {
-  PHASE_GRAPH_MAX_ZOOM,
-  PHASE_GRAPH_MIN_ZOOM,
-  WORKFLOW_CANCEL_REASON_BYTE_CAP,
-} from "./constants/workflows-caps.js";
+export { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "./constants/workflows-caps.js";
 export { DECK_RESTORED_PANE_CAP } from "./constants/workspace-caps.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
@@ -213,7 +199,10 @@ export { consoleLedgerWindows, type LedgerWindowReading } from "./ledger-window-
 // The one keyed-record rebuild. At the floor because its readers are `settings/` and
 // `channels/`, two VIEW families, and a view family never imports another — so the
 // floor is the only home either could have taken it from.
-export { withoutKey } from "./keyed-record.js";
+export {
+  /** @consumedBy the machine settings, which drop one key from a keyed record */
+  withoutKey,
+} from "./keyed-record.js";
 // The registry classes leave through this door; the two symbols only their own
 // suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
 // and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family
@@ -243,7 +232,7 @@ export {
 // outside this family. They were reserved for consuming tasks that landed and imported
 // neither, and a reservation that outlives its task is a door line the barrel census
 // fails. The family that first names either one publishes it in its own diff.
-export { type ExtendedConsoleRefusal, readRefusalExtensions } from "./refusal-extensions.js";
+export { type ExtendedConsoleRefusal } from "./refusal-extensions.js";
 // What a surface DOES about a named refusal, beside rendering the daemon's words:
 // the shape its blast radius calls for, the operator's next move, and whether the
 // control it answered has anything left to do. Through the door because the codes
@@ -309,7 +298,7 @@ export { readWireNumber, readWireString } from "./wire-strings.js";
 // rather than one: whether the session the payload states is the session the envelope
 // delivered it on. Here for the predicates' reason — its readers are `frame/`,
 // `bridge/`, and a VIEW family, and a view family may import neither of the others.
-export { payloadContradictsSession, payloadNamesSession } from "./wire-session-attribution.js";
+export { payloadNamesSession } from "./wire-session-attribution.js";
 // The total stringifier, re-published rather than re-declared. It is DECLARED in
 // `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
 // already states that this layer — not that one — is the console's home for turning an
@@ -335,7 +324,6 @@ export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js
 // main reads cannot live in a console file. The console's stake is one sentence, so it
 // takes the figure through the floor rather than reaching past the DAG to the
 // cross-process leaf that holds it.
-export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";
 
 // The console's one airspace: which overlays are on screen in a window, so a native view
 // yields to them. At the DAG floor because its registrants are `primitives/` and its

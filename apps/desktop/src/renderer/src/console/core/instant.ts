@@ -22,14 +22,12 @@
 // THE LIBRARY QUESTION, ANSWERED BY MEASUREMENT.
 //
 //   • `Temporal` — absent. `typeof globalThis.Temporal` is `"undefined"` on Node
-//     22.14 (this repo's floor), and still `"undefined"` on Node 24.18 (measured
-//     2026-09-04). The `console-unit` tier runs under Node, not under Electron's
-//     V8, so a `Temporal`-based parser would fail the tier that gates every console
-//     PR even where Electron's Chromium carried the API. That is the same
-//     runtime-range finding `primitives/figures/wire-figures.ts` records for
-//     `Intl.DurationFormat`, and it has the same consequence: a guarded two-path
-//     implementation would read one way in CI and another in production, which is
-//     the single outcome a chokepoint exists to prevent.
+//     24.18 (measured 2026-09-04), above this repo's 24.16 floor. The `console-unit`
+//     tier runs under Node, not under Electron's V8, so a `Temporal`-based parser
+//     would fail the tier that gates every console PR even where Electron's Chromium
+//     carried the API, and a guarded two-path implementation would read one way in
+//     CI and another in production, which is the single outcome a chokepoint exists
+//     to prevent.
 //   • `@js-temporal/polyfill` — declined. It ships the whole Temporal object model
 //     to buy one predicate, and the console's bundle budget is a gate rather than a
 //     preference.

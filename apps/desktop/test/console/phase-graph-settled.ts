@@ -8,12 +8,10 @@
 // pre-fit transform this module names is a fact about the graph library, and a tier
 // carrying its own reading of it would be a tier that silently stopped waiting.
 //
-// WHY A READER NEEDS THIS AT ALL. The run pane's phase graph is a lazily-loaded
-// chunk: the pane renders its absence primitive immediately, `import()`s the graph
-// renderer, and mounts the canvas when it arrives. `surfaces/workflows.tsx` waits for
-// the run READ — the park banner — and for every pane BODY still in flight, but the
-// graph renderer is neither: it is a chunk the body fetches for itself and it stamps
-// no pending-body marker, so nothing in the mount helper's wait waits for the picture.
+// WHY A READER NEEDS THIS AT ALL. The run's phase graph is a lazily-loaded chunk: the
+// graph renders its absence primitive immediately, `import()`s the graph renderer, and
+// mounts the canvas when it arrives. The renderer stamps no pending-body marker, so
+// nothing in a mount helper's own wait waits for the picture.
 //
 // FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the surface
 // at the mount helper's own return audits a loading placeholder: the canvas, its
@@ -25,7 +23,7 @@
 // the graph's arrival it holds was luck.
 //
 // AND THE LUCK IS NOT HARMLESS, because the graph is fitted rather than placed. The
-// canvas asks the library to fit the sequence into the pane, and the fit lands as a
+// canvas asks the library to fit the sequence into its box, and the fit lands as a
 // FRACTIONAL scale on the viewport — 0.715 for this fixture's four phases — so every
 // line box inside every node sits at a fractional device-pixel offset. Two captures
 // taken on either side of the fit's commit rasterise those offsets to different

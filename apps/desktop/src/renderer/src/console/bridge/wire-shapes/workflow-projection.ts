@@ -11,29 +11,20 @@
 // there is no `workflow` root in the daemon method union, no `DesktopBridge`
 // namespace naming one, and no phase or run type anywhere under `packages/`. A run
 // pane or a builder built against a shape that exists nowhere would have to invent
-// it inside a view family, which is what the growth slate exists to prevent — so the
-// shapes are declared here, on the substrate, behind the `workflow-run-control`
-// slate row, and every call goes through the growth port.
+// it inside a view family, so the shapes are declared here, on the substrate.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures/workflows.ts` imports them from the contracts
-// instead. The slate row leaves `growth-slate.ts` and the growth slate in the same
-// PR, and `failure-modes.test.ts` then fails on the port entries that still
-// claim fixture-only — which is the reminder this file wants at that moment.
+// is DELETED and its importers take them from the contracts package instead.
 //
-// WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. Four of the five
-// operations that answer with a state answer with a SUBSET of one of these unions —
-// a successful cancel is only ever `cancelled`, a start is only ever `pending` or
-// `running`. Those subsets are derived in `growth-signatures/workflows.ts` with
-// `Extract`, so the
-// full vocabulary keeps exactly one home here and a narrowing cannot quietly become
-// a second spelling of it.
+// WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. An operation that
+// answers with a state can answer with a SUBSET of one of these unions — a successful
+// cancel is only ever `cancelled`, a start is only ever `pending` or `running`. Such a
+// subset is derived with `Extract`, so the full vocabulary keeps exactly one home here
+// and a narrowing cannot quietly become a second spelling of it.
 //
-// WHAT IS DELIBERATELY NOT HERE. The request shapes. They are stated inline in
-// `growth-signatures/`'s table beside every other operation's, because a
-// request is read once at its call site and a named type per request would be nine
-// declarations with one reader each. A request shape comes here the day two surfaces
-// share one.
+// WHAT IS DELIBERATELY NOT HERE. The request shapes. A request is read once at its
+// call site, and a named type per request would be a declaration with one reader. A
+// request shape comes here the day two surfaces share one.
 
 /**
  * Every run status, in the owning contract's DDL order.
@@ -112,16 +103,15 @@ export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number
  * it never was. A surface that read absence as "unknown" would show a resumed phase
  * as still waiting.
  *
- * `prompt` and `inputSchema` are BOTH at once — additive-optional, because they are
- * new on a shape that is already published, and live-scoped to the human park, because
- * what a phase asks is a question only while somebody is being asked it. They ride the
- * park discriminator rather than a fourth presence rule: emitted for exactly those
- * phases whose `parkReason` is `waiting-human` when the response is built, and for no
- * other phase, so a phase that has answered its form carries neither. They are declared
- * here, on the growth slate's `workflow-human-form-schema` row, because the registered
- * shape carries the four park members and no form content at all — and the definition
- * body that holds a human phase's prompt and schema is addressed by
- * `(definitionId, versionNumber)`, which a run holding one opaque version id has
+ * `prompt` and `inputSchema` are BOTH at once — additive-optional, because they are new
+ * on a shape that is already published, and live-scoped to the human park, because what
+ * a phase asks is a question only while somebody is being asked it. They ride the park
+ * discriminator rather than a fourth presence rule: emitted for exactly those phases
+ * whose `parkReason` is `waiting-human` when the response is built, and for no other
+ * phase, so a phase that has answered its form carries neither. They are declared here
+ * because the registered shape carries the four park members and no form content at all
+ * — and the definition body that holds a human phase's prompt and schema is addressed
+ * by `(definitionId, versionNumber)`, which a run holding one opaque version id has
  * neither half of.
  */
 export interface WorkflowPhaseState {
@@ -202,9 +192,8 @@ export interface WorkflowRunSnapshot {
  * list built on the read's shape alone can name no run and can never tell that a
  * pin has fallen behind — which is the one condition an operator repairs.
  *
- * The enumeration is registered nowhere and rides `workflow-run-enumeration` on
- * the growth slate; this is the console declaring what that wire has
- * to answer with, in the same file and on the same footing as the request shape it
+ * The enumeration is registered nowhere; this is the console declaring what that wire
+ * has to answer with, in the same file and on the same footing as the request shape it
  * already declares. A daemon serving it holds both rows in one query.
  */
 export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
@@ -270,8 +259,7 @@ export interface WorkflowDefinitionSummary {
  * pin is deliberately absent too: the caller asked BY that id and can compare, so a
  * flag would be the wire restating the request.
  *
- * Registered nowhere — this rides `workflow-version-chain` on
- * the growth slate, on the same footing as the run enumeration above.
+ * Registered nowhere, on the same footing as the run enumeration above.
  */
 export interface WorkflowVersionChainEntry {
   /** Opaque and server-minted, exactly as a run start accepts it. Never parsed. */
@@ -286,6 +274,8 @@ export interface WorkflowVersionChainEntry {
  * `valueKind` is additive-optional: set means the output is an artifact reference,
  * unset on a daemon at this contract revision means inline, and absent from an older
  * daemon, where the presence of `artifactId` is the fallback reading.
+ *
+ * @consumedBy the workflow run pane's phase outputs
  */
 export interface WorkflowPhaseOutput {
   readonly valueKind?: "inline" | "artifact_ref";

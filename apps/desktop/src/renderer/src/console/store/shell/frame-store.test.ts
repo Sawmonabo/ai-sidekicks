@@ -172,11 +172,11 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
     const store = new FrameStore();
 
     store.raiseRefusalBanner(refuse("persistence", "unavailable", "storage is gone"));
-    store.raiseRefusalBanner(refuse("growth-port", "unavailable", "the wire is not built"));
+    store.raiseRefusalBanner(refuse("sessions", "unavailable", "the daemon is not answering"));
 
     expect(store.getState().banners.map((banner) => banner.detail)).toStrictEqual([
       "storage is gone",
-      "the wire is not built",
+      "the daemon is not answering",
     ]);
   });
 

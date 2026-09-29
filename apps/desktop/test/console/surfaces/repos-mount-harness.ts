@@ -1,17 +1,9 @@
-// The harness the mount module uses: what a mounted surface IS, and the waits
-// that say it has settled.
+// The harness the mount module uses: what a mounted surface IS, and how a tier finds it.
 //
 // SPLIT OUT SO THE MOUNT DOES NOT SHARE A FILE WITH THE MACHINERY. `repos.tsx` holds
 // surfaces and nothing else, and reaches into this module's exports.
-//
-// EVERY WAIT HERE THROWS RATHER THAN RETURNING FALSE. A tier that timed out silently
-// would capture an unsettled surface and compare it against a baseline of a settled
-// one, and the failure would surface as a pixel diff naming nothing. The message names
-// the selector that never arrived.
 
-import { waitFor, within } from "@testing-library/react";
-
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario/runtime/clock.test-support.js";
+import { within } from "@testing-library/react";
 
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
 
@@ -20,19 +12,6 @@ export interface MountedFamilySurface {
   readonly element: HTMLElement;
   readonly bridge: ConsoleBridge;
 }
-
-/** How long a surface's first read may take to settle before a tier gives up. */
-const FAMILY_READ_TIMEOUT_MS = 5_000;
-
-/**
- * How far a mount moves the scenario clock to let a scheduled read land.
- *
- * Comfortably past `REFRESH_MAX_WAIT_MS`, and stated as one number rather than tuned
- * per subject: the claim is "every deadline a mounted surface armed has passed", and a
- * value that only just cleared the current one would turn a scheduler retune into a
- * flake in an unrelated tier.
- */
-export const SCENARIO_SETTLE_ADVANCE_MS = 1000;
 
 /**
  * Find the one region a surface renders itself as, by the name it announces.
@@ -72,37 +51,4 @@ export function requireElement(container: HTMLElement, selector: string): HTMLEl
     throw new Error(`nothing in the mounted tree matches \`${selector}\``);
   }
   return element;
-}
-
-/** Wait until a selector resolves inside a mounted surface, or say what did not. */
-export async function waitForWithin(region: HTMLElement, selector: string): Promise<void> {
-  await waitFor(
-    () => {
-      if (region.querySelector(selector) === null) {
-        throw new Error(`the surface has not rendered \`${selector}\` yet`);
-      }
-    },
-    { timeout: FAMILY_READ_TIMEOUT_MS },
-  );
-}
-
-/**
- * The same wait, for a surface whose reads are scheduled on the SCENARIO's clock.
- *
- * THE SECTION SCHEDULES ON THE BRIDGE'S CLOCK, which under the fixture is the scenario's
- * frozen one — the point of taking it from `consoleClockFor`, and what makes these
- * baselines pin one instant rather than the day they were minted on. Real time therefore
- * moves none of it, so this wait drives the clock instead of polling the machine.
- * `waitForWithin` is the wait for a surface whose reads run on no scenario clock.
- */
-export async function driveUntilWithin(
-  bridge: ConsoleBridge,
-  region: HTMLElement,
-  selector: string,
-): Promise<void> {
-  await advanceScenarioUntil(bridge, () => {
-    if (region.querySelector(selector) === null) {
-      throw new Error(`the surface has not rendered \`${selector}\` yet`);
-    }
-  });
 }

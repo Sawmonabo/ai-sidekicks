@@ -46,6 +46,7 @@ export interface WireChoiceListProps {
   readonly label: string;
 }
 
+/** @consumedBy the composer's question card, which lists an ask's choices */
 export function WireChoiceList(props: WireChoiceListProps): React.JSX.Element {
   return (
     <ul className="meridian-choice-list" aria-label={props.label}>

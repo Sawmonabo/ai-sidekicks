@@ -21,7 +21,7 @@
 //
 // IT REUSES THE ATTACH CONTROLLER RATHER THAN MINTING A SECOND CALLER. One console,
 // one attach caller: the path comes off the mount row, so there is no form and nothing
-// to validate, and the settlement renders in the same three arms the dialog's does.
+// to validate, and the settlement renders in the same arms the dialog's does.
 //
 // AND IT REUSES THE CONFIRMATION LIFECYCLE FOR THE SAME REASON. The confirm control
 // closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
@@ -33,7 +33,6 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { SessionStore } from "../../../store/index.js";
 import { Nothing, OverlayAlertDialogPopup, WireFigure } from "../../../primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
@@ -43,18 +42,18 @@ export interface ReattachControlProps {
   readonly bridge: ConsoleBridge;
   /** The attach the confirmation sends. */
   readonly operations: Pick<RepoOperations, "attachRepository">;
-  /** The session this mount belongs to. */
-  readonly sessionStore: SessionStore;
+  /** The session whose section this card is drawn in. */
+  readonly sessionId: string;
   /** The path this mount was attached at. Re-sent verbatim; nothing is re-derived. */
   readonly localPath: string;
-  /** Ask the section to read again, so the minted mount appears beside this one. */
+  /** Ask the section to read again once the re-attach has minted a mount. */
   readonly onAttached: () => void;
 }
 
 export function ReattachControl(props: ReattachControlProps): React.JSX.Element {
   const { reading, attach, clearAct } = useAttachController(
     props.bridge,
-    props.sessionStore,
+    props.sessionId,
     props.operations,
   );
   const { localPath, onAttached } = props;
@@ -70,8 +69,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
   // ONE READ PER MINTED MOUNT, on the dialog's own reasoning: the id is what changes
   // when an attach settles, and a ref is what keeps a re-render from asking again.
   const announcedMountId = useRef<string | undefined>(undefined);
-  const mintedMountId =
-    reading.act.status === "attached" ? reading.act.response.repoMountId : undefined;
+  const mintedMountId = reading.status === "attached" ? reading.response.repoMountId : undefined;
   useEffect(() => {
     if (mintedMountId === undefined || announcedMountId.current === mintedMountId) {
       return;
@@ -85,7 +83,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-reattach__trigger"
-          disabled={reading.act.status === "sending"}
+          disabled={reading.status === "sending"}
           aria-label={`Re-attach ${localPath}`}
         >
           Re-attach this path
@@ -102,8 +100,8 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
             Re-attach this path as a new mount?
           </AlertDialog.Title>
           <AlertDialog.Description className="meridian-reattach__body">
-            This mount is not repaired. The path is resolved again and attached as a new mount with
-            its own workspace; this row stays as history, and nothing bound to it is moved across.
+            This mount is not repaired. The path is resolved again and attached as a new mount; this
+            row stays as history, and nothing bound to it is moved across.
           </AlertDialog.Description>
           <dl className="meridian-reattach__subject">
             <dt>Path</dt>
@@ -121,7 +119,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
-      {renderSettlement(reading.act)}
+      {renderSettlement(reading)}
     </div>
   );
 }
@@ -137,7 +135,6 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
 function renderSettlement(act: AttachActReading): React.JSX.Element | null {
   switch (act.status) {
     case "idle":
-    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Re-attaching." />;

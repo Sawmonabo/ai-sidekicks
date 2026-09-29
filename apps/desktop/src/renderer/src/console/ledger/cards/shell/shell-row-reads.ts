@@ -10,10 +10,9 @@
 // against the fixture scenarios before the timeline subtree's own rows land; the
 // change that registers those rows deletes this module with the rest of `shell/`.
 //
-// THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon` and
-// not through the growth port: `timeline.reasoningSurfaceRead` has request and
-// response schemas the contracts package publishes, so a refusal here is a real
-// refusal from a real parse rather than the growth port's "no wire exists" refusal. It
+// THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon`:
+// `timeline.reasoningSurfaceRead` has request and response schemas the contracts
+// package publishes, so a refusal here is a real refusal from a real parse. It
 // additionally answers a CLOSED four-arm discriminant, so there is nothing for a
 // surface above to narrow by hand — the parse either produces one of the four arms or
 // refuses.

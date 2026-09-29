@@ -26,7 +26,7 @@ import {
 } from "./diff-pane.test-support.js";
 
 const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;
-const REPO_ENTITY = { kind: "repo", id: "repo-sidekicks" } as const;
+const WORKTREE_ENTITY = { kind: "worktree", id: "worktree-1" } as const;
 
 installDiffPaneLayout();
 
@@ -53,8 +53,8 @@ describe("diff pane — the chrome it wears", () => {
     // Without this, the cases above would pass over a chrome that rendered a constant.
     // A diff address always carries its entity — the arm has no shape in which it is
     // absent — so the honest control is a second subject rather than none.
-    const { container } = render(<DiffPane context={diffPaneContextFor(REPO_ENTITY)} />);
-    expect(paneSubjectCrumb(container)).toBe(REPO_ENTITY.id);
+    const { container } = render(<DiffPane context={diffPaneContextFor(WORKTREE_ENTITY)} />);
+    expect(paneSubjectCrumb(container)).toBe(WORKTREE_ENTITY.id);
   });
 });
 
@@ -89,31 +89,11 @@ describe("diff pane — the absence it renders", () => {
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
-  it("says something different about a repository than about a checkout", () => {
-    // A diff address admits the sidebar card's five subjects, and a repository is
-    // not a working tree: a sentence written for a checkout would tell someone
-    // looking at a repository that their tree is unchanged — a claim about a
-    // workspace this pane was never opened over. Both arms still say the question
-    // was not put, which is the one thing that is true of every subject.
-    const overWorkspace = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
-    const overRepo = render(<DiffPane context={diffPaneContextFor(REPO_ENTITY)} />);
-    const readAbsence = (container: HTMLElement): string =>
-      container.querySelector(".meridian-nothing")?.textContent ?? "";
-    expect(readAbsence(overRepo.container)).not.toBe("");
-    expect(readAbsence(overRepo.container)).not.toBe(readAbsence(overWorkspace.container));
-    expect(overRepo.container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
   it("negative control: no subject renders the absence blank", () => {
     // The rule this pane owes every subject it did not author a reading for. A blank
     // region is the one answer that says nothing at all, and it is what a body that
     // fell through its own copy table would render.
-    for (const entity of [
-      WORKSPACE_ENTITY,
-      REPO_ENTITY,
-      { kind: "worktree", id: "worktree-1" } as const,
-      { kind: "user", id: "user-1" } as const,
-    ]) {
+    for (const entity of [WORKSPACE_ENTITY, WORKTREE_ENTITY]) {
       const { container } = render(<DiffPane context={diffPaneContextFor(entity)} />);
       expect(container.querySelector(".meridian-nothing")?.textContent, entity.kind).not.toBe("");
     }

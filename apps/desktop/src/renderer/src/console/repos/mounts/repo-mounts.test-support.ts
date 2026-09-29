@@ -10,6 +10,7 @@
 // keeps its own one-line `afterEach(disposeTrackedReaders)`.
 
 import type {
+  BranchContextId,
   RepoMountReadResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorktreeId,
@@ -104,7 +105,6 @@ export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 export function mount(overrides: WireOverrides<RepoMountReadResponse> = {}): RepoMountReadResponse {
   return {
     id: "mount-sidekicks",
-    sessionId: SESSION_ID,
     nodeId: "node-workstation",
     localPath: ENTERED_PATH,
     canonicalRoot: CANONICAL_ROOT,
@@ -126,7 +126,7 @@ export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): R
   return {
     id: "workspace-sidekicks",
     repoMountId: "mount-sidekicks",
-    executionMode: "read-only",
+    executionMode: "bound-root",
     state: "ready",
     fsRoot: CANONICAL_ROOT,
     ...overrides,
@@ -170,7 +170,6 @@ export const MOUNTS: readonly RepoMountReadResponse[] = [
     id: UNREACHABLE_MOUNT_ID,
     canonicalRoot: "/Users/dev/code/notes",
     localPath: "/Users/dev/code/notes",
-    vcsType: "none",
     health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
   }),
   mount({
@@ -188,10 +187,10 @@ export const WORKSPACES: readonly RepoWorkspaceRow[] = [
   workspaceRow({ id: "workspace-drifted", repoMountId: DRIFTED_MOUNT_ID }),
 ];
 
-/** Every mode, with the worktree mode the default. */
+/** Both modes, with the provisioned worktree the default. */
 export const ALL_MODES_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
 };
 
 /**
@@ -212,7 +211,6 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
     readWorktreeStatus: () =>
       Promise.resolve({
         worktrees: [worktreeRecord(), worktreeRecord({ worktreeId: "worktree-02" })],
-        ephemeralClones: [],
       }),
     ...script,
   });
@@ -255,6 +253,10 @@ export function preparingDaemon(): PrepareOperations {
       return Promise.resolve({ available: false });
     },
     prepareExecutionRoot: () =>
-      Promise.resolve({ executionRoot: "/Users/dev/roots/fresh", state: "ready" }),
+      Promise.resolve({
+        executionRoot: "/Users/dev/roots/fresh",
+        state: "ready",
+        branchContextId: "branch-context-fresh" as BranchContextId,
+      }),
   };
 }

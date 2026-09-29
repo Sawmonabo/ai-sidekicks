@@ -8,7 +8,6 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
-import { SessionStore } from "../../../store/index.js";
 import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { SESSION_ID } from "../repo-mounts.test-support.js";
 import { AttachRepositoryDialog } from "./AttachRepositoryDialog.js";
@@ -44,7 +43,7 @@ function openDialog(): void {
       <AttachRepositoryDialog
         bridge={bridgeOnClock()}
         operations={scriptedRepoOperations()}
-        sessionStore={new SessionStore({ sessionId: SESSION_ID })}
+        sessionId={SESSION_ID}
         onAttached={() => undefined}
       />
     </LiveAnnouncerProvider>,

@@ -196,7 +196,7 @@ describe("the window a capture opens", () => {
         CONSOLE_WINDOW,
         { width: 1441, height: 400 },
         [],
-        "composer-channel-default-light",
+        "composer-session-default-light",
       );
     }).toThrowError(/1441px across a 1440px window/u);
   });

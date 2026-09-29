@@ -5,6 +5,7 @@
 // it, since the person grants the permission outside this application; the scheduler
 // serializes probes and the latch drops a reply from a superseded round.
 
+import type { NotificationPermission } from "@ai-sidekicks/contracts";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../core/index.js";
@@ -21,12 +22,10 @@ import {
 } from "../store/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
-/** What the machine can answer. */
-export type OsNotificationPermissionState = "granted" | "denied" | "not-determined";
+/** What the machine can answer: the bridge's own permission states. */
+export type OsNotificationPermissionState = NotificationPermission["state"];
 
-/**
- * Ask the machine.
- */
+/** Asks the machine for its notification permission. */
 export type OsNotificationPermissionProbe = () => Promise<OsNotificationPermissionState>;
 
 /** Unread until the first probe answers, then the machine's answer unfolded. */

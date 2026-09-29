@@ -11,6 +11,12 @@
 // promise of `drive`, which `attach` and `retry` discard, so it reaches the page as an
 // unhandled rejection; a rejected `abort` does too, because nobody awaits it.
 
+import type {
+  AttachmentIngestChunkRequest,
+  AttachmentIngestCompleteRequest,
+  AttachmentIngestInitRequest,
+} from "@ai-sidekicks/contracts";
+
 /** What the daemon derived from a completed upload; the client reads these four. */
 export interface AttachmentIngestCompletion {
   readonly artifactId: string;
@@ -19,21 +25,17 @@ export interface AttachmentIngestCompletion {
   readonly derivedSizeBytes: number;
 }
 
-/** The four calls of one upload; `mediaType` is absent, not empty, when none was declared. */
+/**
+ * The four calls of one upload. The three the daemon registers take its own request
+ * shapes; `mediaType` is absent, not empty, when none was declared.
+ */
 export interface AttachmentIngestPort {
-  readonly begin: (request: {
-    readonly sessionId: string;
-    readonly fileName: string;
-    readonly mediaType?: string;
-    readonly declaredSizeBytes: number;
-  }) => Promise<{ readonly ingestId: string }>;
-  readonly writeChunk: (request: {
-    readonly ingestId: string;
-    readonly sequenceNumber: number;
-    readonly chunk: string;
-  }) => Promise<{ readonly ingestId: string; readonly receivedBytes: number }>;
-  readonly complete: (request: {
-    readonly ingestId: string;
-  }) => Promise<AttachmentIngestCompletion>;
+  readonly begin: (request: AttachmentIngestInitRequest) => Promise<{ readonly ingestId: string }>;
+  readonly writeChunk: (
+    request: AttachmentIngestChunkRequest,
+  ) => Promise<{ readonly ingestId: string; readonly receivedBytes: number }>;
+  readonly complete: (
+    request: AttachmentIngestCompleteRequest,
+  ) => Promise<AttachmentIngestCompletion>;
   readonly abort: (request: { readonly ingestId: string }) => Promise<void>;
 }

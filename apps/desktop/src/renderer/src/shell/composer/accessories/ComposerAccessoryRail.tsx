@@ -1,4 +1,5 @@
-// The composer's trailing rail: the attachment strip and the context meter.
+// The composer's trailing rail: the context meter. The attachment strip is not mounted
+// until the composer has an ingest port to hand its carrier.
 //
 // The rail selects the session's timeline once and folds it to the newest context reading
 // of the ADDRESSED RUN. The address is an input to the fold, not a session-wide sweep, so
@@ -6,7 +7,6 @@
 // the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
-import { useAttachmentCarrier } from "../../../console/repos/index.js";
 import type { ComposerSeatProps } from "../../../console/seats/index.js";
 import {
   useSessionStore,
@@ -14,8 +14,6 @@ import {
   type SessionStoreState,
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
-import { ComposerAttachmentBar } from "./attachments/ComposerAttachmentBar.js";
-import { useAttachmentDropTarget } from "./attachments/use-attachment-drop.js";
 import { ContextMeter } from "./context-meter/ContextMeter.js";
 import { newestContextWindowReading } from "./usage-readings.js";
 
@@ -29,31 +27,9 @@ import { newestContextWindowReading } from "./usage-readings.js";
  */
 const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[] => state.timeline;
 
-export interface ComposerAccessoryRailProps extends ComposerSeatProps {
-  /**
-   * The composer region, from the host that owns it.
-   *
-   * Drop and paste are bound to the WHOLE composer rather than to a strip inside it —
-   * a target a person has to aim at is a target they miss — and the region is the
-   * host's to hand out, exactly as it is for the discovery popover. Taking one here
-   * rather than reaching for `closest()` keeps the rail out of the business of
-   * recognising its own container by class name.
-   */
-  readonly region: React.RefObject<HTMLElement | null>;
-}
-
-/** The composer's trailing rail: what the message carries, and how full the conversation is. */
-export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.JSX.Element {
+/** The composer's trailing rail: how full the conversation is. */
+export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
-  // One carrier per composer, opened on the session it is addressed within. The repos
-  // family owns the ingest client's lifecycle behind this binding, so the rail holds no
-  // stream of its own and disposes nothing by hand.
-  const attachmentCarrier = useAttachmentCarrier(props.bridge, props.sessionStore.sessionId);
-  const { attachFiles } = attachmentCarrier;
-  const isDraggingFiles = useAttachmentDropTarget({
-    region: props.region,
-    onFilesChosen: attachFiles,
-  });
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   // Folded AFTER the address, because the address is an input: the reading this
   // composer reports is the addressed run's own.
@@ -66,9 +42,6 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
 
   return (
     <div className="meridian-composer__rail">
-      {/* First in the rail, so what a message is carrying sits directly under the line
-          it is being written on rather than below the meters. */}
-      <ComposerAttachmentBar carrier={attachmentCarrier} isDraggingFiles={isDraggingFiles} />
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
           <ContextMeter reading={contextReading} />

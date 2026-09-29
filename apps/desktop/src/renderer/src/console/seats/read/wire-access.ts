@@ -37,6 +37,8 @@ import { openObservedSubscription, type ConsoleBridge } from "../../bridge/index
  * reaches the wire here, so this is one of the console's few live readings of whether
  * the transport is there at all — and the window's retry of a session whose own bind
  * failed depends on a reading taken somewhere other than that binding.
+ *
+ * @consumedBy a surface that listens for one daemon event
  */
 export function subscribeDaemonEvent<TPayload>(
   bridge: ConsoleBridge,

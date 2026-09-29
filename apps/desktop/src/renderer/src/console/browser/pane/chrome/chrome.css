@@ -87,10 +87,6 @@
   white-space: nowrap;
 }
 
-.meridian-browser-tab__background {
-  color: var(--meridian-text-faint);
-}
-
 .meridian-browser-tab__spinner {
   color: var(--meridian-accent-text);
 }

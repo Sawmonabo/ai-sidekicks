@@ -29,11 +29,9 @@
 // WHAT FEEDS IT, STATED RATHER THAN INVENTED. A delta carries a body, and no wire
 // this console holds carries one: `assistant.*` and `tool.*` payloads are `.strict()`
 // over a media type and a byte length, and the body itself is sealed in the daemon's
-// own encrypted column behind a read no bridge namespace serves. That read is the
-// growth slate's `hydrated-event-read` row, and it is what will call `ingest`. Until
-// it lands the engine holds no lane, publishes no text, and reports `isDraining`
-// false — which is now a READING of a mounted scheduler rather than the literal the
-// feed used to hand the viewport in its place.
+// own encrypted column behind a read no bridge namespace serves. That read is what
+// will call `ingest`. Until it lands the engine holds no lane, publishes no text, and
+// reports `isDraining` false — a READING of a mounted scheduler rather than a literal.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 

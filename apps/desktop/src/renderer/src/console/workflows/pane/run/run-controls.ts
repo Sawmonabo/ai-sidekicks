@@ -26,6 +26,8 @@
 // against a run whose state has moved, and dropping it silently is a button that
 // looks broken.
 
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
+
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { WorkflowRunState } from "../../runs/run-list-rows.js";
 // The console's one byte measurement, through the family door that publishes it.
@@ -34,7 +36,6 @@ import type { WorkflowRunState } from "../../runs/run-list-rows.js";
 // function: a second one here agreed on ASCII and would have drifted on the first
 // rule either grew.
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 
 /**
  * The two run controls, and exactly two.

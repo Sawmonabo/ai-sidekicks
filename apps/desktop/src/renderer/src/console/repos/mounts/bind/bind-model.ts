@@ -77,9 +77,9 @@ export interface BindFormResolution {
  * the same mount met a picker with nothing chosen and a control that would not send.
  *
  * IT IS STILL NOT A GUESS OF THE CONSOLE'S, which is the rule `repo.workspaceBind`'s own
- * refusal to conflate "omitted a mode" with "chose `read-only`" is about. The value
- * comes from `defaultMode` on the mount's own reply, and a reply that names one outside
- * its own `availableModes` resolves to nothing at all.
+ * refusal to conflate "omitted a mode" with "chose one" is about. The value comes from
+ * `defaultMode` on the mount's own reply, and a reply that names one outside its own
+ * `availableModes` resolves to nothing at all.
  *
  * `undefined` where the read has not answered, which is a different fact from a mount
  * that admits nothing: the first cannot confirm a pick, the second withdraws one.

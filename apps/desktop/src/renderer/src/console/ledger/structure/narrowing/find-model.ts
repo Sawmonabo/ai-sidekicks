@@ -1,10 +1,9 @@
 // Find in ledger — the matcher behind the field.
 //
-// The subsequence scorer shared by the palette, settings search, sidebar filter, and
-// find is own-built. THE FIELD'S RULE IS THIS MODULE'S: find runs over the loaded rows
-// with a match count and next and previous. Reaching rows before the window's head is
-// the viewport's backward read, and search across sessions is growth, not a widening
-// of this.
+// The subsequence scorer shared by the palette and settings search is own-built. THE
+// FIELD'S RULE IS THIS MODULE'S: find runs over the loaded rows with a match count and
+// next and previous. Reaching rows before the window's head is the viewport's backward
+// read, and search across sessions is a separate feature, not a widening of this.
 //
 // THE BOUNDARY IS A MEMBER OF THE RESULT — `searchedRowCount` — rather than a caption
 // the surface remembers to add, so a find that searched what it had cannot be read as

@@ -7,10 +7,11 @@
 // checked for the word "bytes". So every case below has a negative control that
 // fails against the lazy version.
 
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
+
 import { describe, expect, it } from "vitest";
 
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 import {
   WORKFLOW_RUN_CONTROL_ACTIONS,
   WORKFLOW_RUN_CONTROL_ORIGIN,

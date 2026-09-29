@@ -9,7 +9,7 @@
 // takes the registry it is handed, so a test composes this family into a registry it owns.
 
 import type { ConsoleSurfaceRegistry } from "./seats/index.js";
-import { registerSessionsSurface, type SessionsSurfaceComposition } from "./sessions/index.js";
+import { registerSessionsSurface } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**
@@ -22,10 +22,7 @@ import { registerSettingsSurface } from "./settings/index.js";
  * a view family this one may not import — so the root names which component fills the
  * place and this file hands it on.
  */
-export function registerSessionSurfacesFamily(
-  surfaces: ConsoleSurfaceRegistry,
-  sessionsComposition: SessionsSurfaceComposition,
-): void {
-  registerSessionsSurface(surfaces, sessionsComposition);
+export function registerSessionSurfacesFamily(surfaces: ConsoleSurfaceRegistry): void {
+  registerSessionsSurface(surfaces);
   registerSettingsSurface(surfaces);
 }

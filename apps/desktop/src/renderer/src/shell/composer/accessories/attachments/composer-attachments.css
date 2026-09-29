@@ -1,5 +1,4 @@
-/* The composer's attachment strip, its chips, and the two controls inside the `+`
-   menu that put something on a message.
+/* The composer's attachment strip and its chips.
 
    ONE-LINE CHIPS AND NOT CARDS, which is the whole reason this surface exists beside
    the artifact pane's: the composer has a message line under it and a carrier of
@@ -107,49 +106,4 @@
 .meridian-composer-attachment__progress {
   inline-size: calc(var(--meridian-space-5) * 2);
   block-size: var(--meridian-space-1);
-}
-
-/* --- The `+` menu's own two occupants ------------------------------------ */
-
-.meridian-composer-picker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-/* A label wrapping a visually-hidden file input, dressed as the control it is. The
-   shared button shape in `accessories.css` supplies the rest. */
-.meridian-composer-picker__control {
-  justify-content: center;
-}
-
-.meridian-attach-menu {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.meridian-attach-menu__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-attach-menu__action {
-  flex-wrap: wrap;
-  inline-size: 100%;
-  text-align: start;
-}
-
-.meridian-attach-menu__action:disabled {
-  color: var(--meridian-text-muted);
-  cursor: progress;
-}
-
-.meridian-attach-menu__detail {
-  flex-basis: 100%;
-  color: var(--meridian-text-muted);
 }

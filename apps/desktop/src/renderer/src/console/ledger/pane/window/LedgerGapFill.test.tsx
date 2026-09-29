@@ -9,6 +9,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { TimelineSubscribeCall } from "../../../bridge/index.js";
 import { SessionStoreRegistry, type SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { emptySnapshot } from "../../../store/session-store-registry.test-support.js";
@@ -64,7 +65,8 @@ function openHole(sessionStore: SessionStore): void {
 
 /** The surface, with a call that accepts every ask. */
 function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): HTMLElement {
-  const fillGap = (): Promise<unknown> => Promise.resolve(undefined);
+  const fillGap: TimelineSubscribeCall = () =>
+    Promise.resolve({ subscriptionId: "subscription-replay" });
   return render(<LedgerGapFill registry={registry} sessionStore={sessionStore} fillGap={fillGap} />)
     .container;
 }

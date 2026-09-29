@@ -3,12 +3,8 @@
 // The other half of the pair `core/wire-strings.ts` opens. That module answers what
 // counts as a present STRING on a value the store holds wire-verbatim; this one
 // answers what counts as a value with readable KEYS, which is the question every
-// walk of an untyped payload asks before it indexes anything. Three modules had each
-// written the same three clauses for themselves —
-// `bridge/run-streams/queue-row-source.ts` as `isWireObject`,
-// `frame/run-projection/run-entity-body.ts` inline in its object reader, and
-// `persistence/value-classes.ts` as `isPlainObject` over its own value tree — which
-// is one rule with three spellings and no instrument holding them together.
+// walk of an untyped payload asks before it indexes anything, so every walk reads it
+// from here rather than spelling it for itself.
 //
 // IT IS ITS OWN MODULE RATHER THAN A SECOND EXPORT OF `wire-strings.ts`. That module
 // is named for the noun it owns and its header is the string rule end to end: the

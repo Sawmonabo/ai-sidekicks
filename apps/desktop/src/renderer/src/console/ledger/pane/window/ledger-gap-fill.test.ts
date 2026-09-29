@@ -7,13 +7,12 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { TimelineResubscribeRequest, TimelineSubscribeCall } from "../../../bridge/index.js";
 import {
   ledgerGapFillSubjectKey,
   resolveLedgerGapFill,
   useLedgerGapFill,
-  type LedgerGapFillCall,
   type LedgerGapFillInput,
-  type LedgerGapFillRequest,
   type LedgerGapFillState,
 } from "./ledger-gap-fill.js";
 
@@ -21,16 +20,16 @@ const SESSION_ID = "session-gap-fill";
 const KEPT_CURSOR = "cursor-kept-by-the-last-read";
 
 /** A call that records the replay asks put through it and acknowledges each one. */
-function recordingCall(asks: LedgerGapFillRequest[]): LedgerGapFillCall {
+function recordingCall(asks: TimelineResubscribeRequest[]): TimelineSubscribeCall {
   return (request) => {
     asks.push(request);
-    return Promise.resolve();
+    return Promise.resolve({ subscriptionId: `subscription-${String(asks.length)}` });
   };
 }
 
 /** The hook over inputs the caller can move, under one call that outlives the moves. */
 function mountFill(
-  call: LedgerGapFillCall,
+  call: TimelineSubscribeCall,
   initialProps: LedgerGapFillInput,
 ): ReturnType<typeof renderHook<LedgerGapFillState, LedgerGapFillInput>> {
   return renderHook((props: LedgerGapFillInput) => useLedgerGapFill(props, call), {
@@ -100,7 +99,7 @@ describe("ledgerGapFillSubjectKey", () => {
 
 describe("useLedgerGapFill", () => {
   it("puts no ask for a window with nothing missing", async () => {
-    const asks: LedgerGapFillRequest[] = [];
+    const asks: TimelineResubscribeRequest[] = [];
     const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: undefined,
@@ -114,7 +113,7 @@ describe("useLedgerGapFill", () => {
   });
 
   it("puts no ask for a hole it holds no position to ask from", async () => {
-    const asks: LedgerGapFillRequest[] = [];
+    const asks: TimelineResubscribeRequest[] = [];
     const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: 7,
@@ -129,7 +128,7 @@ describe("useLedgerGapFill", () => {
   });
 
   it("asks once per hole, and reports the replay once the ask is acknowledged", async () => {
-    const asks: LedgerGapFillRequest[] = [];
+    const asks: TimelineResubscribeRequest[] = [];
     const call = recordingCall(asks);
     const fill = mountFill(call, {
       sessionId: SESSION_ID,
@@ -151,7 +150,7 @@ describe("useLedgerGapFill", () => {
   });
 
   it("asks again for a second hole, and clears when the store repairs the first", async () => {
-    const asks: LedgerGapFillRequest[] = [];
+    const asks: TimelineResubscribeRequest[] = [];
     const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: 7,

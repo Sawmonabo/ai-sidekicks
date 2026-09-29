@@ -1,4 +1,4 @@
-// The carrier's user-facing acts: what attach, retry, abandon, remove, reorder,
+// The carrier's user-facing acts: what attach, retry, abandon, remove,
 // and disposal do to the record of every attachment a person has handed this session.
 //
 // THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The carrier's own record —
@@ -19,6 +19,7 @@
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
 // no automatic re-drive.
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
@@ -28,7 +29,7 @@ import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-shape
 
 export interface AttachmentIngestClientOptions {
   readonly port: AttachmentIngestPort;
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   /** Injected so a test drives every stream on frozen time with no real clock. */
   readonly clock?: ConsoleClock;
 }
@@ -134,11 +135,6 @@ export class AttachmentIngestClient {
     }
     this.abandon(localId);
     this.#ledger.remove(localId);
-  }
-
-  /** Move one attachment to a new declared position, clamped inside the carrier. */
-  public reorder(localId: string, toPosition: number): void {
-    this.#ledger.reorder(localId, toPosition);
   }
 
   /** The reference a carrier would carry: artifact ids, ordered, and nothing else. */

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Chip, WireFigure } from "../../../../primitives/index.js";
-import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 
 /**
  * One binding's configuration, exactly as the daemon serves it back.
@@ -36,7 +36,7 @@ import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
  * a list body its only caller owns has no identity outside it.
  */
 export function ConfigReadBack(props: {
-  readonly config: GrowthMcpInventoryEntry["config"];
+  readonly config: McpServerInventoryEntry["config"];
 }): ReactNode {
   const { config } = props;
   return (

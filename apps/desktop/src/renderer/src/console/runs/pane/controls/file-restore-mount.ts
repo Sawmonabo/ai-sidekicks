@@ -3,8 +3,7 @@
 //
 // WHAT IS ON WHICH SIDE. This module holds no restore knowledge: it imports the
 // disclosure only as a TYPE — a line the compiler erases — fetches the disclosure's
-// chunk through the primitives door's loader, and pairs that with the pending region the
-// substrate draws.
+// chunk by `import()`, and pairs that with the pending region the substrate draws.
 // A static import of the component would put it on the initial graph, because a symbol
 // reachable both statically and dynamically is assigned to the STATIC chunk.
 //
@@ -19,16 +18,9 @@
 // ONE `const` AND NOT A MODULE-LEVEL `let`: the memo is the class's own private field,
 // which is what the package's state-and-views rule asks for, and every row of
 // every run's history draws the same disclosure, so there is nothing to key it on.
-//
-// WHERE THE WAIT LIVES. `file-restore-mount.test-support.ts` beside this file, and
-// nowhere else — a spec that raced its own resolution would look identical in a diff to
-// three that did not.
 
 import { LoadedLazyBody, reservedBodyRegion } from "../../../seats/index.js";
-import {
-  loadFileRestoreDisclosure,
-  type FileRestoreDisclosureProps,
-} from "../../../primitives/index.js";
+import type { FileRestoreDisclosureProps } from "../../../primitives/index.js";
 
 /**
  * What a pending disclosure stamps, so a refused capture says WHICH body was loading.
@@ -40,6 +32,7 @@ const FILE_RESTORE_DISCLOSURE_PENDING_BODY = "file-restore-disclosure";
 
 /** The disclosure, mounted from its chunk. The rollback settlement's one reader. */
 export const fileRestoreDisclosureMount: LoadedLazyBody<FileRestoreDisclosureProps> =
-  new LoadedLazyBody(loadFileRestoreDisclosure, () =>
-    reservedBodyRegion(FILE_RESTORE_DISCLOSURE_PENDING_BODY),
+  new LoadedLazyBody(
+    () => import("../../../primitives/restore/file-restore-disclosure-body.js"),
+    () => reservedBodyRegion(FILE_RESTORE_DISCLOSURE_PENDING_BODY),
   );

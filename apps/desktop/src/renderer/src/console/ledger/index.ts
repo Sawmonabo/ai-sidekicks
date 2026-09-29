@@ -64,6 +64,11 @@ import { registerLedgerCommands } from "./structure/structure-commands.js";
 // cascade order is unchanged and nothing drops out of the bundle.
 import "./ledger.css";
 
+export {
+  /** @consumedBy the composer's question card */
+  FixtureShellAskRow,
+} from "./cards/shell/FixtureShellAskRow.js";
+
 // This door carries the family's REGISTRATIONS and no pieces.
 //
 // `registerLedger` claims the surfaces and contributes the family's palette rows and

@@ -55,25 +55,24 @@
 // than from a hand-written stand-in that could answer differently from the one that
 // is dispatched a line later.
 //
-// WHAT IS NOT INVENTED HERE. The handback carrier is `browser.onAccelerator`, an arm
-// of `browser.subscribe`, and it is on the growth slate under `browser-pane-namespace`
-// with no growth-port operation registered. So
-// this family owns the two halves that are the renderer's either way — the PROJECTION
-// a main-process mirror is built from, and the REPLAY a claimed chord arrives at —
-// and names no method string. The projection is deliberately handed a chord LIST
-// rather than reading one itself, and the list its binding supplies is the palette's
-// OWN effective table — `useKeybindingSurface`'s `bindings`, the shipped chords with
-// this window's overrides applied, which the palette and the keyboard page both read.
-// So the mirror is a projection of one table rather than a second list, which is the
-// drift the third rule forbids. Reading it here instead of taking it as an argument is
-// what would make this module undrivable from a case with no palette in it, which is
-// the whole reason the seam is a parameter. What this module does take from that
-// family is the GRAMMAR the paragraph above names, because a second chord grammar is
-// that same drift by another route.
+// WHAT IS NOT INVENTED HERE. The handback carrier is `browser.onAccelerator`, an arm of
+// `browser.subscribe`, and no code package registers either. So this family owns the
+// two halves that are the renderer's either way — the PROJECTION a main-process mirror
+// is built from, and the REPLAY a claimed chord arrives at — and names no method
+// string. The projection is deliberately handed a chord LIST rather than reading one
+// itself, and the list its binding supplies is the palette's OWN effective table —
+// `useKeybindingSurface`'s `bindings`, the shipped chords with this window's overrides
+// applied, which the palette and the keyboard page both read. So the mirror is a
+// projection of one table rather than a second list, which is the drift the third rule
+// forbids. Reading it here instead of taking it as an argument is what would make this
+// module undrivable from a case with no palette in it, which is the whole reason the
+// seam is a parameter. What this module does take from that family is the GRAMMAR the
+// paragraph above names, because a second chord grammar is that same drift by another
+// route.
 //
-// `KeyboardHandback` carries a one-line claim naming the growth slate row that owns
-// its wire, for `chord-claim.ts`' reason: the claim is the difference between a symbol
-// waiting for a named consumer and one nothing will ever import.
+// `KeyboardHandback` carries a one-line claim naming the wire that will consume it,
+// for `chord-claim.ts`' reason: the claim is the difference between a symbol waiting
+// for a named consumer and one nothing will ever import.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { chordMatchesEvent, parseChord } from "../../../palette/index.js";
@@ -141,7 +140,7 @@ export interface KeyboardHandbackOptions {
  * between calls, and because a replay has to be attributable: `replayCount` is what a
  * test asserts against instead of trusting that a dispatched event was delivered.
  */
-// Consumed by growth slate row `browser-pane-namespace`
+// Consumed by the browser bridge namespace's accelerator handback.
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
   readonly #platform: ChordPlatform;

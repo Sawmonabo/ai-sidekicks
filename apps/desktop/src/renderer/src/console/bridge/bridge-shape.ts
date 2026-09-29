@@ -30,14 +30,12 @@ export type DesktopBridgeNamespace = keyof DesktopBridge;
  * error. The array this replaced was a plain `readonly (keyof DesktopBridge)[]`,
  * which type-checks each entry and counts none — so it would have gone on probing
  * the namespaces it was written against however many the contract grew, and the probe would have kept
- * answering yes to a bridge missing the seventh.
+ * answering yes to a bridge missing the fifth.
  */
 const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> = {
   daemon: true,
   controlPlane: true,
   native: true,
-  shell: true,
-  window: true,
   update: true,
   app: true,
 };

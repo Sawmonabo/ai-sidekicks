@@ -23,7 +23,7 @@
 // pass their words to the one below instead, so nothing outside this directory names
 // the issue shape at all.
 
-export { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
+export { type WireReadState } from "./reading-lifecycle.js";
 
 export {
   UnreadableDeliveryLedger,

@@ -132,10 +132,7 @@ export { PaletteOverlay } from "./overlay/PaletteOverlay.js";
 // this one by any other path.
 export { auditKeybindings, reservedChordReason } from "./keybindings/keybinding-audit.js";
 
-export {
-  composeEffectiveBindings,
-  type KeybindingOverrideMap,
-} from "./keybindings/keybinding-overrides.js";
+export { type KeybindingOverrideMap } from "./keybindings/keybinding-overrides.js";
 
 export {
   consoleKeybindingOverrides,

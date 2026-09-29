@@ -103,9 +103,9 @@ export interface RunTransitionInput {
   readonly agentId?: string;
   readonly actorId?: string;
   /**
-   * The run that created this one, and the two facts that ride beside it.
+   * The run that created this one, and the fact that rides beside it.
    *
-   * The three orchestration-linkage members, on the BIRTH beat and nowhere else. The
+   * The two orchestration-linkage members, on the BIRTH beat and nowhere else. The
    * taxonomy's run-lifecycle rows put them on `run.queued`, so the parent is named
    * where the child is created — a second beat announcing the link would be a second
    * record of one fact and the projection reading it would have to choose which. The
@@ -115,8 +115,6 @@ export interface RunTransitionInput {
   readonly parentRunId?: string;
   /** Whether the child is the parent's own helper rather than a user's run. */
   readonly internalHelper?: boolean;
-  /** The runtime node that produced the child, where the daemon resolved one. */
-  readonly producingNodeId?: string;
 }
 
 /**
@@ -341,11 +339,10 @@ export function createLedgerLaneEntries(sessionId: string): LedgerLaneEntryBuild
   };
 }
 
-/** Whichever of the three linkage members this entry stated, and no key for the rest. */
+/** Whichever of the two linkage members this entry stated, and no key for the rest. */
 function orchestrationLinkageMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
   return {
     ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
     ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
-    ...(input.producingNodeId === undefined ? {} : { producingNodeId: input.producingNodeId }),
   };
 }

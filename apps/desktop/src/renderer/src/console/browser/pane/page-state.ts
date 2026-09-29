@@ -1,20 +1,20 @@
 // What the pane KNOWS about the session's pages, as opposed to what the strip draws.
 //
-// The strip shows one tab per page this session owns, and every page it owns, background
-// pages included. Which tab is selected, which page is shown, and whether a page is
-// loading are all read off the frame the pane's content is handed, never inferred from
-// the last act dispatched.
+// The strip shows one tab per page this session owns, and every page it owns. Which page
+// is active and whether a page is loading are both read off the frame the pane's content
+// is handed, never inferred from the last act dispatched.
 //
 // It is a second reading beside the navigation one and not an arm of it. The navigation
 // reading answers "where is the page this pane is showing"; this one answers "what pages
 // does this session own". A pane showing nothing still owns pages, and a pane showing a
 // page whose list has not arrived still has a URL to render.
 
-import type { GrowthBrowserPage, GrowthBrowserPageList } from "../../bridge/index.js";
+import type { PreviewPage, PreviewPageListFrame } from "@ai-sidekicks/contracts";
+
 import type { ReadingState } from "../../primitives/index.js";
 
 /** One page the session owns, as every surface in this family reads it. */
-export type BrowserPage = GrowthBrowserPage;
+export type BrowserPage = PreviewPage;
 
 /**
  * What the pane knows about the session's pages right now.
@@ -25,7 +25,7 @@ export type BrowserPage = GrowthBrowserPage;
  */
 export type PageListReading =
   | Extract<ReadingState, { readonly kind: "reading" }>
-  | (Extract<ReadingState, { readonly kind: "served" }> & { readonly frame: GrowthBrowserPageList })
+  | (Extract<ReadingState, { readonly kind: "served" }> & { readonly frame: PreviewPageListFrame })
   | { readonly kind: "ended" };
 
 /**
@@ -37,4 +37,12 @@ export type PageListReading =
  */
 export function pagesOf(reading: PageListReading): readonly BrowserPage[] {
   return reading.kind === "served" ? reading.frame.pages : [];
+}
+
+/**
+ * The page the pane is showing: the served frame's page at its active index, and
+ * `undefined` on any other arm or when the session has no page open.
+ */
+export function activePageOf(reading: PageListReading): BrowserPage | undefined {
+  return reading.kind === "served" ? reading.frame.pages[reading.frame.activeIndex] : undefined;
 }

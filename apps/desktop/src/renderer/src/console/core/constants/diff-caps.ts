@@ -74,5 +74,7 @@ export const DIFF_INTRALINE_CACHE_ENTRY_CAP = 512;
  * than a change set. Past the bound the create refuses and says so, because a diff
  * silently missing its last files is worse than one that did not render: the files it
  * dropped are exactly the ones a reader would not know to look for.
+ *
+ * @consumedBy the diff pane's patch read
  */
 export const DIFF_PATCH_CHARACTER_CAP = 4_194_304;

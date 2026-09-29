@@ -24,8 +24,7 @@
 // snapshot as though it were the answer to the new question.
 
 import type { WorkflowRunSnapshot } from "../../../bridge/index.js";
-import { subjectReadStart, type SubjectRead } from "../../../store/index.js";
-import { useSubjectRead } from "../../subject-read.js";
+import { subjectReadStart, useSubjectRead, type SubjectRead } from "../../../store/index.js";
 
 /** The call that reads one run. Pass a stable function: a new identity re-reads. */
 export type WorkflowRunReadCall = (request: {

@@ -3,7 +3,7 @@
 // Two of `ExecutionModePicker.tsx`'s three Nevers are testable as
 // negative controls, and both are here: `availableModes` is never computed as
 // "everything not in `restrictions`", and `defaultMode` is never treated as the
-// current mode. The first is what the fourth-mode case below fails on; the second is
+// current mode. The first is what the unlisted-mode case below fails on; the second is
 // what the two-tag case fails on.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
@@ -24,21 +24,19 @@ const CONTROLS_HELD_BY_THE_MOUNT: WorkspaceControlPosture = workspaceControlPost
 );
 const CONTROLS_HELD_BY_A_SWITCH: WorkspaceControlPosture = workspaceControlPosture(
   { offered: true },
-  "worktree",
+  "provisioned-worktree",
 );
 
 const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
 };
 
-const PLAIN_DIRECTORY_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only"],
-  defaultMode: "read-only",
+const RESTRICTED_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["bound-root"],
+  defaultMode: "bound-root",
   restrictions: {
-    branch: "no git repository at the mount root",
-    worktree: "no git repository at the mount root",
-    "ephemeral clone": "no git repository at the mount root",
+    "provisioned-worktree": "no room for another worktree on this machine",
   },
 };
 
@@ -49,7 +47,7 @@ function renderPicker(
   return render(
     <ExecutionModePicker
       workspaceId="workspace-1"
-      currentMode="read-only"
+      currentMode="bound-root"
       capabilities={capabilities}
       pendingMode={undefined}
       posture={CONTROLS_LIVE}
@@ -64,38 +62,36 @@ describe("ExecutionModePicker — the rows come from the reply", () => {
     const { container } = renderPicker(GIT_CAPABILITIES);
     const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
     expect([...radios].map((radio) => radio.value)).toStrictEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
+      "bound-root",
+      "provisioned-worktree",
     ]);
     expect([...radios].every((radio) => !radio.disabled)).toBe(true);
   });
 
   it("renders a disabled row per restricted mode, carrying the daemon's own reason", () => {
-    const { container, getAllByText } = renderPicker(PLAIN_DIRECTORY_CAPABILITIES);
+    const { container, getAllByText } = renderPicker(RESTRICTED_CAPABILITIES);
     const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
     expect([...radios].map((radio) => radio.value)).toStrictEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
+      "bound-root",
+      "provisioned-worktree",
     ]);
     expect([...radios].filter((radio) => radio.disabled).map((radio) => radio.value)).toStrictEqual(
-      ["branch", "worktree", "ephemeral clone"],
+      ["provisioned-worktree"],
     );
-    // Verbatim, three times — one per restricted mode, beside the row it is about.
-    expect(getAllByText("no git repository at the mount root")).toHaveLength(3);
+    // Verbatim, once — beside the row it is about.
+    expect(getAllByText("no room for another worktree on this machine")).toHaveLength(1);
   });
 
   it("negative control: a mode named in neither half of the reply gets no row", () => {
     // The guard against "everything not in `restrictions`". A picker that started from
-    // a hardcoded four-mode list would still draw `branch`, `worktree`, and
-    // `ephemeral clone` here — with no reason beside them, which is the silent
-    // substitution this family forbids.
-    const { container } = renderPicker({ availableModes: ["read-only"], defaultMode: "read-only" });
+    // a hardcoded list of modes would still draw `provisioned-worktree` here — with no
+    // reason beside it, which is the silent substitution this family forbids.
+    const { container } = renderPicker({
+      availableModes: ["bound-root"],
+      defaultMode: "bound-root",
+    });
     const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
-    expect([...radios].map((radio) => radio.value)).toStrictEqual(["read-only"]);
+    expect([...radios].map((radio) => radio.value)).toStrictEqual(["bound-root"]);
   });
 });
 
@@ -103,24 +99,24 @@ describe("ExecutionModePicker — default is not current", () => {
   it("labels the default row and the bound row separately", () => {
     const { container } = renderPicker(GIT_CAPABILITIES);
     const rows = container.querySelectorAll(".meridian-mode-picker__row");
-    const readOnlyRow = rows[0];
-    const worktreeRow = rows[2];
-    expect(readOnlyRow).toBeDefined();
+    const boundRootRow = rows[0];
+    const worktreeRow = rows[1];
+    expect(boundRootRow).toBeDefined();
     expect(worktreeRow).toBeDefined();
-    expect(within(readOnlyRow as HTMLElement).getByText("bound now")).toBeDefined();
+    expect(within(boundRootRow as HTMLElement).getByText("bound now")).toBeDefined();
     expect(
       within(worktreeRow as HTMLElement).getByText("default for the next writable coding run"),
     ).toBeDefined();
   });
 
   it("negative control: the bound row does not also claim to be the default", () => {
-    // `defaultMode` here is `worktree` while the workspace is bound `read-only`. A
-    // renderer that read one field for both would put both tags on one row, which is
-    // how a reader comes to believe a writable mode is already in force.
+    // `defaultMode` here is `provisioned-worktree` while the workspace is bound
+    // `bound-root`. A renderer that read one field for both would put both tags on one
+    // row, which is how a reader comes to believe the default is already in force.
     const { container } = renderPicker(GIT_CAPABILITIES);
-    const readOnlyRow = container.querySelectorAll(".meridian-mode-picker__row")[0];
+    const boundRootRow = container.querySelectorAll(".meridian-mode-picker__row")[0];
     expect(
-      within(readOnlyRow as HTMLElement).queryByText("default for the next writable coding run"),
+      within(boundRootRow as HTMLElement).queryByText("default for the next writable coding run"),
     ).toBeNull();
   });
 });
@@ -136,10 +132,12 @@ describe("ExecutionModePicker — absences and holds", () => {
     const onSelect = vi.fn();
     const { container } = renderPicker(GIT_CAPABILITIES, { onSelect });
     expect(onSelect).not.toHaveBeenCalled();
-    const worktree = container.querySelector<HTMLInputElement>('input[value="worktree"]');
+    const worktree = container.querySelector<HTMLInputElement>(
+      'input[value="provisioned-worktree"]',
+    );
     worktree?.click();
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith("worktree");
+    expect(onSelect).toHaveBeenCalledWith("provisioned-worktree");
   });
 
   it("disables the whole group when the mount withholds its bind controls", () => {
@@ -164,7 +162,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // holds the group and `pendingMode` names the mode. Passing only one here would be
     // a state the card cannot produce.
     const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
-      pendingMode: "worktree",
+      pendingMode: "provisioned-worktree",
       posture: CONTROLS_HELD_BY_A_SWITCH,
     });
 
@@ -177,7 +175,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // as now, so a group that only disabled itself would report nothing about what was
     // pressed.
     expect(getByRole("status").textContent).toContain("Switching to");
-    expect(getByRole("status").textContent).toContain("worktree");
+    expect(getByRole("status").textContent).toContain("provisioned-worktree");
   });
 
   it("announces the mount's own reason and not the switch when both hold the group", () => {
@@ -191,7 +189,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // announcements a screen reader reads in sequence — fails here rather than passing
     // with the first match.
     const { getByRole } = renderPicker(GIT_CAPABILITIES, {
-      pendingMode: "worktree",
+      pendingMode: "provisioned-worktree",
       posture: CONTROLS_HELD_BY_THE_MOUNT,
     });
 
@@ -213,14 +211,14 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // daemon has not confirmed — and if it refuses, the row would have to move back,
     // which is the silent re-pick this surface forbids.
     const { container } = renderPicker(GIT_CAPABILITIES, {
-      currentMode: "read-only",
-      pendingMode: "worktree",
+      currentMode: "bound-root",
+      pendingMode: "provisioned-worktree",
       posture: CONTROLS_HELD_BY_A_SWITCH,
     });
     const checked = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].filter(
       (radio) => radio.checked,
     );
 
-    expect(checked.map((radio) => radio.value)).toStrictEqual(["read-only"]);
+    expect(checked.map((radio) => radio.value)).toStrictEqual(["bound-root"]);
   });
 });

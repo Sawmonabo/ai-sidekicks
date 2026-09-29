@@ -8,15 +8,13 @@
 // on the console's own frozen clock and renders the real card from the snapshot it
 // publishes, which is the composition the composer's attachment strip makes.
 
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ATTACHMENT_CHUNK_BYTE_CAP,
-  INGEST_STALL_DISCLOSURE_MS,
-  ManualClock,
-} from "../../core/index.js";
+import { INGEST_STALL_DISCLOSURE_MS, ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
@@ -29,6 +27,7 @@ import {
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { bridgeOnClock } from "../repo-operations.test-support.js";
 import {
+  INGEST_SESSION_ID,
   ScriptedIngestPort,
   patternedBytes,
 } from "./attachment-ingest-scripted-port.test-support.js";
@@ -48,7 +47,7 @@ function pickedFile(byteLength: number): File {
 function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCarrier {
   const carrier = new AttachmentCarrier({
     port: port.asPort(),
-    sessionId: "session-1",
+    sessionId: INGEST_SESSION_ID,
     clock,
   });
   carrier.start();
@@ -123,7 +122,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     const clock = new ManualClock(START_MILLISECONDS);
     const firstChunkGate = port.holdChunks();
     const carrier = carrierOver(port, clock);
-    carrier.attachFiles([pickedFile(ATTACHMENT_CHUNK_BYTE_CAP * 2)]);
+    carrier.attachFiles([pickedFile(ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2)]);
     await crossMacrotaskBoundary();
 
     // Half a disclosure window in, the second chunk is gated before the first is let
@@ -253,7 +252,7 @@ function CarrierProbe(props: {
   readonly port: AttachmentIngestPort;
   readonly onBinding: (binding: AttachmentCarrierBinding) => void;
 }): React.JSX.Element {
-  const binding = useAttachmentCarrier(props.bridge, "session-1", props.port);
+  const binding = useAttachmentCarrier(props.bridge, INGEST_SESSION_ID, props.port);
   props.onBinding(binding);
   return <span>{String(binding.snapshot.entries.length)}</span>;
 }

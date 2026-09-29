@@ -9,11 +9,9 @@
 // continuation coming back from an await has to consult the ledger rather than the
 // entry it captured, because a user can act while a call is in flight.
 //
-// ORDER IS USER-DECLARED AND PRESERVED END TO END, which the reference contract
-// requires and this is the first place it can be lost. So
-// the order lives in an explicit array of local ids rather than in a `Map`'s insertion
-// order, and `reorder` moves a member inside it — a drag round-trips because the array
-// is the record, not a rendering of one.
+// ORDER IS THE ORDER OF ATTACHING, PRESERVED END TO END, which the reference contract
+// requires and this is the first place it can be lost. So the order lives in an
+// explicit array of local ids, the record the reference is read from.
 //
 // AND THE LEDGER IS WHERE A FINISHED UPLOAD'S BYTES ARE RELEASED. THE RULE, EXACTLY:
 // an entry holds the user's `Blob` while — and only while — a send is still
@@ -169,18 +167,6 @@ export class AttachmentIngestLedger {
     this.#declaredOrder.splice(position, 1);
     this.#entriesByLocalId.delete(localId);
     this.#rounds.supersede(this, localId);
-    this.#publish();
-  }
-
-  /** Move one attachment to a new declared position, clamped inside the carrier. */
-  public reorder(localId: string, toPosition: number): void {
-    const fromPosition = this.#declaredOrder.indexOf(localId);
-    if (fromPosition < 0) {
-      return;
-    }
-    const clamped = Math.max(0, Math.min(this.#declaredOrder.length - 1, toPosition));
-    this.#declaredOrder.splice(fromPosition, 1);
-    this.#declaredOrder.splice(clamped, 0, localId);
     this.#publish();
   }
 

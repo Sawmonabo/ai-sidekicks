@@ -11,12 +11,9 @@ import { describe, expect, it } from "vitest";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "./repo-lifecycle-events.js";
 
 describe("repo lifecycle events — the frames this family watches", () => {
-  it("watches every registered repo, workspace, and worktree lifecycle kind", () => {
+  it("watches every registered workspace and worktree lifecycle kind", () => {
     const registered = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
-      (eventType) =>
-        eventType.startsWith("repo.") ||
-        eventType.startsWith("workspace.") ||
-        eventType.startsWith("worktree."),
+      (eventType) => eventType.startsWith("workspace.") || eventType.startsWith("worktree."),
     );
     expect([...REPO_LIFECYCLE_EVENT_KINDS].sort()).toStrictEqual([...registered].sort());
     // Non-vacuity: a filter that matched nothing would satisfy the equality above
@@ -31,8 +28,7 @@ describe("repo lifecycle events — the frames this family watches", () => {
     // execution root.
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.ready");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.provisioning");
-    expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("repo.attached");
-    expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("repo.detached");
+    expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.archived");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("worktree.retired");
   });
 

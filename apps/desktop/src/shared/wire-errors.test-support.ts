@@ -70,24 +70,24 @@ export function nullPrototypeValue(): unknown {
  * A value whose members answer a scripted sequence of readings, and no more.
  *
  * THE SHAPE THAT MAKES A SECOND READ VISIBLE, parameterised on the members because
- * the two suites read different ones — an envelope's `code` and `message`, a
- * refusal's `code`, `detail` and `origin` — and on the answers because a second read
- * is caught two ways. One answer means the member is readable exactly once and a
- * second reading throws, which is what a returned candidate turns into: a guard reads
- * three strings and says yes, and the renderer's own read, one layer later and
- * outside every `catch`, is the throw. Several answers mean the member answers
- * something different each time, which is what catches a classifier that decided on a
- * reading it took twice.
+ * the suites read different ones — an envelope's `code` and `message`, a refusal's
+ * `code`, `detail` and `origin`, a refusal's list of failed bindings — and on the
+ * answers because a second read is caught two ways. One answer means the member is
+ * readable exactly once and a second reading throws, which is what a returned
+ * candidate turns into: a guard reads the members and says yes, and the renderer's own
+ * read, one layer later and outside every `catch`, is the throw. Several answers mean
+ * the member answers something different each time, which is what catches a
+ * classifier that decided on a reading it took twice.
  */
 export function readableOnce(
-  answersByMember: Readonly<Record<string, readonly string[]>>,
+  answersByMember: Readonly<Record<string, readonly unknown[]>>,
 ): unknown {
   const readings = new Map<string, number>();
   const value: Record<string, unknown> = {};
   for (const [member, answers] of Object.entries(answersByMember)) {
     Object.defineProperty(value, member, {
       enumerable: true,
-      get(): string {
+      get(): unknown {
         const reading = readings.get(member) ?? 0;
         readings.set(member, reading + 1);
         const answer = answers[reading];

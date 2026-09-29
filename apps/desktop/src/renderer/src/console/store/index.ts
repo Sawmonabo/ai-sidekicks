@@ -78,7 +78,6 @@ export { SessionStore, type SessionStoreState } from "./session/session-store.js
 // The two record types stay inside for the barrel census's rule: the fold above reads
 // them by iterating the ledger's own maps and names neither, so a door line for either
 // would be a re-export with no reader.
-export type { OutstandingAskLedger } from "./session/outstanding-asks/outstanding-ask-journal.js";
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
@@ -94,10 +93,7 @@ export { FrameStore } from "./shell/frame-store.js";
 // no surface writes its own reading of which member rule 9 puts across the frame. Its
 // order means PREFERENCE: nothing in this console stamps a refusal with a time, so a
 // position in a collection is never a claim about which one the daemon said last.
-export {
-  preferredBannerClassRefusalAmong,
-  useRefusalBannerEscalation,
-} from "./shell/refusal-escalation.js";
+export { useRefusalBannerEscalation } from "./shell/refusal-escalation.js";
 
 // The shell's own condition, and the two derivations every reader of it shares.
 //
@@ -111,13 +107,7 @@ export {
   UNREPORTED_SHELL_STATE,
   describeShellConnection,
 } from "./shell/shell-state.js";
-export type {
-  ShellConnection,
-  ShellKeystoreState,
-  ShellNegotiation,
-  ShellState,
-  ShellTransport,
-} from "./shell/shell-state.js";
+export type { ShellConnection, ShellState } from "./shell/shell-state.js";
 export { useShellState } from "./shell/frame-hooks.js";
 // Every open session's projection as one change signal.
 export { subscribeToOpenSessions } from "./session/open-session-signal.js";
@@ -179,7 +169,6 @@ export { subscribeToSessionEventKinds } from "./session/session-event-signal.js"
 // because every reading above this family implements it.
 export {
   NO_TRIGGERING_EVENT_KINDS,
-  useReadTriggers,
   useSessionReadTriggers,
   useWindowReadTriggers,
   type ReadTriggerTarget,
@@ -221,7 +210,6 @@ export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 export { useFrameStore } from "./shell/frame-hooks.js";
 export { useLocationHash } from "./shell/location-hash.js";
 export {
-  useOpenSessionIds,
   useOpenSessionStore,
   useSessionPartition,
   useSessionStore,
@@ -231,10 +219,8 @@ export {
 // module — a door re-exports a symbol from the module that DECLARES it, never through
 // a sibling that happens to re-export it.
 export {
-  useSessionDegraded,
   useSessionDegradedCause,
   useSessionInitialised,
-  useSessionProjectionRevision,
 } from "./session/session-projection-hooks.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
@@ -267,6 +253,7 @@ export {
   SubjectScopedHolder,
 } from "./subject-scoped/subject-scoped-holder.js";
 export { useSubjectScopedState } from "./subject-scoped/subject-scoped-state.js";
+export { useSubjectRead, type SubjectReadProjection } from "./read/subject-read.js";
 // The seed rule the two families above pass as the holder's `initial`. It ships from
 // this door rather than from either of them because both read it: the `workflows/`
 // view family for the definitions and runs directories, and the run pane for one run's
@@ -283,7 +270,7 @@ export { useSubjectScopedResource } from "./subject-scoped/subject-scoped-resour
 // The union alone — the two arms are reached by writing one of them, never by naming
 // it, so a door line for each would be a name nothing outside this family ever types.
 export type { SubjectScopedDisposal } from "./subject-scoped/subject-scoped-resource.js";
-export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped/subject-scoped-holder.js";
+export type { SubjectScopedPublish } from "./subject-scoped/subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped/subject-scoped-state.js";
 // THE ACT PRIMITIVE, beside the two subject primitives and the latch it composes.
 // An act with a prerequisite read behind it — a roster before a node is named, the
@@ -300,12 +287,12 @@ export type { SubjectScopedState } from "./subject-scoped/subject-scoped-state.j
 // outside this family, and a door line for it would be a name nothing outside
 // `store/` ever types — which the barrel census fails. It rejoins this door the day a
 // surface holds one directly.
+export { ActController } from "./act/act-controller.js";
 export { ActSurfaceController } from "./act/act-controller-base.js";
 // The three reading shapes travel with it because a controller composing one has to
 // NAME what it publishes: its own settled arm is its own, and the three arms around
 // that arm are this module's.
 export type {
-  ActOutcome,
   ActPrerequisiteReading,
   ActReading,
   ActSettlementReading,
@@ -313,7 +300,7 @@ export type {
 // The React half, from the module that declares it. It binds any controller offering
 // the four lifecycle members, which is why the repos family's three — each extending
 // the base rather than being an `ActController` — bind through it unchanged.
-export { useActController } from "./act/use-act-controller.js";
+export { useActController, useSessionScopedActController } from "./act/use-act-controller.js";
 // The disposal beside the hook, because it is not the hook's alone: a controller that
 // publishes into a host rather than off a snapshot binds through
 // `useSubjectScopedResource` directly and ends exactly the same way.
@@ -323,8 +310,6 @@ export { CONTROLLER_DISPOSAL } from "./act/use-act-controller.js";
 // arms its triggers on a session store, and the rebind rule is the same one. The type
 // travels with it so such a reading can DECLARE the member rather than growing it by
 // coincidence.
-export { useSessionStoreRebind } from "./session/session-store-rebind.js";
-export type { SessionStoreScoped } from "./session/session-store-rebind.js";
 
 export { GenerationLatch, useGenerationLatch } from "./read/generation-latch.js";
 export type { CurrentGenerationClaim, GenerationClaim } from "./read/generation-latch.js";

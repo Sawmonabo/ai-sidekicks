@@ -1,17 +1,13 @@
-// How every settings-page suite builds the context its page reads, and mounts a
-// registered page.
+// How every settings-page suite builds the context its page reads, and draws a
+// registered page before its chunk lands.
 //
 // ONE CONTEXT BUILDER FOR THE FAMILY. `SettingsPageContext` is the shape every page
 // in this family is handed, so a member added to it has to reach every harness that
 // builds one: the builder is here, and a new member is one compile error in one file.
 //
-// AND ONE RESOLUTION OF A REGISTERED PAGE'S DEFERRED BODY. Every settings registration
-// this console ships takes the registry's LOADER form, so a suite that renders a page
-// through the board it is registered on has to preload the chunk, resolve the descriptor,
-// mount it inside the announcer, and settle the reads the body puts in flight. The pair
-// below is that sequence and its other half: the reservation the same registration draws
-// BEFORE the chunk lands, which is what makes the awaited case a claim about a body that
-// landed rather than about one that was there all along. `test/console/surfaces/
+// AND THE RESERVATION A REGISTERED PAGE DRAWS BEFORE ITS BODY LANDS. Every settings
+// registration this console ships takes the registry's LOADER form, so an unpreloaded
+// registration draws the region it reserves. `test/console/surfaces/
 // pane-body-resolution.ts` is the same rule on the two boards in `seats/`; this is that
 // rule on the settings board, which is the settings family's own.
 
@@ -21,10 +17,6 @@ import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore, UNREPORTED_SHELL_STATE, type ShellState } from "../store/index.js";
-import { settle } from "../core/settle.test-support.js";
-// The scheduler wait by its own leaf specifier: a family door publishes what a
-// PRODUCTION module reads, and the barrel census fails a line written for a harness.
-import { settleScheduledRead } from "../bridge/readings/scheduled-read.test-support.js";
 import {
   SettingsPageRegistry,
   type SettingsPageBody,
@@ -105,44 +97,10 @@ export function consoleTestUiStateStore(
 }
 
 /**
- * A registered settings page, its chunk resolved and its first reads settled.
- *
- * THE CHUNK IS AWAITED THROUGH THE REGISTRATION'S OWN LOADER, never by settling
- * generously. `preload` is that loader, memoised, so awaiting it is exact: a
- * component-form registration has nothing to load and settles immediately, and a
- * loader-backed one is resolved before the first render rather than one frame into it.
- * A dynamic import needs more than the one macrotask a render settle crosses, so a
- * mount that settled twice and passed would be a mount that raced.
- *
- * AND THE FROZEN CLOCK IS MOVED, not just the microtask queue. Every read this console
- * performs goes through `store/read/refresh-scheduler.ts`'s one `RefreshScheduler`, armed on the
- * bridge's frozen clock — so a mount that only drained promises would hand a case a page
- * that had never been given the chance to ask, and the case would read the "still
- * reading" arm as the answer. `settleScheduledRead` is the console's one home for that
- * wait, and it is taken unconditionally: it throws where the bridge carries no frozen
- * clock, which is a defect in the case rather than a variant of this mount, since such a
- * bridge cannot settle the page's reads at all.
- */
-export async function mountRegisteredSettingsPage(
-  section: SettingsSectionId,
-  registerPage: (registrar: SettingsPageRegistrar) => void,
-  context: SettingsPageContext,
-): Promise<HTMLElement> {
-  const registry = registryWith(registerPage);
-  await registry.preload(section);
-  const container = mountPageBody(bodyFor(registry, section), context);
-  await settle();
-  await settleScheduledRead(context.bridge);
-  return container;
-}
-
-/**
  * The same registration BEFORE its chunk lands: the region it reserves.
  *
- * The other side of the loader form, and the negative control for the wait above — an
- * unpreloaded descriptor draws the reservation, so a case that mounted through
- * {@link mountRegisteredSettingsPage} is asserting on a body that arrived rather than on
- * one that was there all along. It is also the frame a person sees, and it must carry
+ * The other side of the loader form: an unpreloaded descriptor draws the reservation.
+ * It is also the frame a person sees, and it must carry
  * the pending marker: the screenshot tier refuses to photograph a tree holding one, and
  * a settings page mid-load is exactly what that refusal exists for.
  *

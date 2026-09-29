@@ -32,11 +32,8 @@
 // content; that one reports on the read behind the content, and it is the half whose
 // inputs stop being "a store and a selector".
 //
-// WHAT IS DELIBERATELY NOT HERE. `caller-identity.ts` beside this module is
-// a bridge read wearing a hook, with a refusal vocabulary of its own; the frame
-// store's hooks are `shell/frame-hooks.ts`'s. Three jobs in one module is what this
-// file used to be, and the door publishes each of them from the module that
-// declares it.
+// WHAT IS DELIBERATELY NOT HERE. The frame store's hooks are `shell/frame-hooks.ts`'s,
+// and the door publishes each hook from the module that declares it.
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
@@ -78,13 +75,13 @@ export function useOpenSessionStore(
  * The sessions this window has open, in open order.
  *
  * The console has no session-DIRECTORY read — no `DesktopBridge` member lists the
- * sessions on a node, and the console growth slate registers no row for one either — so
- * this registry is the only session set the renderer can name, and the two surfaces
- * that need one (the auxiliary window's context picker and the sessions
- * list) both read it here rather than each inventing a source.
+ * sessions on a node — so this registry is the only session set the renderer can name,
+ * and a surface that needs one reads it here rather than inventing a source.
  *
  * Subscribed through the registry's own change emitter, so it costs no timer and no
  * poll, and the read returns the registry's stable array rather than building one.
+ *
+ * @consumedBy a surface that lists the sessions this window has open
  */
 export function useOpenSessionIds(registry: SessionStoreRegistry): readonly string[] {
   const subscribe = useCallback(

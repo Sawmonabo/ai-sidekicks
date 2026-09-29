@@ -22,11 +22,16 @@
 // `.test-support.ts` suffix is what keeps that unreachable rather than a header asking
 // a reader not to.
 
+import type { SessionId } from "@ai-sidekicks/contracts";
+
 import { manualGate } from "../held-calls.test-support.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
+
+/** The session every case attaches into. */
+export const INGEST_SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
 
 /** One recorded `AttachmentIngestInit`, exactly as the port declares it. */
 export type RecordedInit = Parameters<AttachmentIngestPort["begin"]>[0];
@@ -155,7 +160,7 @@ export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
 
 /** One client over one scripted port, on the session every case names. */
 export function clientOver(port: ScriptedIngestPort): AttachmentIngestClient {
-  return new AttachmentIngestClient({ port: port.asPort(), sessionId: "session-1" });
+  return new AttachmentIngestClient({ port: port.asPort(), sessionId: INGEST_SESSION_ID });
 }
 
 /**

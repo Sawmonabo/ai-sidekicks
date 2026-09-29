@@ -10,13 +10,13 @@
   // and bundler-style resolution matches what vite/rollup actually do at build
   // time. This overrides the `nodenext` defaults inherited from tsconfig.base.json.
   //
-  // Production-only graph: the `exclude` array drops every `__tests__/**` and
-  // `*.{test,spec}.{ts,tsx}` file so vitest globals (`vi`, `expect`, etc.) never
-  // leak into renderer production code's typegraph — a stray `vi.fn()` call in
-  // a production source file would be a TS error (caught here at typecheck)
-  // instead of a runtime bundle failure. Renderer test files are typechecked by
-  // the sibling `tsconfig.test.json` (noEmit, `composite: false`, includes only
-  // `__tests__/**/*`) so they never enter the `tsc -b` composite-references walk.
+  // Production-only graph: the `exclude` array drops every `*.{test,spec}.{ts,tsx}`
+  // file so vitest globals (`vi`, `expect`, etc.) never leak into renderer
+  // production code's typegraph — a stray `vi.fn()` call in a production source
+  // file would be a TS error (caught here at typecheck) instead of a runtime
+  // bundle failure. Renderer test files are typechecked by the sibling
+  // `tsconfig.test.json` (noEmit, `composite: false`) so they never enter the
+  // `tsc -b` composite-references walk.
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "target": "es2023",
@@ -26,10 +26,8 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     // `rootDir` is `src/`, not `src/renderer/`, so the renderer may import
-    // `../shared/**` — a subtree BOTH processes compile (see
-    // `src/shared/auxiliary-routes.ts` for why the auxiliary-route manifest has
-    // to be shared rather than main-process-only). With `rootDir: "."` the first
-    // such import is TS6059 ("file is not under rootDir"), which would make the
+    // `../shared/**` — a subtree BOTH processes compile (the wire-error reader and
+    // the composer chord). With `rootDir: "."` the first such import is TS6059 ("file is not under rootDir"), which would make the
     // shared module importable in principle and a compile error in practice.
     //
     // `outDir` is NOT `../../out` and NOT `../../out/renderer`: the latter is the
@@ -48,9 +46,8 @@
   },
   // `../shared/**/*` is listed explicitly because a composite project must list
   // every file in its program (TS6307) — widening `rootDir` alone makes the
-  // import legal but still unlisted. The renderer imports the shared
-  // auxiliary-route manifest; main compiles the same subtree under the package
-  // root config.
+  // import legal but still unlisted. Main compiles the same subtree under the
+  // package root config.
   "include": ["**/*", "../shared/**/*"],
-  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

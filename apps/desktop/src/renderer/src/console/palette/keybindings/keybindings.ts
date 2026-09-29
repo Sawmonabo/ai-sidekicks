@@ -93,7 +93,7 @@ export interface KeyBindingTableOptions {
  * A `ConsoleRefusalError` and not a bare `Error`. `core/refusal.ts` names the
  * key-binding table as one of the five that had minted a refusal vocabulary of its
  * own, and the Keyboard settings page has to render this beside a persistence
- * refusal and a growth refusal — three shapes reaching three renderers was the cost.
+ * refusal, where two shapes would need two renderers.
  * It stays a named subclass and stays a THROW: `setBindings` replaces state, and a
  * conflict must abort that replacement rather than be returned beside a table that
  * has already half-changed.

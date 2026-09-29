@@ -3,9 +3,8 @@
 // A PER-LEG CONTROL. Each case drives the same imported predicate over a real scenario
 // with one deliberate defect, and never a local copy of the rule.
 //
-// THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER, on the
-// `fixture-growth-port.*.test.ts` precedent: `wire-truth.run-beats.test.ts` for the
-// run and rollback semantics, and `wire-truth.beat-order.test.ts` for the tick and log
+// THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER: `run-beats.test.ts`
+// for the run and rollback semantics, and `beat-order.test.ts` for the tick and log
 // position. Every one of them drives the aggregate entry rather than a leg directly,
 // because the aggregate is the only surface a family's scenario is measured through.
 

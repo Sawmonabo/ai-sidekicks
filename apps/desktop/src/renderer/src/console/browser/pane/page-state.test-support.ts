@@ -16,17 +16,18 @@ export function browserPage(
   return {
     label: null,
     title: `Title ${overrides.pageId}`,
-    url: `https://example.test/${overrides.pageId}`,
+    address: `https://example.test/${overrides.pageId}`,
     host: "example.test",
     isLoading: false,
-    isSelected: false,
-    isShown: false,
+    loadProgress: null,
+    backDepth: 0,
+    forwardDepth: 0,
     ...overrides,
   };
 }
 
 /**
- * Three drawn pages, the first of them selected.
+ * Three drawn pages, the first of them active.
  *
  * A FUNCTION and not a shared constant: a reading handed to two mounts in one file
  * would be one object two components hold, and a case that reached into it would
@@ -36,12 +37,12 @@ export function threeBrowserPages(): PageListReading {
   return {
     kind: "served",
     frame: {
-      contextName: "Research",
       pages: [
-        browserPage({ pageId: "page-a", isSelected: true }),
+        browserPage({ pageId: "page-a" }),
         browserPage({ pageId: "page-b" }),
         browserPage({ pageId: "page-c" }),
       ],
+      activeIndex: 0,
     },
   };
 }

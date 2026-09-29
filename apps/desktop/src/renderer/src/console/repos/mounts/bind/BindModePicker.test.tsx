@@ -14,11 +14,11 @@ import { describe, expect, it, vi } from "vitest";
 import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
 
-/** A reply that names `branch` in both halves. Malformed, and reachable. */
+/** A reply that names `bound-root` in both halves. Malformed, and reachable. */
 const AVAILABLE_AND_RESTRICTED: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch"],
-  defaultMode: "branch",
-  restrictions: { branch: "This branch is checked out somewhere else." },
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "bound-root",
+  restrictions: { "bound-root": "This branch is checked out somewhere else." },
 };
 
 function renderPicker(
@@ -39,23 +39,23 @@ describe("BindModePicker", () => {
     const { getByText, getByDisplayValue } = renderPicker(AVAILABLE_AND_RESTRICTED);
     expect(getByText("This branch is checked out somewhere else.")).toBeTruthy();
     // And it is still offered: the reply is the authority on what is admitted.
-    expect((getByDisplayValue("branch") as HTMLInputElement).disabled).toBe(false);
+    expect((getByDisplayValue("bound-root") as HTMLInputElement).disabled).toBe(false);
   });
 
   it("disables an excluded mode and renders the daemon's own words for it", () => {
     const { getByText, getByDisplayValue } = renderPicker({
-      availableModes: ["read-only"],
-      defaultMode: "read-only",
-      restrictions: { worktree: "This mount is not a git repository." },
+      availableModes: ["bound-root"],
+      defaultMode: "bound-root",
+      restrictions: { "provisioned-worktree": "This workspace runs only in its own root." },
     });
-    expect((getByDisplayValue("worktree") as HTMLInputElement).disabled).toBe(true);
-    expect(getByText("This mount is not a git repository.")).toBeTruthy();
+    expect((getByDisplayValue("provisioned-worktree") as HTMLInputElement).disabled).toBe(true);
+    expect(getByText("This workspace runs only in its own root.")).toBeTruthy();
   });
 
   it("negative control: an unrestricted reply renders no reason anywhere", () => {
     const { container, queryByText } = renderPicker({
-      availableModes: ["read-only", "branch"],
-      defaultMode: "branch",
+      availableModes: ["bound-root", "provisioned-worktree"],
+      defaultMode: "bound-root",
     });
     expect(queryByText("This branch is checked out somewhere else.")).toBeNull();
     expect(container.querySelectorAll(".meridian-bind__mode-reason")).toHaveLength(0);

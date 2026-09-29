@@ -15,6 +15,6 @@
 // their only readers outside this directory are the `lazy-body/` suites, and a test
 // takes the declaring module by its own deep specifier.
 
-export type { ConsolePaneAddress, ConsolePaneOpener } from "./pane-address.js";
+export type { ConsolePaneAddress } from "./pane-address.js";
 export type { ConsolePaneRegistry } from "./pane-registry.js";
 export { PENDING_PANE_BODY_ATTRIBUTE } from "./pending-pane-body.js";

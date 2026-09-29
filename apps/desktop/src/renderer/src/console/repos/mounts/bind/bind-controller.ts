@@ -10,9 +10,11 @@
 // What a mount admits changes when the mount does, which is why the frames this reading
 // re-asks on are this family's own census rather than a list written in this module.
 //
-// A writable bind answers `provisioning` with no root at all, because the execution root
-// does not exist yet, and a `read-only` bind answers with its root on the same reply. Both
-// are settlements a person reads.
+// A bind answers with the mode it bound and the workspace's lifecycle state, and no root:
+// the workspace list is where a root is read from once it exists.
+//
+// A mount belongs to the machine, so the bind names the session the new workspace belongs
+// to; the controller is scoped to that session's store.
 //
 // Everything else is the store's act controller: the scheduler, the triggers, the act arms,
 // the single-flight guard, the disposed latch, and the members a surface reads them by.
@@ -22,6 +24,7 @@ import { useCallback, useMemo } from "react";
 import type {
   ExecutionMode,
   RepoMountId,
+  SessionId,
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -30,13 +33,12 @@ import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleClock } from "../../../core/index.js";
 import {
   ActSurfaceController,
-  useActController,
-  type ActOutcome,
+  useSessionScopedActController,
   type ActReading,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
-import { REPO_REFUSAL_ORIGIN, type RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "../../repo-operations.js";
 
 /** What a finished bind carries: the workspace the daemon bound, in whatever state. */
 export interface BindSettlement {
@@ -54,7 +56,7 @@ export type BindReading = ActReading<
 export interface BindControllerOptions {
   readonly operations: BindOperations;
   readonly repoMountId: string;
-  /** The session whose reconnect edge and repo frames re-ask the pre-bind question. */
+  /** The session a bound workspace belongs to, whose frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
   /** The window's one clock, so this refresh coalesces on the section's time base. */
   readonly clock: ConsoleClock;
@@ -87,6 +89,7 @@ export class BindWorkspaceController extends ActSurfaceController<
 > {
   readonly #operations: BindOperations;
   readonly #repoMountId: string;
+  readonly #sessionId: string;
 
   public constructor(options: BindControllerOptions) {
     super({
@@ -95,10 +98,10 @@ export class BindWorkspaceController extends ActSurfaceController<
       sessionStore: options.sessionStore,
       // The frames that change what a mount admits. This family's own census.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
-      refusalOrigin: REPO_REFUSAL_ORIGIN,
     });
     this.#operations = options.operations;
     this.#repoMountId = options.repoMountId;
+    this.#sessionId = options.sessionStore.sessionId;
   }
 
   /**
@@ -119,16 +122,15 @@ export class BindWorkspaceController extends ActSurfaceController<
    */
   public async bind(executionMode: ExecutionMode, directory: string | undefined): Promise<void> {
     await this.sendAct(
-      async () => ({
-        status: "served" as const,
-        value: await this.#operations.bindWorkspace({
+      async () =>
+        await this.#operations.bindWorkspace({
+          sessionId: this.#sessionId as SessionId,
           repoMountId: this.#repoMountId as RepoMountId,
           executionMode,
           // Omitted and not emptied. The absent member means the mount root; an empty
           // string is a path of no characters, which the parser refuses.
           ...(directory === undefined ? {} : { directory }),
         }),
-      }),
       (response: WorkspaceBindResponse) => ({ status: "bound" as const, response }),
     );
   }
@@ -143,14 +145,8 @@ export class BindWorkspaceController extends ActSurfaceController<
   protected override async readPrerequisite(
     _question: string,
     signal: AbortSignal,
-  ): Promise<ActOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>> {
-    return {
-      status: "served",
-      value: await this.#operations.readMountExecutionModes(
-        this.#repoMountId as RepoMountId,
-        signal,
-      ),
-    };
+  ): Promise<WorkspaceExecutionModeCapabilitiesReadResponse> {
+    return await this.#operations.readMountExecutionModes(this.#repoMountId as RepoMountId, signal);
   }
 }
 
@@ -168,7 +164,7 @@ export function useBindController(
   // One window, one time base, memoized so a fresh clock per render does not re-mint
   // the controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { controller, reading } = useActController(
+  const { controller, reading } = useSessionScopedActController(
     bridge,
     repoMountId,
     sessionStore,

@@ -109,7 +109,11 @@ export const REVIEW_DECISION_PRESENTATION: Readonly<Record<ReviewDecision, Statu
   commented: { tone: "neutral", meaning: "A reviewer commented without deciding." },
 };
 
-/** What the gate says where the host has recorded no review verdict at all. */
+/**
+ * What the gate says where the host has recorded no review verdict at all.
+ *
+ * @consumedBy the mount card's proposal gate
+ */
 export const NO_REVIEW_DECISION_COPY = "No decision yet.";
 
 /** One host check, as the host names it. */
@@ -118,7 +122,11 @@ export interface ProposalCheck {
   readonly status: CheckStatus;
 }
 
-/** Where the proposal stands, once it exists on the host. */
+/**
+ * Where the proposal stands, once it exists on the host.
+ *
+ * @consumedBy the mount card's proposal gate
+ */
 export interface ProposalStatusReading {
   readonly state: ChangeRequestState;
   readonly mergeable: MergeabilityReading;

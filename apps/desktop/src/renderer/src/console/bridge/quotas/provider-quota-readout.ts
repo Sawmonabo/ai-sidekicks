@@ -1,12 +1,9 @@
 // What a watcher of the account-plane reading sees, and the parts it is made of.
 //
-// SPLIT OFF THE WIRE, which is the same cut this family already makes twice.
-// `provider-account-quota.ts` owns opening the tail, taking the read, and deciding
-// which reply may seat anything; this module owns the SHAPE that leaves it. The two
-// were one file until the readout grew the registry's whole account list and its
-// readiness projection beside the quota readings — three folds of one reply — and a
-// module that both drives a wire and declares what every surface in the window renders
-// is doing two jobs.
+// THE SHAPE, NOT THE WIRE. This module declares what every surface in the window
+// renders from the account plane: the quota readings, the registry's whole account
+// list and its readiness projection — three folds of one reply. It opens no tail and
+// takes no read.
 //
 // PURE, AND THAT IS THE POINT. Composition takes the fold, the delivery arm, the read
 // state and the readiness projection and returns one object; it reads no field of the
@@ -23,7 +20,11 @@ import type { UnreadableDeliveryReading, WireReadState } from "../readings/index
 import type { ProviderLoginCompletion } from "./provider-quota-deliveries.js";
 import type { ProviderQuotaFold, ProviderQuotaReading } from "./provider-quota-fold.js";
 
-/** The empty projection, named once so an unread registry shares one frozen array. */
+/**
+ * The empty projection, named once so an unread registry shares one frozen array.
+ *
+ * @consumedBy the Providers settings page's quota readout
+ */
 export const NO_READINESS: readonly ProviderReadiness[] = Object.freeze([]);
 
 /** What the account plane answered, and why it did not where it did not. */
@@ -122,6 +123,8 @@ export interface ProviderQuotaReadoutParts {
  * The two spreads go FIRST so a member either of them carries cannot be silently
  * overwritten by one of the folds below — and neither declares one, which is what
  * keeps that ordering a statement rather than a coincidence.
+ *
+ * @consumedBy the Providers settings page's quota readout
  */
 export function composeProviderQuotaReadout(
   parts: ProviderQuotaReadoutParts,

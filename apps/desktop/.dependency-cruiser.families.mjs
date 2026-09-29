@@ -88,7 +88,7 @@ export const FRAME = `${CONSOLE}/frame/`;
 // endpoint of no edge any rule here judges, and `no-orphans` exempts declaration files
 // by extension already. Co-located tests are absent for the stronger reason that
 // `options.exclude` removes them from the graph before any rule runs.
-export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|session-surfaces-family|agents-settings-page|browser-settings-page)\\.ts$`;
+export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|session-surfaces-family|browser-settings-page)\\.ts$`;
 // The pane board is the FILES directly under `panes/`, not the directory. After the
 // pane-body rule below, `panes/` holds composition and nothing else, so a
 // `panes/<something>/` subtree is not a composition site and must not inherit the
@@ -112,14 +112,14 @@ export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
  * the module-shape rules in `apps/desktop/AGENTS.md` reject a door line whose only
  * reader is a test, and the symbols a harness reaches for are exactly that class —
  * `createLiveBridge`, which the shipped console resolves inside the bridge family, and
- * the per-family scenario seats, which `bridge/index.ts`'s own header records as
- * deliberately unpublished so that six family branches each edit one file rather than
- * one shared door.
+ * the scenarios and fixture-bridge helpers a harness plays against (`FLAGSHIP_SCENARIO`
+ * from `bridge/scenario/flagship/flagship.ts`, `unscriptedScenario` from
+ * `bridge/fixture/call-plane/bridge.test-support.ts`), which no door publishes because
+ * no shipped module outside `bridge/` reads them.
  *
- * The narrowness is the repair. This subtraction replaces an `options.exclude` entry
- * that removed `.test-support.*` from the graph outright — which took it out of every
- * rule at once, including the orphan rule whose own comment explains why it must stay
- * in — and which landed in the same change as the one import it made legal.
+ * The subtraction is this narrow on purpose. Removing `.test-support.*` from the graph
+ * outright through `options.exclude` would take it out of every rule at once, including
+ * the orphan rule whose own comment explains why it must stay in.
  */
 export const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
 
@@ -134,6 +134,19 @@ export const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
  * and everything above it reads the console's own.
  */
 export const CROSS_PROCESS_SHARED = "^src/shared/";
+
+/**
+ * An owner-slot shell: the fixture stand-in a settings page mounts in a slot whose real
+ * body another surface owns, behind `__SIDEKICKS_CONSOLE_FIXTURES__`.
+ *
+ * A capture group, because the rule that keeps a shell's stylesheet inside its shell
+ * subtracts the importer's own shell from its target set, which makes it one rule over
+ * every shell rather than one rule per shell.
+ */
+export const OWNER_SLOT_SHELL = `${CONSOLE}/settings/pages/([^/]+)/shell/`;
+
+/** A stylesheet anywhere inside an owner-slot shell. */
+export const OWNER_SLOT_SHELL_STYLESHEET = `${CONSOLE}/settings/pages/[^/]+/shell/.+\\.css$`;
 
 /** Every family door, and only a family door — a sub-module door is one segment deeper. */
 export const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;

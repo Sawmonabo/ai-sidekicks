@@ -37,7 +37,6 @@ export { useLedgerAskTerminal } from "./AskTerminalProvider.js";
 export {
   ASK_ANSWER_UNSENT,
   askSettledBy,
-  readDriverAsk,
   type DriverAskDelivery,
   type DriverAskReading,
 } from "./input-ask.js";

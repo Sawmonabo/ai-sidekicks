@@ -6,39 +6,23 @@
 //
 // EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowSurfaces`
 // claims one rail destination and `registerWorkflowPanes` claims TWO pane kinds, so
-// the table below carries three rows. It carried two, and the builder pane was the
-// one missing — which made a family-wide tier that could not fail on a regression
-// unique to that pane's authoring action, its absence block, or its reserved slots.
+// the table below carries a row for each: a family-wide tier that skipped one could not
+// fail on a regression unique to it.
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family draws four things the
-// palette tests cannot reach — a scope line naming a wire identifier beside a quiet
-// re-scope control, a scope group whose resolution mark is carried on a row's leading
-// edge, a park badge that spends amber on exactly one of its two kinds, and a pane
-// head whose action slot holds an inline refusal rather than a button.
+// to pass in one and fail in the other.
 //
-// THE PARKED RUN IS THE CASE WORTH HAVING. Its badges are the family's only tinted,
-// glyph-plus-prose composition, and one of the two carries a formatted clock time
-// beside the instant the wire sent — a pair whose accessible reading is the thing
-// this tier is the instrument for.
+// AND THE RUN'S PHASE GRAPH, WHICH NO SURFACE MOUNTS YET. It is audited as a piece, from
+// a hand-built parked run, because its canvas, its focusable nodes and the library's
+// attribution link are drawn by nothing a registered surface reaches until the run read
+// is built. It is a lazily-loaded chunk, so every row is settled through the shared
+// readiness helper before axe runs — every row, not the one known to draw a graph,
+// because the helper answers "no graph here" and "the graph has not arrived"
+// differently and a per-row exception would be a second rule to keep true.
 //
 // AND ONE COMPOSITION NO REGISTERED SURFACE CAN REACH. A human phase's form draws a
-// repeated control per list entry, and an entry exists only after a person adds one — so
-// the three mounts above audit a form that has never had one, and the control they never
-// see is the one drawn straight through the field dispatch with none of the chrome that
-// names a scalar field. It is audited as a component under one scheme, because it
-// carries no surface of its own and inherits the tokens the three surfaces above are
-// already measured under.
-//
-// AND IT IS THE CASE THAT HAS TO BE WAITED FOR. Its phase graph is a lazily-loaded
-// chunk, and the mount helper returns on the run READ — the park banner — which lands
-// before the chunk does. `phase-graph-settled.test.ts` proves exactly that: at the
-// helper's own return the graph is not settled. So an audit taken there read the
-// loading placeholder, and the canvas, its focusable nodes, and the library's
-// attribution link were audited by nothing. Every surface is settled through the
-// shared readiness helper before axe runs — every surface, not the one known to draw
-// a graph, because the helper answers "no graph here" and "the graph has not arrived"
-// differently and a per-surface exception would be a second rule to keep true.
+// repeated control per list entry, and an entry exists only after a person adds one. It
+// is audited as a component under one scheme, because it carries no surface of its own.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,9 +31,9 @@ import { emulateSystemScheme } from "../console-harness.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
-  mountWorkflowParkedRunPane,
+  mountWorkflowRunPane,
+  mountWorkflowRunPhaseGraph,
   mountWorkflowsDestination,
-  type MountedFamilySurface,
 } from "../surfaces/workflows.js";
 // The seat mount, which resolves BOTH chunks a form needs and returns only once the
 // verdict has landed. The kit is not on the initial graph — its two composed surfaces
@@ -69,7 +53,7 @@ import { installMeridianTokens } from "../../../src/renderer/src/console/frame/i
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
- * The surfaces this family ships, each named as a reader would name it.
+ * The surfaces this family ships, each named as a reader would name it, and the graph.
  *
  * One row per registered surface, and the count is the family's rather than this
  * file's: a pane kind claimed by `registerWorkflowPanes` with no row here is a
@@ -77,11 +61,18 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  */
 const AUDITED_SURFACES: readonly {
   readonly label: string;
-  readonly mount: () => Promise<MountedFamilySurface>;
+  readonly mount: () => Promise<HTMLElement>;
 }[] = [
-  { label: "the workflows destination", mount: mountWorkflowsDestination },
-  { label: "the run pane on a parked run", mount: mountWorkflowParkedRunPane },
-  { label: "the builder pane on a definition", mount: mountWorkflowBuilderPane },
+  {
+    label: "the workflows destination",
+    mount: async () => (await mountWorkflowsDestination()).element,
+  },
+  { label: "the run pane on a run", mount: async () => (await mountWorkflowRunPane()).element },
+  {
+    label: "the builder pane on a definition",
+    mount: async () => (await mountWorkflowBuilderPane()).element,
+  },
+  { label: "a parked run's phase graph", mount: mountWorkflowRunPhaseGraph },
 ];
 
 beforeEach(() => {
@@ -99,17 +90,14 @@ describe("accessibility — the workflows surfaces", () => {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
-        await awaitPhaseGraphSettled(mounted.element);
+        await awaitPhaseGraphSettled(mounted);
         // The subject, stated before it is read, so the wait above cannot be dropped
-        // in silence. Measured rather than hoped for: deleting that line turns BOTH
-        // parked-run cases red here, in either scheme — the fit has not landed at the
-        // mount helper's return whether the lazy chunk is cold or already cached. For
-        // the two surfaces that draw no graph the reading is true by construction,
-        // which is what lets one line cover the table rather than a per-surface
-        // exception the next row would have to remember.
-        expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+        // in silence: the fit has not landed at the mount's return whether the lazy
+        // chunk is cold or already cached. For the rows that draw no graph the reading
+        // is true by construction, which is what lets one line cover the table.
+        expect(isPhaseGraphSettled(mounted)).toBe(true);
 
-        expect(describeViolations(await runTierAxe(mounted.element))).toStrictEqual([]);
+        expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
       });
     }
   }
@@ -140,8 +128,8 @@ describe("accessibility — the workflows surfaces", () => {
     const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
     fireEvent.click(addEntry);
     fireEvent.click(addEntry);
-    // Stated before it is measured: an audit of a list with no entries is an audit of
-    // the surface the three mounts above already cover.
+    // Stated before it is measured: an audit of a list with no entries audits none of
+    // the repeated control this case is about.
     expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(2);
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
@@ -177,8 +165,8 @@ describe("accessibility — the workflows surfaces", () => {
   });
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the six cases above expect an
-    // empty list, and a misconfigured run returns exactly the same empty list.
+    // Negative control for this file's own runs: every case above expects an empty
+    // list, and a misconfigured run returns exactly the same empty list.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

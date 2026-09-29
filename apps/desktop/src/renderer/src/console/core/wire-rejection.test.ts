@@ -45,7 +45,7 @@ function throwingGetProxy(): unknown {
 
 describe("normalizeWireRejection — the refusing side's own code survives", () => {
   it("keeps a refusal's own author, code and sentence, on an object of its own", () => {
-    const original = refuse("growth-port", "wire-unregistered", "No wire carries this yet.");
+    const original = refuse("sessions", "session.not_found", "No session answers to this id.");
     const normalized = normalizeWireRejection("repos", original);
     expect(normalized).toStrictEqual(original);
     // REBUILT, not returned. The identity is what used to be asserted here, and it is

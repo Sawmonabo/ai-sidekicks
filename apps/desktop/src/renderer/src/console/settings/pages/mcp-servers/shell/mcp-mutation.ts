@@ -1,4 +1,5 @@
-// The two governance mutations this shell sends, and the idempotency key it mints.
+// The two governance mutations this shell sends, the idempotency key it mints, and the
+// key a binding is identified by.
 //
 // THE KEY IS THE CALLER'S AND IT IS MINTED ONCE PER PRESS. Every governance mutation
 // carries a `clientIdempotencyKey`, and what it means is "this is the same operation",
@@ -17,16 +18,23 @@
 // control is offered. So this module has no precondition to check and no arm for
 // "not allowed".
 
-import type { GrowthMcpBindingRef, GrowthMcpMutationResult } from "../../../../bridge/index.js";
+import type {
+  McpMutationResult,
+  McpServerBindingRef,
+  McpSetEnabledRequest,
+  McpSetTrustRequest,
+} from "@ai-sidekicks/contracts";
+
+import { structuralKey } from "../../../../core/index.js";
 
 /** How a mutation this shell sent has settled. */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
-  | { readonly kind: "sending"; readonly binding: GrowthMcpBindingRef }
+  | { readonly kind: "sending"; readonly binding: McpServerBindingRef }
   | {
       readonly kind: "settled";
-      readonly binding: GrowthMcpBindingRef;
-      readonly result: GrowthMcpMutationResult;
+      readonly binding: McpServerBindingRef;
+      readonly result: McpMutationResult;
     };
 
 /** The outcome a shell starts in and returns to. Shared so it has one spelling. */
@@ -36,20 +44,23 @@ export const IDLE_MCP_MUTATION: McpMutationOutcome = { kind: "idle" };
 export type IdempotencyKeyMinter = () => string;
 
 /** Sends a binding's enablement change to the daemon. */
-export type SendMcpEnabled = (
-  request: GrowthMcpBindingRef & {
-    readonly enabled: boolean;
-    readonly clientIdempotencyKey: string;
-  },
-) => Promise<GrowthMcpMutationResult>;
+export type SendMcpEnabled = (request: McpSetEnabledRequest) => Promise<McpMutationResult>;
 
 /** Sends a binding's trust change to the daemon. */
-export type SendMcpTrust = (
-  request: GrowthMcpBindingRef & {
-    readonly trusted: boolean;
-    readonly clientIdempotencyKey: string;
-  },
-) => Promise<GrowthMcpMutationResult>;
+export type SendMcpTrust = (request: McpSetTrustRequest) => Promise<McpMutationResult>;
+
+/**
+ * The string one binding is keyed by: its provider, scope, scope reference and server
+ * name, encoded through the console's one tuple encoder so a separator inside a wire
+ * string cannot make two bindings collide.
+ */
+export function mcpBindingKeyOf(binding: McpServerBindingRef): string {
+  return structuralKey(
+    binding.scope === "user"
+      ? [binding.provider, binding.scope, binding.serverName]
+      : [binding.provider, binding.scope, binding.scopeRef, binding.serverName],
+  );
+}
 
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {
@@ -64,7 +75,7 @@ export function mintIdempotencyKey(): string {
  */
 export async function setBindingEnabled(options: {
   readonly send: SendMcpEnabled;
-  readonly binding: GrowthMcpBindingRef;
+  readonly binding: McpServerBindingRef;
   readonly enabled: boolean;
   readonly idempotencyKey: string;
 }): Promise<McpMutationOutcome> {
@@ -86,7 +97,7 @@ export async function setBindingEnabled(options: {
  */
 export async function setBindingTrust(options: {
   readonly send: SendMcpTrust;
-  readonly binding: GrowthMcpBindingRef;
+  readonly binding: McpServerBindingRef;
   readonly trusted: boolean;
   readonly idempotencyKey: string;
 }): Promise<McpMutationOutcome> {

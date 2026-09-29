@@ -27,8 +27,7 @@
 // Measured: `use-schema-form.opening.test.tsx`'s first case, alone and in a 36-file batch.
 // `resolveSchemaValidatorCompiler` below is the resolve-the-thing answer every other
 // loader-backed mount in this tree already takes (`test/console/surfaces/
-// pane-body-resolution.ts`, `runs/pane/controls/file-restore-mount.test-support.ts`), and
-// it is warmed BEFORE the mount so what a case then reads is what a person who has already
+// pane-body-resolution.ts`), and it is warmed BEFORE the mount so what a case then reads is what a person who has already
 // opened one form sees.
 
 import { act, render } from "@testing-library/react";

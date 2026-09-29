@@ -42,7 +42,6 @@ const CLAUDE_FLAGS: readonly DriverCapabilityFlag[] = [
   "session_goals",
   "callback_tools",
   "subagents",
-  "cost_cap",
   "context_compaction",
   "provider_commands",
   "output_speed",
@@ -68,7 +67,6 @@ const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "callback_tools",
   "subagents",
   "transcript_replay",
-  "cost_cap",
   "context_compaction",
   "provider_commands",
 ];

@@ -1,25 +1,11 @@
 // Vitest 4.x config for @ai-sidekicks/desktop.
 //
-// There is a renderer-unit-test surface alongside the main-process smoke test.
-// The two surfaces have fundamentally different runtime environments and
-// MUST NOT share a single `environment` setting:
-//
-//   • main suite: existing `test/launch.smoke.test.ts` spawns a real Electron
-//     binary from a Node context — DOM/window globals would be wrong shape.
-//   • renderer suite: new `src/renderer/**/__tests__/**` exercises React
-//     components against `window.desktopBridge` — needs a DOM environment.
-//
-// Vitest's `projects` API (stable in Vitest 3+, present in 4.1.5) lets us
-// declare both inside a single config so `pnpm test` runs them in one
-// invocation. Per-project `include` globs are disjoint, so there is no
-// double-discovery risk.
-//
-// Renderer-untrusted boundary note: happy-dom is a
-// pure-JS DOM shim with no Node-IPC capabilities; it does NOT punch a hole
-// in the renderer's process isolation at test time. The bridge surface
-// (`window.desktopBridge`) is mocked per test (see SessionBootstrap.test.tsx)
-// rather than dispatched to the real preload — there is no `electron`
-// runtime in this test surface.
+// The main-process projects and the console's tiers have fundamentally different
+// runtime environments and MUST NOT share a single `environment` setting: the smoke
+// suite spawns a real Electron binary from a Node context, where DOM globals would be
+// the wrong shape, while the console's unit tier runs React under happy-dom. Vitest's
+// `projects` API declares them all inside one config, and per-project `include` globs
+// are disjoint, so there is no double-discovery risk.
 //
 // The console's test tiers are all Vitest projects,
 // declared in `vitest/console-projects.ts` and spread below — there is no
@@ -30,23 +16,15 @@
 // which holds the single `_electron` call site. Playwright is a library on both
 // halves of this package rather than a second runner — browser mode drives it
 // for the three page tiers, and the harness drives it for the two window ones.
-// Every glob is disjoint — including the two NARROWINGS this phase makes to
-// pre-existing projects, which are load-bearing rather than tidying:
 //
-//   • `main`'s `test/**/*.test.ts` would otherwise swallow every console tier
-//     under `test/console/**` and run it in the smoke project's node
-//     environment. It becomes `test/*.test.ts`, which is exactly the three
-//     files directly under `test/` it has always meant.
-//   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
-//     `exclude` now names the console and shell subtrees so a test co-located
-//     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
-//     belongs to `console-unit` alone.
+// Every glob is disjoint. `main`'s `test/**/*.test.ts` would otherwise swallow every
+// console tier under `test/console/**` and run it in the smoke project's node
+// environment, so it is `test/*.test.ts`: exactly the files directly under `test/`.
+
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
-import { WORKSPACE_SOURCE_CONDITIONS } from "./vitest/browser-mode";
 import { CONSOLE_TIER_PROJECTS } from "./vitest/console-projects";
-import { iconCompilationPlugin } from "./vitest/icon-compilation";
 
 export default defineConfig({
   test: {
@@ -134,9 +112,9 @@ export default defineConfig({
         // `./session` subpath as a VALUE, so this project must resolve the
         // provider to TS source rather than a possibly-stale `dist/`. Node
         // environment → the SSR resolver is the one that decides, but both are
-        // set for the same Vite-6 reason the renderer block below records.
-        // Conditions replace vitest's defaults, so `import` / `default` are
-        // re-listed.
+        // set because Vite 6 can apply node conditions in either resolution pass
+        // (vitest-dev/vitest#8431). Conditions replace vitest's defaults, so
+        // `import` / `default` are re-listed.
         resolve: {
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },
@@ -148,17 +126,16 @@ export default defineConfig({
         test: {
           name: "main-unit",
           environment: "node",
-          // Disjoint from `test/*.test.ts` (the smoke project) and from
-          // `src/renderer/**/__tests__/**` (the renderer project), so the
-          // posture's no-double-discovery property still holds. `src/shared/**`
-          // joins the set because that subtree is imported by BOTH processes
-          // (see `src/shared/auxiliary-routes.ts`), and a shared module no test
-          // project reaches would be a subtree with no home for its own units.
+          // Disjoint from `test/*.test.ts` (the smoke project) and from the
+          // console tiers, so the no-double-discovery property still holds.
+          // `src/shared/**` joins the set because that subtree is imported by BOTH
+          // processes, and a shared module no test project reaches would be a
+          // subtree with no home for its own units.
           // `src/preload/**` joins it on the same reasoning: `index.ts` is the
           // expose call and holds nothing to check, but the modules beside it —
           // `shell-signals.ts` is the first — are plain units over an injected
           // receiver, and the environment they need is this project's rather
-          // than the renderer's.
+          // than a DOM's.
           // `build/**` and `scripts/**` are the package's two executable trees,
           // and their units are co-located beside the executable exactly as
           // `src/main/**`'s are; both are spawned as commands from a node
@@ -182,59 +159,6 @@ export default defineConfig({
           ],
         },
       },
-      {
-        // Resolve workspace *value* imports (e.g. `NotImplementedError`
-        // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
-        // not stale dist/, via the provider's `@ai-sidekicks/source` export
-        // condition. happy-dom is Vite's *client* environment → the knob is
-        // `resolve.conditions`; per vitest-dev/vitest#8431 (Vite 6 can wrongly apply
-        // node conditions in happy-dom resolution passes) we set `ssr.resolve.*` too.
-        // Conditions replace vitest's defaults, so `import`/`default` are re-listed.
-        // (The node `main` smoke project imports contracts type-only → erased →
-        // needs none. The `main-unit` project above DOES need them — see its
-        // own block.)
-        // A pre-console renderer component consumes the console's subject-scoped holder —
-        // `runtime-node-attach/NodeRoster.tsx` holds its roster per session and per
-        // transport — and that holder reaches the console's `core` door, which
-        // carries the tripwire module's fixture branch. So this project compiles
-        // console source even though it runs no console test, and the flag has to be
-        // substituted here for the same reason `main-unit` above substitutes it:
-        // without it the bare identifier is a ReferenceError at import time. `false`,
-        // matching the release bundle, so the branch is statically dead.
-        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
-        // And the console's icon resolver for the same reason: a pre-console
-        // component that reaches a console door reaches the glyph primitive
-        // with it, so this project compiles `~icons/*` specifiers even though
-        // it runs no console test.
-        plugins: [iconCompilationPlugin()],
-        resolve: {
-          conditions: WORKSPACE_SOURCE_CONDITIONS,
-        },
-        ssr: {
-          resolve: {
-            conditions: WORKSPACE_SOURCE_CONDITIONS,
-          },
-        },
-        test: {
-          name: "renderer",
-          environment: "happy-dom",
-          // Co-locate renderer unit tests under `src/renderer/**/__tests__/**`
-          // to mirror the per-package convention used by `packages/contracts`
-          // and `packages/client-sdk` (renderer is its own composite TS
-          // project; its tests live inside that project's source tree).
-          include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
-          // The console owns its own tier; a console or shell test never runs here.
-          exclude: ["src/renderer/src/console/**", "src/renderer/src/shell/**"],
-          // `globals: true` populates `vi`, `expect`, `describe`, `it`,
-          // `afterEach` etc. on the global scope so the test file can rely
-          // on `vitest/globals` types (configured in
-          // `src/renderer/tsconfig.test.json` — kept separate from the
-          // production renderer `tsconfig.json` so vitest globals never leak
-          // into renderer production code's typegraph).
-          globals: true,
-        },
-      },
-
       // --- Console test tiers ----------------------------------------------
       //
       // Declared in `vitest/console-projects.ts`, spread here. The tiers are one

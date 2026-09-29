@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeBase64 } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import {
+  INGEST_SESSION_ID,
   SMALL_SOURCE,
   ScriptedIngestPort,
   clientOver,
@@ -86,7 +87,7 @@ describe("ingest client — what Init declares", () => {
     // `name` and a `byteLength` would fail here rather than at the daemon.
     expect(port.initCalls).toStrictEqual([
       {
-        sessionId: "session-1",
+        sessionId: INGEST_SESSION_ID,
         fileName: "notes.md",
         mediaType: "text/markdown",
         declaredSizeBytes: 300,

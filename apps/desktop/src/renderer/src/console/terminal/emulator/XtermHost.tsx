@@ -230,12 +230,10 @@ type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTe
  * claim the shell printed nothing, and neither is `not-checked`, which would claim
  * nobody asked.
  *
- * The refused arm renders the refusal's own two halves, which is the shape
- * `browser/settings/PartitionTable.tsx` already gives a surface that could not be
- * read: the code goes on screen because a code is what a person acts on, and
- * the sentence beneath it is whatever the producing side wrote — never a
- * serialization of the rejected value, which `core/wire-rejection.ts` is the one
- * place allowed to decide.
+ * The refused arm renders the refusal's own two halves: the code goes on screen because
+ * a code is what a person acts on, and the sentence beneath it is whatever the
+ * producing side wrote — never a serialization of the rejected value, which
+ * `core/wire-rejection.ts` is the one place allowed to decide.
  */
 function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,

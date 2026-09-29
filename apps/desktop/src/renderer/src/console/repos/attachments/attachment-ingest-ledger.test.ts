@@ -38,18 +38,6 @@ function moveTo(entry: AttachmentIngestEntry, state: AttachmentIngestEntry["stat
 }
 
 describe("ingest ledger — declared order is the record", () => {
-  it("round-trips a user's reordering, which the reference must preserve", () => {
-    const ledger = ledgerHolding("first", "second");
-    ledger.reorder("second", 0);
-    expect(declaredOrderOf(ledger)).toStrictEqual(["second", "first"]);
-  });
-
-  it("clamps a reorder inside the carrier rather than dropping the attachment", () => {
-    const ledger = ledgerHolding("first", "second");
-    ledger.reorder("first", 99);
-    expect(declaredOrderOf(ledger)).toStrictEqual(["second", "first"]);
-  });
-
   it("takes the position with the attachment when one is removed", () => {
     const ledger = ledgerHolding("first", "second");
     ledger.remove("first");
@@ -61,7 +49,6 @@ describe("ingest ledger — declared order is the record", () => {
     // Without this, the cases above would pass over a ledger that answered every call
     // by rebuilding its order from scratch.
     const ledger = ledgerHolding("first", "second");
-    ledger.reorder("third", 0);
     ledger.remove("third");
     expect(declaredOrderOf(ledger)).toStrictEqual(["first", "second"]);
   });
@@ -145,14 +132,14 @@ describe("ingest ledger — the stamp a continuation checks against", () => {
     }
   });
 
-  it("negative control: a reorder is not a change to any entry", () => {
+  it("negative control: another attachment's arrival is not a change to this entry", () => {
     // Without this, the cases above would pass over a check that answered `undefined`
     // for everything — and every continuation would stop on the first publish.
     const ledger = ledgerHolding("first", "second");
     const stamp = ledger.stamp("first");
     expect(stamp).toBeDefined();
     if (stamp !== undefined) {
-      ledger.reorder("second", 0);
+      ledger.declare(sourceNamed("third"));
       expect(ledger.currentIfUnchanged("first", stamp)).toBeDefined();
     }
   });

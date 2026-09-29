@@ -17,15 +17,13 @@ export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
    * unchanged and still goes through {@link formatWireString} below: the "message
    * verbatim" half of rule 9 is exactly as strong as it was.
    *
-   * WIDENED ON THE BANNER AND ON NEITHER SIBLING, because the banner is the shape
-   * whose message is routinely the CONSOLE's own composition rather than a daemon
-   * string — the honest-chrome plane's four standing conditions are all authored here
-   * — and rule 4 requires every wire figure inside such a sentence to wear the mono
-   * provenance signature. A `string` made that unreachable: the only way to name a
-   * protocol version or an attempt counter inside a sentence was to paste it into
-   * proportional prose, which is what `frame/shell-state/shell-sentences.ts` was
-   * doing. The inline and card shapes render a refusal somebody else wrote and keep
-   * `RefusalProps` exactly as it is.
+   * WIDENED ON THE BANNER AND ON NEITHER SIBLING, because the banner is the shape whose
+   * message is routinely the CONSOLE's own composition rather than a daemon string, and
+   * rule 4 requires every wire figure inside such a sentence to wear the mono
+   * provenance signature. A `string` would make that unreachable: the only way to name
+   * a protocol version or an attempt counter inside a sentence would be to paste it
+   * into proportional prose. The inline and card shapes render a refusal somebody else
+   * wrote and keep `RefusalProps` exactly as it is.
    */
   readonly detail: React.ReactNode;
   /** Omit to make the banner undismissable — it clears when the condition does. */

@@ -35,10 +35,9 @@ function descriptor(
 
 describe("surface registry — the module-scope door", () => {
   it("claims a slot on the process-wide registry", () => {
-    // `timeline` deliberately: the composition root claims `sessions`,
-    // `workspace`, and `agent-console` for the pre-console families at import
-    // time, and this case is about the door rather than about who got there
-    // first.
+    // `timeline` deliberately: the composition root claims `sessions` and
+    // `workspace` at import time, and this case is about the door rather than
+    // about who got there first.
     try {
       registerConsoleSurface(descriptor("timeline", "surface-registry-test"));
       expect(consoleSurfaceRegistry.descriptorFor("timeline")?.owner).toBe("surface-registry-test");
@@ -93,29 +92,12 @@ describe("surface registry — the slot set is one declaration", () => {
     const routes: readonly ConsoleRoute[] = [
       { kind: "sessions" },
       { kind: "workspace", sessionId: "s-1" },
-      // The same workspace address with a phase focus on it, which is a DIFFERENT
-      // surface: the run pane a phase link opens is the workflows family's body and
-      // the bare workspace seat is somebody else's. Without this row the table below
-      // passes over a `surfaceSlotFor` that reads the focus and does nothing with it,
-      // which is exactly the state the address grammar shipped in.
-      {
-        kind: "workspace",
-        sessionId: "s-1",
-        workflowPhase: { workflowRunId: "r-1", phaseId: "p-1" },
-      },
       { kind: "workflows" },
       { kind: "settings", page: undefined },
       { kind: "pane-harness", paneKind: "terminal", sessionId: "s-1" },
     ];
     const slots = routes.map((route) => surfaceSlotFor(route));
-    expect(slots).toStrictEqual([
-      "sessions",
-      "workspace",
-      "workflow-phase",
-      "workflows",
-      "settings",
-      "pane-harness",
-    ]);
+    expect(slots).toStrictEqual(["sessions", "workspace", "workflows", "settings", "pane-harness"]);
     for (const slot of slots) {
       expect(CONSOLE_SURFACE_SLOTS).toContain(slot);
     }

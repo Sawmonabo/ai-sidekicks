@@ -182,7 +182,6 @@ export type {
   ReadingState,
   /** @consumedBy a view family that has not landed yet */
   ReadingStateKind,
-  RefusalScope,
 } from "./reading/partial-read.js";
 export {
   /** @consumedBy a view family that has not landed yet */
@@ -221,7 +220,6 @@ export { PartialRead } from "./reading/PartialRead.js";
 // sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
 // the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
 export {
-  useAnnounceOncePerSentence,
   /** @consumedBy a view family that has not landed yet */
   useReadingAnnouncement,
   useReadSettlementAnnouncement,
@@ -271,7 +269,10 @@ export { RemediedRefusal } from "./refusal/RemediedRefusal.js";
 // family answers a code with a next move, and a shell written per family is a rendering
 // one of them can change without the other noticing — which is what happened, under two
 // class names whose declarations were identical property for property.
-export { RefusalRecovery } from "./refusal/RefusalRecovery.js";
+export {
+  /** @consumedBy a refusal that offers the person a way to recover */
+  RefusalRecovery,
+} from "./refusal/RefusalRecovery.js";
 export type { RefusalRecoveryCopy } from "./refusal/refusal-contract.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
@@ -371,7 +372,10 @@ export { WireFigure } from "./figures/WireFigure.js";
 // A primitive rather than a frame component because its input is a list of wire
 // strings and its only dependency is the figure above: the frame is not the lowest
 // family that owns that, and a view family cannot import the frame's door at all.
-export { WireChoiceList } from "./figures/WireChoiceList.js";
+export {
+  /** @consumedBy the composer's question card, which lists an ask's choices */
+  WireChoiceList,
+} from "./figures/WireChoiceList.js";
 
 export type {
   /** @consumedBy a view family that has not landed yet */
@@ -386,7 +390,6 @@ export {
   formatDateTime,
   formatDayDuration,
   formatDuration,
-  formatCentsAsCurrency,
   formatPercent,
   /** @consumedBy a view family that has not landed yet */
   formatRate,
@@ -404,12 +407,10 @@ export {
 // the two homes are VIEW families, which may not import one another. The lowest
 // family that owns their inputs is this one, so this is where they live and this
 // door is how both callers reach them.
-export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
 // The absent-posture sentence, for the ONE surface outside this family that says
 // it in its own words: the composer's posture chip renders no facts and so cannot
 // mount the chip above, but a second sentence for one fact is the copy this
 // family owns being written twice.
-export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
 export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure.js";
 
 // The overlay shells, each registering what it mounts in the window's airspace — at the
@@ -420,10 +421,11 @@ export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure
 // no popup. Reaching it is registering AT the door; the airspace rule forbids
 // registering AROUND one, which is a hand `register` on the accessor and is what review
 // rejects.
-export { useAirspaceRegistration } from "./airspace-registration.js";
 export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
 export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
-export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
-export { OverlayPopoverPopup } from "./overlay/OverlayPopoverPopup.js";
+export {
+  /** @consumedBy a popover that must register its airspace over a native view */
+  OverlayPopoverPopup,
+} from "./overlay/OverlayPopoverPopup.js";
 export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";

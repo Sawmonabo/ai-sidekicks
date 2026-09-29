@@ -19,7 +19,7 @@ const APPLIED_ARMS: readonly RollbackAppliedResult[] = [
 /** Every `degraded` arm the contract admits. */
 const DEGRADED_ARMS: readonly RollbackDegradedResult[] = [
   { disposition: "nothing-applied" },
-  { disposition: "resend-unapplied" },
+  { disposition: "resend-unapplied", resendDisposition: "unapplied" },
 ];
 
 describe("the two settlement classes", () => {

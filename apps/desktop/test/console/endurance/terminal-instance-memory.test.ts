@@ -44,12 +44,11 @@
 //     width by `measureFullScrollbackRetainedBytes`.
 //
 // The second half is measured in THIS process rather than in the window, and not by
-// choice: the byte stream, the scrollback, and the resize report are a
-// growth-slate row the growth port refuses by name, so no wire
-// in this revision can put a line into a mounted pane. The sum is therefore a
+// choice: the byte stream, the scrollback, and the resize report have no wire in this
+// revision, so nothing can put a line into a mounted pane. The sum is therefore a
 // conservative reading of one terminal — two allocators, so the halves do not share
-// a page — and it is the reading the ceiling is compared against. The day slate row
-// 3 lands, the second half moves into the window and the sum becomes one delta.
+// a page — and it is the reading the ceiling is compared against. The day that wire
+// lands, the second half moves into the window and the sum becomes one delta.
 //
 // WHY THE BASELINE IS TAKEN AFTER A WARM-UP CYCLE
 //

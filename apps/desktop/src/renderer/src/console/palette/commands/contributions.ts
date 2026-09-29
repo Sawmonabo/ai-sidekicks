@@ -14,8 +14,7 @@
 // worth naming: it is invisible to a bundler and to every reader who assumes
 // erasure settles it, and the layering gate counts type edges (`tsPreCompilationDeps`)
 // precisely so a cycle cannot hide inside one. Hoisting the shared symbol into a
-// module below both is what that gate's own message prescribes, and it is the same
-// move `bridge/growth-port/growth-entry.ts` makes for the growth ledger.
+// module below both is what that gate's own message prescribes.
 //
 // This module imports nothing from this family, which is the property that makes
 // it a floor rather than one more node in the graph.

@@ -32,7 +32,7 @@
 // carries a candidate at all. Sending under the second omits `reuseWorktreeId` against a
 // branch that has one, which the daemon meets as an implicit collision.
 //
-// TYPE-ONLY, SO THIS MODULE IS STILL PURE. The reading's four states are declared in
+// TYPE-ONLY, SO THIS MODULE IS STILL PURE. The reading's three states are declared in
 // `store/act/act-reading.ts` and named here as a type; nothing below reaches a controller,
 // a bridge, or a lifetime.
 
@@ -163,7 +163,7 @@ export type PrepareFormVerdict =
 /**
  * Read the reuse half of one prepare reading into the standing a form is read against.
  *
- * Every reading that is not a served verdict is unanswered, and holds the form shut.
+ * Every reading that is not a verdict is unanswered, and holds the form shut.
  */
 export function prepareReuseStanding(
   reading: ActPrerequisiteReading<ReuseVerdict>,
@@ -173,7 +173,6 @@ export function prepareReuseStanding(
       return { answered: true, verdict: reading.value };
     case "not-read":
     case "reading":
-    case "refused":
       return { answered: false, verdict: NO_REUSE_CANDIDATE };
   }
 }

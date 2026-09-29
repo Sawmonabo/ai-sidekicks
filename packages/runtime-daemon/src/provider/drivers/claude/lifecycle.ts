@@ -1597,9 +1597,7 @@ interface ClaudeSubagentPolicyRealization {
  * were asked for is a strict subset of the request — where a definition is not
  * divisible that way.
  */
-export function realizeClaudeSubagentPolicy(
-  policy: SubagentPolicy,
-): ClaudeSubagentPolicyRealization {
+function realizeClaudeSubagentPolicy(policy: SubagentPolicy): ClaudeSubagentPolicyRealization {
   if (!policy.enabled) {
     return { policy, withheld: [] };
   }

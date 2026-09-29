@@ -8,12 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  bindControlPosture,
-  mountHealthReading,
-  mountLifecycleReading,
-  mountVcsReading,
-} from "./mount-health.js";
+import { bindControlPosture, mountHealthReading, mountLifecycleReading } from "./mount-health.js";
 import { mount } from "./repo-mounts.test-support.js";
 
 describe("mount-health — the health axis", () => {
@@ -95,17 +90,6 @@ describe("mount-health — the two axes never collapse", () => {
     for (const status of ["healthy", "unreachable"] as const) {
       expect(lifecycleWords.has(mountHealthReading({ status, checkedAt: "" }).label)).toBe(false);
     }
-  });
-});
-
-describe("mount-health — the capability axis", () => {
-  it("marks a plain-directory mount as reduced rather than broken", () => {
-    const plain = mountVcsReading("none");
-    expect(plain.tone).toBe("attention");
-    // Such a workspace stays usable; the git-only features are unavailable rather
-    // than pretended.
-    expect(plain.sentence).toContain("stays usable");
-    expect(mountVcsReading("git").tone).toBe("neutral");
   });
 });
 

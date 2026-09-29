@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   // Type-validates test files without emitting. The production `tsconfig.json`
-  // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
-  // config covers them via a `noEmit` typecheck pass.
+  // excludes `src/**/*.test.ts` so test files don't ship in `dist/`; this config
+  // covers them via a `noEmit` typecheck pass.
   //
   // This config also covers the package-root `test/` directory. The
   // substrate-boots smoke test lives at `apps/desktop/test/launch.smoke.test.ts`,

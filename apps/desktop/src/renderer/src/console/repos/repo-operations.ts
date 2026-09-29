@@ -16,6 +16,7 @@ import type {
   ExecutionModeSelectResponse,
   ExecutionRootPrepareRequest,
   ExecutionRootPrepareResponse,
+  RepoAttachRequest,
   RepoAttachResponse,
   RepoMountId,
   RepoMountReadResponse,
@@ -29,9 +30,6 @@ import type {
   WorktreeReuseCheckResponse,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
-
-/** The subsystem name the act controllers give the store, which stamps it on a rejection. */
-export const REPO_REFUSAL_ORIGIN = "repos";
 
 /** The calls the repos, workspaces and execution-root surfaces make. */
 export interface RepoOperations {
@@ -65,11 +63,8 @@ export interface RepoOperations {
     sessionId: string,
     signal: AbortSignal,
   ) => Promise<WorktreeStatusReadResponse>;
-  /** Attach one local checkout to this session. The path travels verbatim. */
-  readonly attachRepository: (request: {
-    readonly sessionId: string;
-    readonly localPath: string;
-  }) => Promise<RepoAttachResponse>;
+  /** Attach one local checkout to this machine. The path travels verbatim. */
+  readonly attachRepository: (request: RepoAttachRequest) => Promise<RepoAttachResponse>;
   /** Bind a workspace on one mount, in one explicit execution mode. */
   readonly bindWorkspace: (request: WorkspaceBindRequest) => Promise<WorkspaceBindResponse>;
   /** Prepare an execution root now, ahead of any run. */

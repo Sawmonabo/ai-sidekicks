@@ -49,16 +49,6 @@ export const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 export const RUN_ARCHITECT_CHILD = "019b793b-7b60-740e-8140-d1a4c1150114";
 
 /**
- * The runtime node the child run was produced on.
- *
- * A daemon-assigned opaque identifier rather than a hostname, which is what that
- * brand is: the timeline requires a child run's provenance to name its producing
- * node, and a summary that could not state one renders the absence instead. This
- * scenario states one so the present arm is reachable.
- */
-export const RUNTIME_NODE = "019b793b-7b60-7d0c-8110-c0de11a0d0e1";
-
-/**
  * The provider-native subagent the reviewer's run opens, as its provider names it.
  *
  * NOT A UUID, and that is the fact it carries: the identifier is minted by the

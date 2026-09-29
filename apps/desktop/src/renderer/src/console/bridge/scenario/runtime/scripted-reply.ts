@@ -1,37 +1,22 @@
-// One scripted reply, settled on the frozen clock. The seam both fixture surfaces
-// answer request/response calls through.
+// One scripted reply, settled on the frozen clock: the seam the fixture's call door
+// answers request/response calls through.
 //
 // `scenario.ts` deliberately stops short of naming a refusal: its `holdReply` reports
 // `due | abandoned | backlog-full` and says that "naming the refusal belongs to the
-// bridge". That left the parking-and-classifying half — look up the canned reply,
+// bridge". This module is the parking-and-classifying half — look up the canned reply,
 // park it on the frozen clock when it scripts a latency, and decide which of the four
-// things happened — living privately inside `fixture/call-plane/bridge.ts`, where the growth port
-// could not reach it. The port needs the same seam for every operation a scenario
-// answers through a scripted reply, and the two implementations that would have
-// resulted are exactly the drift `apps/desktop/AGENTS.md` forbids: two sides of one
-// seam, two copies of one rule about when a reply is late versus lost.
-//
-// So the classification lives here once and the two consumers name the refusal in
-// their own vocabulary. What each does with a settlement is genuinely different —
-// `fixture/call-plane/bridge.ts` rejects from a method whose signature the preload contract
-// fixes, while the growth port returns a `GrowthOutcome` a caller narrows on — and
-// that difference is the reason this module reports rather than throws.
-//
-// WHAT IS SHARED, AND WHY IT IS NOT TWO VOCABULARIES
+// things happened — and it reports a settlement rather than throwing, so the call door
+// (`fixture/call-plane/call-door.ts`) decides what each arm rejects with.
 //
 // A COMPUTED REPLY IS SETTLED HERE TOO, and for the same reason the classification
 // is: `replyFor` matches on the method name and the REQUEST reaches only this seam,
 // so a scenario that answers an entity-scoped read per entity has exactly one place
-// to be read. The request is optional because the growth port's operations carry no
-// wire request at all — see `settleScriptedReply` — rather than because a caller may
-// forget to pass one.
+// to be read.
 //
-// The two codes a reply that never arrived refuses with are declared here, once, and
-// both refusal sets spread them in. They describe one fact — the scenario engine had
-// nothing to answer with — and two independent spellings of `reply-abandoned` in two
-// closed sets would be a rename waiting to go half-applied. The DETAIL sentence
-// travels on the settlement for the same reason: the diagnosis and the remedy are
-// properties of what the engine did, not of which surface asked.
+// The codes a reply that never arrived refuses with are declared here, once, and the
+// fixture's refusal set spreads them in. They describe one fact — the scenario engine
+// had nothing to answer with — and the DETAIL sentence travels on the settlement for
+// the same reason: the diagnosis and the remedy are properties of what the engine did.
 
 import type { ScenarioRefusalEnvelope } from "./reply.js";
 import type { ScenarioEngine } from "./engine.js";
@@ -51,22 +36,14 @@ export const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-f
 /**
  * The code a call the scenario in play scripts nothing for refuses with.
  *
- * ONE SPELLING, TWO VOCABULARIES, AND THEY MEAN DIFFERENT THINGS ON PURPOSE. On the
- * `daemon.call` arm `fixture/call-plane/bridge.ts` raises it as an AUTHORING error: every method
- * a surface reaches through the call door is one the corpus registers, so a scenario
- * that scripts none has a gap in it. On the growth port it is a reading about the
- * SCENARIO: an operation the fixture serves, driven from a scenario that models
- * nothing it could be answered from, has been left unasked — which is the "not
- * checked" kind of nothing and not an empty result.
- *
- * The two readings share the spelling because they share the fact, and a reader who
- * learns the word once should not have to learn a second one for the same absence.
- * Declared here, where the seam that discovers the absence lives, so neither
- * consuming vocabulary carries a literal the other could be renamed away from.
+ * An AUTHORING error: every method a surface reaches through the call door is one the
+ * corpus registers, so a scenario that scripts none has a gap in it. Declared here,
+ * where the seam that discovers the absence lives, so the fixture's refusal set spreads
+ * it in rather than spelling it again.
  */
 export const SCRIPT_ABSENT_REFUSAL_CODE = "reply-unscripted" as const;
 
-/** One such code. Derived, so the two consuming vocabularies cannot disagree. */
+/** One such code. Derived, so the refusal set that spreads them cannot disagree. */
 export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[number];
 
 /**
@@ -85,7 +62,7 @@ export type ScriptedReplySettlement =
   | {
       readonly status: "unanswered";
       readonly code: ScriptedReplyRefusalCode;
-      /** The sentence a person acts on. Composed once, rendered by both consumers. */
+      /** The sentence a person acts on. Composed once, where the engine's state is known. */
       readonly detail: string;
     };
 
@@ -93,16 +70,11 @@ export type ScriptedReplySettlement =
  * Look up one call's scripted reply and settle it on the frozen clock.
  *
  * `request` is what the caller sent, and it is what a `ScenarioComputedReply` reads to
- * answer an entity-scoped call per entity. OPTIONAL because the growth port answers
- * operations that have no wire request to pass — a computed reply reached that way is
- * asked about `undefined` and settles `unscripted` like any other request the scenario
- * does not answer for, which is the honest result rather than a special case.
+ * answer an entity-scoped call per entity.
  *
  * Never rejects, on any arm. A scripted daemon refusal travels back as a value here
  * and is thrown by the caller, which is what keeps the wire's own `{code, message}`
- * envelope unwrapped: this module would otherwise have to choose between rejecting
- * with a fixture-scoped error — paraphrasing the daemon — and rejecting with a plain
- * object, which is a rejection shape only one of the two consumers wants.
+ * envelope unwrapped rather than paraphrased by a fixture-scoped error.
  *
  * A scripted latency is spent by PARKING the reply, never by advancing the clock
  * here. The frozen clock is the fixture's only clock and the caller is the only thing
@@ -114,7 +86,7 @@ export type ScriptedReplySettlement =
 export async function settleScriptedReply(
   engine: ScenarioEngine,
   call: string,
-  request?: unknown,
+  request: unknown,
 ): Promise<ScriptedReplySettlement> {
   const reply = engine.replyFor(call);
   if (reply === undefined) {

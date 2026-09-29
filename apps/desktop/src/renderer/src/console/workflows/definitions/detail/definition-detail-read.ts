@@ -41,8 +41,7 @@ import type {
   WorkflowVersionBody,
   WorkflowVersionChainEntry,
 } from "../../../bridge/index.js";
-import { subjectReadStart, type SubjectRead } from "../../../store/index.js";
-import { useSubjectRead } from "../../subject-read.js";
+import { subjectReadStart, useSubjectRead, type SubjectRead } from "../../../store/index.js";
 
 /**
  * The three calls one definition's detail is composed from.

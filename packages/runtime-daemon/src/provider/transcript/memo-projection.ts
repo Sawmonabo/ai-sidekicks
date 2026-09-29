@@ -625,7 +625,7 @@ export function deriveMemoIdentityKey(
  */
 export type MemoTokenEstimator = (text: string) => number;
 
-export const DEFAULT_MEMO_TOKEN_ESTIMATOR: MemoTokenEstimator = (text: string): number =>
+const DEFAULT_MEMO_TOKEN_ESTIMATOR: MemoTokenEstimator = (text: string): number =>
   Math.ceil(text.length / 4);
 
 /**
@@ -645,7 +645,7 @@ export interface MemoBudgetPolicy {
   readonly protectedTailToolExchangeCount: number;
 }
 
-export const DEFAULT_MEMO_BUDGET_FRACTION: number = 0.2;
+const DEFAULT_MEMO_BUDGET_FRACTION: number = 0.2;
 export const DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT: number = 2;
 
 /** The budget policy for a target whose context window is `contextWindowTokens`. */

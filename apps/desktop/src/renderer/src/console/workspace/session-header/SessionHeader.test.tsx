@@ -1,8 +1,7 @@
 // What the session header renders before any read has answered: the session's own id,
 // and the shape it holds while the session opens.
 //
-// The readings the header puts are `SessionHeader.readings.test.tsx`; what it must NOT say
-// when nothing answered is `SessionHeader.absence.test.tsx`.
+// The readings the header puts are `SessionHeader.readings.test.tsx`.
 
 import { describe, expect, it } from "vitest";
 

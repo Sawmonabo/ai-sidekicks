@@ -14,7 +14,6 @@ import {
   ConsolePaneRegistry,
   InlineCardSeatRegistry,
   inlineCardSeatRegistry,
-  isDetachablePaneKind,
   type ConsolePaneContext,
 } from "../seats/index.js";
 import { paneContext } from "./pane-contexts.test-support.js";
@@ -84,27 +83,6 @@ describe("repos family — the deck's pane kinds", () => {
     const untouched = new ConsolePaneRegistry();
     registerReposPanes(claimed);
     expect(untouched.registeredPaneKinds()).toStrictEqual([]);
-  });
-
-  it("leaves the tear-off question to the kind, claiming nothing about it", () => {
-    // The descriptor carries no detach member at all: `isDetachablePaneKind` is the
-    // single answer, derived from the window model's route set, and the diff kind is
-    // not in it. Both halves are asserted — the registration says nothing, and the
-    // predicate says no — because a registrar that started smuggling a claim back in
-    // would still leave the predicate answering correctly.
-    const registry = new ConsolePaneRegistry();
-    registerReposPanes(registry);
-    for (const kind of REPOS_PANE_KINDS) {
-      expect(registry.descriptorFor(kind)).not.toHaveProperty("openInWindow");
-      expect(isDetachablePaneKind(kind)).toBe(false);
-    }
-  });
-
-  it("negative control: the predicate does name the two kinds a window model has", () => {
-    // Without this the case above would pass over an `isDetachablePaneKind` that
-    // answered `false` for everything, which would say nothing about this family.
-    expect(isDetachablePaneKind("timeline")).toBe(true);
-    expect(isDetachablePaneKind("agent-console")).toBe(true);
   });
 
   it("mounts a named region for the diff pane", () => {

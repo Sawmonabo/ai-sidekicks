@@ -45,7 +45,7 @@ describe("NewSessionDraft — what it holds", () => {
     const unsubscribe = draft.subscribe((state) => {
       revisions.push(state.revision);
     });
-    draft.setRepoMount({ repoId: "repo-1", executionMode: "worktree" });
+    draft.setRepoMount({ repoId: "repo-1", executionMode: "provisioned-worktree" });
     draft.setPosture("trusted");
     unsubscribe();
     expect(revisions).toStrictEqual([1, 2]);

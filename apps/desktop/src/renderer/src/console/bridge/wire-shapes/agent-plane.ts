@@ -6,20 +6,14 @@
 // payload contracts register their payloads;
 // `packages/contracts` carries the agent lifecycle EVENT types and every driver
 // catalog shape, and none of the reply shapes below. A console that declared them
-// inside a view family would be putting a wire shape where no gate can see it, which
-// is what the growth slate exists to prevent — so they are declared here, on the
-// substrate, behind the `agent-snapshot-axes` and `child-run-linkage` slate rows, and
-// every call to them goes through the growth port.
+// inside a view family would be putting a wire shape where no gate can see it, so
+// they are declared here, on the substrate.
 //
 // This is `agent-definition.ts`'s shape next door, for the same reason and with
 // the same obligation.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and the `growth-signatures/` planes that name these shapes — the agent
-// plane and the agent-definition one — import them from the contracts package instead. The
-// slate rows leave `growth-slate.ts` and the growth slate in the same
-// PR, and `failure-modes.test.ts` then fails on the port entries that still claim
-// fixture-only.
+// is DELETED and its importers take them from the contracts package instead.
 //
 // TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`,
 // `reason`, and `state` are typed `string` rather than as the closed
@@ -116,7 +110,7 @@ export interface AgentSwitchSettlement {
   readonly continuity?: string | undefined;
   /** An EMPTY array asserts nothing was dropped. Absent asserts nothing at all. */
   readonly declaredLosses?: readonly string[] | undefined;
-  /** One of {@link SWITCH_FAILURE_REASONS} on the failed arm. */
+  /** One of the contract's `AGENT_BINDING_CHANGE_FAILURE_REASONS` on the failed arm. */
   readonly reason?: string | undefined;
   readonly replacedSwitchId?: string | undefined;
 }

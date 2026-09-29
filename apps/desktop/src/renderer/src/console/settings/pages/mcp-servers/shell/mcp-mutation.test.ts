@@ -6,28 +6,28 @@
 
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import { setBindingEnabled, setBindingTrust } from "./mcp-mutation.js";
-import {
-  mcpBindingKeyOf,
-  type GrowthMcpBindingRef,
-  type GrowthMcpInventoryEntry,
-  type GrowthMcpMutationResult,
-} from "../../../../bridge/index.js";
+import type {
+  McpMutationResult,
+  McpServerBindingRef,
+  McpServerInventoryEntry,
+} from "@ai-sidekicks/contracts";
 
-const USER_BINDING: GrowthMcpBindingRef = {
+import { mcpBindingKeyOf, setBindingEnabled, setBindingTrust } from "./mcp-mutation.js";
+
+const USER_BINDING: McpServerBindingRef = {
   provider: "claude",
   scope: "user",
   serverName: "filesystem",
 };
 
-const PROJECT_BINDING: GrowthMcpBindingRef = {
+const PROJECT_BINDING: McpServerBindingRef = {
   provider: "claude",
   scope: "project",
   scopeRef: "/work/atlas",
   serverName: "filesystem",
 };
 
-const SETTLED_ROW: GrowthMcpInventoryEntry = {
+const SETTLED_ROW: McpServerInventoryEntry = {
   ...USER_BINDING,
   effectiveInRuns: true,
   config: { transport: "stdio", command: "npx" },
@@ -38,9 +38,9 @@ const SETTLED_ROW: GrowthMcpInventoryEntry = {
   toolOverrides: [],
 };
 
-const RESULT: GrowthMcpMutationResult = { server: SETTLED_ROW, applied: "live_reconcile" };
+const RESULT: McpMutationResult = { server: SETTLED_ROW, applied: "live_reconcile" };
 
-function sendAnswering(): Mock<(request: unknown) => Promise<GrowthMcpMutationResult>> {
+function sendAnswering(): Mock<(request: unknown) => Promise<McpMutationResult>> {
   return vi.fn(async () => await Promise.resolve(RESULT));
 }
 

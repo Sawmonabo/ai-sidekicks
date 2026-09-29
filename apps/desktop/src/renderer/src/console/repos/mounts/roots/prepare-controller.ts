@@ -27,14 +27,9 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "../../../core/index.js";
-import {
-  ActSurfaceController,
-  type ActOutcome,
-  type ActReading,
-  type SessionStore,
-} from "../../../store/index.js";
+import { ActSurfaceController, type ActReading, type SessionStore } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
-import { REPO_REFUSAL_ORIGIN, type RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "../../repo-operations.js";
 import { reuseVerdictFor, type ReuseVerdict } from "./root-act-model.js";
 
 /** The two calls this controller makes. */
@@ -84,7 +79,6 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
       // or changing state is what makes a reuse verdict wrong, and two readers of one
       // answer must not disagree about when it goes stale.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
-      refusalOrigin: REPO_REFUSAL_ORIGIN,
     });
     this.#operations = options.operations;
     this.#subject = options.subject;
@@ -128,16 +122,14 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   public async prepare(branchName: string, acknowledgeDirtyCandidate: boolean): Promise<void> {
     const reuseWorktreeId = this.#reusableCandidate();
     await this.sendAct(
-      async () => ({
-        status: "served" as const,
-        value: await this.#operations.prepareExecutionRoot({
+      async () =>
+        await this.#operations.prepareExecutionRoot({
           workspaceId: this.#subject.workspaceId as WorkspaceId,
           branchName,
           ...(reuseWorktreeId === undefined
             ? {}
             : { reuseWorktreeId: reuseWorktreeId as WorktreeId, acknowledgeDirtyCandidate }),
         }),
-      }),
       (value: ExecutionRootPrepareResponse) => ({
         status: "prepared" as const,
         executionRoot: value.executionRoot,
@@ -157,13 +149,13 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   protected override async readPrerequisite(
     branchName: string,
     signal: AbortSignal,
-  ): Promise<ActOutcome<ReuseVerdict>> {
+  ): Promise<ReuseVerdict> {
     const reply = await this.#operations.checkWorktreeReuse(
       this.#subject.repoMountId as RepoMountId,
       branchName,
       signal,
     );
-    return { status: "served", value: reuseVerdictFor(reply) };
+    return reuseVerdictFor(reply);
   }
 
   /** The worktree the newest verdict names, where the verdict names one at all. */

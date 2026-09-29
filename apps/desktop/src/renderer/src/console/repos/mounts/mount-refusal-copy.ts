@@ -24,6 +24,9 @@
 //     moves, and the daemon's own message says which. So the recovery enumerates all
 //     three rather than picking one — the console cannot tell them apart from the code
 //     alone, and a single generic sentence would be wrong two times in three.
+//   • `repo.root_resolution_failed` for a folder with no git repository in it states
+//     what happened rather than a move: the only move is to pick a folder that holds a
+//     repository, and "not a git repository" already says that.
 //
 // WHAT IS DELIBERATELY ABSENT. `repo.detach_conflict` is registered beside these and is
 // not here, because no renderer surface in this family sends `repo.detach` — an entry
@@ -53,7 +56,7 @@ export const MOUNT_REFUSAL_CODES = [
   "repo.outside_trust_envelope",
   "repo.already_attached",
   "workspace.not_found",
-  "workspace.provisioning_failed",
+  "workspace.preparation_failed",
   "workspace.mode_unsupported",
   "workspace.stale",
   "workspace.branch_mismatch",
@@ -80,7 +83,7 @@ export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
  * renderer maps it without asking whether it is there.
  *
  * DERIVED FROM THE SHAPE THE SHELL RENDERS rather than restating its two members:
- * `primitives/refusal/RefusalRecovery.tsx` is what puts one of these on screen, and a table
+ * `primitives/refusal/RefusalRecovery.tsx` is what draws one of these, and a table
  * whose entry type merely happened to be assignable would stay assignable right up to
  * the rename that made it stop.
  */
@@ -89,18 +92,29 @@ export type MountRefusalRecovery = RefusalRecoveryCopy;
 /**
  * What the caller knows that the code alone does not.
  *
- * ONE MEMBER, and it exists because one code's recovery is a wire string this table
+ * `restrictionReason` exists because one code's recovery is a wire string this table
  * must not write: `workspace.mode_unsupported` is paired with the mount's own reason
  * for the mode that was refused, which arrives on
  * `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions` and is sparse. Absent
  * means the read gave no reason for that mode, which the recovery says outright rather
  * than filling in.
+ *
+ * `resolutionReason` is the `reason` a `repo.root_resolution_failed` refusal carries,
+ * which names the step of the attach that failed. One of them, a folder that is not a git
+ * repository, is the common case and has a sentence of its own.
  */
 export interface MountRefusalContext {
   readonly restrictionReason?: string | undefined;
+  readonly resolutionReason?: string | undefined;
 }
 
 const NO_DISTINCTIONS: readonly string[] = [];
+
+/** What an attach of a folder with no git repository in it reads as. */
+const NOT_A_GIT_REPOSITORY_RECOVERY: MountRefusalRecovery = {
+  nextMove: "Could not attach: not a git repository",
+  distinctions: NO_DISTINCTIONS,
+};
 
 /**
  * The table. Total over the codes above, so a code added to the tuple and not here
@@ -113,9 +127,8 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
     distinctions: NO_DISTINCTIONS,
   },
   "repo.root_resolution_failed": {
-    // NEVER "attached as a plain directory". A failed resolution and a non-git attach
-    // must never be conflated: one is an attach that
-    // did not happen, the other is a mount that exists with git features off.
+    // The arm for every reason but a folder with no repository in it, which
+    // `mountRefusalRecovery` answers from the context.
     nextMove:
       "Nothing was attached. The daemon's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
     distinctions: NO_DISTINCTIONS,
@@ -143,9 +156,9 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
       "This workspace is gone. The section re-reads its roster; a row that survives the re-read is a disagreement between the list and the daemon.",
     distinctions: NO_DISTINCTIONS,
   },
-  "workspace.provisioning_failed": {
+  "workspace.preparation_failed": {
     nextMove:
-      "The execution root was not provisioned. The workspace keeps the mode it had; selecting the mode again is what retries, and nothing is substituted in the meantime.",
+      "The execution root was not prepared. The workspace keeps the mode it had; selecting the mode again is what retries, and nothing is substituted in the meantime.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.mode_unsupported": {
@@ -226,12 +239,14 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
 /**
  * The next move for one refusal code, or `undefined` where this family has none.
  *
- * ONE CODE IS ANSWERED FROM THE CONTEXT AND NOT FROM THE TABLE. A
+ * TWO CODES ARE ANSWERED FROM THE CONTEXT AND NOT FROM THE TABLE. A
  * `workspace.mode_unsupported` refusal is paired with the mount's own reason for the
  * mode that was refused (the capability gap is explicit rather than silently
  * substituted), and that reason is a wire string this
  * module must not compose. When the caller has it, it IS the recovery, quoted; when the
- * capabilities read gave none for that mode, the table's own arm says so.
+ * capabilities read gave none for that mode, the table's own arm says so. A
+ * `repo.root_resolution_failed` refusal whose reason is `not_a_git_repository` reads as
+ * its own sentence; any other reason takes the table's arm.
  */
 export function mountRefusalRecovery(
   code: string,
@@ -242,6 +257,12 @@ export function mountRefusalRecovery(
     if (reason !== undefined) {
       return { nextMove: reason, distinctions: NO_DISTINCTIONS };
     }
+  }
+  if (
+    code === "repo.root_resolution_failed" &&
+    context?.resolutionReason === "not_a_git_repository"
+  ) {
+    return NOT_A_GIT_REPOSITORY_RECOVERY;
   }
   return Object.hasOwn(MOUNT_REFUSAL_RECOVERIES, code)
     ? MOUNT_REFUSAL_RECOVERIES[code as MountRefusalCode]

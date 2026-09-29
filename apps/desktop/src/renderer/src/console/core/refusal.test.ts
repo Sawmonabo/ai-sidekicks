@@ -31,7 +31,7 @@ describe("refuse — one builder, one field order", () => {
     // names its author; a builder that filled in a default would make every refusal
     // claim the same one.
     expect(refuse("keybindings", "unparseable", "detail").origin).toBe("keybindings");
-    expect(refuse("growth-port", "unparseable", "detail").origin).toBe("growth-port");
+    expect(refuse("keybindings", "unparseable", "detail").origin).toBe("keybindings");
   });
 });
 
@@ -91,7 +91,7 @@ describe("refuse — the producer's own union survives the call", () => {
 });
 
 describe("ConsoleRefusalError — a refusal that had to travel as an exception", () => {
-  const refusal = refuse("growth-port", "not-registered", "No wire serves this operation yet.");
+  const refusal = refuse("sessions", "session.not_found", "No session answers to this id.");
 
   it("is an Error, so a boundary that catches Errors catches it", () => {
     expect(new ConsoleRefusalError(refusal)).toBeInstanceOf(Error);
@@ -107,7 +107,7 @@ describe("ConsoleRefusalError — a refusal that had to travel as an exception",
     // A stack trace is where an error is read when nothing rendered it, so the
     // message has to carry the same three facts the card would have shown.
     expect(new ConsoleRefusalError(refusal).message).toBe(
-      "growth-port: not-registered: No wire serves this operation yet.",
+      "sessions: session.not_found: No session answers to this id.",
     );
   });
 
@@ -137,7 +137,7 @@ describe("isConsoleRefusal — recognition across a family boundary", () => {
     // above and the two positive assertions would prove nothing.
     expect(isConsoleRefusal(null)).toBe(false);
     expect(isConsoleRefusal(undefined)).toBe(false);
-    expect(isConsoleRefusal("growth-port: not-registered: detail")).toBe(false);
+    expect(isConsoleRefusal("sessions: session.not_found: detail")).toBe(false);
     expect(isConsoleRefusal(42)).toBe(false);
     expect(isConsoleRefusal({})).toBe(false);
     expect(isConsoleRefusal([])).toBe(false);

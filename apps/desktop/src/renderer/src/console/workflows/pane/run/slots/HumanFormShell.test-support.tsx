@@ -125,7 +125,7 @@ export function holdingSubmits(): HeldSubmit {
 }
 
 /** What a failing submit call fails with, so a case can tell it from any other failure. */
-export const SUBMIT_FAILURE = new Error("the submit call failed");
+export const SUBMIT_FAILURE: Error = new Error("the submit call failed");
 
 /**
  * A submit call that fails the two ways a call can: it rejects, or it throws before it

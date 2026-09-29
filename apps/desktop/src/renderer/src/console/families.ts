@@ -23,7 +23,7 @@
 // WHAT A FAMILY DOES NOT DO
 //
 // A family never edits `seats/surface/surface-registry.ts`, `bridge/scenario/manifest.ts`,
-// `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
+// or `vitest.config.ts`. Those are shared spines: a
 // concurrent edit to any of them from every one of those branches at once is a
 // guaranteed conflict, and worse, a merge that resolves cleanly while silently
 // dropping one family's registration.
@@ -48,7 +48,7 @@ import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifec
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
-import { NewSessionControl, Workspace } from "./workspace/index.js";
+import { Workspace } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
@@ -122,23 +122,15 @@ export function registerConsoleFamilies(
   // into the seat, because a seat line passes identifiers and nothing else, which is
   // what keeps the block a grammar a reviewer can read at a glance.
   const ledgerComposition = { workspace: Workspace };
-  // The sessions destination's composition, on the same terms one line up: that
-  // surface is the channels family's and the composed new-session draft is the
-  // workspace family's, and one view family may not import another — so the root says
-  // which component fills the place beside the shipped probe. Named for what it
-  // MOUNTS rather than `…Composition` because a seat is one line and has to stay
-  // one: with four boards beside it, the longer name is what pushes the call past
-  // the formatter's width and onto four lines a reviewer cannot read as a seat.
-  const sessionsMount = { newSessionControl: NewSessionControl };
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions.
   registerLedger(surfaces, ledgerComposition); // ledger
-  registerComposerFamily(projectors, sidebarSections); // composer
-  registerSessionSurfacesFamily(surfaces, sessionsMount); // session surfaces
-  registerRepos(sidebarSections, inlineCardSeats); // repos
-  registerWorkflowSurfaces(surfaces, pinnedRegions); // workflows
+  registerComposerFamily(projectors); // composer
+  registerSessionSurfacesFamily(surfaces); // session surfaces
+  registerRepos(inlineCardSeats); // repos
+  registerWorkflowSurfaces(surfaces); // workflows
   // browser-terminal
   // gallery
 }

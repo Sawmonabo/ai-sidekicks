@@ -2,20 +2,18 @@
 //
 // OWNER. The workflow plane's event-type enumeration names twenty-one `workflow.*`
 // types across four event categories, and the owning event registry carries no
-// `workflow` category at all. That registration is the
-// `workflow-event-registration` row on the growth slate, and until it
-// lands `packages/contracts` registers none of these strings: `SessionEventType` does
-// not admit one, and the fixture's own wire-truth predicate refuses a beat carrying
-// one, because a beat of a type no daemon emits is a lie about the wire.
+// `workflow` category at all. Until that registration lands, `packages/contracts`
+// registers none of these strings: `SessionEventType` does not admit one, and the
+// fixture's own wire-truth predicate refuses a beat carrying one, because a beat of a
+// type no daemon emits is a lie about the wire.
 //
 // SO WHY DECLARE THEM. Because the run pane has to say WHEN its read goes stale, and
 // the console's refresh policy answers that with the terminal events the owning
 // wire names, because no console surface polls on an interval.
 // A pane that could not name those events has two options and both are wrong: poll on
 // a timer, which that rule forbids outright, or re-read only when the operator at THIS
-// keyboard acts — which is what the run pane did, so a run moved by another window, by
-// another user, or by the engine itself sat unchanged on screen until somebody
-// pressed something.
+// keyboard acts, so a run moved by another window, by another user, or by the engine
+// itself sits unchanged on screen until somebody presses something.
 //
 // A KIND SET IS SAFE TO ARM EARLY AND A PAYLOAD SHAPE IS NOT. What this module
 // declares is a set of strings compared against the `kind` of frames the session store
@@ -30,8 +28,7 @@
 // DELETION OBLIGATION. When `packages/contracts` registers the taxonomy, this module
 // is DELETED and its consumers derive the set from the registered `SessionEventType`
 // union instead — at which point the set becomes checkable by the compiler rather than
-// by the count below. The slate row leaves `growth-slate.ts` and the growth slate
-// in the same PR.
+// by the count below.
 
 /**
  * `workflow_lifecycle` — the run's own arc, seven types.

@@ -11,63 +11,52 @@ import { describe, expect, it } from "vitest";
 
 import { executionModeRows } from "./mode-row.js";
 
-/** A git mount's answer: every mode, nothing restricted. */
-const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
+/** An open mount's answer: both modes, nothing restricted. */
+const OPEN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
 };
 
-/** A plain directory's answer: one mode, three excluded with reasons. */
-const PLAIN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only"],
-  defaultMode: "read-only",
+/** A restricted answer: one mode, the other excluded with the mount's reason. */
+const RESTRICTED_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["bound-root"],
+  defaultMode: "bound-root",
   restrictions: {
-    branch: "This mount is not a git repository, so there is no branch to create.",
-    worktree: "This mount is not a git repository, so no worktree can be added.",
-    "ephemeral clone": "This mount is not a git repository, so there is nothing to clone.",
+    "provisioned-worktree": "This workspace runs only in its own root, so no worktree is added.",
   },
 };
 
 describe("executionModeRows", () => {
   it("offers every available mode in the reply's own order", () => {
-    const rows = executionModeRows(GIT_CAPABILITIES);
-    expect(rows.map((row) => row.mode)).toStrictEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
+    const rows = executionModeRows(OPEN_CAPABILITIES);
+    expect(rows.map((row) => row.mode)).toStrictEqual(["bound-root", "provisioned-worktree"]);
     expect(rows.every((row) => row.available)).toBe(true);
   });
 
   it("renders an excluded mode with the mount's own reason rather than dropping it", () => {
-    const rows = executionModeRows(PLAIN_CAPABILITIES);
+    const rows = executionModeRows(RESTRICTED_CAPABILITIES);
     const excluded = rows.filter((row) => !row.available);
-    expect(excluded.map((row) => row.mode)).toStrictEqual([
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
-    expect(excluded[0]?.restrictionReason).toContain("not a git repository");
+    expect(excluded.map((row) => row.mode)).toStrictEqual(["provisioned-worktree"]);
+    expect(excluded[0]?.restrictionReason).toContain("its own root");
   });
 
   it("keeps an available-AND-restricted mode's reason visible, on one row", () => {
-    // The reply is malformed: it offers `branch` and also gives a reason for excluding
+    // The reply is malformed: it offers `bound-root` and also gives a reason for excluding
     // it. Hiding either half would be the renderer deciding which one was true, so the
     // row is offered — the reply is the authority on what is admitted — AND carries
-    // what the daemon said about it. This is the arm the deleted second copy failed.
+    // what the daemon said about it.
     const rows = executionModeRows({
-      availableModes: ["read-only", "branch"],
-      defaultMode: "branch",
-      restrictions: { branch: "stale" },
+      availableModes: ["bound-root", "provisioned-worktree"],
+      defaultMode: "bound-root",
+      restrictions: { "bound-root": "stale" },
     });
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.available)).toBe(true);
-    expect(rows.find((row) => row.mode === "branch")?.restrictionReason).toBe("stale");
+    expect(rows.find((row) => row.mode === "bound-root")?.restrictionReason).toBe("stale");
   });
 
   it("negative control: no restrictions map at all yields only the available rows", () => {
-    const rows = executionModeRows(GIT_CAPABILITIES);
+    const rows = executionModeRows(OPEN_CAPABILITIES);
     expect(rows.filter((row) => !row.available)).toStrictEqual([]);
     expect(rows.every((row) => row.restrictionReason === undefined)).toBe(true);
   });

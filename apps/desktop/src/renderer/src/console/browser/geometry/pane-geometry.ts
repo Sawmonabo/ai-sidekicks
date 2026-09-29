@@ -8,14 +8,11 @@
 // The sampling half — four required invalidation sources, read-now / write-next-frame
 // — lives in `geometry-publisher.ts`, which needs a document and cannot be pure.
 //
-// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. That method is on the
-// growth slate under `browser-pane-namespace` with no growth-port operation registered
-// for it — the port carries the five navigation verbs and the navigation subscription,
-// and nothing else — so the publish target is the HOST SEAM rather than a fabricated
-// method string. Registering the operation belongs to the task that lands the
-// namespace.
+// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. No code package
+// registers that method, so the publish target is the HOST SEAM rather than a
+// fabricated method string.
 //
-// The two surfaces beside this one: `view-host.ts` is 12.11's host seam — what a
+// The two surfaces beside this one: `view-host.ts` is the host seam — what a
 // sample is published TO — and `core/airspace-registry.ts` is the overlay set every
 // overlay primitive registers into, reached through the narrow `PaneOverlaySource`
 // port so the two do not cycle.

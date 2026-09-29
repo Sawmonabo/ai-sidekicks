@@ -16,10 +16,10 @@ import {
   type BindFormVerdict,
 } from "./bind-model.js";
 
-/** A git mount's answer: every mode, nothing restricted. */
+/** A git mount's answer: both modes, nothing restricted. */
 const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
 };
 
 /**
@@ -30,7 +30,7 @@ const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
  * believe half of such a reply.
  */
 const NO_DEFAULT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+  availableModes: ["bound-root", "provisioned-worktree"],
   defaultMode: "unavailable-here" as WorkspaceExecutionModeCapabilitiesReadResponse["defaultMode"],
 };
 
@@ -50,8 +50,8 @@ describe("resolveBindForm", () => {
   });
 
   it("never invents a mode of the console's own", () => {
-    // `repo.workspaceBind` refuses to make "omitted a mode" and "chose read-only" the
-    // same request. What stands in for a pick is the mount's OWN `defaultMode` and
+    // `repo.workspaceBind` refuses to make "omitted a mode" and "chose a mode" the same
+    // request. What stands in for a pick is the mount's OWN `defaultMode` and
     // nothing else, so a reply naming none leaves the form incomplete.
     const verdict = verdictFor(
       { directory: "", executionMode: undefined },
@@ -65,7 +65,7 @@ describe("resolveBindForm", () => {
     // survive a close: the pre-fill it replaces ran once per mount and a reopened
     // dialog met a picker with nothing chosen.
     const resolution = resolveBindForm(EMPTY_BIND_FORM, GIT_CAPABILITIES);
-    expect(resolution.selectedMode).toBe("worktree");
+    expect(resolution.selectedMode).toBe("provisioned-worktree");
     expect(resolution.verdict.status).toBe("sendable");
   });
 
@@ -73,8 +73,8 @@ describe("resolveBindForm", () => {
     // The picker draws the row excluded, so the verdict must too: read from the form
     // alone, Bind would stay open over a mode the reply excludes.
     const resolution = resolveBindForm(
-      { directory: "", executionMode: "worktree" },
-      { availableModes: ["read-only"], defaultMode: "read-only" },
+      { directory: "", executionMode: "provisioned-worktree" },
+      { availableModes: ["bound-root"], defaultMode: "bound-root" },
     );
     expect(resolution.selectedMode).toBeUndefined();
     expect(resolution.verdict.status).toBe("incomplete");
@@ -86,26 +86,29 @@ describe("resolveBindForm", () => {
   it("does not substitute the new default for a mode that was picked", () => {
     // Binding in whichever mode is default now is not the act the user asked for.
     const { verdict } = resolveBindForm(
-      { directory: "", executionMode: "worktree" },
-      { availableModes: ["read-only"], defaultMode: "read-only" },
+      { directory: "", executionMode: "provisioned-worktree" },
+      { availableModes: ["bound-root"], defaultMode: "bound-root" },
     );
     expect(verdict.status).not.toBe("sendable");
   });
 
   it("holds a picked mode unconfirmed while the read has not answered", () => {
-    const { verdict } = resolveBindForm({ directory: "", executionMode: "worktree" }, undefined);
+    const { verdict } = resolveBindForm(
+      { directory: "", executionMode: "provisioned-worktree" },
+      undefined,
+    );
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toContain("has not answered");
   });
 
   it("omits an empty directory rather than sending an empty path", () => {
-    const verdict = verdictFor({ directory: "", executionMode: "worktree" });
+    const verdict = verdictFor({ directory: "", executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("sendable");
     expect(verdict.status === "sendable" && verdict.directory).toBeUndefined();
   });
 
   it("omits a whitespace-only directory too", () => {
-    const verdict = verdictFor({ directory: "   ", executionMode: "worktree" });
+    const verdict = verdictFor({ directory: "   ", executionMode: "provisioned-worktree" });
     expect(verdict.status === "sendable" && verdict.directory).toBeUndefined();
   });
 
@@ -113,13 +116,13 @@ describe("resolveBindForm", () => {
     // A leading or trailing space is a legal POSIX filename character. Trimming on the
     // way out would bind a different directory from the one that was named — silently,
     // and only for the paths where it matters.
-    const verdict = verdictFor({ directory: " packages/api ", executionMode: "branch" });
+    const verdict = verdictFor({ directory: " packages/api ", executionMode: "bound-root" });
     expect(verdict.status === "sendable" && verdict.directory).toBe(" packages/api ");
   });
 
   it("refuses a directory past the wire's cap, naming both lengths", () => {
     const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
-    const verdict = verdictFor({ directory: overCap, executionMode: "worktree" });
+    const verdict = verdictFor({ directory: overCap, executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toContain(
       String(REPO_PATH_MAX_LEN + 1),
@@ -128,7 +131,7 @@ describe("resolveBindForm", () => {
 
   it("negative control: a directory exactly at the cap is sendable", () => {
     const atCap = "a".repeat(REPO_PATH_MAX_LEN);
-    const verdict = verdictFor({ directory: atCap, executionMode: "worktree" });
+    const verdict = verdictFor({ directory: atCap, executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("sendable");
   });
 
@@ -141,14 +144,14 @@ describe("resolveBindForm", () => {
 
 describe("defaultBindMode", () => {
   it("pre-fills the daemon's own default", () => {
-    expect(defaultBindMode(GIT_CAPABILITIES)).toBe("worktree");
+    expect(defaultBindMode(GIT_CAPABILITIES)).toBe("provisioned-worktree");
   });
 
   it("negative control: a default the reply does not offer pre-fills nothing", () => {
     // Never a guess of the console's. A reply that disagrees with itself leaves the
     // user to choose rather than having a mode chosen for them.
     expect(
-      defaultBindMode({ availableModes: ["read-only"], defaultMode: "worktree" }),
+      defaultBindMode({ availableModes: ["bound-root"], defaultMode: "provisioned-worktree" }),
     ).toBeUndefined();
   });
 });

@@ -108,9 +108,9 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
       className="meridian-schema-answer"
       aria-busy={isAwaitingVerdict ? true : undefined}
       onSubmit={(event) => {
-        // The page must not navigate: this is a console surface and the act is a growth
-        // call. A button outside a form would lose the Enter key that submitting a form
-        // gives every control inside it for free.
+        // The page must not navigate: this is a console surface and the answer goes to
+        // `onSubmit`, never to a form post. A button outside a form would lose the
+        // Enter key that submitting a form gives every control inside it for free.
         event.preventDefault();
         props.onSubmit(form.answer);
       }}

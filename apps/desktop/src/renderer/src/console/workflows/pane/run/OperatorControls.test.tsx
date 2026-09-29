@@ -9,10 +9,11 @@
 // compose and submit, those are about what comes back. What the CHAIN does when it
 // moves under a held selection is a third, in `OperatorControls.chain-move.test.tsx`.
 
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
+
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import {
   IDLE_RUN_CONTROL_OUTCOME,

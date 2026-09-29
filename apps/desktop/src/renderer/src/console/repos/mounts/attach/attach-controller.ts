@@ -1,28 +1,23 @@
 // The attach act: the call it sends, and what it publishes.
 //
-// Everything but the call is the store's act controller: the scheduler, the act arms, the
-// single-flight guard, the disposed latch, and the members a surface reads them by. What is
-// left here is what is attach's own, which call it makes and how the reply reads.
+// Attach asks nothing first, so it is the store's act half alone: the single-flight guard,
+// the disposed latch, and the members a surface reads them by. What is left here is what
+// is attach's own, which call it makes and how the reply reads.
 //
-// Attach asks nothing first. The base class carries a prerequisite question that the bind
-// and prepare controllers use; this one never names a question, so its prerequisite is
-// never read.
+// A mount belongs to the machine, so the call carries the path and nothing about the
+// session; the session only scopes which dialog's settlement is on screen.
 
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleClock } from "../../../core/index.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
 import {
-  ActSurfaceController,
+  ActController,
   useActController,
-  type ActOutcome,
-  type ActReading,
   type ActSettlementReading,
-  type SessionStore,
 } from "../../../store/index.js";
-import { REPO_REFUSAL_ORIGIN, type RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "../../repo-operations.js";
 
 /** What a finished attach carries: the mount the daemon minted for it. */
 export interface AttachSettlement {
@@ -30,42 +25,28 @@ export interface AttachSettlement {
   readonly response: RepoAttachResponse;
 }
 
-/** Where the attach itself stands. */
+/** Where the attach stands. What a surface renders. */
 export type AttachActReading = ActSettlementReading<AttachSettlement>;
 
-/** What a surface renders: the settlement, beside a prerequisite that is never read. */
-export type AttachReading = ActReading<void, AttachSettlement>;
-
-/** What one attach controller is scoped to: a session, and the window's clock. */
+/** What one attach controller sends through. */
 export interface AttachControllerOptions {
   readonly operations: Pick<RepoOperations, "attachRepository">;
-  readonly sessionStore: SessionStore;
-  /** The window's one clock, so a settlement is stamped on the section's time base. */
-  readonly clock: ConsoleClock;
 }
 
-/** What the hook hands a dialog: the reading, and the two things it can ask for. */
+/** What the hook hands a surface: the reading, and the two things it can ask for. */
 export interface AttachBinding {
-  readonly reading: AttachReading;
+  readonly reading: AttachActReading;
   readonly attach: (localPath: string) => void;
   readonly clearAct: () => void;
 }
 
-/** Sends the attach for one session. */
-export class AttachController extends ActSurfaceController<void, AttachSettlement> {
+/** Sends the attach. */
+export class AttachController extends ActController<AttachSettlement> {
   readonly #operations: Pick<RepoOperations, "attachRepository">;
-  readonly #sessionId: string;
 
   public constructor(options: AttachControllerOptions) {
-    super({
-      label: "repository attach reading",
-      clock: options.clock,
-      sessionStore: options.sessionStore,
-      triggeringEventKinds: new Set<string>(),
-      refusalOrigin: REPO_REFUSAL_ORIGIN,
-    });
+    super({ label: "repository attach reading" });
     this.#operations = options.operations;
-    this.#sessionId = options.sessionStore.sessionId;
   }
 
   /**
@@ -75,32 +56,28 @@ export class AttachController extends ActSurfaceController<void, AttachSettlemen
    * attaches up for one intent, and the second would fail against the first's own work.
    */
   public async attach(localPath: string): Promise<void> {
-    await this.sendAct(
-      async () => ({
-        status: "served" as const,
-        value: await this.#operations.attachRepository({ sessionId: this.#sessionId, localPath }),
-      }),
+    await this.act(
+      async () => await this.#operations.attachRepository({ localPath }),
       (response: RepoAttachResponse) => ({ status: "attached" as const, response }),
     );
   }
-
-  protected override readPrerequisite(): Promise<ActOutcome<void>> {
-    return Promise.resolve({ status: "served", value: undefined });
-  }
 }
 
-/** Bind one session's attach controller to a surface. */
+/**
+ * Bind one session section's attach controller to a surface.
+ *
+ * KEYED ON THE SESSION, so a section re-addressed to another session drops the
+ * settlement the previous one's dialog was showing.
+ */
 export function useAttachController(
   bridge: ConsoleBridge,
-  sessionStore: SessionStore,
+  sessionId: string,
   operations: Pick<RepoOperations, "attachRepository">,
 ): AttachBinding {
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const { controller, reading } = useActController(
     bridge,
-    sessionStore.sessionId,
-    sessionStore,
-    () => new AttachController({ operations, sessionStore, clock }),
+    sessionId,
+    () => new AttachController({ operations }),
   );
   const attach = useCallback(
     (localPath: string) => {

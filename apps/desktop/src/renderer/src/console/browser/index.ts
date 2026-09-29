@@ -53,6 +53,15 @@
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 
+export {
+  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
+  ChordMirrorPublication,
+  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
+  composeChordMirrorKey,
+  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
+  readChordMirrorKey,
+} from "./pane/handback/chord-mirror.js";
+
 /**
  * Claim the browser family's seats.
  *

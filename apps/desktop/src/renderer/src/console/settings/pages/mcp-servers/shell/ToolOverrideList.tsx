@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Chip, Nothing, WireFigure } from "../../../../primitives/index.js";
-import type { GrowthMcpToolOverride } from "../../../../bridge/index.js";
+import type { McpToolOverride } from "@ai-sidekicks/contracts";
 
 /**
  * The tool overrides pinned on one binding, by facet.
@@ -19,7 +19,7 @@ import type { GrowthMcpToolOverride } from "../../../../bridge/index.js";
  * binding declares, for no gain a person could name.
  */
 export function ToolOverrideList(props: {
-  readonly overrides: readonly GrowthMcpToolOverride[];
+  readonly overrides: readonly McpToolOverride[];
 }): ReactNode {
   const { overrides } = props;
   if (overrides.length === 0) {

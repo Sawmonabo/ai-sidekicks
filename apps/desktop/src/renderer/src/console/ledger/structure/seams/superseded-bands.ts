@@ -14,9 +14,8 @@
 //
 // THE RULES ARE THE CONTRACT'S rather than a reading of them: the marker is
 // single-field and present exactly when superseded, EXCEEDS is the comparison so a
-// row at the cutoff survives, marks are epoch-scoped because re-execution reuses
-// ordinals, and a `legacy_stub` can never be ranked or marked because it
-// structurally carries no position at all.
+// row at the cutoff survives, and marks are epoch-scoped because re-execution reuses
+// ordinals.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -167,10 +166,8 @@ interface RankableRow {
 /**
  * The two arms a superseded marker is allowed on.
  *
- * `legacy_stub` is excluded structurally rather than filtered: the arm carries no
- * `position` and no `epoch` at all, "because they are unknowable, not because they
- * were omitted", so it cannot be ranked and can never be marked. `general` is
- * excluded for the same structural reason — it carries no run attribution.
+ * `general` is excluded structurally rather than filtered: it carries no run
+ * attribution, so it cannot be ranked and can never be marked.
  */
 function rankableOf(row: TimelineRow): RankableRow | undefined {
   if (row.kind === "run" || row.kind === "rollback_boundary") {

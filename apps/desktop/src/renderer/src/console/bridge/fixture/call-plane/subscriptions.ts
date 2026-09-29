@@ -32,6 +32,7 @@
 import type { RelayEventHandler, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { FixtureBridgeError } from "./refusal.js";
+import { isWireRecord } from "../../../core/index.js";
 import { projectRunStreamDelivery } from "../../run-streams/index.js";
 import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import { composeScenarioEventEnvelope } from "../../scenario/runtime/index.js";
@@ -101,7 +102,13 @@ export function subscribeToScenario(
         if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
           continue;
         }
-        const projection = projectRunStreamDelivery(subscriptionName, event);
+        // The queue stream's payload is a projection of the queue ROW, and the
+        // scenario's stand-in for the daemon's row read is the reply it scripts for
+        // that read. Resolved per beat, so a scenario replaced mid-subscription is
+        // read afresh.
+        const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
+          scriptedQueueRowFor(engine, queueItemId),
+        );
         if (projection === undefined) {
           deliver(composeScenarioEventEnvelope(event));
           continue;
@@ -158,4 +165,26 @@ export function subscribeToScenarioRelay(
       handler(composeScenarioEventEnvelope(event));
     }
   });
+}
+
+/** The registered read whose reply carries the queue rows, `QueueItemListResponse`. */
+const RUN_QUEUE_ROW_READ = "run.queueList";
+
+/**
+ * The row for one queue item in the scenario's scripted queue read, or `undefined`
+ * when the scenario scripts no such read or its rows do not include this item.
+ */
+function scriptedQueueRowFor(
+  engine: ScenarioEngine,
+  queueItemId: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const scriptedReadResult = engine.replyFor(RUN_QUEUE_ROW_READ)?.result;
+  if (!isWireRecord(scriptedReadResult)) {
+    return undefined;
+  }
+  const items = scriptedReadResult["items"];
+  if (!Array.isArray(items)) {
+    return undefined;
+  }
+  return items.filter(isWireRecord).find((row) => row["id"] === queueItemId);
 }

@@ -27,12 +27,5 @@
   // modules they cover (`src/main/protocol.test.ts`), and this project EMITS, so
   // an included test file would compile a `vitest` import into `dist/`.
   // Type-validation for those files runs under `tsconfig.test.json` (noEmit).
-  "exclude": [
-    "dist",
-    "out",
-    "node_modules",
-    "src/**/__tests__/**",
-    "src/**/*.test.ts",
-    "src/renderer/**"
-  ]
+  "exclude": ["dist", "out", "node_modules", "src/**/*.test.ts", "src/renderer/**"]
 }

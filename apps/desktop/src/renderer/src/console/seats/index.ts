@@ -235,11 +235,9 @@ export {
 // reaches the declaring module directly — a door line without a production reader is
 // what the module-shape rule in `apps/desktop/AGENTS.md` rejects.
 export {
-  registerTimelineRowFooterRenderer,
   rowTakesFooter,
   timelineRowFooterRenderer,
   type TimelineRowFooterRenderer,
-  type TimelineRowFooterSlotProps,
 } from "./slots/timeline-row-footer-seat.js";
 
 // `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an
@@ -306,11 +304,7 @@ export type { SessionSubject } from "./session-subject.js";
 // is addressed at the call, so the family that settles an act and the families that
 // render the answer reach one generation rather than passing a refresh callback down
 // through whichever surfaces happen to sit between them.
-export {
-  offeredSessionIds,
-  requestSessionDirectoryRead,
-  useSessionDirectory,
-} from "./session-directory.js";
+export { requestSessionDirectoryRead, useSessionDirectory } from "./session-directory.js";
 export type { SessionDirectoryReadCall, SessionDirectoryState } from "./session-directory.js";
 
 // The composed new-session draft's seat: the props the control takes.
@@ -349,7 +343,10 @@ export { consoleRefusalFrom, servedValueOrRaise } from "./read/served-value.js";
 // union narrows it, and every caller casts; one module casts, and the day it narrows one
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
-export { subscribeDaemonEvent } from "./read/wire-access.js";
+export {
+  /** @consumedBy a surface that listens for one daemon event */
+  subscribeDaemonEvent,
+} from "./read/wire-access.js";
 
 // THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
 // composed surfaces and the schema-validated raw editor behind them. Here for the reason

@@ -55,7 +55,9 @@ describe("RepoMountsReader — the read", () => {
       reading.workspaces.map((row) => row.id).sort(),
     );
     const firstWorkspaceId = reading.workspaces[0]?.id ?? "";
-    expect(reading.capabilitiesByWorkspaceId[firstWorkspaceId]?.defaultMode).toBe("worktree");
+    expect(reading.capabilitiesByWorkspaceId[firstWorkspaceId]?.defaultMode).toBe(
+      "provisioned-worktree",
+    );
   });
 
   it("carries the worktrees the status read answers with", async () => {

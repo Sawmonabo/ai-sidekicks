@@ -40,10 +40,9 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
     [directory],
   );
   useReadSettlementAnnouncement(directory, runReadSentence(directory, projection));
-  // Minted per mount rather than declared as a module constant, for the reason
-  // `WorkflowsSurface.tsx` states about its own: a module constant is one id however
-  // many of this section a tree holds, and two of them make both `aria-labelledby`
-  // references resolve to whichever heading came first.
+  // Minted per mount rather than declared as a module constant: a module constant is
+  // one id however many of this section a tree holds, and two of them make both
+  // `aria-labelledby` references resolve to whichever heading came first.
   const headingId = useId();
 
   return (

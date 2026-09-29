@@ -57,9 +57,6 @@ export { DraftStore } from "./draft-store.js";
 // rather than the state. `describeQuotaUnavailability` travels with it for the reason the
 // table it reads states: one vocabulary, so two surfaces cannot disagree about what
 // `open-timed-out` means.
-export { describeQuotaUnavailability } from "./adapter.js";
 // `QuotaGauge` and not `PersistenceAdapterKind` beside it: the page renders the
 // adapter kind as the string the health reading already carries, and a door line
 // for the union nothing annotates with would be a name published for symmetry.
-export type { QuotaGauge } from "./adapter.js";
-export type { PersistenceHealth } from "./store-health.js";

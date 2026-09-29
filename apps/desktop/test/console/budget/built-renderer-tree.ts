@@ -1,75 +1,95 @@
-// The built renderer tree, read as text — the one walk over BUILD OUTPUT in this tier.
+// The built output under `out/`, read two ways — the one reader of BUILD OUTPUT in this tier.
 //
-// A MODULE OF ITS OWN BECAUSE OF WHAT IT MUST NOT KNOW. A module reaching renderer
-// SOURCE may not walk a directory of its own: source has one admission — the shared walk
-// in `console-source-modules.ts` — and a second opinion about what counts as a console
-// module drifts from the first silently. Build output has no such walk and needs none:
-// it is whatever the bundler emitted, there is no admission question to get wrong, and
-// the sweep that reads it wants every text file rather than a curated set.
+// `release-absence.test.ts` asks two questions of one release build: which strings the
+// shipped files carry, and which modules rendered code into them. The first is answered by
+// the renderer's shipped text, the second by the hidden source maps every build target
+// writes, which list each module the bundler rendered into a file. Both come from here, so
+// the tier has one walk over what the bundler emitted and no reader of renderer source.
 //
-// So the two subjects live in two modules. `release-absence.test.ts` reads the scenario
-// corpus through the shared walk and reaches renderer source; this file reads the build
-// and reaches none — no `CONSOLE_DIRECTORY`, no `renderer/src` path — so the chokepoint
-// gate's own derived escape admits it without a name on any list. Folding the two back
-// into one file is what put a second directory walk under a module that reasons about
-// console source, which is the shape that gate exists to report.
+// NEITHER READ SKIPS WHEN ITS SUBJECT IS MISSING. An absence claim that passes because it
+// read nothing is worse than no claim at all, so a missing directory, an empty one, and a
+// target that wrote no source maps all throw with the command that produces a build.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../../scripts/budget/measure-bundle.mjs";
 
-/** One built file: where it sits in the output tree, and what it holds. */
+/** One built file: where it sits in the renderer output, and what it holds. */
 export interface BuiltFile {
   readonly relativePath: string;
   readonly text: string;
 }
 
+/** One hidden source map: where it sits under `out/`, and the modules it lists. */
+export interface BuiltSourceMap {
+  readonly relativePath: string;
+  readonly sources: readonly string[];
+}
+
+/** The three build targets, each written to `out/<target>/` from `src/<target>/`. */
+export const BUILD_TARGETS = ["main", "preload", "renderer"] as const;
+
+/** `out/`, the directory every build target writes beneath. */
+const BUILD_OUTPUT_DIRECTORY: string = dirname(DEFAULT_RENDERER_OUTPUT_DIRECTORY);
+
 /** The extensions a shipped text file carries. Source maps are excluded: not shipped. */
 const SHIPPED_TEXT_EXTENSIONS = /\.(?:js|cjs|mjs|html?|css)$/iu;
 
-/** Text files in the built tree, excluding source maps, which are not shipped. */
-function readBuiltText(): BuiltFile[] {
-  const found: BuiltFile[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory)) {
-      const absolutePath = join(directory, entry);
-      if (statSync(absolutePath).isDirectory()) {
-        walk(absolutePath);
-        continue;
-      }
-      if (!SHIPPED_TEXT_EXTENSIONS.test(entry)) {
-        continue;
-      }
-      found.push({
-        relativePath: relative(DEFAULT_RENDERER_OUTPUT_DIRECTORY, absolutePath),
-        text: readFileSync(absolutePath, "utf8"),
-      });
-    }
-  };
-  walk(DEFAULT_RENDERER_OUTPUT_DIRECTORY);
-  return found;
+/** Every text file the renderer build ships, or a failure naming what to run. */
+export function readBuiltTextOrFailLoudly(): readonly BuiltFile[] {
+  const files = filesUnderOrFailLoudly(DEFAULT_RENDERER_OUTPUT_DIRECTORY)
+    .filter((path) => SHIPPED_TEXT_EXTENSIONS.test(path))
+    .map((path) => ({
+      relativePath: relative(DEFAULT_RENDERER_OUTPUT_DIRECTORY, path),
+      text: readFileSync(path, "utf8"),
+    }));
+  if (files.length === 0) {
+    throw missingBuildError(DEFAULT_RENDERER_OUTPUT_DIRECTORY);
+  }
+  return files;
 }
 
 /**
- * The built tree, or a failure naming what to run.
+ * Every source map one build target wrote, or a failure naming the cause.
  *
- * IT DOES NOT SKIP WHEN ITS SUBJECT IS MISSING. An absence claim that passes because it
- * read nothing is worse than no claim at all, so a missing directory and an empty one
- * are one situation here — there is no build to read — and both throw.
+ * A target that built but wrote no map fails with its own message, because the fix is
+ * different: the maps come from `sourcemap: "hidden"` in `electron.vite.config.ts`, and a
+ * build without them would leave the module check reading nothing.
  */
-export function readBuiltTextOrFailLoudly(): readonly BuiltFile[] {
-  try {
-    const files = readBuiltText();
-    if (files.length > 0) {
-      return files;
-    }
-  } catch {
-    // Fall through to the same message: a missing directory and an empty one are one
-    // situation from this tier's point of view — there is no build to read.
+export function readSourceMapsOrFailLoudly(
+  target: (typeof BUILD_TARGETS)[number],
+): readonly BuiltSourceMap[] {
+  const directory = join(BUILD_OUTPUT_DIRECTORY, target);
+  const maps = filesUnderOrFailLoudly(directory)
+    .filter((path) => path.endsWith(".map"))
+    .map((path) => {
+      const map = JSON.parse(readFileSync(path, "utf8")) as { sources: string[] };
+      return { relativePath: relative(BUILD_OUTPUT_DIRECTORY, path), sources: map.sources };
+    });
+  if (maps.length === 0) {
+    throw new Error(
+      `The ${target} build at ${directory} wrote no source map.\n` +
+        'The release fixture gate reads the maps `sourcemap: "hidden"` in ' +
+        "`electron.vite.config.ts` asks for; without them it would check nothing.",
+    );
   }
-  throw new Error(
-    `No renderer build to read at ${DEFAULT_RENDERER_OUTPUT_DIRECTORY}.\n` +
+  return maps;
+}
+
+/** Every file under a build directory, or the missing-build failure if there is none. */
+function filesUnderOrFailLoudly(directory: string): readonly string[] {
+  if (!existsSync(directory)) {
+    throw missingBuildError(directory);
+  }
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+function missingBuildError(directory: string): Error {
+  return new Error(
+    `No build to read at ${directory}.\n` +
       "Run `pnpm --filter @ai-sidekicks/desktop build` first. This gate does not " +
       "skip when its subject is missing: a release-absence check that passes " +
       "because it read nothing is worse than no check at all.",

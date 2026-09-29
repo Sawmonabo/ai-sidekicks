@@ -1,9 +1,9 @@
 // The ledger claims its two slots, and mounts through the deck's one door.
 //
-// The elements are inspected rather than rendered, on `seats/surface/absorbed-surfaces.test.ts`'
-// reasoning: the claim is about WIRING — which slot, which owner, and what the
-// surface hands the pane — and a React element carries all of that before anything
-// renders it. What the pane itself draws is that component's own test.
+// The elements are inspected rather than rendered, because the claim is about WIRING
+// — which slot, which owner, and what the surface hands the pane — and a React element
+// carries all of that before anything renders it. What the pane itself draws is that
+// component's own test.
 //
 // The pane board read here is this suite's OWN, because that is what the surface
 // resolves through: the board arrives on the surface context, so a case composes one,

@@ -1,5 +1,5 @@
-// What `test/console/phase-graph-settled.ts` is for, held to by the two surfaces it is
-// used on.
+// What `test/console/phase-graph-settled.ts` is for, held to by a graph and by a surface
+// that draws none.
 //
 // Neither tier that consumes the helper can check it. The screenshot tier takes images
 // and asserts nothing else, and the accessibility tier asserts an EMPTY violation list
@@ -18,24 +18,19 @@
 //
 // The browser tier rather than a Node one, and that is forced rather than preferred:
 // a Node project has no DOM, no animation frame, and no layout engine, and every claim
-// below is measured on all three. The
-// browser tier is where "geometry a DOM shim cannot answer" already lives — the run
-// pane's own graph-box case is its neighbour — and it is on the aggregate.
+// below is measured on all three. The browser tier is where "geometry a DOM shim cannot
+// answer" already lives — the graph-box cases are its neighbour — and it is on the
+// aggregate.
 //
-// THE UNSETTLED STATE IS MANUFACTURED, NEVER RACED FOR. An earlier form of the first
-// case read the predicate straight after the mount and expected `false`, on the
-// grounds that the graph chunk lands after the run read does. That was a claim about
-// which of two fetches finishes first, and it held only while the mount helper
-// returned on the read: once the helper also waited for the pane's form body, whose
-// chunk is fetched beside the graph's, the graph was usually fitted by the time the
-// helper returned and the assertion flipped on the runner. A negative control that
-// depends on the order two chunks arrive in is not a control. So every unsettled
-// state below is produced through the cascade — the collapsing rule — where it is
-// exact, reversible, and independent of what the network did.
+// THE UNSETTLED STATE IS MANUFACTURED, NEVER RACED FOR. Reading the predicate straight
+// after the mount and expecting `false` would be a claim about when the graph chunk
+// lands, and a negative control that depends on when a chunk arrives is not a control.
+// So every unsettled state below is produced through the cascade — the collapsing rule —
+// where it is exact, reversible, and independent of what the network did.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { mountWorkflowBuilderPane, mountWorkflowParkedRunPane } from "../surfaces/workflows.js";
+import { mountWorkflowBuilderPane, mountWorkflowRunPhaseGraph } from "../surfaces/workflows.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 
 /**
@@ -96,28 +91,28 @@ afterEach(() => {
 
 describe("the capture's phase-graph readiness", () => {
   it("holds while the picture is off screen, and resolves once it is back", async () => {
-    const mounted = await mountWorkflowParkedRunPane();
-    await awaitPhaseGraphSettled(mounted.element);
-    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+    const graph = await mountWorkflowRunPhaseGraph();
+    await awaitPhaseGraphSettled(graph);
+    expect(isPhaseGraphSettled(graph)).toBe(true);
 
     // The negative control, and the whole reason the helper exists. The graph is
     // fitted — that transform stays on the viewport throughout — and its picture is
     // taken away, so a wait that read the style attribute alone would return here at
     // once. It must not: for as long as the box is empty the wait is still pending.
     collapseEveryGraphCanvas();
-    expect(isPhaseGraphSettled(mounted.element)).toBe(false);
-    const waitingForThePicture = awaitPhaseGraphSettled(mounted.element);
+    expect(isPhaseGraphSettled(graph)).toBe(false);
+    const waitingForThePicture = awaitPhaseGraphSettled(graph);
     expect(await settlesWithin(waitingForThePicture, EARLY_RETURN_WATCH_MS)).toBe(false);
 
     // And it is a wait rather than a refusal: the picture coming back is what resolves
     // it, without a second call and without the mount being touched.
     restoreEveryGraphCanvas();
     await waitingForThePicture;
-    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+    expect(isPhaseGraphSettled(graph)).toBe(true);
 
     // Fitted AND still: the transform the capture will read is the one the last
     // commit wrote, not one a further frame is about to replace.
-    const viewport = mounted.element.querySelector<HTMLElement>(".react-flow__viewport");
+    const viewport = graph.querySelector<HTMLElement>(".react-flow__viewport");
     const fitted = viewport?.style.transform;
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
@@ -130,17 +125,15 @@ describe("the capture's phase-graph readiness", () => {
     // library writes at any container size — including none. That is the state a
     // committed reference recorded: a fitted transform over a root of zero height, a
     // 20rem sunken box with no phase in it, and every tier green.
-    const mounted = await mountWorkflowParkedRunPane();
-    await awaitPhaseGraphSettled(mounted.element);
-    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+    const graph = await mountWorkflowRunPhaseGraph();
+    await awaitPhaseGraphSettled(graph);
+    expect(isPhaseGraphSettled(graph)).toBe(true);
 
     collapseEveryGraphCanvas();
     // The fit is untouched — the transform the predicate used to read is still on the
     // viewport — and the picture is gone, which is exactly the pair that used to pass.
-    expect(
-      mounted.element.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform,
-    ).not.toBe("");
-    expect(isPhaseGraphSettled(mounted.element)).toBe(false);
+    expect(graph.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform).not.toBe("");
+    expect(isPhaseGraphSettled(graph)).toBe(false);
   });
 
   it("returns at once for a surface that draws no graph", async () => {

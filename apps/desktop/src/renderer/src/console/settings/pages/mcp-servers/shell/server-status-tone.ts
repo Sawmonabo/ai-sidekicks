@@ -9,7 +9,7 @@
 // vocabulary the surface is held to and one it happens to cover today.
 
 import type { ChipTone } from "../../../../primitives/index.js";
-import type { GrowthMcpServerStatus } from "../../../../bridge/index.js";
+import type { McpServerStatus } from "@ai-sidekicks/contracts";
 
 /**
  * The mapping.
@@ -19,7 +19,7 @@ import type { GrowthMcpServerStatus } from "../../../../bridge/index.js";
  * perfectly healthy had broken. `starting` is neutral for the same reason in the
  * other direction — a transition is not news.
  */
-const TONE_FOR_SERVER_STATUS: Readonly<Record<GrowthMcpServerStatus, ChipTone>> = {
+const TONE_FOR_SERVER_STATUS: Readonly<Record<McpServerStatus, ChipTone>> = {
   failed: "failure",
   "needs-auth": "attention",
   unknown: "attention",
@@ -28,6 +28,6 @@ const TONE_FOR_SERVER_STATUS: Readonly<Record<GrowthMcpServerStatus, ChipTone>> 
 };
 
 /** The tone one status wears. */
-export function toneForServerStatus(status: GrowthMcpServerStatus): ChipTone {
+export function toneForServerStatus(status: McpServerStatus): ChipTone {
   return TONE_FOR_SERVER_STATUS[status];
 }

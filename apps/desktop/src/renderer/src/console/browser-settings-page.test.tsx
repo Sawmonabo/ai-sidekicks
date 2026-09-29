@@ -1,16 +1,15 @@
 // The browser section is reachable.
 //
-// The page shipped whole and no board registered it, so `#/settings/browser` rendered
-// the reserved arm — a built surface a person could not reach by any address. These
-// cases drive the SHIPPED board rather than a registry composed here, because a
-// registrar that works and is never called is exactly the state this closes.
+// These cases drive the SHIPPED board rather than a registry composed here, because a
+// registrar that works and is never called leaves `#/settings/browser` rendering the
+// reserved arm — a surface a person cannot reach by any address.
 //
 // AND THE REGISTRATION IS LOADER-BACKED, which splits those cases in two. The page is a
 // chunk of its own — `browser/settings/browser-settings-page-body.ts`, which is what
-// keeps twelve modules of a page nobody has opened off every launch's initial import
-// graph — so the shipped surface parked on this address renders the page REGION and its
-// reservation, and the body itself lands a turn later. The claims are made against the
-// shipped surface, and against the reserved mount the family's own scaffolding owns
+// keeps a page nobody has opened off every launch's initial import graph — so the
+// shipped surface parked on this address renders the page REGION and its reservation,
+// and the body itself lands a turn later. The claims are made against the shipped
+// surface, and against the reserved mount the family's own scaffolding owns
 // (`settings/settings-page-mount.test-support.tsx`).
 
 import { act, cleanup, render } from "@testing-library/react";
@@ -28,9 +27,9 @@ import {
 } from "./settings/settings-page-mount.test-support.js";
 import { SettingsPageRegistry } from "./settings/settings-page-registry.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./seats/index.js";
-// The pending marker's reader by its own leaf specifier, on `agents-settings-page`'s
-// reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
-// reader, whose consumers outside that directory are tests.
+// The pending marker's reader by its own leaf specifier: the seats door publishes the
+// ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
+// directory are tests.
 import { pendingPaneBodiesIn } from "./seats/pane/pending-pane-body.js";
 
 afterEach(() => {
@@ -73,9 +72,9 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
 /**
  * The context this page is handed, built by the family's own builder.
  *
- * The page reads its bridge and nothing else, but the context is built whole rather than
- * cast: a cast placeholder compiles past exactly the wiring mistake a widened context
- * would otherwise catch here, which is what `settingsPageContextWith` exists to end.
+ * The page reads nothing from it, but the context is built whole rather than cast: a
+ * cast placeholder compiles past exactly the wiring mistake a widened context would
+ * otherwise catch here, which is what `settingsPageContextWith` exists to end.
  */
 function browserPageContext(): ReturnType<typeof settingsPageContextWith> {
   return settingsPageContextWith(createFixture().bridge, undefined);
@@ -101,14 +100,13 @@ describe("the browser settings section", () => {
     //
     // SYNCHRONOUS, AND THAT IS THE CASE ITSELF — the reservation is the render that
     // happens before the import resolves, which is why the shared mount has a second,
-    // un-awaited half rather than an option on its first. `agents-settings-page.test.tsx`
-    // makes the same claim through the same door for the same reason.
+    // un-awaited half rather than an option on its first.
     const container = mountReservedSettingsPage(
       "browser",
       registerBrowserSettingsPage,
       browserPageContext(),
     );
-    expect(container.textContent ?? "").not.toContain("Two switches this node");
+    expect(container.querySelector("#meridian-browser-settings-title")).toBeNull();
     expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
 

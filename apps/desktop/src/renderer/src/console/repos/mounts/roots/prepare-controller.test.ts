@@ -24,7 +24,7 @@ function open(): {
     subject: {
       workspaceId: "workspace-sidekicks",
       repoMountId: "mount-sidekicks",
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
     },
     sessionStore: new SessionStore({ sessionId: "session-repos" }),
     clock,

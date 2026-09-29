@@ -1,8 +1,9 @@
 // Whether an OS notification this console emits will reach a person at all.
 //
 // OS notifications denied is a state the notification center is the only surface for.
-// Nothing on the shipped bridge reports that fact — `native.showNotification` returns
-// `void`, so a denial is indistinguishable from a delivery from inside the renderer.
+// `native.showNotification` returns `void`, so a denial is indistinguishable from a
+// delivery at the moment of emission; the bridge's `native.getNotificationPermission`
+// is what reports it.
 //
 // WHY THE RENDERER'S OWN `Notification.permission` IS NOT THE INSTRUMENT. It answers
 // about the RENDERER's Web notification API, and this console emits through the main
@@ -23,8 +24,8 @@
 // WHAT IS HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the rule
 // that decides which of two overlapping answers is the live one are
 // `bridge/os-notification-permission.ts`'s. This fold asks "will an emission reach
-// anybody"; the notifications settings page says something different for each of the
-// three arms, so the reading crosses the door unfolded and each consumer folds it.
+// anybody"; the notifications settings page says something different for each state,
+// so the reading crosses the door unfolded and each consumer folds it.
 
 import type { OsNotificationPermissionReading } from "../../bridge/index.js";
 
@@ -36,8 +37,9 @@ import type { OsNotificationPermissionReading } from "../../bridge/index.js";
  * system's own consent flow — and reporting that as a denial would put "this is the
  * only surface" in front of someone whose notifications work.
  *
- * `unread` covers a read in flight and a read the bridge refused. Both mean the
- * console does not know, and there is nothing to say about a fact it has not got.
+ * `unread` covers a read in flight and a platform the shell cannot read the permission
+ * on. Both mean the console does not know, and there is nothing to say about a fact it
+ * has not got.
  *
  * @consumedBy the notifications settings page
  */
@@ -66,7 +68,7 @@ const WITHHELD_DELIVERY: OsNotificationDelivery = { status: "withheld" };
  * @consumedBy the notifications settings page
  */
 export function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
-  if (reading.kind !== "read") {
+  if (reading.kind !== "read" || reading.state === "unsupported") {
     return UNREAD_DELIVERY;
   }
   return reading.state === "denied" ? WITHHELD_DELIVERY : PERMITTED_DELIVERY;

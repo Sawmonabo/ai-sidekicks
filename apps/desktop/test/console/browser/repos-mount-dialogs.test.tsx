@@ -42,16 +42,16 @@ const MOUNT_ID = "mount-sidekicks";
 const MOUNT_ROOT = "/Users/dev/code/ai-sidekicks";
 
 /** The mode this mount does not admit. */
-const EXCLUDED_MODE = "worktree";
+const EXCLUDED_MODE = "provisioned-worktree";
 
 /** The mode this mount does admit. */
-const ADMITTED_MODE = "branch";
+const ADMITTED_MODE = "bound-root";
 
 /** The daemon's reason for the excluded mode. */
 const EXCLUSION_REASON = "this mount cannot host a second checkout";
 
-/** What the mount admits: a branch checkout alone, with the daemon's reason for the rest. */
-const BRANCH_ONLY_MODES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+/** What the mount admits: its own root alone, with the daemon's reason for the rest. */
+const BOUND_ROOT_ONLY_MODES: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: [ADMITTED_MODE],
   defaultMode: ADMITTED_MODE,
   restrictions: { [EXCLUDED_MODE]: EXCLUSION_REASON },
@@ -64,7 +64,7 @@ async function openBindDialog(): Promise<{
 }> {
   const bridge = bridgeOnClock();
   const operations = scriptedRepoOperations({
-    readMountExecutionModes: () => Promise.resolve(BRANCH_ONLY_MODES),
+    readMountExecutionModes: () => Promise.resolve(BOUND_ROOT_ONLY_MODES),
   });
   const { container } = await renderSettled(
     <LiveAnnouncerProvider>

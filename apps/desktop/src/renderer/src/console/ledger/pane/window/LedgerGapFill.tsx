@@ -26,14 +26,15 @@ import {
   type SessionStoreRegistry,
   type SessionStoreState,
 } from "../../../store/index.js";
-import { useLedgerGapFill, type LedgerGapFillCall } from "./ledger-gap-fill.js";
+import type { TimelineSubscribeCall } from "../../../bridge/index.js";
+import { useLedgerGapFill } from "./ledger-gap-fill.js";
 
 /** The stores the hole and the kept position are read from, and the call that asks. */
 export interface LedgerGapFillProps {
   readonly registry: SessionStoreRegistry;
   readonly sessionStore: SessionStore;
   /** Puts the replay ask. */
-  readonly fillGap: LedgerGapFillCall;
+  readonly fillGap: TimelineSubscribeCall;
 }
 
 /**

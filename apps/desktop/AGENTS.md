@@ -22,7 +22,7 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 
 The ESLint rules that carry this file's structural claims. Each states its own scope: a rule is only as strong as the file set it matches, and a lifted selector is stated here rather than discovered in the config.
 
-1. The preload bridge is read off the global only in `console/bridge/live-bridge.ts`; every surface above takes it from `BridgeProvider`'s context, which calls `readInstalledBridge` there. Five spellings — `window.desktopBridge`, `globalThis.desktopBridge`, the cast form `(window as { sidekicks?: … }).sidekicks`, the computed key `globalThis["sidekicks"]`, and the destructure `const { sidekicks } = window` — are banned across the whole renderer, and lifted for its test files, which install a fixture bridge on the global as the substitution seam. Two legacy modules read the bridge directly and are exempted BY NAME so the count is frozen: `session-bootstrap/SessionBootstrap.tsx` and `runtime-node-attach/attach-request.ts`; the first reads `window.desktopBridge.daemon` with no existence check, so a preload that failed to install throws inside its render, and the migration is to take the bridge from context. An ALIAS — `const w = window; w.sidekicks` — evades every selector and is rejected in review.
+1. The preload bridge is read off the global only in `console/bridge/live-bridge.ts`; every surface above takes it from `BridgeProvider`'s context, which calls `readInstalledBridge` there. Five spellings — `window.desktopBridge`, `globalThis.desktopBridge`, the cast form `(window as { sidekicks?: … }).sidekicks`, the computed key `globalThis["sidekicks"]`, and the destructure `const { sidekicks } = window` — are banned across the whole renderer, and lifted for its test files, which install a fixture bridge on the global as the substitution seam. An ALIAS — `const w = window; w.sidekicks` — evades every selector and is rejected in review.
 2. No `setInterval` anywhere in renderer source, in either spelling — the bare global and `window` / `globalThis`-qualified.
 3. No `export default` outside the package-root tool configs, which their tools load by default export. Off for `**/*.d.ts`, where the `export default` inside an ambient `declare module` is how a default-exporting virtual module is typed.
 4. No module-level `let` in shipped renderer source. Lifted for `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}`: a `let` reassigned in `beforeEach` is the standard Vitest shape and holds no state anything else can reach.
@@ -126,7 +126,7 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 
 ## Tests
 
-- Co-located `*.test.{ts,tsx}` beside the module for `console/`, `shell/`, `src/main/**`, `build/**`, and `scripts/**`. No new `__tests__/`; the two legacy renderer families keep theirs.
+- Co-located `*.test.{ts,tsx}` beside the module for `console/`, `shell/`, `src/main/**`, `build/**`, and `scripts/**`. No `__tests__/`.
 - Helper tests live in `test/helpers/` beside their helpers, in the `main-unit` project. The console tiers live under `test/console/<tier>/`, one Vitest project each, globs disjoint.
 - Shared scaffolding lives once, one home per ROLE: cross-process roles in `test/helpers/`, console roles in the flat files of `test/console/`. A tier that hand-rolls a role another tier already has is rejected.
 - A test never reimplements the rule it checks and never drives a stand-in for the module under test; import the real one. Every clean result has a negative control that fails.
@@ -142,7 +142,6 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 - A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, a line in the aggregate `test` script, and a matrix entry in the `desktop` job of `.github/workflows/ci.yml` — all five or none, a deliberate omission recording its reason beside the registration. `exclude` replaces Vitest's default rather than extending it; spread the default in.
 - Each matrix leg of the `desktop` job runs one build flavour, so the tiers that share `out/**` (`build`, `build:smoke`, `build:fixtures`) sit in separate legs; keep them separate when adding a tier.
 - A new `tsconfig*.json` reaches `typecheck` in the same commit, and no two configs write to one `outDir`. A `tsconfig` no script and no `references` entry reaches is deleted.
-- The growth slate lives in `console/bridge/growth-port/growth-slate.ts`. A PR that adds, removes, or re-statuses a row edits it there and nowhere else.
 
 ## Budgets
 

@@ -10,17 +10,17 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConfigReadBack } from "./ConfigReadBack.js";
-import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 
 /** Indexed off the entry rather than imported: the config view has no door of its own. */
-type McpServerConfigView = GrowthMcpInventoryEntry["config"];
+type McpServerConfigView = McpServerInventoryEntry["config"];
 
 afterEach(() => {
   cleanup();
 });
 
 function stdioConfigWithArguments(args: readonly string[]): McpServerConfigView {
-  return { transport: "stdio", command: "./scripts/scratchpad-mcp", args };
+  return { transport: "stdio", command: "./scripts/scratchpad-mcp", args: [...args] };
 }
 
 function renderedArguments(container: HTMLElement): readonly string[] {

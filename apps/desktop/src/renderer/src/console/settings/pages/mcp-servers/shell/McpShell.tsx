@@ -28,12 +28,9 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import {
-  mcpBindingKeyOf,
-  useConsoleClock,
-  type ConsoleBridge,
-  type GrowthMcpBindingRef,
-} from "../../../../bridge/index.js";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
+
+import { useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../../seats/index.js";
 import { useSubjectScopedState } from "../../../../store/index.js";
@@ -44,6 +41,7 @@ import {
 } from "./mcp-inventory-reading.js";
 import {
   IDLE_MCP_MUTATION,
+  mcpBindingKeyOf,
   mintIdempotencyKey,
   setBindingEnabled,
   setBindingTrust,
@@ -133,7 +131,7 @@ export function McpShell(props: {
   // and a page that patched one row would be maintaining a second copy of an inventory
   // whose fold it does not own.
   const dispatch = (
-    binding: GrowthMcpBindingRef,
+    binding: McpServerBindingRef,
     send: (idempotencyKey: string) => Promise<McpMutationOutcome>,
   ): void => {
     const key = mcpBindingKeyOf(binding);

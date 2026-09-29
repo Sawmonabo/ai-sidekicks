@@ -21,7 +21,7 @@
 // out of the user's own `Blob`. A request that described a size and carried no
 // payload would let this client advance its ledger and call Complete over a stream the
 // daemon received nothing on — minting an empty artifact rather than the file. The
-// slice bounds memory too: `ATTACHMENT_CHUNK_BYTE_CAP` raw bytes at a time, so a
+// slice bounds memory too: `ATTACHMENT_INGEST_CHUNK_MAX_BYTES` raw bytes at a time, so a
 // hundred-megabyte upload never holds more than one chunk.
 //
 // RETRY REPLAYS, IT DOES NOT RESTART. A replayed chunk — same sequence number, same
@@ -34,7 +34,9 @@
 // ledger after its await and proceeds only if the entry still stands where it stood. A
 // stream stopped mid-chunk would otherwise run on to completion.
 
-import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64, type ConsoleClock } from "../../core/index.js";
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+
+import { encodeBase64, type ConsoleClock } from "../../core/index.js";
 import {
   CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
   readChunkAcknowledgement,
@@ -104,7 +106,7 @@ export class AttachmentChunkStream {
       if (payload.size - offset <= 0) {
         return true;
       }
-      const slice = payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
+      const slice = payload.slice(offset, offset + ATTACHMENT_INGEST_CHUNK_MAX_BYTES);
       // The one local failure: a `Blob` off a picker points at a file on disk, and a file
       // that was moved, deleted or made unreadable between two chunks gives a rejecting
       // `arrayBuffer()`.
@@ -127,7 +129,7 @@ export class AttachmentChunkStream {
       }
       const acknowledged = await this.#port.writeChunk({
         ingestId,
-        sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
+        sequenceNumber: Math.floor(offset / ATTACHMENT_INGEST_CHUNK_MAX_BYTES),
         chunk: encodeBase64(bytes),
       });
       const settled = this.#ledger.currentIfUnchanged(localId, stamp);

@@ -2914,9 +2914,7 @@ function normalizeCodexSubagentCap(value: number, floor: number): number {
  * clamping up would answer a caller who asked for no concurrent subagents by
  * granting one, which is the only direction this leg may never resolve.
  */
-export function composeCodexSubagentConfigOverrides(
-  policy: SubagentPolicy,
-): Record<string, unknown> {
+function composeCodexSubagentConfigOverrides(policy: SubagentPolicy): Record<string, unknown> {
   if (!policy.enabled || policy.maxConcurrent < CODEX_SUBAGENT_CONCURRENCY_FLOOR) {
     return {
       "agents.max_concurrent_threads_per_session": CODEX_SUBAGENT_CONCURRENCY_FLOOR,
@@ -2948,7 +2946,7 @@ export function composeCodexSubagentConfigOverrides(
  * two numeric caps, which the provider DOES enforce natively, are still sent.
  * The single-supervisor invariant is never traded for coverage.
  */
-export const CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON: string =
+const CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON: string =
   "the provider's per-role config entry carries no inline model, tools, permission-mode, effort, or max-turns axis at the pinned build, so the definition cannot be realized without authoring a config file this driver does not own";
 
 /**

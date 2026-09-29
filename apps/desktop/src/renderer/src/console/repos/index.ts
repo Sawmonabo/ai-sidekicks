@@ -103,7 +103,6 @@ export {
 // recommends, where a carrier stands against the count bound, whether one file is past
 // the byte bound, and whether an upload has gone quiet.
 export {
-  SHIPPED_DEFAULT_ALLOWLIST,
   attachmentCarrierFill,
   exceedsAttachmentByteAllowance,
 } from "./attachments/attachment-bounds.js";

@@ -4,9 +4,8 @@
 // reaches, so every case below presses an offer and reads what moved — a lease, the
 // scroll writer or the host's clipboard.
 //
-// THE HOOK IS NOT HERE. `ledger-row-offers-binding.hook.test.tsx` drives it, because
-// the wiring needs a React tree and the behaviour does not — and because one file
-// carrying both subjects went past this package's own size rule.
+// THE HOOK IS NOT HERE. The wiring needs a React tree and the behavior does not, so
+// these cases drive the binding's builder with none.
 //
 // THE TWO REFUSING ACTS ARE DRIVEN ON BOTH FAILURE ARMS, which is the whole reason
 // the module wraps the call rather than the promise: the shipped bridge throws

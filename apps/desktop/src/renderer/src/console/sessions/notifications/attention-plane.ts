@@ -96,11 +96,8 @@ export class AttentionPlane {
   /**
    * Every unresolved item, oldest first — established here, not assumed.
    *
-   * `attentionProjectionRead` is a growth row and registers no ordering, so a
-   * projection answering newest-first is a frame nothing forbids. This getter used
-   * to promise an order the constructor only filtered for, and the notification
-   * center listed a newer session's attention above an older one's while both
-   * getters said the reverse.
+   * `attentionProjectionRead` is registered in no code package and states no
+   * ordering, so a projection answering newest-first is a frame nothing forbids.
    */
   public get liveItems(): readonly AttentionItem[] {
     return this.#liveItems;

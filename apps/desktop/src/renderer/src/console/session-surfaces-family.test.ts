@@ -11,22 +11,11 @@ import { describe, expect, it } from "vitest";
 
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { ConsoleSurfaceRegistry } from "./seats/index.js";
-import type { SessionsSurfaceComposition } from "./sessions/index.js";
-
-/**
- * The composed-session control, as a stand-in.
- *
- * The real one is the workspace family's, which this family may not import and this
- * test has no need of: every claim below is about which slots are claimed, under
- * which owners, on whose board. What the sessions destination does with the control
- * is asserted where that surface is rendered.
- */
-const standInComposition: SessionsSurfaceComposition = { newSessionControl: () => null };
 
 describe("session surfaces family — composition", () => {
   it("claims the two slots this family owns", () => {
     const surfaces = new ConsoleSurfaceRegistry();
-    registerSessionSurfacesFamily(surfaces, standInComposition);
+    registerSessionSurfacesFamily(surfaces);
     expect(surfaces.registeredSlots()).toStrictEqual(["sessions", "settings"]);
   });
 
@@ -35,7 +24,7 @@ describe("session surfaces family — composition", () => {
     // than a swap. Two subtrees sharing one owner string would silently replace
     // each other instead.
     const surfaces = new ConsoleSurfaceRegistry();
-    registerSessionSurfacesFamily(surfaces, standInComposition);
+    registerSessionSurfacesFamily(surfaces);
     const owners = surfaces
       .registeredSlots()
       .map((slot) => surfaces.descriptorFor(slot)?.owner ?? "");
@@ -45,17 +34,17 @@ describe("session surfaces family — composition", () => {
   it("composes into the registry it is handed, not a singleton", () => {
     const first = new ConsoleSurfaceRegistry();
     const second = new ConsoleSurfaceRegistry();
-    registerSessionSurfacesFamily(first, standInComposition);
+    registerSessionSurfacesFamily(first);
     expect(second.registeredSlots()).toStrictEqual([]);
-    registerSessionSurfacesFamily(second, standInComposition);
+    registerSessionSurfacesFamily(second);
     expect(second.registeredSlots()).toStrictEqual(first.registeredSlots());
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
     const surfaces = new ConsoleSurfaceRegistry();
-    registerSessionSurfacesFamily(surfaces, standInComposition);
+    registerSessionSurfacesFamily(surfaces);
     const afterFirst = surfaces.registeredSlots();
-    registerSessionSurfacesFamily(surfaces, standInComposition);
+    registerSessionSurfacesFamily(surfaces);
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 

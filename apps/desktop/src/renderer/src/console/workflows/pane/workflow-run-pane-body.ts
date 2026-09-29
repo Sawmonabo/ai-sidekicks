@@ -7,20 +7,16 @@
 // dispatch, the park surfaces, the version chain, and the operator controls' own
 // stylesheet — none of which a session that never opens a run has any use for.
 //
-// IT STAYED STATIC FOR ONE ROUND, AND THE REASON IS WORTH KEEPING. `run-controls.css`
-// declared `.meridian-run-controls`, and so did `runs/pane/runs.css` — two families, two
-// components, one class name — so deferring this body moved this sheet to the end of the
-// cascade and changed how a surface in THIS family laid its controls out, with nothing in
-// the diff naming either sheet. The fix was not to keep the body eager: it was to give the
-// class one owner. This family's block is `meridian-workflow-run-controls` now, the runs
-// family keeps the unprefixed name it was already declaring, and the module-shape rule
-// in `apps/desktop/AGENTS.md` is what keeps a second collision from landing unnoticed.
+// THE CONTROLS' CLASS HAS ONE OWNER. This family's block is
+// `meridian-workflow-run-controls`, so deferring this body cannot change how its
+// controls lay out by moving its sheet in the cascade, and the module-shape rule in
+// `apps/desktop/AGENTS.md` is what keeps a collision from landing unnoticed.
 //
 // THE FAMILY'S CHROME ENTERS HERE, beside the pane's own sheet one directory down. Every
 // workflows body is loader-backed now, so `workflows.css` reaches no session from the
-// family door and each chunk root names it instead — `agents/agent-console`'s precedent:
-// this root and the destination's are two independent first paints of one family's
-// chrome, and one of them relying on the other having run is a coupling with no name.
+// family door and each chunk root names it instead: this root and the destination's
+// are two independent first paints of one family's chrome, and one of them relying on
+// the other having run is a coupling with no name.
 //
 // Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 

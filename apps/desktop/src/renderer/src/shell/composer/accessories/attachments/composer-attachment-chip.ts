@@ -22,13 +22,13 @@ import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
-  SHIPPED_DEFAULT_ALLOWLIST,
   attachmentMediaTypeReadings,
   attachmentNameReading,
   exceedsAttachmentByteAllowance,
   isIngestStalled,
   type AttachmentIngestEntry,
 } from "../../../../console/repos/index.js";
+import { ATTACHMENT_BYTE_CAP_DEFAULT } from "../../../../console/core/index.js";
 import { formatByteQuantity, type ChipTone } from "../../../../console/primitives/index.js";
 
 /** What one chip renders, and which acts it offers. */
@@ -113,7 +113,7 @@ export function composerAttachmentChip(
     isStalled: isIngestStalled(entry, publishedAtMilliseconds),
     isPastByteAllowance: exceedsAttachmentByteAllowance(
       entry.declared.byteLength,
-      SHIPPED_DEFAULT_ALLOWLIST.maximumByteLength,
+      ATTACHMENT_BYTE_CAP_DEFAULT,
     ),
     refusal:
       entry.refusal === undefined

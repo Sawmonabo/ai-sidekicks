@@ -22,7 +22,6 @@ import {
   AGENT_REVIEWER,
   LEDGER_AGENTS,
   USER_YOU,
-  RUNTIME_NODE,
   RUN_ARCHITECT,
   RUN_ARCHITECT_CHILD,
   RUN_IMPLEMENTER,
@@ -251,16 +250,13 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   // own, and this beat is the only one in the session naming both it and its parent —
   // the taxonomy puts the orchestration linkage on the birth beat, and the ledger
   // summarizes the child onto exactly the row carrying it. Everything else the summary
-  // states is derived from the rows below. `producingNodeId` is stated because a child
-  // run's provenance has to name the node that produced it, and a summary that cannot
-  // supply one renders the absence instead — which no scenario here leaves unreached.
+  // states is derived from the rows below.
   lane.transition(RUN_ARCHITECT_CHILD, {
     atMs: 2_560,
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_ARCHITECT,
     parentRunId: RUN_ARCHITECT,
-    producingNodeId: RUNTIME_NODE,
   }),
 
   {

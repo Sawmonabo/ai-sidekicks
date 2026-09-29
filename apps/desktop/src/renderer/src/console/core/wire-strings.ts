@@ -16,9 +16,8 @@
 // standing claim here is that this module is where the rule lives.
 //
 // THE NUMBER READ IS THE SAME RULE ABOUT A DIFFERENT TYPE, and it is here for the
-// same reason and not a weaker one: `run-seating.ts` and `chip-models.ts` carried
-// byte-identical bodies under two names in two VIEW families, and siblings may not
-// import each other, so the only home either could share is this one.
+// same reason and not a weaker one: VIEW families may not import each other, so the
+// only home two of them can share is this one.
 //
 // IT LIVES IN `core/` BECAUSE ITS READERS ARE SIBLINGS. Three VIEW families need it
 // and view families never import each other, so the rule has to sit in the lowest
@@ -30,11 +29,10 @@
 // sites are subtracted from its endpoints so that `panes/index.ts` may name every
 // family.
 //
-// IT IS NOT `bridge/daemon/entity-body-reads.ts`, which is why it does not share that name.
-// Those two reads answer a REGISTERED wire shape and must narrow against the schema
-// the corpus registers, which is what puts them where the canonical shapes may be
-// imported. This one registers nothing and parses nothing — it is the string
-// predicate every such read still has to make first.
+// IT IS NOT A REGISTERED-SHAPE READ. A read that answers a REGISTERED wire shape must
+// narrow against the schema the corpus registers, which is what puts it where the
+// canonical shapes may be imported. This one registers nothing and parses nothing — it
+// is the string predicate every such read still has to make first.
 //
 // THE EMPTY STRING IS ABSENT, and that is the decision the name records. A wire
 // member present as `""` carries nothing a reader can render: every consumer renders

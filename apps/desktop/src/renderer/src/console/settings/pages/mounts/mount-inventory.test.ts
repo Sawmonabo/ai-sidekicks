@@ -216,18 +216,6 @@ describe("what refreshes the inventory", () => {
     read.dispose();
   });
 
-  it("re-reads when the mount's own attachment lifecycle moves", async () => {
-    const sessionStore = initialisedStore(SESSION_ID);
-    const { clock, read, listCallCount } = await startedRead(sessionStore);
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "repo.detached", 1));
-    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-    await settle();
-
-    expect(listCallCount()).toBe(2);
-    read.dispose();
-  });
-
   it("re-reads when a workspace lifecycle event changes which mounts this session names", async () => {
     const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
@@ -248,7 +236,7 @@ describe("what refreshes the inventory", () => {
 
     sessionStore.applyBatch([
       eventOfKind(sessionStore.sessionId, "run.completed", 1),
-      eventOfKind(sessionStore.sessionId, "repo.attached", 2),
+      eventOfKind(sessionStore.sessionId, "workspace.archived", 2),
       eventOfKind(sessionStore.sessionId, "workspace.ready", 3),
     ]);
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);

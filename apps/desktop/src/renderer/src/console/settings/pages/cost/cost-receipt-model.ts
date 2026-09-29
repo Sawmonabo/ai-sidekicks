@@ -3,25 +3,30 @@
 // The sum is computed and never shown: the renderer produces no cost figure, and the
 // verdict is a boolean per axis and nothing else.
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
+import type {
+  BillingMode,
+  EffectivePrincipal,
+  SessionCostReceiptAccountRow,
+  SessionCostReceiptRunRow,
+} from "@ai-sidekicks/contracts";
 
-/** The receipt itself: one session figure, decomposed three ways. */
-export type CostReceipt = Extract<
-  Awaited<ReturnType<ConsoleBridge["growth"]["orchestrationCostReceiptRead"]>>,
-  { readonly status: "served" }
->["value"];
-
-/** One run's line. Derived, so the row type has exactly one home. */
-export type CostReceiptRunRow = CostReceipt["runs"][number];
-
-/** One causing party's line. */
-export type CostReceiptCausedByRow = CostReceipt["causedBy"][number];
-
-/** One paying account's line. */
-export type CostReceiptAccountRow = CostReceipt["byAccount"][number];
-
-/** How an account is charged. Derived off the row so the closed set has one home. */
-export type CostReceiptBillingMode = CostReceiptAccountRow["billingMode"];
+/**
+ * The receipt itself: one session figure, decomposed three ways.
+ *
+ * Each row's identity members are the contract's; the cost figure beside them is the
+ * one member the partition rule reads.
+ *
+ * @consumedBy the inspector's cost section
+ */
+export interface CostReceipt {
+  readonly sessionTotal: { readonly committedSpendCents: number };
+  readonly runs: readonly (SessionCostReceiptRunRow & { readonly costCents: number })[];
+  readonly causedBy: readonly {
+    readonly party: EffectivePrincipal;
+    readonly costCents: number;
+  }[];
+  readonly byAccount: readonly (SessionCostReceiptAccountRow & { readonly costCents: number })[];
+}
 
 /**
  * The three axes, in display order.
@@ -38,6 +43,8 @@ export type ReceiptAxisId = (typeof RECEIPT_AXIS_IDS)[number];
 /**
  * Whether each axis accounts for the session figure. Total over the axis set, so a
  * fourth axis added upstream is a compile error here rather than an unchecked table.
+ *
+ * @consumedBy the inspector's cost section
  */
 export type ReceiptPartitionVerdicts = Readonly<Record<ReceiptAxisId, boolean>>;
 
@@ -48,6 +55,8 @@ export type ReceiptPartitionVerdicts = Readonly<Record<ReceiptAxisId, boolean>>;
  * partition that misses by one cent has genuinely dropped or double-counted a row,
  * and an epsilon here would be forgiving a defect rather than a rounding this fold
  * does not have. A non-integer or non-finite row cost fails the same way.
+ *
+ * @consumedBy the inspector's cost section
  */
 export function verifyReceiptPartitions(receipt: CostReceipt): ReceiptPartitionVerdicts {
   const sessionFigureCents = receipt.sessionTotal.committedSpendCents;
@@ -86,8 +95,10 @@ function accountsFor(
  *
  * TOTAL over the wire's own set, so a fourth mode landing upstream is a compile
  * error here rather than a figure that quietly loses its clause.
+ *
+ * @consumedBy the inspector's cost section
  */
-export const BILLING_MODE_CLAUSES: Readonly<Record<CostReceiptBillingMode, string>> = {
+export const BILLING_MODE_CLAUSES: Readonly<Record<BillingMode, string>> = {
   subscription: "Usage included in a plan. This figure is not currency owed.",
   metered: "Billed per unit against this account.",
   unknown: "This account is not labeled, so how it is charged was never established.",

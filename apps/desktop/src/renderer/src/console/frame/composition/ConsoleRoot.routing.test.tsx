@@ -80,12 +80,12 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
 
     expect(window.location.hash).toBe(WORKFLOWS_HASH);
     expect(currentRailDestination(mounted)).toBe("Workflows");
-    // The workflows family claims this slot, so the destination mounts the
-    // definitions browser rather than the reserved-slot absence. Asserted on the
-    // scope groups, which are the one thing only that surface renders: the frame
-    // would happily render an absence here again if the family stopped registering,
-    // and a check for "something is on screen" would not notice.
-    expect(mounted.container.querySelectorAll(".meridian-workflow__scope-heading")).toHaveLength(3);
+    // The workflows family claims this slot, so the destination mounts its own frame
+    // rather than the reserved-slot absence. Asserted on that frame, which only the
+    // workflows destination renders: the frame would happily render an absence here
+    // again if the family stopped registering, and a check for "something is on
+    // screen" would not notice.
+    expect(mounted.container.querySelectorAll(".meridian-workflows-destination")).toHaveLength(1);
     expect(mounted.container.querySelector(".meridian-surface-absence")).toBeNull();
   });
 });

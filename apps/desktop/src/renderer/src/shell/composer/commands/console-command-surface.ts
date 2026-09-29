@@ -32,7 +32,7 @@ import {
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
 } from "../../../console/palette/index.js";
-import { isAuxiliaryRoute, type ConsoleRoute } from "../../../console/routing/index.js";
+import type { ConsoleRoute } from "../../../console/routing/index.js";
 
 /**
  * What the registry answers when a caller asks it to run something.
@@ -102,6 +102,5 @@ function composerWhenContext(route: ConsoleRoute): ConsoleWhenClauseContext {
     onWorkspace: route.kind === "workspace",
     onWorkflows: false,
     onSettings: false,
-    inAuxiliaryWindow: isAuxiliaryRoute(route),
   };
 }

@@ -28,9 +28,8 @@
 // modules each read a different subset of the sets above through them.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types this module is
-// DELETED and `growth-signatures/workflows.ts` imports them from the contracts
-// instead — the obligation `workflow-projection.ts` states for the run plane, on the
-// same two slate rows' terms.
+// DELETED and its importers take them from the contracts package instead — the
+// obligation `workflow-projection.ts` states for the run plane.
 
 import type { WorkflowDefinitionScope } from "./workflow-projection.js";
 
@@ -233,8 +232,7 @@ export interface WorkflowVersionBody {
  *
  * `parentContentHash` is copy-on-write provenance and is NOT part of the hashed body,
  * so a branched definition and a from-scratch definition with identical bodies hash
- * alike. It travels on the write and on no read — see the `workflowParentContentHash`
- * prerequisite on this operation's slate row.
+ * alike. It travels on the write and on no read.
  */
 export interface WorkflowDefinitionCreateBody {
   readonly sessionId: string;

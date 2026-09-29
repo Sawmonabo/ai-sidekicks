@@ -37,8 +37,8 @@ export function ModeRowView(props: ModeRowViewProps): React.JSX.Element {
         }}
       />
       <label className="meridian-mode-picker__label" htmlFor={inputId}>
-        {/* The mode is a wire string — `"ephemeral clone"` carries its space, which
-            is the wire form and not a typo to be normalized (`packages/contracts/src/repo.ts`). */}
+        {/* The mode is a wire string, shown verbatim rather than as a label of the
+            console's own (`packages/contracts/src/repo.ts`). */}
         <WireFigure value={row.mode} />
         {props.isCurrent ? <span className="meridian-mode-picker__tag">bound now</span> : null}
         {props.isDefault ? (

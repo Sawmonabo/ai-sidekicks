@@ -58,7 +58,7 @@ export function heldCancelCalls(): HeldCancel {
 }
 
 /** What a rejecting call fails with, so a case can tell it from any other failure. */
-export const CANCEL_FAILURE = new Error("the cancel call failed");
+export const CANCEL_FAILURE: Error = new Error("the cancel call failed");
 
 /** Calls whose cancel rejects, and what they were asked. */
 export interface RejectingCancel {

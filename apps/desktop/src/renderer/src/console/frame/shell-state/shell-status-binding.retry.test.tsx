@@ -2,12 +2,12 @@
 // right: how many runtimes one gesture starts, and that a failed start leaves the
 // control working.
 //
-// Nothing here renders a disabled state: the retry sits on a banner whose own presence
-// is the affordance, so there is no flag to read between a double-click and two
-// concurrent starts of the same runtime. The supervisor's next report is what
-// eventually says `starting`, and it arrives several frames after the press — so the
-// double-press case puts the second press AFTER a macrotask boundary rather than inside
-// the first press's own tick, which is the harder claim and the one a person makes.
+// Nothing here renders a disabled state, so there is no flag to read between a
+// double-click and two concurrent starts of the same runtime. The supervisor's next
+// report is what eventually says `starting`, and it arrives several frames after the
+// press — so the double-press case puts the second press AFTER a macrotask boundary
+// rather than inside the first press's own tick, which is the harder claim and the one
+// a person makes.
 //
 // AND THE SLOT HAS TO COME BACK ON EVERY WAY THE START CAN END. A key released only on
 // the answered arm leaves the control dead for the life of the window the first time

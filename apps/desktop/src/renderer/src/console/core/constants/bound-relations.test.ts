@@ -18,13 +18,17 @@
 // module it names would be the second home for a claim that this directory exists
 // to keep singular, so the cases live here and reach each declaring module by name.
 
-import { MAX_MESSAGE_BYTES, TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts";
+import {
+  ATTACHMENT_INGEST_CHUNK_MAX_BYTES,
+  MAX_MESSAGE_BYTES,
+  TIMELINE_READ_LIMIT_MAX,
+  WORKFLOW_CANCEL_REASON_BYTE_CAP,
+} from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-caps.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
-  ATTACHMENT_CHUNK_BYTE_CAP,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   BASE64_ENCODE_STRIDE_BYTES,
   INGEST_STALL_DISCLOSURE_MS,
@@ -63,11 +67,7 @@ import {
   PRE_INITIALISATION_BUFFER_CAP,
 } from "./session-store-caps.js";
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
-import {
-  PHASE_GRAPH_MAX_ZOOM,
-  PHASE_GRAPH_MIN_ZOOM,
-  WORKFLOW_CANCEL_REASON_BYTE_CAP,
-} from "./workflows-caps.js";
+import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "./workflows-caps.js";
 
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
 const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
@@ -83,7 +83,7 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["LIVE_ANNOUNCEMENT_QUEUE_CAP", LIVE_ANNOUNCEMENT_QUEUE_CAP],
   ["ATTACHMENT_BYTE_CAP_DEFAULT", ATTACHMENT_BYTE_CAP_DEFAULT],
   ["ATTACHMENTS_PER_CARRIER_CAP_DEFAULT", ATTACHMENTS_PER_CARRIER_CAP_DEFAULT],
-  ["ATTACHMENT_CHUNK_BYTE_CAP", ATTACHMENT_CHUNK_BYTE_CAP],
+  ["ATTACHMENT_INGEST_CHUNK_MAX_BYTES", ATTACHMENT_INGEST_CHUNK_MAX_BYTES],
   ["INGEST_STREAM_LIFETIME_CEILING_MS", INGEST_STREAM_LIFETIME_CEILING_MS],
   ["INGEST_STALL_DISCLOSURE_MS", INGEST_STALL_DISCLOSURE_MS],
   ["BASE64_ENCODE_STRIDE_BYTES", BASE64_ENCODE_STRIDE_BYTES],
@@ -274,7 +274,7 @@ describe("console bounds — the attachment bounds against their wire sources", 
     // base64 and expands by 4/3, and the framer refuses a declared length over
     // `MAX_MESSAGE_BYTES` before it buffers a body. The relation is what says the
     // chunk cap is right, rather than 512 KiB happening to be smaller than 1 MB.
-    expect(base64Length(ATTACHMENT_CHUNK_BYTE_CAP)).toBeLessThan(MAX_MESSAGE_BYTES);
+    expect(base64Length(ATTACHMENT_INGEST_CHUNK_MAX_BYTES)).toBeLessThan(MAX_MESSAGE_BYTES);
   });
 
   it("negative control: the expansion is what the ceiling binds, not the raw length", () => {
@@ -288,7 +288,7 @@ describe("console bounds — the attachment bounds against their wire sources", 
   it("keeps a chunk no larger than the whole payload a stream may carry", () => {
     // A chunk cap above the payload cap would describe a chunk no admissible stream
     // could ever fill, and the bounded slice would stop bounding anything.
-    expect(ATTACHMENT_CHUNK_BYTE_CAP).toBeLessThanOrEqual(ATTACHMENT_BYTE_CAP_DEFAULT);
+    expect(ATTACHMENT_INGEST_CHUNK_MAX_BYTES).toBeLessThanOrEqual(ATTACHMENT_BYTE_CAP_DEFAULT);
   });
 
   it("discloses the stream ceiling well before the stream reaches it", () => {

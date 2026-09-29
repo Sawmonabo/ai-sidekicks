@@ -1,14 +1,8 @@
 // One session create at a time, and what a second press meets while one is running.
 //
-// THE PRESS COUNT WAS THE WHOLE MECHANISM AND IT COULD NOT REFUSE. The sessions
-// destination mounts the absorbed probe keyed on how many times Start has been
-// pressed, and the probe creates a session from its own mount effect — so a second
-// press while the first create was still in flight bumped the key, React unmounted
-// the first probe, its cleanup set the `cancelled` flag that suppresses `onCreated`,
-// and a durable session was created that no surface ever learned the name of: not
-// opened, not recorded, not navigated to, and absent from the all-sessions list until
-// the window came down. Meanwhile a SECOND session was created beside it. One press
-// too many cost a person two sessions and gave them one.
+// A SECOND PRESS HAS TO BE REFUSED. A press while the first create is still in flight
+// would put a second durable session beside the first: one press too many would cost
+// a person two sessions and give them one.
 //
 // SO THE ACT TAKES A KEY, AND THE KEY IS THE CONSOLE'S ONE REGISTER.
 // `store/read/generation-latch.ts` owns it. A boolean here would be the copy that drifts,
@@ -22,11 +16,9 @@
 // fact with two audiences and they move together here rather than in a surface.
 //
 // THE SLOT COMES BACK ON EVERY SETTLEMENT, CREATED OR REFUSED. A create that refused
-// produced no session and still ended the act, so the probe's `onSettled` is what
-// releases — released on the created arm alone, a single refusal would leave Start
-// disabled for the life of the destination with the reason nowhere on screen, which
-// is the failure `settings/pages/daemon/daemon-controls.ts` records having shipped
-// once already.
+// produced no session and still ended the act, so every settlement releases —
+// released on the created arm alone, a single refusal would leave Start disabled for
+// the life of the destination with the reason nowhere on screen.
 //
 // AND WHERE NOTHING IS DISPATCHED, NOTHING IS HELD. When the caller's mount puts no
 // call there is no act to single-flight and no settlement will ever arrive; a slot
@@ -57,7 +49,7 @@ export interface SessionStartFlight {
    * durable session nobody re-confirmed.
    */
   readonly admit: () => boolean;
-  /** Give the slot back. Told on every settlement the probe reports, both arms. */
+  /** Give the slot back. Told on every settlement, both arms. */
   readonly settle: () => void;
 }
 
@@ -71,10 +63,10 @@ export interface SessionStartFlight {
  */
 export function useSessionStartFlight(subject: object, putsTheCall: boolean): SessionStartFlight {
   const latch = useGenerationLatch();
-  // The taken key, held so the settlement that arrives from the probe can give the
-  // same one back. A cell rather than an async closure's local — `useDaemonControl`
-  // awaits its own call and needs neither — because the settlement here is reported by
-  // a child component, one commit or many after the press that took the key.
+  // The taken key, held so the settlement that arrives later can give the same one
+  // back. A cell rather than an async closure's local — `useDaemonControl` awaits its
+  // own call and needs neither — because the settlement here is reported by the
+  // caller, one commit or many after the press that took the key.
   const outstandingClaim = useRef<GenerationClaim | undefined>(undefined);
   const [isOutstanding, setIsOutstanding] = useState(false);
 

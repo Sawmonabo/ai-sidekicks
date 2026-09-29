@@ -2,10 +2,9 @@
 //
 // The defect this file exists for is the one a caller worked around rather than
 // reported: `normalizeWireRejection` rebuilds, the rebuild knew three members, and a
-// growth refusal thrown as a `ConsoleRefusalError` came out the other side without the
-// ledger that says which operation was called and who owes the wire — so the seat that
-// consumed it kept two arms handing the candidate back BY REFERENCE, which is the one
-// thing the rebuild exists to prevent.
+// refusal thrown as a `ConsoleRefusalError` came out the other side without the members
+// its producer widened it by — so a caller kept arms handing the candidate back BY
+// REFERENCE, which is the one thing the rebuild exists to prevent.
 //
 // Two claims, and both are needed. What is registered survives a rebuild, including
 // off a candidate whose members are readable exactly once. What is NOT registered does
@@ -25,18 +24,14 @@ import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
 /**
- * The growth port's refusal, as that port builds one.
- *
- * Written as data rather than imported: `bridge/growth-port/growth-port.ts` sits above this family
- * and `core/` names none of it. What is asserted is the SHAPE that port produces, and
- * the registry's own doc names it as the producer of these three members.
+ * A refusal widened by both registered members, plus a discriminant that is not one.
  */
-function growthRefusal(): ConsoleRefusal & Record<string, unknown> {
+function widenedRefusal(): ConsoleRefusal & Record<string, unknown> {
   return {
-    ...refuse("growth-port", "wire-unregistered", "Not checked — that wire is not registered."),
+    ...refuse("sessions", "session.goal_delivery_failed", "Not delivered to every agent."),
     status: "unavailable",
-    operationId: "sessionSearch",
-    owningDocument: "session ledger",
+    retry: { afterSeconds: 30 },
+    failedBindingIds: ["binding-a"],
   };
 }
 
@@ -46,16 +41,14 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     // to a closed set rather than a silent change to what survives a rebuild.
     expect([...CONSOLE_REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual([
       "failedBindingIds",
-      "operationId",
-      "owningDocument",
       "retry",
     ]);
   });
 
   it("reads every registered member a candidate carries", () => {
-    expect(readRefusalExtensions(growthRefusal())).toStrictEqual({
-      operationId: "sessionSearch",
-      owningDocument: "session ledger",
+    expect(readRefusalExtensions(widenedRefusal())).toStrictEqual({
+      retry: { afterSeconds: 30 },
+      failedBindingIds: ["binding-a"],
     });
   });
 
@@ -64,8 +57,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     // a renderer that will format it.
     expect(
       readRefusalExtensions({
-        operationId: 7,
-        owningDocument: { toString: () => "gotcha" },
+        failedBindingIds: { toString: () => "gotcha" },
         retry: { afterSeconds: "soon" },
       }),
     ).toStrictEqual({});
@@ -112,35 +104,34 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
 });
 
 describe("refusal extensions — a rebuild carries the registered set and nothing else", () => {
-  it("carries a growth refusal's ledger through the normalizer", () => {
+  it("carries a refusal's registered members through the normalizer", () => {
     // The defect in terms: this used to answer the three core members and drop the
-    // rest, so a surface rendering the refusal could not say who owes the wire.
-    const normalized = normalizeWireRejection("sessions", growthRefusal());
+    // rest, so a surface rendering the refusal could not name the failed bindings.
+    const normalized = normalizeWireRejection("sessions", widenedRefusal());
 
-    expect(normalized.operationId).toBe("sessionSearch");
-    expect(normalized.owningDocument).toBe("session ledger");
-    expect(normalized.code).toBe("wire-unregistered");
-    expect(normalized.origin).toBe("growth-port");
+    expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);
+    expect(normalized.retry).toStrictEqual({ afterSeconds: 30 });
+    expect(normalized.code).toBe("session.goal_delivery_failed");
+    expect(normalized.origin).toBe("sessions");
   });
 
   it("carries it through an error the refusal was thrown as, too", () => {
-    // The path the seat actually takes: a growth outcome raised as a throw so a read
-    // body can settle into its failure arm.
-    const carried = normalizeWireRejection("sessions", new ConsoleRefusalError(growthRefusal()));
+    // A refusal raised as a throw so a read body can settle into its failure arm.
+    const carried = normalizeWireRejection("sessions", new ConsoleRefusalError(widenedRefusal()));
 
-    expect(carried.operationId).toBe("sessionSearch");
-    expect(carried.owningDocument).toBe("session ledger");
+    expect(carried.failedBindingIds).toStrictEqual(["binding-a"]);
+    expect(carried.retry).toStrictEqual({ afterSeconds: 30 });
   });
 
   it("drops the union discriminant, so a rebuilt refusal never claims to be an arm", () => {
     // `status` is deliberately unregistered: carried off an unvalidated candidate it
     // would let a rejection spelling `status: "served"` answer as the arm it is not,
     // and the next reader would go looking for the value that arm carries.
-    const normalized = normalizeWireRejection("sessions", growthRefusal());
+    const normalized = normalizeWireRejection("sessions", widenedRefusal());
 
     expect(Object.hasOwn(normalized, "status")).toBe(false);
-    // Both paths, because the ledger travels on both and so would the discriminant.
-    const carried = normalizeWireRejection("repos", new ConsoleRefusalError(growthRefusal()));
+    // Both paths, because the extensions travel on both and so would the discriminant.
+    const carried = normalizeWireRejection("repos", new ConsoleRefusalError(widenedRefusal()));
     expect(Object.hasOwn(carried, "status")).toBe(false);
   });
 
@@ -151,10 +142,10 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
     const normalized = normalizeWireRejection("repos", {
       ...refuse("repos", "repo.locked", "Another node holds it."),
       authorizationHeader: "Bearer a-token",
-      operationId: "sessionSearch",
+      failedBindingIds: ["binding-a"],
     });
 
-    expect(normalized.operationId).toBe("sessionSearch");
+    expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);
     expect(Object.hasOwn(normalized, "authorizationHeader")).toBe(false);
   });
 
@@ -163,26 +154,26 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
     // candidate turns into. Every member here is read on the classifying pass and on
     // no later one, so the answer is a plain object of strings already taken.
     const readOnce = readableOnce({
-      code: ["wire-unregistered"],
-      detail: ["Not checked — that wire is not registered."],
-      origin: ["growth-port"],
-      operationId: ["sessionSearch"],
-      owningDocument: ["session ledger"],
+      code: ["session.goal_delivery_failed"],
+      detail: ["Not delivered to every agent."],
+      origin: ["sessions"],
+      failedBindingIds: [["binding-a"]],
     });
 
     const normalized = normalizeWireRejection("sessions", readOnce);
 
-    expect(normalized.operationId).toBe("sessionSearch");
-    expect(normalized.owningDocument).toBe("session ledger");
+    expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);
     // And the answer survives being read again, which the candidate would not.
-    expect(normalized.operationId).toBe("sessionSearch");
+    expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);
   });
 
   it("negative control: the once-readable fixture really does throw on a second read", () => {
     // Without this the case above would be satisfied by a fixture that answered every
     // reading, and would prove nothing about how many readings were taken.
-    const readOnce = readableOnce({ operationId: ["sessionSearch"] }) as { operationId: string };
-    expect(readOnce.operationId).toBe("sessionSearch");
-    expect(() => readOnce.operationId).toThrow();
+    const readOnce = readableOnce({ failedBindingIds: [["binding-a"]] }) as {
+      failedBindingIds: readonly string[];
+    };
+    expect(readOnce.failedBindingIds).toStrictEqual(["binding-a"]);
+    expect(() => readOnce.failedBindingIds).toThrow();
   });
 });

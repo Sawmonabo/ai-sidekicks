@@ -15,10 +15,11 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type {
-  GrowthMcpInventoryEntry,
-  GrowthMcpLiveApplicationResult,
-  GrowthMcpServerLegStatus,
-} from "../../../../bridge/index.js";
+  McpLiveApplicationResult,
+  McpServerInventoryEntry,
+  McpServerLegStatus,
+  SessionId,
+} from "@ai-sidekicks/contracts";
 import {
   duplicateKeyReports,
   reportsWhileReactRan,
@@ -32,17 +33,17 @@ afterEach(() => {
   cleanup();
 });
 
-const FIRST_SESSION = "019b7892-1a00-7c31-8110-cca0117a0500";
-const SECOND_SESSION = "019b7892-1a00-7c31-8110-cca0117a0501";
+const FIRST_SESSION = "019b7892-1a00-7c31-8110-cca0117a0500" as SessionId;
+const SECOND_SESSION = "019b7892-1a00-7c31-8110-cca0117a0501" as SessionId;
 /** One handle, reported by both sessions — which is what the pair key has to survive. */
 const SHARED_BINDING_ID = "leg-filesystem";
 
-const LEGS_SHARING_A_HANDLE: readonly GrowthMcpServerLegStatus[] = [
+const LEGS_SHARING_A_HANDLE: readonly McpServerLegStatus[] = [
   { sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID, status: "connected" },
   { sessionId: SECOND_SESSION, bindingId: SHARED_BINDING_ID, status: "failed" },
 ];
 
-const LIVE_RESULTS_SHARING_A_HANDLE: readonly GrowthMcpLiveApplicationResult[] = [
+const LIVE_RESULTS_SHARING_A_HANDLE: readonly McpLiveApplicationResult[] = [
   { sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID, outcome: "applied" },
   {
     sessionId: SECOND_SESSION,
@@ -52,7 +53,7 @@ const LIVE_RESULTS_SHARING_A_HANDLE: readonly GrowthMcpLiveApplicationResult[] =
   },
 ];
 
-const SERVER_ROW: GrowthMcpInventoryEntry = {
+const SERVER_ROW: McpServerInventoryEntry = {
   provider: "claude",
   scope: "user",
   serverName: "filesystem",
@@ -71,14 +72,14 @@ const SETTLED_OUTCOME: McpMutationOutcome = {
   result: {
     server: SERVER_ROW,
     applied: "live_reconcile",
-    liveResults: LIVE_RESULTS_SHARING_A_HANDLE,
+    liveResults: [...LIVE_RESULTS_SHARING_A_HANDLE],
   },
 };
 
 describe("mcpLiveLegKeyOf", () => {
   it("keys two sessions' legs of one binding apart", () => {
-    expect(mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[0] as GrowthMcpServerLegStatus)).not.toBe(
-      mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[1] as GrowthMcpServerLegStatus),
+    expect(mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[0] as McpServerLegStatus)).not.toBe(
+      mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[1] as McpServerLegStatus),
     );
   });
 

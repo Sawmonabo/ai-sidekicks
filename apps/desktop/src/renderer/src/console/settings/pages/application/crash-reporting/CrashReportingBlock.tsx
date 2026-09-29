@@ -2,7 +2,11 @@
 
 import type { ReactNode } from "react";
 
-/** The crash-reporting block: a section carrying only its heading. */
+/**
+ * The crash-reporting block: a section carrying only its heading.
+ *
+ * @consumedBy the General settings page's crash-reporting block
+ */
 export function CrashReportingBlock(): ReactNode {
   return (
     <section className="meridian-settings-page__block" aria-label="Crash reporting">

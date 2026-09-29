@@ -35,6 +35,7 @@ export interface RefusalRecoveryProps {
   readonly children?: React.ReactNode;
 }
 
+/** @consumedBy a refusal that offers the person a way to recover */
 export function RefusalRecovery(props: RefusalRecoveryProps): React.JSX.Element {
   const { recovery, children } = props;
   return (

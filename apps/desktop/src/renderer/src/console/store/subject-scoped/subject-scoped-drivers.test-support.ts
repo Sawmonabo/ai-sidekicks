@@ -8,9 +8,7 @@
 //
 // ONE HOME FOR BOTH, because they are one role — putting a holder into a state a
 // claim is about — and because a test file may not import another test file: that
-// would make one suite's cases a dependency of another's. The shared walk under
-// `test/console/console-source-modules.ts` excludes `.test-support.*` from the
-// source-text gates exactly as it excludes tests.
+// would make one suite's cases a dependency of another's.
 //
 // THE ABANDONED PASS IS DRIVEN BY A TRANSITION THAT SUSPENDS AND IS NEVER RESOLVED.
 // A render-phase state update is the wrong driver for it: React answers that one by

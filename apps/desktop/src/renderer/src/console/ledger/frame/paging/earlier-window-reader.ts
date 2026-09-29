@@ -165,9 +165,8 @@ export class LedgerEarlierWindowReader {
           // BOTH BRANDS ARE FORWARDED, NEVER MINTED. `SessionId` and `EventCursor` are
           // compile-time markers over opaque wire strings, and both of these values
           // came off the wire: the id is the one the store was opened under, and the
-          // cursor is whatever the daemon last issued. `repos/repo-reads.ts` re-narrows
-          // the first the same way and for the same reason, and the two casts stay
-          // local because a view family may import no other view family.
+          // cursor is whatever the daemon last issued. The two casts stay local
+          // because a view family may import no other view family.
           sessionId: sessionStore.sessionId as SessionId,
           beforeCursor: beforeCursor as EventCursor,
           limit: LEDGER_EARLIER_PAGE_ROWS,

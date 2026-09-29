@@ -38,6 +38,8 @@ import {
   CORE,
   CROSS_PROCESS_SHARED,
   LAYER_FAMILIES,
+  OWNER_SLOT_SHELL,
+  OWNER_SLOT_SHELL_STYLESHEET,
   PALETTE,
   PANE_BOARD_SUBDIRECTORY,
   PRIMITIVES,
@@ -219,7 +221,7 @@ export default {
       comment:
         "One VIEW family imported another. View families are siblings, not a ladder: the rule " +
         "above only forbids a LAYER family reaching up into a view family, so without this one " +
-        "`channels/` → `repos/` stayed green and the six concurrent family branches could " +
+        "`workflows/` → `repos/` stayed green and the six concurrent family branches could " +
         "grow edges into each other that no ordering could ever untangle. Hoist the shared " +
         "contract into `seats/` — that is what `seats/` is for — or into the lowest layer " +
         "family that needs it. The two composition sites are the only files that name more " +
@@ -314,7 +316,7 @@ export default {
         "only remedy open there, and the substrate has already taken it for the " +
         "command registry, the surface-scale absence and the error boundary. A " +
         "sub-module " +
-        "door (`bridge/growth-values/`, `bridge/scenario/`) is deliberately NOT a " +
+        "door (`bridge/daemon/`, `bridge/scenario/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
         "one. The pane board is subtracted at the TO end only. It is a legal target " +
@@ -382,7 +384,7 @@ export default {
       name: "console-no-barrel-chain",
       comment:
         "A barrel re-exported from another barrel. A family door publishes its own family's " +
-        "modules and a sub-module door (`bridge/growth-values/`, `bridge/scenario/`) publishes " +
+        "modules and a sub-module door (`bridge/daemon/`, `bridge/scenario/`) publishes " +
         "its own directory's; forwarding a symbol through a second `index.ts` makes its home a " +
         "matter of following two hops, and it lets a family door publish a name it never " +
         "declared. Re-export from the module that DECLARES the symbol. This matches only the " +
@@ -392,6 +394,38 @@ export default {
       severity: "error",
       from: { path: CONSOLE_BARRELS },
       to: { path: CONSOLE_BARRELS, dependencyTypes: ["export"] },
+    },
+    {
+      name: "shell-stylesheet-outside-its-shell",
+      comment:
+        "A module inside one owner-slot shell imported another shell's stylesheet. A shell " +
+        "is the fixture stand-in for a settings body another surface owns, and a release " +
+        "build removes it by folding its `__SIDEKICKS_CONSOLE_FIXTURES__` ternary. That fold " +
+        "removes JavaScript and says nothing about a stylesheet: a sheet ships its rules " +
+        "whenever a module the release build keeps imports it, and no source map lists a " +
+        "stylesheet, so the release fixture gate cannot see one. Each shell's sheet enters " +
+        "through that shell's own door so that it ships exactly when that shell does; a " +
+        "sheet imported from another shell ships whenever the importer does. The importer's " +
+        "own shell is captured and subtracted, so this is one rule over every shell.",
+      severity: "error",
+      from: { path: OWNER_SLOT_SHELL },
+      to: {
+        path: OWNER_SLOT_SHELL_STYLESHEET,
+        pathNot: `${CONSOLE}/settings/pages/$1/shell/`,
+      },
+    },
+    {
+      name: "shell-stylesheet-from-outside-any-shell",
+      comment:
+        "A module outside every owner-slot shell imported a shell's stylesheet. The settings " +
+        "chunk root is not gated, so a sheet imported from there or from any other kept " +
+        "module ships its rules in a release renderer that contains none of the shell they " +
+        "style — and no source map lists a stylesheet, so the release fixture gate cannot " +
+        "see it. Import the shell's door instead, which is what carries the sheet in a " +
+        "fixture build and leaves with the shell in a release one.",
+      severity: "error",
+      from: { pathNot: OWNER_SLOT_SHELL },
+      to: { path: OWNER_SLOT_SHELL_STYLESHEET },
     },
   ],
   options: {

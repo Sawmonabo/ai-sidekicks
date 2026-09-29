@@ -97,6 +97,8 @@ const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
  * The identity is compared as a string rather than interpolated into a selector: an
  * approval id is a wire value, and a value that reaches a query as syntax is a value
  * that can be malformed there.
+ *
+ * @consumedBy the approval arrival announcement
  */
 export function findApprovalCardAction(
   root: ParentNode,

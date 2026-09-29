@@ -58,9 +58,6 @@ import {
   type PrepareFormState,
 } from "./root-act-model.js";
 
-/** The one non-writable mode, which materializes no execution root at all. */
-const READ_ONLY_EXECUTION_MODE = "read-only" satisfies ExecutionMode;
-
 /** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {
   readonly bridge: ConsoleBridge;
@@ -79,7 +76,7 @@ export interface PrepareExecutionRootProps {
 }
 
 /** The collapsed form that puts an execution root on disk for one workspace. */
-export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JSX.Element | null {
+export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JSX.Element {
   const { reading, controllerIdentity, checkReuse, prepare, clearAct } = usePrepareController(
     props.bridge,
     {
@@ -127,14 +124,6 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     }
     prepare(form.branchName, prepareAcknowledgement(form, verdict));
   }, [form, formVerdict, prepare, verdict]);
-
-  if (props.executionMode === READ_ONLY_EXECUTION_MODE) {
-    // NOTHING AT ALL, AND NOT A CLOSED CONTROL. A workspace in this mode materializes
-    // no execution root, so there is no act here that could be offered or refused — and
-    // a grayed control would report a capability this mode does not have as one it is
-    // merely being denied.
-    return null;
-  }
 
   return (
     <details className="meridian-prepare-root">
@@ -222,8 +211,6 @@ function summaryLineFor(reading: PrepareReading): string {
       return "name a branch";
     case "reading":
       return "checking for a live checkout";
-    case "refused":
-      return "";
     case "read":
       return reading.prerequisite.value.kind;
   }
@@ -238,8 +225,6 @@ function summaryLineFor(reading: PrepareReading): string {
  */
 function renderReuse(reading: PrepareReading): React.JSX.Element | null {
   switch (reading.prerequisite.status) {
-    case "refused":
-      return null;
     case "not-read":
       return <Nothing kind="not-checked" title="No branch named yet." />;
     case "reading":
@@ -274,7 +259,6 @@ function renderSettlement(
 ): React.JSX.Element | null {
   switch (reading.act.status) {
     case "idle":
-    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Preparing." />;

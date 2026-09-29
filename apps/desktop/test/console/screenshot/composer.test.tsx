@@ -26,9 +26,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountComposerChannelDefault,
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
+  mountComposerSessionDefault,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
 import { captureSettled } from "./settled-capture.js";
@@ -47,7 +47,7 @@ const PINNED_SURFACES: readonly {
   readonly captureName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { captureName: "composer-channel-default", mount: mountComposerChannelDefault },
+  { captureName: "composer-session-default", mount: mountComposerSessionDefault },
   { captureName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
   { captureName: "composer-provider-bound-waiting", mount: mountComposerProviderBoundWaiting },
 ];

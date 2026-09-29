@@ -159,10 +159,8 @@ describe("reflow — the console at 320 CSS px", () => {
           touchedAtIso: undefined,
           userIds: [],
           attentionSeverity: undefined,
-          tier: "front",
         }}
         onOpen={() => undefined}
-        onSetTier={() => undefined}
       />,
     );
 

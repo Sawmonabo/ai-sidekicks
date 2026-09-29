@@ -1,14 +1,14 @@
-// The two axes a mount card reads on, and the capability axis beside them.
+// The two axes a mount card reads on.
 //
 // Mount lifecycle and mount health never collapse into one chip. A `detached` mount and an
 // `unreachable` mount are different facts — the first is a row that has finished its life,
 // the second is a row nobody can currently ask a question of — and a console that rendered
 // one chip for both would be asserting a fact the daemon never sent.
 //
-// So there are three tables here, one per axis, and each is TOTAL over its wire
-// union by construction. A member added to `RepoMountState`, to
-// `RepoMountHealth["status"]`, or to `VcsType` in `packages/contracts` fails to
-// compile here before it can reach a card that renders a nameless chip.
+// So there are two tables here, one per axis, and each is TOTAL over its wire union by
+// construction. A member added to `RepoMountState` or to `RepoMountHealth["status"]` in
+// `packages/contracts` fails to compile here before it can reach a card that renders a
+// nameless chip.
 //
 // HEALTH IS READ, NEVER COMPUTED. Every verdict below is keyed on a status string
 // the daemon sent. The console does not probe a path, does not soften
@@ -31,7 +31,6 @@ import type {
   ExecutionMode,
   RepoMountHealth,
   RepoMountReadResponse,
-  VcsType,
 } from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
 import type { ChipTone } from "../../primitives/index.js";
@@ -108,23 +107,6 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisReading>> = {
   },
 };
 
-/** The capability axis — what a mount's version-control kind admits. */
-const VCS_READINGS: Readonly<Record<VcsType, MountAxisReading>> = {
-  git: {
-    tone: "neutral",
-    label: "git",
-    sentence: "A git checkout: every execution mode the daemon offers is on the table.",
-  },
-  none: {
-    tone: "attention",
-    label: "none",
-    // A non-git path binds as a plain directory with git-specific features disabled,
-    // and such a workspace stays usable without pretending to support them.
-    sentence:
-      "A plain directory, bound with git-specific features off. It stays usable; the git-only modes are unavailable rather than hidden.",
-  },
-};
-
 /**
  * Whether a card offers its bind controls, and what it says when it does not.
  *
@@ -151,11 +133,6 @@ export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
 /** How this mount's lifecycle position reads. */
 export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
   return LIFECYCLE_READINGS[state];
-}
-
-/** How this mount's version-control kind reads. */
-export function mountVcsReading(vcsType: VcsType): MountAxisReading {
-  return VCS_READINGS[vcsType];
 }
 
 const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };

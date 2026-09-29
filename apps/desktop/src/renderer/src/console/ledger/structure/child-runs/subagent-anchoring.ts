@@ -151,12 +151,12 @@ export function deriveSubagentAnchors(
  * the contract keys one, and admitting it under a fabricated provider would merge two
  * providers' subagents that happen to share an id.
  *
- * `runId` comes off the arm rather than the payload — three of the four `TimelineRow`
+ * `runId` comes off the arm rather than the payload — two of the three `TimelineRow`
  * arms carry it structurally, and the `general` arm structurally cannot, so a
  * subagent row that lost its run attribution is not re-attributed here.
  */
 export function subagentIdentityOf(row: TimelineRow): SubagentIdentity | undefined {
-  if (row.kind === "general" || row.kind === "legacy_stub") {
+  if (row.kind === "general") {
     return undefined;
   }
   const payload = projectedPayload(row);

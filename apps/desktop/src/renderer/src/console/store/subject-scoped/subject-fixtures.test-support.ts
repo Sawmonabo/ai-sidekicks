@@ -9,8 +9,7 @@
 //
 // A test-support module rather than a constant in one suite that the others import:
 // a test file importing another test file makes one suite's cases a dependency of
-// another's, and the shared walk under `test/console/console-source-modules.ts`
-// excludes `.test-support.*` from the source-text gates exactly as it excludes tests.
+// another's.
 
 /** A subject, named so a failure message can say which one a value belonged to. */
 export interface NamedFixtureSubject {

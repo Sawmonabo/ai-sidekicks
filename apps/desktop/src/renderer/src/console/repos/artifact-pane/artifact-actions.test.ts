@@ -9,7 +9,7 @@
 
 import { type Mock, describe, expect, it, vi } from "vitest";
 
-import type { GrowthArtifactRead } from "../../bridge/index.js";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -31,13 +31,13 @@ import {
  */
 function readerWithHeldManifestReads(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
-  readonly artifactRead: Mock<() => Promise<GrowthArtifactRead>>;
-  readonly releaseNthRead: (index: number, answer: GrowthArtifactRead) => void;
+  readonly artifactRead: Mock<() => Promise<ArtifactReadResponse>>;
+  readonly releaseNthRead: (index: number, answer: ArtifactReadResponse) => void;
 } {
-  const parked: ((answer: GrowthArtifactRead) => void)[] = [];
+  const parked: ((answer: ArtifactReadResponse) => void)[] = [];
   const artifactRead = vi.fn(
     async () =>
-      new Promise<GrowthArtifactRead>((resolve) => {
+      new Promise<ArtifactReadResponse>((resolve) => {
         parked.push(resolve);
       }),
   );
@@ -57,7 +57,7 @@ function readerWithHeldManifestReads(clock: ManualClock): {
 }
 
 /** One served manifest re-read, carrying a digest a case can tell from its sibling. */
-function servedManifest(digest: string): GrowthArtifactRead {
+function servedManifest(digest: string): ArtifactReadResponse {
   return { manifest: { ...SERVED_SUMMARY, digest }, payloadHandle: "sha256:2b4c" };
 }
 
@@ -76,18 +76,14 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     reader.start();
     await readThrough(clock);
 
-    const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    const firstPress = reader.readManifest(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
-    await expect(reader.readManifest(SERVED_SUMMARY.artifactId)).rejects.toThrow(
-      "already being read",
-    );
+    await expect(reader.readManifest(SERVED_SUMMARY.id)).rejects.toThrow("already being read");
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
     // The row is named on the reading while its read is outstanding, which is what holds
     // the control that sent it.
-    expect(reader.snapshot.manifestReadInFlightArtifactIds.has(SERVED_SUMMARY.artifactId)).toBe(
-      true,
-    );
+    expect(reader.snapshot.manifestReadInFlightArtifactIds.has(SERVED_SUMMARY.id)).toBe(true);
 
     releaseNthRead(0, servedManifest("sha256:first"));
     expect((await firstPress).status).toBe("settled");
@@ -102,7 +98,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     reader.start();
     await readThrough(clock);
 
-    const press = reader.readManifest(SERVED_SUMMARY.artifactId);
+    const press = reader.readManifest(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     reader.dispose();
     releaseNthRead(0, servedManifest("sha256:stale"));
@@ -119,13 +115,13 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     reader.start();
     await readThrough(clock);
 
-    const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    const firstPress = reader.readManifest(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     releaseNthRead(0, servedManifest("sha256:first"));
     expect((await firstPress).status).toBe("settled");
     expect(reader.snapshot.manifestReadInFlightArtifactIds.size).toBe(0);
 
-    const secondPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    const secondPress = reader.readManifest(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     releaseNthRead(1, servedManifest("sha256:second"));
 
@@ -143,7 +139,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     reader.start();
     await readThrough(clock);
 
-    void reader.readManifest(SERVED_SUMMARY.artifactId);
+    void reader.readManifest(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     void reader.readManifest(OTHER_ARTIFACT_ID);
     await crossMacrotaskBoundary();
@@ -165,7 +161,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     reader.start();
     await readThrough(clock);
 
-    await expect(reader.readManifest(SERVED_SUMMARY.artifactId)).rejects.toThrow("the read failed");
+    await expect(reader.readManifest(SERVED_SUMMARY.id)).rejects.toThrow("the read failed");
 
     expect(reader.snapshot.manifestReadInFlightArtifactIds.size).toBe(0);
     expect(listedDigest(reader)).toBe(SERVED_SUMMARY.digest);

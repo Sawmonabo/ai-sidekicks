@@ -1,8 +1,7 @@
 // Binding a workspace on a mount the session already holds.
 //
-// A BIND IS HOW A WORKSPACE IN A CHOSEN MODE ARRIVES. Attach mints the mount's default
-// workspace and nothing more, so a person who attached a repository binds one to put a
-// run in the mode they want.
+// A BIND IS HOW A WORKSPACE ARRIVES. Attach mints a mount and no workspace, so a person
+// who attached a repository binds one, in the mode they want, to put a run on it.
 //
 // IT IS `Dialog` AND NOT `AlertDialog`. This is data entry a person may abandon at no
 // cost; the alert variant is for a consequence being consented to, which is what the
@@ -171,8 +170,6 @@ function renderModes(
   onSelect: (mode: ExecutionMode) => void,
 ): React.JSX.Element | null {
   switch (reading.prerequisite.status) {
-    case "refused":
-      return null;
     case "not-read":
       return <Nothing kind="not-checked" title="What this mount admits has not been read." />;
     case "reading":
@@ -196,15 +193,14 @@ function renderModes(
 /**
  * What the bind did.
  *
- * The provisioning arm is a settlement and not a failure. A writable bind answers with no
- * `fsRoot` because the execution root does not exist yet, and a dialog that read the
- * absence as an error would report a bind that worked as one that did not.
+ * The bind answers with the mode it bound and the workspace's state, and no root: a
+ * `provisioning` answer is a bind that worked, and the card reports the root from the
+ * workspace list once it exists.
  */
 function renderSettlement(reading: BindReading): React.JSX.Element | null {
   const { act } = reading;
   switch (act.status) {
     case "idle":
-    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Binding this workspace." />;
@@ -215,14 +211,6 @@ function renderSettlement(reading: BindReading): React.JSX.Element | null {
             Bound as <WireFigure value={act.response.executionMode} title="execution mode" /> in
             state <WireFigure value={act.response.state} title="workspace state" />.
           </p>
-          {act.response.fsRoot === undefined ? (
-            <Nothing
-              kind="computing"
-              title="The execution root is being provisioned; the card reports it when it lands."
-            />
-          ) : (
-            <WireFigure value={act.response.fsRoot} title={act.response.fsRoot} />
-          )}
         </div>
       );
   }

@@ -60,15 +60,12 @@ export interface MountInventoryCalls {
 /**
  * Every session event kind that can change what this list says.
  *
- * `repo.attached` and `repo.detached` move the attachment axis; the `workspace.*`
- * lifecycle kinds change which mounts the workspace list names; a run ending re-probes
- * the worktree it executed in, so the health axis moves at exactly those three. A run
- * beginning changes neither axis and is left out. Typed as the contract's own census,
- * so a kind the daemon never sends fails to compile.
+ * The `workspace.*` lifecycle kinds change which mounts the workspace list names; a run
+ * ending re-probes the worktree it executed in, so the health axis moves at exactly those
+ * three. A run beginning changes neither axis and is left out. Typed as the contract's
+ * own census, so a kind the daemon never sends fails to compile.
  */
 const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
-  "repo.attached",
-  "repo.detached",
   "workspace.provisioning",
   "workspace.ready",
   "workspace.stale",

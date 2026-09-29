@@ -4,23 +4,24 @@
 // The sentences the console may say about one are in `artifact-copy.ts`; copy names these
 // types and nothing here names a sentence.
 //
-// `ArtifactManifestRow` is a console view model, not a wire type: it copies the manifest
-// envelope the bridge serves as `GrowthArtifactSummary`, field for field. The state and
-// type vocabularies are the bridge's own declarations, so a member the wire drops leaves
-// the row type, the filter and the copy tables in the same compile.
+// `ArtifactManifestRow` is a console view model, not a wire type: it copies the contract's
+// `ArtifactManifest`, field for field. The state and type vocabularies are the contract's
+// own unions, so a member the wire drops leaves the row type, the filter and the copy
+// tables in the same compile.
 //
 // This module models no payload preview and never nulls a derivative's `subject`. Payloads
 // are explicit-fetch downloads with no in-product execution surface.
 
 import type {
-  GrowthArtifactState,
-  GrowthArtifactSummary,
-  GrowthArtifactType,
-} from "../../bridge/index.js";
+  ArtifactManifest,
+  ArtifactState as ManifestState,
+  ArtifactType as ManifestType,
+} from "@ai-sidekicks/contracts";
+
 import { lossyStringify } from "../../core/index.js";
 
 /** One artifact state: an alias of the wire's union, so a dropped member fails the compile. */
-export type ArtifactState = GrowthArtifactState;
+export type ArtifactState = ManifestState;
 
 /**
  * One artifact type, a filter over one list and never six lists.
@@ -28,7 +29,7 @@ export type ArtifactState = GrowthArtifactState;
  * `diff` is a member of the set, so the diff pane is a view onto this list rather than a
  * second store.
  */
-export type ArtifactType = GrowthArtifactType;
+export type ArtifactType = ManifestType;
 
 /**
  * The manifest envelope a row renders from.
@@ -54,6 +55,19 @@ export interface ArtifactManifestRow {
   readonly metadata: Readonly<Record<string, string>>;
   readonly createdAt: string;
 }
+
+/** Zero rows of every type. A total record, so the compiler holds it to the wire's union. */
+const NO_ARTIFACTS_BY_TYPE: Readonly<Record<ArtifactType, number>> = {
+  file: 0,
+  diff: 0,
+  summary: 0,
+  log: 0,
+  design: 0,
+  workflow_output: 0,
+};
+
+/** Every artifact type, in the order the filter offers them. */
+export const ARTIFACT_FILTER_TYPES = Object.keys(NO_ARTIFACTS_BY_TYPE) as readonly ArtifactType[];
 
 /** The filter's "every type" member, which is not an artifact type. */
 export const ARTIFACT_TYPE_FILTER_ALL = "all";
@@ -92,14 +106,7 @@ export function filterArtifactRows(
 export function artifactTypeCounts(
   rows: readonly ArtifactManifestRow[],
 ): Readonly<Record<ArtifactType, number>> {
-  const counts: Record<ArtifactType, number> = {
-    file: 0,
-    diff: 0,
-    summary: 0,
-    log: 0,
-    design: 0,
-    workflow_output: 0,
-  };
+  const counts: Record<ArtifactType, number> = { ...NO_ARTIFACTS_BY_TYPE };
   for (const row of rows) {
     counts[row.artifactType] += 1;
   }
@@ -107,29 +114,27 @@ export function artifactTypeCounts(
 }
 
 /**
- * Read one served manifest summary as a row.
+ * Read one served manifest as a row.
  *
- * `artifactId` becomes `id`. The two free-form maps, `annotations` and `metadata`, are
- * read through `renderableStringMap` rather than copied, because nothing parses them at
- * the port boundary: an absent map or an object-valued entry would otherwise throw in
- * the row and take the whole panel down.
+ * The two free-form maps, `annotations` and `metadata`, are read through
+ * `renderableStringMap` rather than copied, because a `metadata` value may be any JSON
+ * value and a row draws strings: an object-valued entry would otherwise throw in the row
+ * and take the whole panel down.
  */
-export function artifactManifestRowFromSummary(
-  summary: GrowthArtifactSummary,
-): ArtifactManifestRow {
+export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactManifestRow {
   return {
-    id: summary.artifactId,
-    sessionId: summary.sessionId,
-    runId: summary.runId,
-    createdBy: summary.createdBy,
-    artifactType: summary.artifactType,
-    digest: summary.digest,
-    size: summary.size,
-    annotations: renderableStringMap(summary.annotations),
-    subject: summary.subject,
-    state: summary.state,
-    metadata: renderableStringMap(summary.metadata),
-    createdAt: summary.createdAt,
+    id: manifest.id,
+    sessionId: manifest.sessionId,
+    runId: manifest.runId,
+    createdBy: manifest.createdBy,
+    artifactType: manifest.artifactType,
+    digest: manifest.digest,
+    size: manifest.size,
+    annotations: renderableStringMap(manifest.annotations),
+    subject: manifest.subject,
+    state: manifest.state,
+    metadata: renderableStringMap(manifest.metadata),
+    createdAt: manifest.createdAt,
   };
 }
 

@@ -75,10 +75,9 @@ export interface FrozenTickRegistryDefect {
  * scenario with no registered frame has no frame to capture, which is the same answer
  * either way, and the registry's own defect walk is what reports it as a failure.
  *
- * The table is a parameter defaulting to the shipped one, the shape
- * `scenario-manifest.ts` takes beside this file: the rules below are then reachable with
- * a planted table, so each one has a negative control that does not require editing the
- * registry the console actually ships.
+ * The table is a parameter defaulting to the shipped one, so each rule below is
+ * reachable with a planted table and has a negative control that does not require
+ * editing the registry the console actually ships.
  *
  * `Object.hasOwn` rather than a bare index, because a scenario id is a free-form string
  * and a plain object answers `constructor` and `toString` with values that are not
@@ -110,10 +109,9 @@ export function findScenariosWithoutFrozenTick(
 /**
  * Every disagreement between the registry and the scenario board. Empty is passing.
  *
- * BOTH DIRECTIONS, on `scenario-manifest.ts`'s own reasoning for the growth slate: an
- * unregistered scenario is a frame nobody chose, and a registry row for a scenario that
- * has left the board is a pin on a session that no longer exists — which reads exactly
- * like a correct row until someone tries to capture it.
+ * BOTH DIRECTIONS: an unregistered scenario is a frame nobody chose, and a registry row
+ * for a scenario that has left the board is a pin on a session that no longer exists —
+ * which reads exactly like a correct row until someone tries to capture it.
  */
 export function findFrozenTickRegistryDefects(
   scenarios: readonly ConsoleScenario[],

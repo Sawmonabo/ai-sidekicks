@@ -21,9 +21,7 @@
 // Ban list: `electron`, the `node:*` protocol family,
 // the bare-specifier Node built-ins (`fs`, `child_process`, `net`, `os`,
 // `path`, `process`), and relative-path escapes into `**/main/**` /
-// `**/preload/**`. The extended ban list (`keytar`, `@napi-rs/keyring`,
-// `@sentry/electron`) lands when those modules do; banning them before they
-// exist in the workspace would be inert.
+// `**/preload/**`.
 //
 // The two server-side workspace packages, `@ai-sidekicks/runtime-daemon` and
 // `@ai-sidekicks/control-plane`, are banned here too. The renderer must reach
@@ -31,8 +29,6 @@
 // violation reached through a local helper (component → `./helper.js` →
 // `@ai-sidekicks/control-plane` scans clean). Lint traverses every renderer
 // file, so it catches the transitive shape such a scan structurally cannot.
-// It is asserted against the REAL rule — not a reimplementation — by
-// `src/renderer/src/runtime-node-attach/__tests__/renderer-import-boundary.test.ts`.
 //
 // This config spreads the repo-root `eslint.config.mjs` first, so this package
 // inherits its `@eslint/js` recommended baseline, `typescript-eslint`
@@ -51,9 +47,7 @@
 // `files` selector decides only WHETHER an object matches; its narrowness or
 // breadth has no bearing on how options combine, and there is no such thing as
 // a "merge conflict" between two selectors. Each block below is therefore
-// self-contained by necessity. The replace-not-merge semantics are pinned
-// against the real engine by `renderer-import-boundary.test.ts` ("a later
-// config object's rule options replace, never merge").
+// self-contained by necessity.
 //
 // The console/shell block below is the one place a file IS matched by two
 // `no-restricted-imports` objects, and it is written knowing that: it restates the
@@ -412,9 +406,7 @@ const RENDERER_SYNTAX_BANS = [
   TEXT_SNAPSHOT_MATCHER_REACH,
   // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
   // not the console's: a surface that reads the bridge off the global with no existence
-  // check throws inside a render under a preload that failed to install. Two legacy
-  // modules outside `console/` do read it that way today; they are exempted BY NAME in
-  // their own block below, so the count is frozen and a third cannot land unnoticed.
+  // check throws inside a render under a preload that failed to install.
   BRIDGE_GLOBAL_READ,
 ];
 
@@ -520,9 +512,8 @@ const CONSOLE_CLASS_GROUPS = [
 
 export default [
   ...root,
-  // `src/shared/**` is imported by BOTH processes (see
-  // `src/shared/auxiliary-routes.ts`), which means every byte of it is bundled
-  // into the RENDERER. The renderer-untrusted ban below is scoped to
+  // `src/shared/**` is imported by BOTH processes, which means every byte of it is
+  // bundled into the RENDERER. The renderer-untrusted ban below is scoped to
   // `src/renderer/src/**`, so without this block a `node:fs` import could reach
   // the renderer bundle through a shared module and pass lint — the same
   // transitive shape that block's package bans exist to close, arriving through
@@ -580,17 +571,6 @@ export default [
   },
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
-    // Scope is the SHIPPED renderer surface. `__tests__/**` is excluded here
-    // and re-covered by the narrower block below, mirroring the repo-root
-    // `packages/contracts` isomorphism block, which excludes its own tests for
-    // the same reason: the ban exists to keep Node/Electron capability out of
-    // the renderer BUNDLE, and test files are never bundled — they run under
-    // vitest, where a Node builtin is legitimate (this package's own
-    // `renderer-import-boundary.test.ts` lints the tree via the ESLint Node
-    // API and so must import `node:path`). The renderer-untrusted guarantee
-    // for shipped code is unaffected: every non-test renderer file is still
-    // matched by this block.
-    ignores: ["src/renderer/src/**/__tests__/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -619,7 +599,7 @@ export default [
   // with no lint error anywhere. The ban is therefore on the NAME as well as on the
   // package: a console module outside `bridge/**` may import types and non-schema
   // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`,
-  // `MAIN_CHANNEL_NAME`) and no binding whose name ends in `Schema`.
+  // `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`) and no binding whose name ends in `Schema`.
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the
   // other candidate and is measurably worse in both directions. `.parse(` is not a
@@ -644,12 +624,6 @@ export default [
   // last matching object, so this block must carry every entry that block carries
   // or the console silently loses the renderer-untrusted boundary. It SPREADS the
   // hoisted arrays rather than copying them, so the two cannot drift.
-  //
-  // WHY IT SITS HERE AND NOT LAST. The `__tests__` block below must keep winning
-  // for the files it names, exactly as it does today. Nothing under `console/`
-  // carries a `__tests__` directory — the package's own structure rules put a
-  // console test beside its module — so this ordering changes no file's verdict
-  // and leaves that block's asymmetry to say what it already says.
   {
     files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
     ignores: ["src/renderer/src/console/bridge/**"],
@@ -659,47 +633,6 @@ export default [
         {
           paths: RENDERER_RESTRICTED_PATHS,
           patterns: CONSOLE_RESTRICTED_PATTERNS,
-        },
-      ],
-    },
-  },
-  // Renderer TEST files: the Node/Electron builtin ban above is deliberately
-  // lifted (they are not bundled — see that block's comment), but the
-  // workspace-package boundary is NOT. No renderer test has any
-  // reason to import the daemon or control-plane package, and leaving the
-  // exclusion total would hand test files a hole in the very boundary the
-  // sibling `renderer-import-boundary.test.ts` exists to enforce. This block
-  // RESTATES those two entries rather than inheriting them, because
-  // nothing is inherited: the block above `ignores` `__tests__/**` and so does
-  // not match these files at all, and even where two objects did both match,
-  // the later one's options would replace the earlier one's wholesale (see the
-  // header note on flat-config resolution). Drop either entry from this block
-  // and that half of the boundary silently disappears for test files.
-  {
-    files: ["src/renderer/src/**/__tests__/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "@ai-sidekicks/runtime-daemon",
-              message:
-                "The daemon package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
-            },
-            {
-              name: "@ai-sidekicks/control-plane",
-              message:
-                "The control-plane package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
-            },
-          ],
-          patterns: [
-            {
-              group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
-              message:
-                "Daemon / control-plane subpaths are forbidden in renderer source, tests included.",
-            },
-          ],
         },
       ],
     },
@@ -824,35 +757,6 @@ export default [
       "no-restricted-syntax": [
         "error",
         ...withoutSelectors(CONSOLE_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
-      ],
-    },
-  },
-  {
-    // The two LEGACY renderer modules that read the bridge off the global directly,
-    // exempted by NAME rather than by leaving the rule scoped to two subtrees. The
-    // difference is the whole point: a named exemption freezes the count at two and
-    // makes a third reader a lint failure in the diff that adds it, where a subtree
-    // scope would admit one silently.
-    //
-    // One of them reads `window.desktopBridge.daemon` with NO existence check at all,
-    // where `readInstalledBridge` (`console/bridge/live-bridge.ts`) answers `undefined`
-    // for both the absent and the misshapen global — so under a preload that failed to
-    // install it throws inside a render. The migration is to take the bridge from
-    // `BridgeProvider`'s context as every console surface does; it is a real layering
-    // change (the provider lives under `console/`) and belongs in its own diff, which
-    // is why the state is recorded here rather than papered over.
-    //
-    // Every other selector is restated: this block replaces the renderer union for
-    // these files, and dropping one would lift it for exactly the files least able to
-    // afford it.
-    files: [
-      "src/renderer/src/session-bootstrap/SessionBootstrap.tsx",
-      "src/renderer/src/runtime-node-attach/attach-request.ts",
-    ],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...withoutSelectors(RENDERER_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
       ],
     },
   },
@@ -995,8 +899,7 @@ export default [
   // --- Member order: the file and class shapes `AGENTS.md` states under Module shape ---
   //
   // Scope is the console subtree ONLY — `src/renderer/src/console/**/*.{ts,tsx}`,
-  // co-located tests included, since a suite reads top to bottom like anything else and
-  // the three legacy renderer families predate the section these rules carry.
+  // co-located tests included, since a suite reads top to bottom like anything else.
   //
   // Both rules run `type: "unsorted"`: the claim is the ORDER OF THE SECTIONS, never an
   // alphabet. Within a section source order is preserved exactly, so a file whose

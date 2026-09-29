@@ -94,7 +94,7 @@ describe("run-stream projection — which subscriptions it answers for", () => {
 describe("run-stream projection — the optional members a beat supplies", () => {
   it("carries them through rather than flattening them", () => {
     const beat = runTransitionBeat(
-      transitionPayload({ healthSignal: "stuck-suspected", internalHelper: true }),
+      transitionPayload({ completionKind: "turn", internalHelper: true }),
     );
     const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
 
@@ -103,7 +103,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
       return;
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
-    expect(parsed.healthSignal).toBe("stuck-suspected");
+    expect(parsed.completionKind).toBe("turn");
     expect(parsed.internalHelper).toBe(true);
   });
 
@@ -119,23 +119,23 @@ describe("run-stream projection — the optional members a beat supplies", () =>
       return;
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
-    expect(parsed.healthSignal).toBeUndefined();
     expect(parsed.completionKind).toBeUndefined();
+    expect(parsed.trigger).toBeUndefined();
     expect("internalHelper" in parsed).toBe(false);
   });
 });
 
 describe("run-stream projection — an optional the registered shape rejects", () => {
   // Every one of these is a value the wire member's own schema refuses:
-  // `intendedClose` is `z.literal(true)`, `healthSignal` is
-  // `z.literal("stuck-suspected")`, and `executionPosture` is a two-arm union whose
+  // `intendedClose` is `z.literal(true)`, `completionKind` is
+  // `z.enum(["turn", "task"])`, and `executionPosture` is a two-arm union whose
   // `trusted` arm requires `networkAccess` and `writableRoots`. Before the parse
   // they were copied through wire-verbatim and a cast presented the result as a
   // valid `RunStateChangeEvent`, so a fixture subscriber received values the live
   // bridge cannot send — the one thing a fixture must never do.
   it.each([
     ["intendedClose", { intendedClose: false }],
-    ["healthSignal", { healthSignal: "healthy" }],
+    ["completionKind", { completionKind: "session" }],
     ["executionPosture", { executionPosture: { mode: "trusted" } }],
   ])("refuses a malformed `%s` and names the member in the refusal", (member, overrides) => {
     const projection = projectRunStreamDelivery(
@@ -160,7 +160,7 @@ describe("run-stream projection — an optional the registered shape rejects", (
       runTransitionBeat(
         transitionPayload({
           intendedClose: true,
-          healthSignal: "stuck-suspected",
+          completionKind: "turn",
           executionPosture: { networkAccess: "none", writableRoots: [], mode: "trusted" },
         }),
       ).event,

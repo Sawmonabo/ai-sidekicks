@@ -1,19 +1,18 @@
 // The reply table a scenario scripts: what a request/response call is answered with.
 //
-// WHAT IS NOT HERE. The scenario itself, which is `scenario.ts`. The two were one file
-// until it grew past the ~400-line rule `apps/desktop/AGENTS.md` sets, and the seam
-// that growth was crossing is the one between two independent type groups: WHO a
-// scenario is about and WHAT IT PLAYS, against how one CALL into it settles. A reader
-// reaching for the reply table is asking a question about a single call — which of the
-// three arms it takes, what a computed one is handed, what shape a refusal arrives in
-// — and every one of those answers is here, with no reading of the scenario's own
-// roster, clock, or frame tables in front of it.
+// WHAT IS NOT HERE. The scenario itself, which is `vocabulary.ts`. The seam between the
+// two is the one between two independent type groups: WHO a scenario is about and WHAT
+// IT PLAYS, against how one CALL into it settles. A reader reaching for the reply table
+// is asking a question about a single call — which of the three arms it takes, what a
+// computed one is handed, what shape a refusal arrives in — and every one of those
+// answers is here, with no reading of the scenario's own roster, clock, or frame tables
+// in front of it.
 //
 // The split is load-bearing rather than tidy. `scripted-reply.ts` settles one of these
-// and names nothing else in `scenario.ts`; `scenario/wire-truth/reply-walk.ts` holds every
-// scripted reply in the tree to the wire's own truth and reads no other member of a
-// scenario; and a family branch adding a `readonly ScenarioReply[]` table under
-// `scenarios/` takes this module and not the shape beside it.
+// and names nothing else in `vocabulary.ts`; `scenario/wire-truth/reply-walk.ts` holds
+// every scripted reply in the tree to the wire's own truth and reads no other member of
+// a scenario; and a family adding a `readonly ScenarioReply[]` table in its own
+// subdirectory of `scenario/` takes this module and not the shape beside it.
 
 import type { WireErrorEnvelope } from "../../../core/index.js";
 
@@ -52,8 +51,7 @@ export type ScenarioRefusalEnvelope = WireErrorEnvelope & {
  * `FixtureBridgeError` names something the FIXTURE could not do, so every typed
  * daemon refusal a surface has to render — an artifact too large, an ingest at
  * capacity, a terminal permission denied, a control already held by someone else —
- * was unreachable, and the console's refusal renderings could only ever be driven
- * from the growth port's one typed absence.
+ * was unreachable.
  *
  * `WireErrorEnvelope` is not a second refusal vocabulary minted here. It is declared
  * in `src/shared/wire-errors.ts` and reached through `core/index.js`, which is the

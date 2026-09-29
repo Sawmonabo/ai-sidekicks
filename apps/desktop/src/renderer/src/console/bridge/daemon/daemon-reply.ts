@@ -37,17 +37,8 @@
 // message, which quotes received values. Both per-family parsers this replaces
 // stringified the error straight into the sentence.
 //
-// THE TWO SEAMS, AND WHY THERE ARE TWO. This module answers for methods the corpus
-// has REGISTERED: a shape exists, `daemon-reply-registry.ts` binds it, and a reply
-// is checkable against it. The growth port next door (`growth-port.ts`) answers for
-// the wires the growth slate names and the corpus has not registered: no
-// shape exists to check against, so those operations are typed by the console's own
-// signature table and every one of them refuses by name under the live bridge,
-// telling the reader which document owes the wire. They are not two spellings of
-// one idea — one narrows an `unknown` the wire really sent, the other stands in for
-// a wire that does not exist — and merging them would mean either inventing shapes
-// for unregistered methods or dropping the parse for registered ones. A row landing
-// moves an operation from that table to this registry, which is the only crossing.
+// WHAT THIS MODULE ANSWERS FOR. Methods the corpus has REGISTERED: a shape exists,
+// `daemon-reply-registry.ts` binds it, and a reply is checkable against it.
 //
 // THE REJECTION ARM IS THE CONSOLE'S ONE NORMALIZER, CONSUMED AND NOT COPIED. A
 // rejection reaching this door goes to `normalizeWireRejection`

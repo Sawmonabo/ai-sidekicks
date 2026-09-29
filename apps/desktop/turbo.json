@@ -83,22 +83,17 @@
     // than `--ts-config`, so a tsconfig edit cannot change its result and must not bust its
     // cache. `package.json` stays because the script that invokes it lives there.
     "structure:layering": {
-      "inputs": ["src/**", "build/**", "scripts/**", ".dependency-cruiser.mjs", "package.json"],
+      "inputs": [
+        "src/**",
+        "build/**",
+        "scripts/**",
+        ".dependency-cruiser.mjs",
+        ".dependency-cruiser.families.mjs",
+        "package.json"
+      ],
       "outputs": []
     },
 
-    "test:renderer": {
-      "dependsOn": ["^build"],
-      "inputs": [
-        "src/renderer/**",
-        "src/shared/**",
-        "vitest.config.*",
-        "tsconfig*.json",
-        "package.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
     "test:main-unit": {
       "dependsOn": ["^build"],
       "inputs": [
@@ -203,14 +198,18 @@
     },
     "test:console-bundle": {
       // The one console tier that measures a BUILD rather than a source tree.
-      // The `build` edge is load-bearing: the gate fails loudly when
-      // `out/renderer` is absent rather than skipping, and this edge is what
-      // makes the output present by construction.
+      // The `build` edge is load-bearing: the gate fails loudly when a build
+      // output under `out/` is absent rather than skipping, and this edge is
+      // what makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
         "test/console/budget/**",
         "scripts/budget/**",
         "vitest.config.*",
+        "electron.vite.config.ts",
+        "src/renderer/src/console/core/fixture-globals.ts",
+        "out/main/**",
+        "out/preload/**",
         "out/renderer/**"
       ],
       "outputs": [],

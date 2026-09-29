@@ -79,33 +79,35 @@ import type {
 import { type ApprovalState } from "./approval-vocabulary.js";
 
 /**
- * The category's one event that is not an approval request's, named rather than
- * quietly filtered.
+ * The category's events that are not an approval request's, named rather than quietly
+ * filtered.
  *
- * `moderation.review_flagged` is registered under `approval_flow` and carries a
- * DISTINCT payload — `{sessionId, runId, agentId, eventId}` — with no
- * `approvalRequestId` anywhere in it. Claiming it here would take the kind off the
- * board for the family that renders moderation, and this fold would answer nothing
- * for it anyway, since it names no approval to key on. `Extract`ed from the census
- * rather than typed `string`, so a rename upstream fails to compile here instead of
- * silently widening the claim by one kind.
+ * `moderation.review_flagged` and the three `plan.*` kinds are registered under
+ * `approval_flow` and carry no `approvalRequestId`. Claiming one here would take the
+ * kind off the board for the family that renders it, and this fold would answer
+ * nothing for it anyway, since it names no approval to key on. `Extract`ed from the
+ * census rather than typed `string`, so a rename upstream fails to compile here
+ * instead of silently widening the claim.
  */
-const NON_REQUEST_APPROVAL_CATEGORY_KIND: Extract<SessionEventType, "moderation.review_flagged"> =
-  "moderation.review_flagged";
+const NON_REQUEST_APPROVAL_CATEGORY_KINDS: readonly Extract<
+  SessionEventType,
+  "moderation.review_flagged" | "plan.proposed" | "plan.accepted" | "plan.handed_off"
+>[] = ["moderation.review_flagged", "plan.proposed", "plan.accepted", "plan.handed_off"];
 
 /**
  * The event kinds this projector claims, derived from the shipped taxonomy.
  *
  * Filtered from the census by CATEGORY and then by the `approval.` namespace, so the
- * set is whatever the contract says it is at build time and the one subtraction is
- * the kind named above. The co-located test holds the difference to exactly that
- * one, so a ninth kind landing in the category under some other namespace fails
- * there rather than being dropped by a prefix nobody re-read.
+ * set is whatever the contract says it is at build time and the subtraction is the
+ * kinds named above. The co-located test holds the difference to exactly those, so
+ * another kind landing in the category under some other namespace fails there rather
+ * than being dropped by a prefix nobody re-read.
  */
 export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CATEGORY_BY_TYPE]
   .filter(
     ([eventType, category]) =>
-      category === "approval_flow" && eventType !== NON_REQUEST_APPROVAL_CATEGORY_KIND,
+      category === "approval_flow" &&
+      !NON_REQUEST_APPROVAL_CATEGORY_KINDS.some((kind) => kind === eventType),
   )
   .map(([eventType]) => eventType);
 

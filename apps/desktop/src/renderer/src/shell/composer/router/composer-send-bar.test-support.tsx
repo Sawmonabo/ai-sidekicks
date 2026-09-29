@@ -30,7 +30,7 @@ function inertBridge(): ConsoleBridge {
 
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
+  sessionStore.initialise({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -171,7 +171,6 @@ export function storeWithTwoTrippedAgents(): SessionStore {
         },
       },
     ],
-    userJoinLog: ["user-you"],
   });
   return sessionStore;
 }

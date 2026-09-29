@@ -30,20 +30,8 @@
 // store already submits on its next read, so a replay asks with that or asks with
 // nothing.
 
-import { useEffect } from "react";
-
-import {
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  useReadScope,
-  useSubjectScopedState,
-} from "../../../store/index.js";
-
-/** What one re-subscribe asks for. The registered request's two reachable members. */
-export interface LedgerGapFillRequest {
-  readonly sessionId: string;
-  readonly afterCursor: string;
-}
+import { useSubjectRead } from "../../../store/index.js";
+import type { TimelineResubscribeRequest, TimelineSubscribeCall } from "../../../bridge/index.js";
 
 /**
  * Whether this window can ask for a replay, and what it would ask with.
@@ -60,7 +48,7 @@ export type LedgerGapFillIntent =
   | {
       readonly outcome: "resumable";
       readonly missingFromSequence: number;
-      readonly request: LedgerGapFillRequest;
+      readonly request: TimelineResubscribeRequest;
     };
 
 /** The three facts the decision is taken over, and nothing else. */
@@ -84,15 +72,6 @@ export type LedgerGapFillState =
   | { readonly status: "unanchored" }
   | { readonly status: "asking" }
   | { readonly status: "replaying" };
-
-/**
- * The call that re-opens the timeline stream after a kept position.
- *
- * Resolves once the daemon has acknowledged the ask; a rejection propagates. It must be
- * the same function on every render: it scopes the read and is an effect dependency, so
- * an inline lambda would ask again on every render.
- */
-export type LedgerGapFillCall = (request: LedgerGapFillRequest) => Promise<unknown>;
 
 /**
  * Decide what this window can ask for. Pure: it holds nothing and it calls nothing.
@@ -135,7 +114,8 @@ const REPLAYING: LedgerGapFillState = { status: "replaying" };
 
 /**
  * Put one replay ask per hole, and report where it got to. `call` must be referentially
- * stable, as {@link LedgerGapFillCall} says.
+ * stable: it scopes the read and is an effect dependency, so an inline lambda would ask
+ * again on every render.
  *
  * AND NO POLLING, on the session header's rule: the ask goes out once from the effect the
  * read chokepoint arms, and again only when the call or the hole moves. A hole that
@@ -149,7 +129,7 @@ const REPLAYING: LedgerGapFillState = { status: "replaying" };
  */
 export function useLedgerGapFill(
   input: LedgerGapFillInput,
-  call: LedgerGapFillCall,
+  call: TimelineSubscribeCall,
 ): LedgerGapFillState {
   const intent = resolveLedgerGapFill(input);
   const request = intent.outcome === "resumable" ? intent.request : undefined;
@@ -157,28 +137,19 @@ export function useLedgerGapFill(
     intent.outcome === "resumable"
       ? ledgerGapFillSubjectKey(input.sessionId, intent.missingFromSequence)
       : undefined;
-  // A subject to ask about IS an ask in flight, because the effect below runs on the
+  // A subject to ask about IS an ask in flight, because the read's effect runs on the
   // commit that seeded this. The two unsettled arms are the two ways there is nothing
   // to ask, and they are told apart by the intent rather than by the key — which
   // cannot tell them apart, both being unaddressed.
   const unsettled = intent.outcome === "whole" ? WHOLE : UNANCHORED;
-  const { value, publish } = useSubjectScopedState<LedgerGapFillState>(call, subjectKey, () =>
-    subjectKey === undefined ? unsettled : ASKING,
+  const { value } = useSubjectRead<{ readonly subscriptionId: string }, LedgerGapFillState>(
+    call,
+    subjectKey,
+    () => (request === undefined ? undefined : call(request)),
+    {
+      unsettled: (key) => (key === undefined ? unsettled : ASKING),
+      settled: () => REPLAYING,
+    },
   );
-  const readScope = useReadScope(call, subjectKey);
-  useEffect(() => {
-    const round = readScope.openRound();
-    if (isReadAbandoned(round.signal) || request === undefined) {
-      return;
-    }
-    void settleUnlessAbandoned(call(request), round.signal).then((settlement) => {
-      if (settlement.status === "abandoned") {
-        return;
-      }
-      round.settle(() => {
-        publish(REPLAYING);
-      });
-    });
-  }, [call, subjectKey, publish, readScope]);
   return value;
 }

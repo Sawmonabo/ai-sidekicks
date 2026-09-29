@@ -73,7 +73,7 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
           // one park came to read as needing nobody in a card and as needing somebody
           // on the node above it.
           tone={parkAttentionTone(parkAwaitsPerson(schedule))}
-          glyph={schedule.kind === "armed" ? "clock" : "member"}
+          glyph={schedule.kind === "armed" ? "clock" : "alert"}
           label={PARK_REASON_LABELS[park.parkReason]}
         />
         {/*

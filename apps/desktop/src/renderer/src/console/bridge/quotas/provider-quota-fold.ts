@@ -1,13 +1,10 @@
 // The account-plane quota fold: which reading is current, and how the pair is read out.
 //
-// Split out of `provider-account-quota.ts` because the two halves answer different
-// questions. That module owns the WIRE — one read, one tail, one reading per bridge,
-// and what it says when either could not be read. This one owns the FOLD, which is
-// pure: given the accounts and the quota rows seen so far, which reading is current
-// for each `(accountId, limitId)`, and what does a surface render for it. A pure fold
-// is drivable from a test with no bridge and no React, which is what the supersession
-// rules below need, and the two together were past the size at which one file is
-// doing one job.
+// This module owns the FOLD, and it opens and reads no wire. The fold is pure: given
+// the accounts and the quota rows seen so far, which reading is current for each
+// `(accountId, limitId)`, and what does a surface render for it. A pure fold is
+// drivable from a test with no bridge and no React, which is what the supersession
+// rules below need.
 //
 // THE KEY IS `(accountId, limitId)` AND NOT THE WINDOW'S DURATION, because a pinned
 // provider surface publishes three distinct windows of the same length and a duration
@@ -71,7 +68,11 @@ export interface ProviderQuotaReading {
   readonly isStale: boolean;
 }
 
-/** Remaining quota, from the consumed figure the wire supplies. Never sent as such. */
+/**
+ * Remaining quota, from the consumed figure the wire supplies. Never sent as such.
+ *
+ * @consumedBy the provider account's quota gauge
+ */
 export function remainingPercentOf(reading: ProviderQuotaReading): number {
   // Floored at zero for the same reason the used figure is NOT clamped: the wire may
   // report over-consumption against a soft limit, which is a true reading to show,

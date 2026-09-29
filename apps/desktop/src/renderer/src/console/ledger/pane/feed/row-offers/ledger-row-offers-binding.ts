@@ -220,6 +220,8 @@ export function buildLedgerRowOffersBinding(
  * footer seat: it is a context read, identity-stable for the life of the window, and
  * threading it down through the row renderer would put a second copy of one value in
  * the props chain the memo compares.
+ *
+ * @consumedBy the transcript row's copy button
  */
 export function useLedgerRowOffers(
   surface: Omit<LedgerRowOfferSurface, "bridge">,

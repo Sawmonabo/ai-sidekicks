@@ -3,9 +3,8 @@
 //
 // IT REACHES NO DAEMON CALL AT ALL, which is why it is its own module beside
 // `definition-authoring-port-acts.ts` rather than a branch inside it. Exporting
-// reaches the host on `runs/pane/controls/enumerated-path-action.ts`'s precedent — the
-// console holds no wire that writes a file, and a control that looked like it had saved
-// one would be worse than the honest copy.
+// reaches the host because the console holds no wire that writes a file, and a control
+// that looked like it had saved one would be worse than the honest copy.
 //
 // THE SETTLEMENT IS THE HOST'S ANSWER AND NEVER THE SERIALIZATION'S. The bytes exist
 // the moment they are composed and the copy does not: a host that hangs never took it,
@@ -135,10 +134,10 @@ function publishExportedBytes(
 /**
  * Ask the host to take the copy, and settle on whichever answer it gives.
  *
- * WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT: the message is the host's own words, and the seam
- * `enumerated-path-action.ts` established for exactly this call. The fallback is
- * reached only where the rejection carried nothing machine-readable, and it says what
- * did not happen and what is still on screen rather than repeating the bytes.
+ * WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT: the message is the host's own words.
+ * The fallback is reached only where the rejection carried nothing machine-readable,
+ * and it says what did not happen and what is still on screen rather than repeating
+ * the bytes.
  *
  * The rejection handler is `then`'s SECOND ARGUMENT rather than a `catch` link, so a
  * publish that threw on the fulfilled arm cannot arrive here and be reported as the

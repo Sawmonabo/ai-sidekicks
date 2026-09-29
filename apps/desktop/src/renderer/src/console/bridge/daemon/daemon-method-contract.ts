@@ -91,10 +91,8 @@ export interface ConsoleDaemonMethodContract {
   };
 
   // timeline — the run-scoped reasoning surface, whose reply is the CLOSED four-arm
-  // availability discriminant. It is here rather than on the growth port because the
-  // corpus registers both shapes: the admission rule the reply registry states is met
-  // in all three conjuncts, and a growth row for a registered wire would be a second
-  // answer to a method that already has one.
+  // availability discriminant. It is here because the corpus registers both shapes:
+  // the admission rule the reply registry states is met in all three conjuncts.
   readonly "timeline.reasoningSurfaceRead": {
     readonly request: ReasoningSurfaceReadRequest;
     readonly response: ReasoningSurfaceReadResponse;

@@ -60,7 +60,7 @@ function renderForm(): FormUnderTest {
       onPrepared={() => undefined}
     />
   );
-  const { container, rerender } = render(formAt("worktree"));
+  const { container, rerender } = render(formAt("provisioned-worktree"));
   return {
     container,
     advanceUntil: async (assert) => {
@@ -172,8 +172,8 @@ describe("PrepareExecutionRoot — the form's lifetime", () => {
       expect(confirmButton(container).disabled).toBe(false);
     });
 
-    setExecutionMode("branch");
-    setExecutionMode("worktree");
+    setExecutionMode("bound-root");
+    setExecutionMode("provisioned-worktree");
 
     expect(branchInput(container).value).toBe("");
     expect(confirmButton(container).disabled).toBe(true);
@@ -187,7 +187,7 @@ describe("PrepareExecutionRoot — the form's lifetime", () => {
       expect(confirmButton(container).disabled).toBe(false);
     });
 
-    setExecutionMode("worktree");
+    setExecutionMode("provisioned-worktree");
 
     expect(branchInput(container).value).toBe(UNHELD_BRANCH);
     expect(confirmButton(container).disabled).toBe(false);

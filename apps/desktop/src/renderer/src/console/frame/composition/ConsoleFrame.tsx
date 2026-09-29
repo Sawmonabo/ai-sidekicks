@@ -61,7 +61,6 @@ import {
   consoleSurfaceRegistry,
   frameBindingRegistry,
   mountFrameBindings,
-  useShellComposerFocusRequests,
   type FrameBindingContext,
 } from "../../seats/index.js";
 import {
@@ -147,13 +146,6 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // The route follows the hash and the hash follows the route, both through one
   // owner. `frame/bindings/hash-route-binding.ts` says why one owner and not two effects here.
   useHashRouteBinding(frameStore, hash);
-
-  // And the one ask that does not come from inside this window at all: a composer
-  // chord the main process handles brings this window forward and then asks it for
-  // the caret. Bound once per window,
-  // beside the hash binding above, because it is the same kind of fact — something
-  // outside the render tree deciding where this window should be pointing.
-  useShellComposerFocusRequests(props.bridge);
 
   // Every loader-backed body on both boards, warmed once after this window's first
   // frame. `frame/bindings/lazy-body-warm-binding.ts` says why this is what a loader costs a person

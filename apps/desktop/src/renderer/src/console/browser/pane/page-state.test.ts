@@ -12,18 +12,19 @@ const PAGE: BrowserPage = {
   pageId: "page-a",
   label: null,
   title: "Example",
-  url: "https://example.test/",
+  address: "https://example.test/",
   host: "example.test",
   isLoading: false,
-  isSelected: true,
-  isShown: true,
+  loadProgress: null,
+  backDepth: 0,
+  forwardDepth: 0,
 };
 
 describe("the pages a reading carries", () => {
   it("carries the served frame's pages", () => {
     const reading: PageListReading = {
       kind: "served",
-      frame: { contextName: "Research", pages: [PAGE] },
+      frame: { pages: [PAGE], activeIndex: 0 },
     };
     expect(pagesOf(reading)).toEqual([PAGE]);
   });
@@ -41,6 +42,6 @@ describe("the pages a reading carries", () => {
   it("negative control: a served reading with no pages is the same array as the others", () => {
     // Which is why every caller branches on the reading and not on this result: the
     // arms above are indistinguishable here by construction.
-    expect(pagesOf({ kind: "served", frame: { contextName: null, pages: [] } })).toEqual([]);
+    expect(pagesOf({ kind: "served", frame: { pages: [], activeIndex: -1 } })).toEqual([]);
   });
 });

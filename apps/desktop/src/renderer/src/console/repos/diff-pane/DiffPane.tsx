@@ -21,7 +21,7 @@ import { type ConsoleDiffModel } from "./diff-model.js";
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind and a body does not, so the narrowing is stated
  * once where the chrome states it. It is what makes `entity` required and its kind one
- * of the four a diff is opened over, by the compiler rather than by this file
+ * of the two a diff is opened over, by the compiler rather than by this file
  * remembering.
  */
 type DiffPaneContext = PaneContextOf<"diff">;
@@ -29,20 +29,18 @@ type DiffPaneContext = PaneContextOf<"diff">;
 /**
  * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
  *
- * The diff pane takes the sidebar card's own subject list — a repo, workspace,
- * worktree, or the user — and `seats/pane/pane-address.ts` is
- * where that list is declared. Deriving it means a kind added there fails to compile
- * in the table below until this family has said what that subject's changes render.
+ * A diff is the changes of one checkout — a workspace or a worktree — and
+ * `seats/pane/pane-address.ts` is where that list is declared. Deriving it means a kind
+ * added there fails to compile in the table below until this family has said what that
+ * subject's changes render.
  */
 type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
 
 /**
  * What the pane says when no diff has been asked for, per subject kind.
  *
- * ONE ENTRY PER KIND, and the totality is the point: a single sentence written for a
- * working tree would tell a person looking at a REPOSITORY that their checkout is
- * unchanged, which is a claim about a workspace this pane was never opened over. Each
- * sentence says that nothing was asked, and none of them renders blank.
+ * ONE ENTRY PER KIND, so each sentence names the checkout the pane was opened over. Each
+ * says that nothing was asked, and none of them renders blank.
  */
 const ABSENT_DIFF_COPY: Readonly<
   Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
@@ -56,16 +54,6 @@ const ABSENT_DIFF_COPY: Readonly<
     title: "No diff has been asked for.",
     detail:
       "None has been requested for this execution root, so the console is not reporting that nothing changed.",
-  },
-  repo: {
-    title: "A repository's changes are not read here yet.",
-    detail:
-      "Changes belong to a checkout, and a repository can hold several. Nothing resolves this repository to the workspace a diff would be taken over on this build, so none has been requested — and the console is not reporting that this repository is unchanged.",
-  },
-  user: {
-    title: "Your changes are not read here yet.",
-    detail:
-      "Your changes span every root you have worked in, and nothing on this build gathers them. Nothing has been requested, so the console is not reporting that nothing has changed.",
   },
 };
 

@@ -8,12 +8,10 @@
 // a boolean `isExpanded` beside a separate error would have let a caller render
 // neither.
 //
-// THE CALL IS A REGISTERED WIRE, so it goes through the console's daemon call door
-// and not through the growth port: `timeline.childRunExpand` is published in
-// `@ai-sidekicks/contracts` in both directions, and the port's own rule is that it
-// refuses what the corpus has NOT registered. The door parses the reply against the
-// registered schema, so what reaches this module is either rows or a refusal — never
-// an `unknown` that reads as success.
+// THE CALL IS A REGISTERED WIRE, so it goes through the console's daemon call door:
+// `timeline.childRunExpand` is published in `@ai-sidekicks/contracts` in both
+// directions. The door parses the reply against the registered schema, so what reaches
+// this module is either rows or a refusal — never an `unknown` that reads as success.
 //
 // WHAT IT DOES NOT DO. It pages nothing. `ChildRunExpandResponse` carries `hasMore`
 // and a cursor, and one expansion here reads the first page and reports the rest as
@@ -232,11 +230,11 @@ export class ChildRunExpansionState {
 /**
  * Read one child run's entries, with the signal that stops the read.
  *
- * SEPARATE FROM THE STATE MACHINE ABOVE IT, on `repos/repo-reads.ts`' shape: the call
- * is one line over one registered pair, and what makes it a READ rather than an act is
- * that the signal is REQUIRED — there is no way to reach the door from here without
- * naming the thing that abandons it. Every parse, refusal code and rejection
- * normalization is still the bridge family's; nothing is re-authored here.
+ * SEPARATE FROM THE STATE MACHINE ABOVE IT: the call is one line over one registered
+ * pair, and what makes it a READ rather than an act is that the signal is REQUIRED —
+ * there is no way to reach the door from here without naming the thing that abandons
+ * it. Every parse, refusal code and rejection normalization is still the bridge
+ * family's; nothing is re-authored here.
  */
 async function readChildRunEntries(
   bridge: ConsoleBridge,

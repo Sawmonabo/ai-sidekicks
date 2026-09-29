@@ -9,9 +9,10 @@
 // The second half is the one that earns a test. Every transition renders as a ledger
 // line naming its reason, with the three AUTOMATIC reasons kept distinct — a surface
 // that collapsed them into "the lease was released" would look right against a fixture
-// that only ever scripted two of the five. So the fixture is held to reaching all five,
-// and the vocabulary is asserted against the wire's own closed set rather than against
-// whatever the scenario happens to contain.
+// that only ever scripted two of the five. So the fixture is held to reaching the take
+// and all three automatic releases, asserted against the wire's own closed set rather
+// than against whatever the scenario happens to contain. A person's own release is the
+// one reason it does not script.
 
 import { describe, expect, it } from "vitest";
 
@@ -59,15 +60,15 @@ describe("terminal family — claiming the deck's terminal pane", () => {
   });
 });
 
-describe("terminal scenario — all five transition reasons, kept distinct", () => {
+describe("terminal scenario — the take and the three automatic releases, kept distinct", () => {
   it("is the scenario the seat board names", () => {
     expect(TERMINAL_SCENARIO.id).toBe(TERMINAL_SCENARIO_ID);
     expect(leaseTransitionReasons().length).toBeGreaterThan(0);
   });
 
-  it("reaches every reason in the closed set", () => {
+  it("reaches every reason in the closed set but a person's own release", () => {
     expect([...new Set(leaseTransitionReasons())].sort()).toStrictEqual(
-      [...LEASE_TRANSITION_REASONS].sort(),
+      LEASE_TRANSITION_REASONS.filter((reason) => reason !== "released").sort(),
     );
   });
 

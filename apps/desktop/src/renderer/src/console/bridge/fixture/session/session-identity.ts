@@ -18,21 +18,11 @@
 
 import { ConsoleRefusalError, refuse } from "../../../core/index.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
+import type { SessionSummary } from "../../daemon/session-reads.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The subsystem an identity-derivation refusal names as its author. */
 const IDENTITY_ORIGIN = "fixture-session-identity";
-
-/** What a session is called and the state it is in. */
-export interface ScenarioSessionIdentity {
-  readonly sessionId: string;
-  /**
-   * Optional because a session may genuinely have no name; it then renders by its
-   * identifier, never by an invented title.
-   */
-  readonly title?: string;
-  readonly state: string;
-}
 
 /**
  * The identity the scenario declares for one session, or `undefined`.
@@ -47,7 +37,7 @@ export interface ScenarioSessionIdentity {
 export function scenarioSessionIdentity(
   scenario: ConsoleScenario,
   sessionId: string,
-): ScenarioSessionIdentity | undefined {
+): SessionSummary | undefined {
   if (sessionId !== scenario.sessionId) {
     return undefined;
   }
@@ -58,9 +48,9 @@ export function scenarioSessionIdentity(
   const title = scriptedSessionReadMember(scenario, "session", "metadata", "title");
   if (title !== undefined && typeof title !== "string") {
     // A THROW rather than a dropped title: a scenario is in-tree source, so a
-    // metadata title that is not a string is an authoring defect, and rendering the
-    // session by its identifier would make it indistinguishable from the ordinary
-    // untitled session the surface must also draw.
+    // metadata title that is not a string is an authoring defect, and dropping it would
+    // make the session indistinguishable from the ordinary unnamed one the surface
+    // must also draw.
     throw new ConsoleRefusalError(
       refuse(
         IDENTITY_ORIGIN,

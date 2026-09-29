@@ -72,26 +72,23 @@ export const PROVIDER_AXES = [
 ] as const;
 export type ProviderAxis = (typeof PROVIDER_AXES)[number];
 
-/** Where a switch lands. Quoted from the reply, never predicted from the axis names. */
+/**
+ * Where a switch lands. Quoted from the reply, never predicted from the axis names.
+ *
+ * @consumedBy the agent switch, which reads where a switch lands and how it settled
+ */
 export const SWITCH_BOUNDARIES = ["turn_boundary", "run_boundary"] as const;
 
-/** The settlement's four arms. Its presence on a reply is the switch discriminator. */
+/**
+ * The settlement's four arms. Its presence on a reply is the switch discriminator.
+ *
+ * @consumedBy the agent switch, which reads where a switch lands and how it settled
+ */
 export const SWITCH_STATUSES = ["pending", "applied", "degraded", "failed"] as const;
 
-/** What the new binding can see. `degraded` is exactly `memo`; the status carries it. */
-export const SWITCH_CONTINUITIES = ["in_place", "replayed", "memo"] as const;
-
 /**
- * One vocabulary across the held-open reply and the terminal event.
+ * What the new binding can see. `degraded` is exactly `memo`; the status carries it.
  *
- * @consumedBy the provider switch's failed settlement, which names its reason
+ * @consumedBy the agent switch, which reads where a switch lands and how it settled
  */
-export const SWITCH_FAILURE_REASONS = [
-  "driver_unavailable",
-  "model_unavailable",
-  "effort_unavailable",
-  "account_unavailable",
-  "output_speed_unavailable",
-  "interrupt_refused",
-  "target_unstartable",
-] as const;
+export const SWITCH_CONTINUITIES = ["in_place", "replayed", "memo"] as const;

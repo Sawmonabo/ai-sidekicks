@@ -56,13 +56,6 @@ export interface BridgeUnderTest {
   readonly calls: readonly RecordedDaemonCall[];
 }
 
-/** One bridge with a named stream's handler captured, and the way to deliver to it. */
-export interface StreamUnderTest {
-  readonly bridge: ConsoleBridge;
-  /** Push one frame to whatever subscribed to the captured stream. */
-  readonly deliver: (payload: unknown) => void;
-}
-
 /**
  * One run-transition beat, in the shape the shipped scenarios script one.
  *
@@ -197,59 +190,6 @@ export function withDaemonCall(
             calls.push(recorded);
             return answer(recorded, async () => wrappedCall(method, params));
           }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
-        },
-      },
-    },
-  };
-}
-
-/**
- * Capture one named stream's handler, leaving every other subscription real.
- *
- * The subscription counterpart of `withDaemonCall`, and a spread over a REAL bridge
- * for the same reason: a surface opens more than one stream, so a stand-in that
- * answered them all would leave the case reading some other read's refusal. What a
- * case gets back is the one handler it wants to push frames into; every other
- * `subscribe` goes to the bridge underneath and behaves exactly as it would in the
- * console.
- *
- * CAPTURED RATHER THAN SCRIPTED, which is a claim about WHEN. A scenario beat puts
- * the frame on the fixture's clock, and every case that reaches for this is about
- * what happens AFTER a read has settled — a moment the case has to place itself,
- * because the fixture's clock does not know where that is.
- *
- * Delivering before anything subscribed throws rather than silently doing nothing: a
- * case that pushed a frame into no handler and then asserted an absence would be
- * reporting its own mistake as the surface's correct behaviour.
- */
-export function withCapturedStream(bridge: ConsoleBridge, streamName: string): StreamUnderTest {
-  const underlying = bridge.desktopBridge.daemon.subscribe as (
-    name: string,
-    sink: (payload: unknown) => void,
-  ) => () => void;
-  let capturedSink: ((payload: unknown) => void) | undefined;
-  return {
-    deliver: (payload: unknown): void => {
-      if (capturedSink === undefined) {
-        throw new Error(`nothing is subscribed to ${streamName}`);
-      }
-      capturedSink(payload);
-    },
-    bridge: {
-      ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        daemon: {
-          ...bridge.desktopBridge.daemon,
-          subscribe: ((name: string, sink: (payload: unknown) => void) => {
-            if (name !== streamName) {
-              return underlying(name, sink);
-            }
-            capturedSink = sink;
-            return () => {
-              capturedSink = undefined;
-            };
-          }) as ConsoleBridge["desktopBridge"]["daemon"]["subscribe"],
         },
       },
     },

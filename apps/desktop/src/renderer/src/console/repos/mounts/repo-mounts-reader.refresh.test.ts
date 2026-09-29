@@ -39,7 +39,7 @@ function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -90,7 +90,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [] });
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -120,17 +120,18 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     expect(reader.snapshot.readAtMilliseconds).toBeGreaterThan(readAtFirstSettle);
   });
 
-  it("re-reads when a mount leaves the session", async () => {
-    // `repo.detached` changes the mount list this whole section is drawn from. Left
-    // unwatched, the section went on drawing a mount card, its workspaces, and its
-    // execution roots for a mount the session no longer holds.
+  it("re-reads when a workspace leaves the session", async () => {
+    // The section learns its mounts from its workspaces, so `workspace.archived` changes
+    // the mount list this whole section is drawn from. Left unwatched, the section went
+    // on drawing a mount card, its workspaces, and its execution roots for a mount the
+    // session no longer binds.
     const clock = new ManualClock();
     const sessionStore = initializedStore(SESSION_ID);
     const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
-    sessionStore.applyBatch([eventOfKind(SESSION_ID, "repo.detached", 1)]);
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "workspace.archived", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -139,7 +140,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
   it("coalesces a burst across the whole namespace into one read", async () => {
     // The widened set must not cost a read per frame: a workspace reprovisioning emits
     // several frames in one breath, and the scheduler is what makes that one burst
-    // rather than five.
+    // rather than four.
     const clock = new ManualClock();
     const sessionStore = initializedStore(SESSION_ID);
     const reader = openReader(sessionOperations(), clock, sessionStore);
@@ -151,7 +152,6 @@ describe("RepoMountsReader — the reasons it reads again", () => {
       eventOfKind(SESSION_ID, "worktree.created", 2),
       eventOfKind(SESSION_ID, "worktree.ready", 3),
       eventOfKind(SESSION_ID, "workspace.ready", 4),
-      eventOfKind(SESSION_ID, "repo.attached", 5),
     ]);
     await settle(clock, reader);
 
@@ -171,7 +171,6 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     sessionStore.initialise({
       cursor: 1,
       entities: [],
-      userJoinLog: [],
       // A stale frame inside the BACKFILL is history the section's own live read already
       // reflects, so establishing a base state re-reads nothing.
       timeline: [staleFrame(SESSION_ID, 1)],

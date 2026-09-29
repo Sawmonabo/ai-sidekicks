@@ -31,6 +31,7 @@
 // the declared name would silently drop the second of two `notes.md`. The counter
 // rises and never repeats, which is the whole requirement.
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
@@ -61,7 +62,7 @@ export interface AttachmentCarrierSnapshot {
 export interface AttachmentCarrierOptions {
   /** The four calls of an upload; nothing here reaches for a bridge to make them. */
   readonly port: AttachmentIngestPort;
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   /**
    * The clock every stamp this carrier publishes is taken from.
    *
@@ -80,8 +81,6 @@ export interface AttachmentCarrierBinding {
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
   readonly abandon: (localId: string) => void;
-  /** Put one attachment at a new declared position; the ledger's order is the record. */
-  readonly reorder: (localId: string, toPosition: number) => void;
 }
 
 /** One ingest client, its subscription, and the stamped snapshot a surface renders. */
@@ -173,19 +172,6 @@ export class AttachmentCarrier {
   /** Stop sending. There is no cancel call, so this is abandonment and the copy says so. */
   public abandon(localId: string): void {
     this.#client.abandon(localId);
-  }
-
-  /**
-   * Put one attachment at a new declared position.
-   *
-   * THE LEDGER IS THE RECORD AND THE SURFACE IS NOT. Ordering is caller-declared and
-   * preserved end to end, so a drag that reordered
-   * a rendered list while the ledger kept its own order would show one order and send
-   * another. This goes to the same single writer every other act does, and the
-   * publish it produces is what re-renders the list.
-   */
-  public reorder(localId: string, toPosition: number): void {
-    this.#client.reorder(localId, toPosition);
   }
 
   /**
@@ -288,7 +274,7 @@ export class AttachmentCarrier {
  */
 export function useAttachmentCarrier(
   bridge: ConsoleBridge,
-  sessionId: string,
+  sessionId: SessionId,
   port: AttachmentIngestPort,
 ): AttachmentCarrierBinding {
   // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
@@ -329,11 +315,5 @@ export function useAttachmentCarrier(
     },
     [carrier],
   );
-  const reorder = useCallback(
-    (localId: string, toPosition: number) => {
-      carrier.reorder(localId, toPosition);
-    },
-    [carrier],
-  );
-  return { snapshot, attachFiles, retry, abandon, reorder };
+  return { snapshot, attachFiles, retry, abandon };
 }

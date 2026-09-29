@@ -43,14 +43,6 @@ const WORKFLOWS_OWNER = "workflows";
 /**
  * Both pane kinds this family claims.
  *
- * NO TEAR-OFF ANSWER TRAVELS WITH THEM, deliberately: whether a kind may be torn off into
- * an auxiliary window is `seats/pane/pane-kinds.ts`'s `isDetachablePaneKind`, derived
- * from the window model's own closed set. The console ships exactly two auxiliary
- * windows, `timeline` and `agent-console`, and neither of these is one — but a boolean
- * stated here would be asked of each descriptor independently, so a kind could advertise
- * a detach path the window model cannot serve and neither this registration nor the type
- * system would notice.
- *
  * THE NARROWING AND ITS REFUSAL ARE THE SEAT'S, NOT THIS FAMILY'S. The registry hands
  * every body the whole context union and only one arm is each pane's; the mismatched
  * arm is unreachable through the deck and is rendered rather than thrown anyway,
@@ -67,16 +59,10 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
     // A LOADER, like the builder below it: a run pane opens from the destination's run
     // list or from a run address, so nothing paints it before a person asks.
     //
-    // IT WAS A `render` FOR ONE ROUND, and the reason it no longer is belongs here rather
-    // than in the body: `pane/run/run-controls.css` and `runs/pane/runs.css` both declared
-    // `.meridian-run-controls` with different layout declarations and disjoint children,
-    // so which sheet the browser saw LAST decided how this pane laid its operator controls
-    // out — and deferring this body moved this family's sheet to the end of that cascade.
-    // Keeping the body eager hid the coupling instead of removing it. The class has one
-    // owner now: this family's block is `meridian-workflow-run-controls` and the runs
-    // family keeps the name it was already declaring, so no bundle boundary decides how
-    // either surface looks. The module-shape rule in `apps/desktop/AGENTS.md` keeps a
-    // second collision from landing unnoticed, and review is what reads it.
+    // The operator controls' class has one owner — this family's block is
+    // `meridian-workflow-run-controls` — so no bundle boundary decides how the pane
+    // looks. The module-shape rule in `apps/desktop/AGENTS.md` keeps a collision from
+    // landing unnoticed, and review is what reads it.
     body: () => import("./pane/workflow-run-pane-body.js"),
   },
   {

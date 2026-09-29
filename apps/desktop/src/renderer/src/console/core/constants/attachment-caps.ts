@@ -1,12 +1,12 @@
 // The attachment ingest bounds, and the stride the encoder walks a chunk in.
 
-// All four of the bounds below are registered on the wire, and the daemon is what
-// enforces them; the console carries them so it can explain a bound ahead of the refusal
-// rather than after it. Each mirrors its registered source EXACTLY and is never looser —
-// a console that admitted more than the daemon would spend a user's upload to earn
-// a refusal. Three are operator-tunable, so every surface that shows one says "default"
-// until `artifactAllowlistRead` answers with the effective value; the chunk size is fixed
-// because the frame ceiling it derives from is.
+// The three bounds below that are registered on the wire are enforced by the daemon; the
+// console carries them so it can explain a bound ahead of the refusal rather than after
+// it. Each mirrors its registered source EXACTLY and is never looser — a console that
+// admitted more than the daemon would spend a user's upload to earn a refusal. All three
+// are operator-tunable, so every surface that shows one says "default" until the daemon
+// answers with the effective value. The chunk size is the contract's
+// `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`.
 
 /**
  * Decoded bytes one attachment may carry, at the shipped default.
@@ -26,16 +26,6 @@ export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
  * an ingest stream, which carries exactly one payload and has no count to cap.
  */
 export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
-
-/**
- * Decoded bytes in one chunk. Fixed, not operator-tunable.
- *
- * `max_attachment_chunk_bytes`: the largest raw chunk whose RFC 4648 base64 form
- * plus the JSON-RPC envelope fits the frame ceiling `MAX_MESSAGE_BYTES` declares
- * in `packages/contracts`. The ceiling it derives from is not tunable, so neither
- * is this, and the arithmetic is asserted rather than trusted.
- */
-export const ATTACHMENT_CHUNK_BYTE_CAP: number = 512 * 1024;
 
 /**
  * Wall-clock ceiling on one ingest stream, measured from its first call.

@@ -179,7 +179,7 @@ describe("the I-am-blind marker", () => {
 });
 
 describe("the tripwire route", () => {
-  it("carries a report into the capture with the severity its kind maps to", () => {
+  it("carries a report into the capture as an error", () => {
     const registry = new TripwireRegistry();
     const capture = new DiagnosticCapture();
     const batches: string[] = [];
@@ -191,28 +191,20 @@ describe("the tripwire route", () => {
       site: "store/session-store.ts",
       detail: "items assigned outside apply",
     });
-    registry.report({
-      kind: "cleanup-refused",
-      site: "repos/attachments",
-      detail: "daemon refused the release",
-    });
     capture.flush();
 
     const lines = batches
       .join("\n")
       .split("\n")
       .map((line) => JSON.parse(line) as DiagnosticRecord);
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(1);
     expect(lines[0]?.severity).toBe("error");
     expect(lines[0]?.kind).toBe("apply-chokepoint-bypass");
     expect(lines[0]?.detail).toBe("store/session-store.ts: items assigned outside apply");
-    // The one kind that is the daemon answering honestly rather than a broken console
-    // invariant reaches the band as a warning.
-    expect(lines[1]?.severity).toBe("warning");
 
     detach();
     registry.report({ kind: "bridge-shape-drift", site: "bridge", detail: "drifted" });
     capture.flush();
-    expect(capture.forwardedRecordCount).toBe(2);
+    expect(capture.forwardedRecordCount).toBe(1);
   });
 });

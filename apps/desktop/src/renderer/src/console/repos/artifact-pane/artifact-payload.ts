@@ -4,13 +4,14 @@
 // is run. It reaches neither the port nor the wire: it takes one served reply and answers
 // with the arm the pane draws.
 
-import type { GrowthArtifactPayloadEncoding, GrowthArtifactRead } from "../../bridge/index.js";
+import type { ArtifactPayloadEncoding, ArtifactReadResponse } from "@ai-sidekicks/contracts";
+
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
 
 /**
  * What one artifact's payload fetch has established.
  *
- * `GrowthArtifactRead` is a union: the deferred arm hands back a content-addressed key and
+ * `ArtifactReadResponse` is a union: the deferred arm hands back a content-addressed key and
  * no bytes, the inline arm hands back the bytes with the encoding to read them by. Both
  * are served answers a surface has to draw. The inline arm splits on whether the bytes
  * are text: a payload that decodes is previewable, and one that does not is reported as
@@ -26,7 +27,7 @@ export type ArtifactPayloadReading =
   | {
       readonly status: "text";
       readonly artifactId: string;
-      readonly encoding: GrowthArtifactPayloadEncoding;
+      readonly encoding: ArtifactPayloadEncoding;
       /** Bounded at `ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP`; `truncated` says so. */
       readonly text: string;
       readonly truncated: boolean;
@@ -35,7 +36,7 @@ export type ArtifactPayloadReading =
   | {
       readonly status: "opaque";
       readonly artifactId: string;
-      readonly encoding: GrowthArtifactPayloadEncoding;
+      readonly encoding: ArtifactPayloadEncoding;
       readonly reason: "not-utf8" | "undecodable";
     };
 
@@ -59,7 +60,7 @@ export type ArtifactPayloadOutcome =
  */
 export function artifactPayloadReadingFrom(
   artifactId: string,
-  read: GrowthArtifactRead,
+  read: ArtifactReadResponse,
 ): ArtifactPayloadReading {
   if (read.payloadEncoding === undefined) {
     return { status: "deferred", artifactId, payloadHandle: read.payloadHandle };
@@ -147,7 +148,7 @@ function base64PrefixLengthFor(characterCap: number): number {
  */
 function decodedPayloadText(
   payload: string,
-  encoding: GrowthArtifactPayloadEncoding,
+  encoding: ArtifactPayloadEncoding,
 ):
   | { readonly status: "text"; readonly text: string; readonly inputBounded: boolean }
   | { readonly status: "opaque"; readonly reason: "not-utf8" | "undecodable" } {

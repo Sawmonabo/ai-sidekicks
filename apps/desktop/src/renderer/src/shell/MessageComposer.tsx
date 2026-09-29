@@ -112,10 +112,7 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
         region={regionRef}
         commandEnumeration={commandEnumeration}
       />
-      {/* The region again, and for the host's own reason: the accessory rail binds
-          drop and paste over the whole composer, which is a thing the host owns and
-          no zone may reach for on its own. */}
-      <ComposerAccessoryRail {...props} region={regionRef} />
+      <ComposerAccessoryRail {...props} />
     </section>
   );
 }

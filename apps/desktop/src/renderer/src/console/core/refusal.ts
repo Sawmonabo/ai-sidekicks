@@ -3,7 +3,7 @@
 // A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
 // across the workspace — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
 // consume the same two fields. What the console lacked was one refusal VALUE for them to
-// consume: the growth port, the fixture bridge, the when-clause parser, the key-binding
+// consume: the daemon client, the fixture bridge, the when-clause parser, the key-binding
 // table, and the palette each minted their own vocabulary, so a surface that wanted to
 // render two of them had to translate between five shapes to reach three renderers.
 //
@@ -41,7 +41,7 @@ export interface ConsoleRefusal {
   readonly code: string;
   /** One actionable sentence. Never the refused value. */
   readonly detail: string;
-  /** The subsystem that refused — `"persistence"`, `"growth-port"`, `"keybindings"`. */
+  /** The subsystem that refused — `"persistence"`, `"sessions"`, `"keybindings"`. */
   readonly origin: string;
 }
 
@@ -55,9 +55,9 @@ export interface ConsoleRefusal {
  * object type. The two describe the same values and differ in what `code` reads as:
  * an intersection leaves it `string & Code`, which every hover, every error message,
  * and every structural comparison then carries, while this leaves it exactly `Code`.
- * It is also the shape the two producers that own vocabularies already declare —
- * `PersistenceRefusal` and `GrowthUnavailable` are written this way — so the generic
- * result and the hand-written declarations it satisfies have one form between them.
+ * It is also the shape a producer that owns a vocabulary already declares —
+ * `PersistenceRefusal` is written this way — so the generic result and the
+ * hand-written declarations it satisfies have one form between them.
  */
 export interface NarrowedRefusal<Code extends string> extends ConsoleRefusal {
   readonly code: Code;

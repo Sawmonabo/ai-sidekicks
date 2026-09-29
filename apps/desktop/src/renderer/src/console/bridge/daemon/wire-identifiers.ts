@@ -20,7 +20,7 @@
 // WHAT THEY DO NOT DO. They mint no refusal and compose no sentence. Whether an
 // unreadable identifier is a rendered refusal, a dropped row, or a silent skip is
 // the caller's decision and differs by surface: the composer refuses the send and
-// keeps the user's text, the runs pane refuses the control, and the addressed
+// keeps the user's text, the run controls refuse the act, and the addressed
 // -run chip simply shows no state. A reader that refused on their behalf would have
 // had to choose one, and the console's refusal codes would have moved into the
 // bridge family where no surface can read them.
@@ -100,14 +100,10 @@ export function readRunState(value: string): RunState | undefined {
  * upstream lands OUTSIDE it: a run whose state this build has never heard of is not
  * asserted to be finished.
  *
- * IT IS HERE AND NOT IN A VIEW FAMILY. It began in `runs/pane/run-status.ts`, and the
- * second surface that needed it — the settings surface's restart confirmation, which
- * has to name the runs a restart would interrupt — is a SIBLING view family, which
- * may not import it from there (`apps/desktop/AGENTS.md`: view families are siblings,
- * not a ladder). The remedy that file's own rule names is the hoist, and this module
- * is where it lands: `bridge/` already owns the console's one reading of the wire's
- * run-state vocabulary, and a predicate over that vocabulary belongs beside the
- * reader that produces it rather than in whichever family asked first.
+ * IT IS HERE AND NOT IN A VIEW FAMILY. `bridge/` owns the console's one reading of the
+ * wire's run-state vocabulary, and a predicate over that vocabulary belongs beside the
+ * reader that produces it, where every view family can import it
+ * (`apps/desktop/AGENTS.md`: view families are siblings, not a ladder).
  */
 const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
   "queued",

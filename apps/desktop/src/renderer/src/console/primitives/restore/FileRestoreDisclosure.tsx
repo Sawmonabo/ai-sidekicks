@@ -2,20 +2,10 @@ import { useId } from "react";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { Chip, Glyph } from "../figures/index.js";
 import type { ChipTone } from "../figures/index.js";
-import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
+import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
-/** The rollback results this disclosure draws, as the contract's own union names them. */
-type DisclosedRollbackResult = Extract<
-  RollbackInterventionResult,
-  {
-    disposition:
-      | "files-restored"
-      | "conversation-only"
-      | "files-unrestored"
-      | "nothing-applied"
-      | "resend-unapplied";
-  }
->;
+/** The rollback results this disclosure draws, as the contract's own arms name them. */
+type DisclosedRollbackResult = RollbackAppliedResult | RollbackDegradedResult;
 
 type RollbackDisposition = DisclosedRollbackResult["disposition"];
 
@@ -36,10 +26,6 @@ const DISPOSITION_PRESENTATION: Readonly<Record<RollbackDisposition, Disposition
   "conversation-only": {
     tone: "neutral",
     meaning: "The rewind moved the conversation only. No file was restored and none was touched.",
-  },
-  "files-unrestored": {
-    tone: "failure",
-    meaning: "No file was restored. The working tree is as it was before the rewind was requested.",
   },
   "nothing-applied": {
     tone: "attention",

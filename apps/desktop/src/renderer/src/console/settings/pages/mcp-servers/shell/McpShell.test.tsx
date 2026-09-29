@@ -13,10 +13,12 @@ import {
   useConsoleBridge,
 } from "../../../../bridge/index.js";
 import type {
-  ConsoleBridge,
-  GrowthMcpInventoryEntry,
-  GrowthMcpMutationResult,
-} from "../../../../bridge/index.js";
+  McpMutationResult,
+  McpServerInventoryEntry,
+  SessionId,
+} from "@ai-sidekicks/contracts";
+
+import type { ConsoleBridge } from "../../../../bridge/index.js";
 import { unscriptedScenario } from "../../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
@@ -27,7 +29,10 @@ afterEach(() => {
   cleanup();
 });
 
-const FILESYSTEM: GrowthMcpInventoryEntry = {
+const SESSION_A = "11111111-1111-4111-8111-111111111111" as SessionId;
+const SESSION_B = "22222222-2222-4222-8222-222222222222" as SessionId;
+
+const FILESYSTEM: McpServerInventoryEntry = {
   provider: "claude",
   scope: "user",
   serverName: "filesystem",
@@ -45,7 +50,7 @@ const FILESYSTEM: GrowthMcpInventoryEntry = {
   toolOverrides: [],
 };
 
-const ISSUE_TRACKER: GrowthMcpInventoryEntry = {
+const ISSUE_TRACKER: McpServerInventoryEntry = {
   provider: "codex",
   scope: "project",
   scopeRef: "/work/repo",
@@ -59,8 +64,8 @@ const ISSUE_TRACKER: GrowthMcpInventoryEntry = {
   },
   status: "needs-auth",
   legs: [
-    { sessionId: "session-a", bindingId: "leg-a", status: "needs-auth" },
-    { sessionId: "session-b", bindingId: "leg-b", status: "connected" },
+    { sessionId: SESSION_A, bindingId: "leg-a", status: "needs-auth" },
+    { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
   ],
   enabled: true,
   trusted: false,
@@ -68,7 +73,7 @@ const ISSUE_TRACKER: GrowthMcpInventoryEntry = {
   toolOverrides: [],
 };
 
-const SCRATCHPAD: GrowthMcpInventoryEntry = {
+const SCRATCHPAD: McpServerInventoryEntry = {
   provider: "claude",
   scope: "local",
   scopeRef: "/work/repo",
@@ -79,13 +84,13 @@ const SCRATCHPAD: GrowthMcpInventoryEntry = {
   trustUnavailable: true,
 };
 
-const PARTIAL_APPLICATION: GrowthMcpMutationResult = {
+const PARTIAL_APPLICATION: McpMutationResult = {
   server: { ...FILESYSTEM, enabled: false },
   applied: "live_reconcile",
   liveResults: [
-    { sessionId: "session-a", bindingId: "leg-a", outcome: "applied" },
+    { sessionId: SESSION_A, bindingId: "leg-a", outcome: "applied" },
     {
-      sessionId: "session-b",
+      sessionId: SESSION_B,
       bindingId: "leg-b",
       outcome: "failed",
       errorCode: "mcp.config_write_conflict",
@@ -94,7 +99,7 @@ const PARTIAL_APPLICATION: GrowthMcpMutationResult = {
 };
 
 function operationsServing(
-  servers: readonly GrowthMcpInventoryEntry[],
+  servers: readonly McpServerInventoryEntry[],
   overrides: Partial<McpShellOperations> = {},
 ): McpShellOperations {
   return {
@@ -282,11 +287,11 @@ function operationsHoldingTheirMutation(): {
   readonly operations: McpShellOperations;
   readonly answerHeldMutation: () => void;
 } {
-  const waiting: ((result: GrowthMcpMutationResult) => void)[] = [];
+  const waiting: ((result: McpMutationResult) => void)[] = [];
   return {
     operations: operationsServing([FILESYSTEM], {
       sendEnabled: async () =>
-        await new Promise<GrowthMcpMutationResult>((resolve) => {
+        await new Promise<McpMutationResult>((resolve) => {
           waiting.push(resolve);
         }),
     }),

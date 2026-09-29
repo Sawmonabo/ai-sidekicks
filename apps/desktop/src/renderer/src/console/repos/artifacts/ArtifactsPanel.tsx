@@ -13,12 +13,11 @@
 
 import { useMemo, useState } from "react";
 
-// The wire's own type census, so the filter offers exactly the types the manifest declares.
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
-import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import { DerivedFigure, Glyph, Nothing, WireFigure, formatCount } from "../../primitives/index.js";
 import { ArtifactRow } from "./ArtifactRow.js";
 import {
+  ARTIFACT_FILTER_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
   artifactTypeCounts,
   filterArtifactRows,
@@ -177,7 +176,7 @@ function renderFilterButtons(props: FilterButtonsProps): React.JSX.Element {
       >
         All <DerivedFigure text={formatCount(props.totalCount)} />
       </button>
-      {GROWTH_ARTIFACT_TYPES.map((artifactType) => (
+      {ARTIFACT_FILTER_TYPES.map((artifactType) => (
         <button
           key={artifactType}
           type="button"

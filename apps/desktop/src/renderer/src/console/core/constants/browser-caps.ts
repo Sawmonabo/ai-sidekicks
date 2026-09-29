@@ -22,7 +22,6 @@
  */
 export const POSITION_SIBLING_OBSERVER_CAP = 64;
 
-// Two display bounds over renderer lists, and NEITHER is one of the browser
-// subsystem's resource ceilings — those live in `browser/bounds/browser-bounds.ts`
-// and are the daemon's. Nothing is refused, truncated, or deleted because of these:
-// what is dropped is a row nobody scrolled to.
+// Two display bounds over renderer lists, and NEITHER is one of the browser subsystem's
+// resource ceilings — those are the daemon's. Nothing is refused, truncated, or deleted
+// because of these: what is dropped is a row nobody scrolled to.

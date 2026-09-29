@@ -1,6 +1,7 @@
-// Attaching a repository to this session: the path, and what came back.
+// Attaching a repository: the path, and what came back.
 //
-// THE ENTRY POINT FOR A SESSION'S FIRST REPOSITORY: a mount arrives through this dialog.
+// THE ENTRY POINT FOR A REPOSITORY: a mount arrives through this dialog. A mount belongs to
+// the machine rather than to the session.
 //
 // A DIALOG RATHER THAN AN INLINE FORM, so a sidebar section whose subject is the mounts a
 // session already has does not also carry a text field and a settlement.
@@ -10,30 +11,27 @@
 // entry a person may abandon, and abandoning it costs nothing. The RE-ATTACH beside it
 // is the other case and takes the alert variant, in its own module.
 //
-// THE ATTACH IS NOT FOLLOWED BY A BIND. Attach mints the mount's default workspace, and
-// the reply names it — so a bind issued here would be the console choosing an execution
-// mode nobody asked for. The mode picker on the workspace card is where that choice is
-// made, which is why the settlement below names the workspace rather than offering to
-// change it.
+// THE ATTACH IS NOT FOLLOWED BY A BIND. A bind issued here would be the console choosing
+// an execution mode nobody asked for, which is why the settlement below names the mount
+// rather than offering a mode.
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { SessionStore } from "../../../store/index.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "../../../primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { useAttachController, type AttachReading } from "./attach-controller.js";
+import { useAttachController, type AttachActReading } from "./attach-controller.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-model.js";
 
-/** What the attach dialog is bound to: the session, and the call it sends. */
+/** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {
   readonly bridge: ConsoleBridge;
   /** The attach the dialog sends. */
   readonly operations: Pick<RepoOperations, "attachRepository">;
-  /** The session attached to. */
-  readonly sessionStore: SessionStore;
-  /** Ask the section to read again, so a minted mount appears without a second act. */
+  /** The session whose section the dialog is drawn in. */
+  readonly sessionId: string;
+  /** Ask the section to read again once an attach has minted a mount. */
   readonly onAttached: () => void;
 }
 
@@ -41,7 +39,7 @@ export interface AttachRepositoryDialogProps {
 export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): React.JSX.Element {
   const { reading, attach, clearAct } = useAttachController(
     props.bridge,
-    props.sessionStore,
+    props.sessionId,
     props.operations,
   );
   const [form, setForm] = useState<AttachFormState>(EMPTY_ATTACH_FORM);
@@ -62,13 +60,11 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
   );
 
   // THE SECTION RE-READS ON THE MINT AND NOT ON THE CLOSE, because the two are
-  // different moments and the second is optional: a user who attaches and then
-  // reads the settlement without closing the dialog would otherwise see a section that
-  // still says the session holds nothing. Keyed on the minted mount id and held in a
-  // ref, so one attach asks for one read however many times this component re-renders.
+  // different moments and the second is optional. Keyed on the minted mount id and held
+  // in a ref, so one attach asks for one read however many times this component
+  // re-renders.
   const announcedMountId = useRef<string | undefined>(undefined);
-  const mintedMountId =
-    reading.act.status === "attached" ? reading.act.response.repoMountId : undefined;
+  const mintedMountId = reading.status === "attached" ? reading.response.repoMountId : undefined;
   const { onAttached } = props;
   useEffect(() => {
     if (mintedMountId === undefined || announcedMountId.current === mintedMountId) {
@@ -98,8 +94,8 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
       >
         <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
         <Dialog.Description className="meridian-repo-attach__body">
-          Attaching mints one workspace; choosing an execution mode is a separate step on the
-          workspace itself.
+          Attaching adds the repository to this machine. Choosing an execution mode is a separate
+          step, taken when a workspace is bound on it.
         </Dialog.Description>
 
         <label className="meridian-repo-attach__path">
@@ -126,7 +122,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
           <button
             type="button"
             className="meridian-repo-attach__confirm"
-            disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
+            disabled={verdict.status !== "sendable" || reading.status === "sending"}
             onClick={submit}
           >
             Attach
@@ -147,40 +143,32 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
 /**
  * What the attach did.
  *
- * The attached arm names the mount and its default workspace, because those are the two
- * rows the section is about to grow and a person needs to be able to find them.
+ * The attached arm names the mount and the root it resolved to, because a person needs to
+ * be able to find the mount the section is about to grow.
  */
-function renderSettlement(reading: AttachReading): React.JSX.Element | null {
-  switch (reading.act.status) {
+function renderSettlement(reading: AttachActReading): React.JSX.Element | null {
+  switch (reading.status) {
     case "idle":
-    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Attaching." />;
     case "attached":
       return (
         <div className="meridian-repo-attach__attached" role="status">
-          <p>Attached. Its default workspace is ready.</p>
+          <p>Attached.</p>
           <dl className="meridian-repo-attach__minted">
             <dt>Mount</dt>
             <dd>
               <WireFigure
-                value={reading.act.response.repoMountId}
-                title={reading.act.response.repoMountId}
+                value={reading.response.repoMountId}
+                title={reading.response.repoMountId}
               />
             </dd>
             <dt>Resolved root</dt>
             <dd>
               <WireFigure
-                value={reading.act.response.canonicalRoot}
-                title={reading.act.response.canonicalRoot}
-              />
-            </dd>
-            <dt>Workspace</dt>
-            <dd>
-              <WireFigure
-                value={reading.act.response.defaultWorkspaceId}
-                title={reading.act.response.defaultWorkspaceId}
+                value={reading.response.canonicalRoot}
+                title={reading.response.canonicalRoot}
               />
             </dd>
           </dl>

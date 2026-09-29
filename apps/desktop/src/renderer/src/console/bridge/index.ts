@@ -100,7 +100,6 @@ export {
   readSessionId,
   readWorkspaceId,
 } from "./daemon/wire-identifiers.js";
-export { readRunRolledBack, readRunStateChange } from "./run-streams/run-state-events.js";
 export {
   readInterruptRunParams,
   readInterventionRequest,
@@ -187,32 +186,7 @@ export type { WireReadState } from "./readings/reading-lifecycle.js";
 // used to ask its own down its own subscription.
 export { useQueueFeed, useQueueRepairRead } from "./queue/queue-feed.js";
 export type { QueueFeed } from "./queue/queue-reading.js";
-// The run each queued row is bound to, published as the PAIR the reading writes and
-// never as its two halves. The map and the refusal move together — a settled read
-// writes exactly one of them — and the composer's shelf sits outside this family, so
-// it takes the pair through this door rather than two props a caller could pass out
-// of step. The runs pane reads the same two members off `QueueFeed`, which extends it.
-export type { QueueRunBindingState } from "./queue/queue-run-binding.js";
-
-// The node's provider-account quotas: one read, one tail, one fold per bridge.
-//
-// Here rather than in the composer because the readings are the NODE's and not a
-// session's — `usage.rate_limit_update` is bound to the node-scope sentinel session,
-// so no session store ever held one and the composer's timeline fold could only ever
-// have rendered a fixture. A settings surface listing accounts asks the same
-// question of the same registry, so the read lives at the bridge where both reach it.
-//
-// Three modules, and the door re-exports each symbol from the one that DECLARES it:
-// `provider-quota-fold.ts` owns which reading is current and what a surface renders
-// for it, `provider-account-quota.ts` owns the wire that feeds it, and
-// `provider-quota-feed.ts` owns how many readings there are and how long each lives —
-// and, beside the three window triggers, the fourth moment that owes one a re-read: a
-// settled sign-in or a registered token changes what the registry says and neither is
-// a window fact, so the surface that caused one asks rather than reading for itself.
-export { useProviderAccountRefresh, useProviderQuotas } from "./quotas/provider-quota-feed.js";
 export type { ProviderQuotaReadout } from "./quotas/provider-quota-readout.js";
-export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
-export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
 
 // This machine's OS notification permission: one read, one scheduler, one latch.
 //
@@ -262,70 +236,12 @@ export type {
 // One widening from a held id string to a registered request's branded id, beside the
 // door whose request parse is what makes it a checked widening rather than a claim.
 export { heldIdAsWireId } from "./daemon/wire-ids.js";
-
-// The growth port's public face. The composition root builds a session-snapshot
-// read over it and every surface that offers sessions reads the directory through
-// `seats/`, so the port type, the one summary shape those surfaces render, the
-// refusal they render instead, and the builder that mints one all leave through this
-// door — the same door the bridge itself does, because a growth refusal IS what this
-// bridge answers for a wire the corpus has not registered.
-// `growthUnavailableFromRejection` AND `GrowthUnavailable` are here for readers
-// outside the session directory, which is the distinction the reading layer drew when
-// it took both off. A directory read settles through `readings/read-settlement.js`
-// below and keeps the daemon's own code, so nothing on that path mints a port refusal
-// or names the type. Three families since reach past that path: `repos/growth-call.ts`
-// catches a REJECTED call — the one path the port never answers on — and hands the
-// rejection to the builder, returning the type; the workflow run pane's control
-// dispatch names the outcome's refusal arm for a port answer it did not settle
-// through a hook; and the workspace family's auxiliary hand-off reaches the type from
-// the act side, translating a growth refusal into its own vocabulary by branching on
-// which growth code was raised, so it names the union rather than a settled read's
-// `SettledReadRefusal`. So both travel, and the rule that took them off is unchanged:
-// a door line stands while a production module reaches it, and these two are reached.
-// `settledGrowthCall` travels beside them and on the same rule — it is what every
-// growth ACT settles through, and the auxiliary pane hand-off and its error watch are
-// the production callers that make the line a door line rather than a claim.
-// `GrowthSessionSummary` leaves through the module that DECLARES it, never through
-// `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
-// reached deep by the three modules inside this family that read several planes at
-// once; forwarding a name through it from here would chain one barrel into another,
-// which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
-// of following two hops instead of reading one specifier.
-export {
-  growthUnavailable,
-  growthUnavailableFromRejection,
-} from "./growth-port/growth-refusals.js";
-export { settledGrowthCall } from "./growth-port/growth-port.js";
-// `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
-// what the port's own refusal arms are written in, and nothing outside
-// `growth-port/growth-outcome.ts` names it at all, so a door line for it would
-// publish a specifier with no importer — the class this package's module rules
-// reject.
-// `createRefusingGrowthPort` is withheld on the same rule from the other side: its
-// one production caller is `live-bridge.ts` inside this family, which takes it
-// through `growth-port/index.js`, the inner door its siblings already read.
-export type { GrowthPort } from "./growth-port/growth-port.js";
-// The operation id, beside the port and the builder that both speak it. Withheld, it
-// made `GrowthPort` unusable through this door by anyone composing a partial one: the
-// port's method types and `growthUnavailable`'s parameter are BOTH written in this
-// union, so a family scripting a port could not name the type it had to satisfy and
-// reached for `as unknown as Partial<GrowthPort>` instead — a cast that switches off
-// the checking on the whole object to get past one member it could not spell. It
-// leaves through `growth-port/growth-entry.js`, the module that declares it.
-export type { GrowthOperationId } from "./growth-port/growth-entry.js";
-export type { GrowthSessionSummary } from "./growth-values/sessions.js";
-// What a browser pane reports about its page and its pages. Published because the
-// browser family types its readings from these shapes instead of restating them.
 export type {
-  GrowthBrowserPage,
-  GrowthBrowserPageList,
-  GrowthNavigationState,
-} from "./growth-values/panes.js";
-// What a provider-session import reports as it runs. Published because the import
-// panel drains the progress subscription and renders the producer's own turn count
-// and state verbatim; a shape read only inside the fixture would leave the surface
-// narrowing an `unknown` it has no schema for.
-export type { GrowthImportProgress } from "./growth-values/sessions.js";
+  SessionSummary,
+  TimelineResubscribeRequest,
+  TimelineSubscribeCall,
+} from "./daemon/session-reads.js";
+
 // The attention projection's own vocabulary. Published because the notification
 // plane NARROWS against it: it used to declare a second copy of these five triggers
 // and two severities, which is two closed sets that agree until one of them is
@@ -338,14 +254,6 @@ export {
   type AttentionSeverity,
   type AttentionTrigger,
 } from "./wire-shapes/attention-projection.js";
-// The outcome union itself. A caller outside this family narrows on it; its refusal
-// ARM does not travel, for the reason stated above the growth-port block.
-export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
-// The served shape of a growth SUBSCRIPTION, published beside the outcome for the
-// same reason: the deep-link path's owner drains one, and a view family that had to
-// name the shape itself would be declaring a second reading of what this port
-// promises.
-export type { GrowthStream } from "./growth-port/growth-outcome.js";
 // The window's one transport-reconnect signal, published as the CLASS rather than as
 // the floor's subscribe-only view: the doors that report into it — this family's own
 // stream door, the seat every view family subscribes through, and the frame's
@@ -358,31 +266,6 @@ export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 // binder — each take a daemon subscription of their own and would otherwise each
 // decide what taking one proves.
 export { openObservedSubscription } from "./transport/observed-subscription.js";
-
-// The per-operation request and value table. Published for exactly one reader: the
-// channels family's mutation coordinator, which binds a growth WRITE the way it
-// already binds a daemon method — reading both halves off the registry rather than
-// declaring them at the call site, so a surface naming an operation the slate does not
-// carry, or sending it the wrong payload, does not compile. It travels as a type and
-// carries no port with it, so nothing gains a way to CALL an operation through it.
-export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
-
-// The channel plane's shapes, published because the channels family RENDERS
-// them: a create form whose every field is one member of `GrowthChannelConfig`, and
-// the receipts the four lifecycle writes answer with. They leave through the module
-// that DECLARES them rather than through `growth-values/index.js`, on the
-// `console-no-barrel-chain` rule.
-export {
-  type GrowthChannelConfig,
-  type GrowthChannelCreateReceipt,
-  type GrowthChannelLifecycleReceipt,
-} from "./growth-values/channels.js";
-
-// The presence plane's detail card, which renders the devices behind one person's
-// aggregate. The device ROW inside that fan-out is deliberately not a second line —
-// the card maps over `GrowthPresenceDetail["devices"]` and names the row type
-// nowhere, and a door is never widened for symmetry.
-export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 
 // The saved definition the registry serves. Published because the definition picker
 // in the agent console projects one onto its own row shape, and a projection cannot
@@ -417,114 +300,6 @@ export type {
   PeerInvocationReading,
   PeerInvocationSetRequest,
 } from "./wire-shapes/agent-plane.js";
-
-// The manifest envelope a served `artifactList` answers with. Through this door
-// because the repos family's artifact model reads one into a row, and a family
-// reaching past a barrel into the bridge's own modules would be the deep import
-// the structure rules exist to prevent. It leaves through `artifacts.js` — the
-// module that DECLARES it — on the rule the paragraph above states.
-export type { GrowthArtifactSummary } from "./growth-values/artifacts.js";
-// The PR-preparation vocabulary, through the same door and for the reason the
-// artifact vocabularies below are here: the repos family's prepared proposal carries
-// this state and used to DECLARE a second copy of the two words, member for member,
-// each under a comment claiming to be the one home. The family aliases this one now,
-// so a member the wire drops stops being assignable in the gate.
-export {
-  GROWTH_PR_PREPARATION_STATES,
-  type GrowthPrPreparationState,
-} from "./growth-values/gitflow.js";
-// The mint's own request union, through the same door and for the same reason: the
-// diff pane composes one from the subject its address resolved to, and a second copy
-// of the two arms written in that family would go on offering an attribution the wire
-// had stopped admitting. The response shape stays off this door — nothing outside the
-// bridge names it, the pane reading the manifest id straight off the served value.
-export type { GrowthDiffArtifactCreateRequest } from "./growth-values/gitflow.js";
-// The read's own reply union and the encoding a reader switches on, for the same
-// reason and through the same module: the artifact pane consumes both arms of a
-// served payload read, and the arm it lands on is what it draws.
-export type {
-  GrowthArtifactPayloadEncoding,
-  GrowthArtifactRead,
-} from "./growth-values/artifacts.js";
-// The manifest's own closed vocabularies, through the same door and for the reason
-// that door exists: the repos family renders every one of them — a state chip, a
-// visibility chip, a type filter, a replication sentence, a delete receipt's
-// disposition — and it used to DECLARE a second copy of each, member for member,
-// under a comment claiming to be the one home. A view family derives from the shape
-// the wire declares or it drifts from it silently, and the drift that matters is the
-// wire dropping a member: a second union goes on offering it with nothing failing.
-export {
-  GROWTH_ARTIFACT_TYPES,
-  // The receipt itself, beside the disposition it carries: a surface that renders
-  // where the bytes went is holding the whole receipt, and publishing the member's
-  // vocabulary without the record it sits in left the family annotating one and
-  // inferring the other.
-  type GrowthArtifactDeleteReceipt,
-  type GrowthArtifactPayloadDisposition,
-  type GrowthArtifactReplicationStatus,
-  type GrowthArtifactState,
-  type GrowthArtifactType,
-  type GrowthArtifactVisibility,
-} from "./growth-values/artifacts.js";
-// The port's own refusal vocabulary, for the callers that turn a REJECTED call into a
-// refusal. A growth call has two failure paths — the port answers `unavailable`, or the
-// call throws — and the artifact pane used to stamp the second with the repos family's
-// daemon-read origin and a daemon-reply code, so one operation reported two subsystem
-// names and neither was the port's.
-export { GROWTH_PORT_REFUSAL_ORIGIN } from "./growth-port/growth-outcome.js";
-export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
-// The diagnostics plane's shapes, from the module that DECLARES them rather than
-// through the inner values door — the barrel-chain rule the `GrowthSessionSummary`
-// line above states. The settings family renders every one of these: a health banner
-// keyed on the state, a stuck badge keyed on the signal, a recovery prompt whose
-// control set IS the action vocabulary, and a retention table keyed on the bucket. A
-// view family derives from the shape the wire declares or it drifts from it silently.
-//
-// ONE VALUE VOCABULARY LEAVES, AND THE OTHER TWO DELIBERATELY DO NOT.
-// `GROWTH_RECOVERY_ACTIONS` is here because the prompt's control set is built by
-// mapping it, so the page would otherwise re-spell a closed set the wire owns. The
-// state and bucket arrays are read by nothing outside this family: their members
-// reach the page through the union TYPES beside them, which is what a keyed lookup
-// needs, and a door line no production module imports is a dead export the barrel
-// census fails.
-export {
-  GROWTH_RECOVERY_ACTIONS,
-  type GrowthFailureDetail,
-  type GrowthHealthComponent,
-  type GrowthHealthState,
-  type GrowthHealthStatus,
-  type GrowthRecoveryAction,
-  type GrowthRecoveryReceipt,
-  type GrowthRedactionBucket,
-  type GrowthRedactionPolicy,
-  type GrowthStuckRunInspection,
-} from "./growth-values/diagnostics.js";
-
-// Which kind of nothing a growth refusal IS — the console never asked, or the asking
-// failed. Every surface that offers the node's sessions has to answer it before it
-// can choose an absence, and three of them were answering it by eye and each getting
-// it wrong the same way, so the reading leaves through this door beside the code it
-// reads.
-export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
-// The two-arm reading a surface holds for one such call — the port's answer, or the
-// refusal a call that produced none was read as. Through this door and deliberately
-// not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
-// inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
-// which is how two speculative lines came off that door already.
-export type { GrowthReading } from "./growth-port/growth-outcome.js";
-
-// The code a refusing port answers with, published because one view family's own
-// refusal union is declared as this code widened by its own — so the union is built
-// from the port's word for it rather than from a second literal that would drift.
-export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js";
-
-// The growth ledger's row lookup, through the door this file's header already claims
-// it for ("the ledger that makes those refusals checkable"). A view family that must
-// render an absence names the row that would fill it, and reading the row through the
-// barrel is what keeps a family out of this one's interior — the deep import a card
-// would otherwise take is exactly the reach past a door the layout rules forbid.
-export { growthSlateRow } from "./growth-port/growth-slate.js";
-export type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
 
 // The workflow plane's read shapes, for the family that renders them. Declared on
 // this substrate because no code package registers a `workflow.*` type yet, and
@@ -648,47 +423,10 @@ export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.
 // `TimelineRow`.
 export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
-// The Awareness activity field's readings, through the door because the
-// channels family folds a snapshot of them into its indicator registry and a
-// view family may not reach past a barrel into this one. They leave through
-// `growth-values/presence.js`, the module that DECLARES them, on the rule the
-// `GrowthArtifactSummary` line above states.
-export type {
-  GrowthActivitySnapshot,
-  GrowthAgentActivityReading,
-} from "./growth-values/presence.js";
-
 // The session goal: the fold that says what it is, and the two operations that change
 // it. Through this door because two VIEW families read it — the approvals pane's card
 // and the workspace sidebar's one-line reading — and those two may not import one
 // another; the module's own header says why this is the lowest family that owns its
 // inputs.
 export type { SessionGoalProjection } from "./session-goal.js";
-export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";
-
-// The MCP governance plane's shapes, from the module that DECLARES them rather than
-// through the inner values door — the barrel-chain rule the `GrowthSessionSummary` line
-// above states. The settings family renders every one of these: an inventory row per
-// binding, the per-session legs behind it, the tool overrides pinned on it, and the
-// per-leg outcomes a mutation answers with. `GrowthMcpServerStatus` travels with them
-// because the page's status-to-tone table is a `Record` total over it, which is what
-// makes a sixth status a compile error at the page rather than a blank cell.
-//
-// The status ARRAY is deliberately absent, and so is every other vocabulary in that
-// module. Nothing above this family enumerates one — the surfaces render the value that
-// arrived and key a total record on the type — and a door line no production module
-// reaches is a dead export the barrel census fails rather than a convenience.
-export type {
-  GrowthMcpBindingRef,
-  GrowthMcpInventoryEntry,
-  GrowthMcpLiveApplicationResult,
-  GrowthMcpMutationResult,
-  GrowthMcpServerLegStatus,
-  GrowthMcpServerStatus,
-  GrowthMcpToolOverride,
-} from "./growth-values/mcp.js";
-// And the identity those rows are keyed by, from the same declaring module. It leaves
-// this family because the operator page keys one settlement per binding by it, and it
-// lives beside the shapes because the fixture's own inventory ledger keys by it too:
-// one binding, one identity, whichever height of the DAG is asking.
-export { mcpBindingKeyOf } from "./growth-values/mcp.js";
+export { foldSessionGoal } from "./session-goal.js";

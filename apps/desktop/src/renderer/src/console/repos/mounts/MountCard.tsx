@@ -8,9 +8,8 @@
 //
 //   • TWO PATHS, BOTH SURFACED. `canonicalRoot` is the resolver's output and the key
 //     the trust envelope and the dedupe index are built on; `localPath` is the
-//     user-entered path kept as provenance. Both are required, because attach
-//     persists the first and the default workspace roots at the second, and attaching
-//     from a nested subdirectory is the case that separates them.
+//     user-entered path kept as provenance. Both are required, because attaching from
+//     a nested subdirectory is the case that separates them.
 //   • `canonicalRoot` VERBATIM. No home-directory abbreviation, no basename
 //     shortening, no prettifying. It is middle-truncated by the STYLESHEET at the
 //     measure, with the full string recoverable through the element's title and the
@@ -48,12 +47,7 @@ import type {
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Chip, Glyph, Nothing, WireFigure, formatClockTime } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
-import {
-  bindControlPosture,
-  mountHealthReading,
-  mountLifecycleReading,
-  mountVcsReading,
-} from "./mount-health.js";
+import { bindControlPosture, mountHealthReading, mountLifecycleReading } from "./mount-health.js";
 import { ReattachControl } from "./attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "./bind/BindWorkspaceDialog.js";
 import type { RepoOperations } from "../repo-operations.js";
@@ -97,7 +91,6 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
   // screen through the withheld line, which `bindControlPosture` composes.
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount.health);
-  const vcs = mountVcsReading(mount.vcsType);
   const posture = bindControlPosture(mount);
 
   return (
@@ -134,9 +127,6 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         <span className="meridian-mount-card__checked-at">
           probed {formatClockTime(mount.health.checkedAt)}
         </span>
-        {mount.vcsType === "none" ? (
-          <Chip label="reduced capability" tone={vcs.tone} glyph="alert" />
-        ) : null}
       </div>
 
       {/*
@@ -153,9 +143,6 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           {posture.withheldBecause}
         </p>
       )}
-      {mount.vcsType === "none" ? (
-        <p className="meridian-mount-card__sentence">{vcs.sentence}</p>
-      ) : null}
       {posture.offered ? (
         <BindWorkspaceDialog
           bridge={props.bridge}
@@ -169,7 +156,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       {mount.health.status === "identity_mismatch" ? (
         <ReattachControl
           bridge={props.bridge}
-          sessionStore={props.sessionStore}
+          sessionId={props.sessionStore.sessionId}
           operations={props.operations}
           localPath={mount.localPath}
           onAttached={props.onRequestRead}
@@ -192,12 +179,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
 
       <div className="meridian-mount-card__workspaces">
         {props.workspaces.length === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title="This mount has no workspaces."
-            detail="Attach mints one workspace, so an empty list here means the roster and the mount disagree."
-          />
+          <Nothing kind="empty" placement="surface" title="This mount has no workspaces." />
         ) : (
           props.workspaces.map((workspace) => (
             <div className="meridian-mount-card__workspace" key={workspace.id}>

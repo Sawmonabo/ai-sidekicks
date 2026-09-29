@@ -6,23 +6,20 @@
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
 // to pass in one and fail in the other, and this family renders something the
-// palette's own contrast test cannot reach — a chip whose tone is chosen from a
-// wire state.
+// palette's own contrast test cannot reach.
 //
 // THE COMPOSER IS THE CASE WORTH HAVING. It is the one surface in the console that
 // is always on screen while a person is typing, and it carries the most controls per
-// pixel of anything the family ships: two chips, a growing input, a send router, and
-// an accessory rail. Its addresses differ in which of those are offered, so a name
-// or a label lost on one address is invisible on the others.
+// pixel of anything the family ships. Its addresses differ in which of those are
+// offered, so a name or a label lost on one address is invisible on the others.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountComposerChannelDefault,
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
-  mountComposerWithAttachments,
+  mountComposerSessionDefault,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
 import {
@@ -40,13 +37,9 @@ const AUDITED_SURFACES: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { label: "the composer on the session", mount: mountComposerChannelDefault },
+  { label: "the composer on the session", mount: mountComposerSessionDefault },
   { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },
   { label: "the composer addressed at a waiting run", mount: mountComposerProviderBoundWaiting },
-  // A zone the addresses above never put on screen: the attachment strip is absent
-  // while a message carries nothing, so its own label, each chip's progress bar and
-  // the refusal a chip renders were reachable by no tier at all.
-  { label: "the composer carrying attachments", mount: mountComposerWithAttachments },
 ];
 
 beforeEach(() => {

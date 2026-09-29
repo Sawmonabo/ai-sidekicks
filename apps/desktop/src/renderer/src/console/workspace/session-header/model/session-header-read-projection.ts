@@ -4,8 +4,8 @@
 // log: it is a projection the daemon serves, so the header reads it. The call that reads
 // it is the caller's, taken as an argument, so this module keeps only its own logic.
 //
-// ONE READ PER SUBJECT, AND NO POLLING. The read is put once per session, from the effect
-// below, and again only when the call or the subject moves. A header that refreshed its
+// ONE READ PER SUBJECT, AND NO POLLING. The read is put once per session, through the
+// store's `useSubjectRead`, and again only when the call or the subject moves. A header that refreshed its
 // own title on a timer would be a second cadence beside the event stream.
 //
 // THE STATE IS SUBJECT-SCOPED. The answer read for one session stops being an answer the
@@ -14,14 +14,7 @@
 //
 // A rejected call is not caught here: it propagates to the caller of the call.
 
-import { useEffect } from "react";
-
-import {
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  useReadScope,
-  useSubjectScopedState,
-} from "../../../store/index.js";
+import { useSubjectRead } from "../../../store/index.js";
 
 /**
  * What the header knows about one of its reads at one moment.
@@ -47,28 +40,11 @@ export function useSessionHeaderRead<TValue>(
   read: (subject: string, signal: AbortSignal) => Promise<TValue>,
   subject: string | undefined,
 ): SessionHeaderReadState<TValue> {
-  const { value: state, publish } = useSubjectScopedState<SessionHeaderReadState<TValue>>(
+  const { value: state } = useSubjectRead<TValue, SessionHeaderReadState<TValue>>(
     read,
     subject,
-    () => READING,
+    (key, signal) => (key === undefined ? undefined : read(key, signal)),
+    { unsettled: () => READING, settled: (value) => ({ status: "served", value }) },
   );
-  const readScope = useReadScope(read, subject);
-  useEffect(() => {
-    if (subject === undefined) {
-      return;
-    }
-    const round = readScope.openRound();
-    if (isReadAbandoned(round.signal)) {
-      return;
-    }
-    void settleUnlessAbandoned(read(subject, round.signal), round.signal).then((settlement) => {
-      if (settlement.status === "abandoned") {
-        return;
-      }
-      round.settle(() => {
-        publish({ status: "served", value: settlement.value });
-      });
-    });
-  }, [read, subject, publish, readScope]);
   return state;
 }

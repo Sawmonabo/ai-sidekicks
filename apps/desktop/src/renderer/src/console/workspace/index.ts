@@ -40,16 +40,17 @@ import "./session-header/session-header.css";
 import "./deck/deck.css";
 
 // "+ New" is a control on the all-sessions list rather than inside a session, so it
-// leaves the family through the same door the workspace itself does. `families.ts`
-// names it and the frame's sessions descriptor mounts it: the frame sits BELOW this
-// family in the console DAG and may not import it, so the composition root — which
-// is above every family — is the one place that can say which component fills that
-// place. No `@consumedBy` marker rides it; its consumer landed in the same change.
+// leaves the family through the same door the workspace itself does. The frame sits
+// BELOW this family in the console DAG and may not import it, so the composition
+// root — which is above every family — is the one place that can mount it.
 //
 // Its PROPS leave through no door here at all. They are the seam two view families
 // meet on — this one declares the control, the sessions family mounts it — so they
 // live in `seats/slots/new-session-seat.ts` and both sides import them from there.
-export { NewSessionControl } from "./new-session/NewSessionControl.js";
+export {
+  /** @consumedBy the all-sessions list, which mounts "+ New" */
+  NewSessionControl,
+} from "./new-session/NewSessionControl.js";
 
 export {
   /** @consumedBy the session header's title */

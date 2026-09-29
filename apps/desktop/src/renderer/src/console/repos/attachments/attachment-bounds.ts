@@ -4,20 +4,7 @@
 // bound is `core/constants/attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
 // the deployment's own bound is made anywhere, so every surface reads the shipped default.
 
-import {
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
-  ATTACHMENT_BYTE_CAP_DEFAULT,
-} from "../../core/index.js";
-
-/** The per-attachment byte bound. */
-interface AttachmentAllowlistReading {
-  readonly maximumByteLength: number;
-}
-
-/** The bounds the console ships with, read in place of the deployment's own. */
-export const SHIPPED_DEFAULT_ALLOWLIST: AttachmentAllowlistReading = {
-  maximumByteLength: ATTACHMENT_BYTE_CAP_DEFAULT,
-};
+import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "../../core/index.js";
 
 /**
  * How full a carrier is against the count bound, as a figure and never as a gate.

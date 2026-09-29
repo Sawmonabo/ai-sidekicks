@@ -27,8 +27,7 @@
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import type { WorkflowRunListEntry } from "../../bridge/index.js";
-import { subjectReadStart, type SubjectRead } from "../../store/index.js";
-import { useSubjectRead } from "../subject-read.js";
+import { subjectReadStart, useSubjectRead, type SubjectRead } from "../../store/index.js";
 
 /**
  * What the runs surface knows about a session's runs at one moment.

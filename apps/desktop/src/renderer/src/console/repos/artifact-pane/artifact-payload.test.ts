@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { GrowthArtifactRead } from "../../bridge/index.js";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
 import { artifactPayloadReadingFrom } from "./artifact-payload.js";
 
@@ -23,17 +23,16 @@ function base64Of(bytes: readonly number[]): string {
 describe("artifact payload reading — the served union has two arms and each splits", () => {
   const ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2201";
   const MANIFEST = {
-    artifactId: ARTIFACT_ID,
+    id: ARTIFACT_ID,
     sessionId: "session-1",
     artifactType: "diff",
     digest: "sha256:2b4c",
     size: 22,
     annotations: {},
-    visibility: "shared",
     state: "published",
     metadata: {},
     createdAt: "2026-09-02T07:00:00.000Z",
-  } as unknown as GrowthArtifactRead["manifest"];
+  } as unknown as ArtifactReadResponse["manifest"];
 
   it("reads a handle-only reply as the deferred arm, carrying the handle", () => {
     expect(

@@ -32,30 +32,30 @@ const MOUNT_ROOT = "/Users/dev/code/ai-sidekicks";
 /** A frame that owes this family's readings a fresh answer. */
 const REPO_FRAME_KIND = "workspace.stale";
 
-/** A git mount: every mode admitted, `worktree` the daemon's own default. */
+/** A mount admitting both modes, `provisioned-worktree` the daemon's own default. */
 const EVERY_MODE: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
 };
 
-/** The same mount after `branch` stops being admitted, with the mount's own reason. */
-const BRANCH_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "worktree", "ephemeral clone"],
-  defaultMode: "worktree",
-  restrictions: { branch: "the checkout is on a detached HEAD" },
+/** The same mount after `bound-root` stops being admitted, with the mount's own reason. */
+const BOUND_ROOT_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["provisioned-worktree"],
+  defaultMode: "provisioned-worktree",
+  restrictions: { "bound-root": "the checkout is on a detached HEAD" },
 };
 
-/** A different narrowing that leaves `branch` alone, for the negative controls. */
-const CLONE_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch", "worktree"],
-  defaultMode: "worktree",
-  restrictions: { "ephemeral clone": "this node has no scratch volume" },
+/** A different narrowing that leaves `bound-root` alone, for the negative controls. */
+const WORKTREE_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["bound-root"],
+  defaultMode: "bound-root",
+  restrictions: { "provisioned-worktree": "this machine has no room for another worktree" },
 };
 
 /** A reply that disagrees with itself, which is the one way a mount serves no default. */
 const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only", "branch"],
-  defaultMode: "worktree",
+  availableModes: ["bound-root"],
+  defaultMode: "provisioned-worktree",
 };
 
 /**
@@ -86,7 +86,7 @@ class CapabilitiesUnderTest {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initializedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  sessionStore.initialise({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -177,7 +177,7 @@ async function refreshCapabilitiesTo(
 describe("the bind dialog — the mount's own default survives a close", () => {
   it("applies the default on the first open", async () => {
     await openDialog(EVERY_MODE);
-    expect(radioFor("worktree").checked).toBe(true);
+    expect(radioFor("provisioned-worktree").checked).toBe(true);
     expect(bindButton().disabled).toBe(false);
   });
 
@@ -194,7 +194,7 @@ describe("the bind dialog — the mount's own default survives a close", () => {
 
     pressTrigger(open.container);
 
-    expect(radioFor("worktree").checked).toBe(true);
+    expect(radioFor("provisioned-worktree").checked).toBe(true);
     expect(bindButton().disabled).toBe(false);
   });
 
@@ -212,11 +212,11 @@ describe("the bind dialog — the mount's own default survives a close", () => {
 describe("the bind dialog — a capabilities refresh that withdraws the chosen mode", () => {
   it("clears the selection and shuts the control rather than sending an excluded mode", async () => {
     const open = await openDialog(EVERY_MODE);
-    fireEvent.click(radioFor("branch"));
-    expect(radioFor("branch").checked).toBe(true);
+    fireEvent.click(radioFor("bound-root"));
+    expect(radioFor("bound-root").checked).toBe(true);
     expect(bindButton().disabled).toBe(false);
 
-    await refreshCapabilitiesTo(open, BRANCH_WITHDRAWN, "branch", 1);
+    await refreshCapabilitiesTo(open, BOUND_ROOT_WITHDRAWN, "bound-root", 1);
 
     // The defect: the row went disabled with the mount's own reason beside it while the
     // form-only verdict stayed sendable, so Bind would have sent exactly that mode.
@@ -229,11 +229,11 @@ describe("the bind dialog — a capabilities refresh that withdraws the chosen m
     // Without this, the case above would pass against a dialog that shut its control on
     // every refresh — which would make the read's own re-run the thing that broke it.
     const open = await openDialog(EVERY_MODE);
-    fireEvent.click(radioFor("branch"));
+    fireEvent.click(radioFor("bound-root"));
 
-    await refreshCapabilitiesTo(open, CLONE_WITHDRAWN, "ephemeral clone", 1);
+    await refreshCapabilitiesTo(open, WORKTREE_WITHDRAWN, "provisioned-worktree", 1);
 
-    expect(radioFor("branch").checked).toBe(true);
+    expect(radioFor("bound-root").checked).toBe(true);
     expect(bindButton().disabled).toBe(false);
   });
 });

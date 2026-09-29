@@ -1,9 +1,8 @@
 // A newly pending card is announced, and focus is taken only from the composer.
 //
-// Split out of `ApprovalsPaneBody.tsx`. The rule it keeps is one of the three the
-// approvals pane's composition owns rather than any one card — `ApprovalsPane.tsx`
-// states it — and it is a subscription with a remembered set, so it lives in a hook
-// rather than in a render body.
+// The rule it keeps belongs to the composition that mounts the cards rather than to any
+// one card, and it is a subscription with a remembered set, so it lives in a hook rather
+// than in a render body.
 
 import { useEffect, useRef, useState } from "react";
 

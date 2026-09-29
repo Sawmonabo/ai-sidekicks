@@ -13,9 +13,10 @@
 // than one per mount.
 //
 // The read order is forced by the wire. There is no mount list call, so the session's
-// mounts are learned from its workspaces: every workspace names its mount and attach always
-// mints a default workspace, so the roster names every mount. Hence list, then one mount
-// read per distinct mount, which is the only read carrying `health`.
+// mounts are learned from its workspaces: every workspace names its mount, so the roster
+// names every mount this session has bound a workspace on. A mount attached and not yet
+// bound is on no workspace, so it is not in the roster. Hence list, then one mount read per
+// distinct mount, which is the only read carrying `health`.
 //
 // This state is not in the session store because a mount read is not an event projection.
 // It is a probe whose `checkedAt` is the point of it, and the store's entity kinds have no

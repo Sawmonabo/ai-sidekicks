@@ -1,24 +1,19 @@
-// One read per subject, held against that subject, for the workflows hooks.
+// One read per subject, held against that subject.
 //
-// The run snapshot, the version chain, the run list and the definition readers each put
-// a question about one subject that can change under a mounted caller. The state lives
-// in `store/subject-scoped/`, and a read that loses a race with a re-address is
-// abandoned through `store/read/read-cancellation.ts`; this is the one effect that ties
-// the two together, so a fix to how a discarded answer is dropped is made once.
+// The workflows readers, the session directory and the session header each put a
+// question about one subject that can change under a mounted caller. The state lives in
+// `store/subject-scoped/`, and a read that loses a race with a re-address is abandoned
+// through `read-cancellation.ts`; this is the one effect that ties the two together, so
+// a fix to how a discarded answer is dropped is made once.
 //
 // A rejected call is not caught here: the rejection surfaces unhandled from the effect
 // rather than being turned into a state.
 
 import { useEffect } from "react";
 
-import {
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  useReadScope,
-  useSubjectScopedState,
-  type SubjectKey,
-  type SubjectScopedPublish,
-} from "../store/index.js";
+import type { SubjectKey, SubjectScopedPublish } from "../subject-scoped/subject-scoped-holder.js";
+import { useSubjectScopedState } from "../subject-scoped/subject-scoped-state.js";
+import { isReadAbandoned, settleUnlessAbandoned, useReadScope } from "./read-cancellation.js";
 
 /** How a caller turns one read into the states a surface renders. */
 export interface SubjectReadProjection<TValue, TState> {
@@ -32,7 +27,7 @@ export interface SubjectReadProjection<TValue, TState> {
  * Put one read per subject and hold its answer against that subject.
  *
  * `read` answers `undefined` when the question cannot be formed, for example when no
- * run is named. `subject` is the object the state is held against: a different one
+ * subject is named. `subject` is the object the state is held against: a different one
  * starts the read over, so the call a caller passes must be stable across renders.
  * `readRevision` asks the same question again when the answer went stale under a
  * subject that did not move; the previous answer stays on screen until the new one

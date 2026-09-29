@@ -2,7 +2,7 @@
 //
 // The fixture bridge makes the fixture clock
 // the only clock the renderer reads in fixture mode, and this module is where that
-// clock lives. The script it plays is `scenario.ts`'s: nothing here declares a
+// clock lives. The script it plays is `vocabulary.ts`'s: nothing here declares a
 // scenario, and nothing there runs one.
 //
 // The engine's one sharp edge is teardown. A pane that unmounts mid-scenario leaves
@@ -368,7 +368,7 @@ export class ScenarioEngine {
    * frozen clock together are released by one advance and read the same tick, so a
    * receipt keyed on the instant collides exactly where a second mint has to differ.
    *
-   * Engine state rather than a counter in the reply table, on `scenario.ts`'s rule that
+   * Engine state rather than a counter in the reply table, on `vocabulary.ts`'s rule that
    * a reply is a computation over what it is handed — the same calls in the same order
    * are handed the same ordinals, so a playback stays replayable tick-for-tick.
    */

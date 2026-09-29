@@ -30,20 +30,18 @@
 // because the call IS the whole subject. An answer dispatched through a call that has
 // since been replaced writes NOWHERE.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
 import type { TransportReconnectObservable } from "../core/index.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  useReadScope,
-  useSubjectScopedState,
+  useSubjectRead,
   useWindowReadTriggers,
   type ReadTriggerTarget,
   type RefreshReason,
+  type SubjectReadProjection,
 } from "../store/index.js";
 
 /** One session the node lists. A session with no title is shown by its identifier. */
@@ -112,6 +110,15 @@ class SessionDirectoryStaleness {
 /** This window's readings. Not exported: the hook and the door below are the way in. */
 const sessionDirectoryStaleness = new SessionDirectoryStaleness();
 
+/** `reading` until the node answers, then the sessions it listed. */
+const SESSION_DIRECTORY_PROJECTION: SubjectReadProjection<
+  readonly SessionDirectoryEntry[],
+  SessionDirectoryState
+> = {
+  unsettled: () => ({ status: "reading" }),
+  settled: (sessions) => ({ status: "served", sessions }),
+};
+
 /**
  * Ask every surface reading this node's directory to read it again.
  *
@@ -157,32 +164,19 @@ export function useSessionDirectory(
     readDirectoryRevision,
     readDirectoryRevision,
   );
-  const { value: state, publish } = useSubjectScopedState<SessionDirectoryState>(
+  const { value: state } = useSubjectRead(
     read,
     undefined,
-    () => ({ status: "reading" }),
+    (_key, signal) => read(signal),
+    SESSION_DIRECTORY_PROJECTION,
+    directoryRevision,
   );
-  const readScope = useReadScope(read, undefined);
-  useEffect(() => {
-    const round = readScope.openRound();
-    if (isReadAbandoned(round.signal)) {
-      return;
-    }
-    void settleUnlessAbandoned(read(round.signal), round.signal).then((settlement) => {
-      if (settlement.status === "abandoned") {
-        return;
-      }
-      round.settle(() => {
-        publish({ status: "served", sessions: settlement.value });
-      });
-    });
-  }, [read, publish, directoryRevision, readScope]);
   useWindowReadTriggers(
     useMemo<ReadTriggerTarget>(
       () => ({
         triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
         requestRead: (reason: RefreshReason): void => {
-          // `subscribe` is the read the effect above already put on this mount.
+          // `subscribe` is the read the subject read above already put on this mount.
           // Routing it into the revision would put a second call on the wire for one
           // arrival.
           if (reason === "subscribe") {

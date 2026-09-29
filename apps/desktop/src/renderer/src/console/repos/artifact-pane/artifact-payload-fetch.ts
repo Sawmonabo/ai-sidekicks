@@ -16,7 +16,7 @@
 // read carries the payload arm forward untouched and answers nothing about anyone's bytes.
 
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
-import { artifactManifestRowFromSummary } from "../artifacts/artifact-model.js";
+import { artifactManifestRowFrom } from "../artifacts/artifact-model.js";
 import type { ArtifactActionHost } from "./artifact-action-host.js";
 import { withReplacedRow } from "./artifact-pane-reading.js";
 import type { ReadArtifact } from "./artifact-pane-reads.js";
@@ -94,10 +94,7 @@ export class ArtifactPayloadFetches {
       // The reply also carries the manifest, a fresher reading of the row this fetch was
       // about. Dropping it would leave the row stating what an older read said beside
       // bytes that came from this one.
-      artifacts: withReplacedRow(
-        reading.artifacts,
-        artifactManifestRowFromSummary(answer.manifest),
-      ),
+      artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(answer.manifest)),
       payload,
     });
     return { status: "settled", payload };

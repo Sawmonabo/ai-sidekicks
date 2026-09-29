@@ -52,8 +52,8 @@ describe("resolveServedSelection — no pick, and a default to stand in", () => 
     // default the picker would draw as unavailable is not a choice this form may send.
     const selection = resolveServedSelection({
       chosen: undefined,
-      servedChoices: ["read-only"],
-      defaultChoice: "worktree",
+      servedChoices: ["choice-only"],
+      defaultChoice: "choice-b",
     });
     expect(selection).toStrictEqual({ status: "unresolved" });
     expect(selectedChoiceOf(selection)).toBeUndefined();

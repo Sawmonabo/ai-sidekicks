@@ -10,13 +10,11 @@
  * from there would put the run pane's rules on the destination's chunk and the builder's
  * as well — paid by every session that opens either and never a run.
  *
- * THE BLOCK CARRIES THE FAMILY'S PREFIX, and it did not always. `.meridian-run-controls`
- * is `runs/pane/runs.css`'s, declared with different layout and disjoint children, so
- * while both sheets were on the document whichever loaded last decided how THIS pane laid
- * its controls out — and this body could not go behind a loader without that answer
- * changing. One class, one owner — the module-shape rule in `apps/desktop/AGENTS.md`
- * states it, and a second collision is caught by reading it there rather than by a
- * census.
+ * THE BLOCK CARRIES THE FAMILY'S PREFIX, `meridian-workflow-run-controls`, so no other
+ * family's sheet decides how THIS pane lays its controls out, whichever loads last, and
+ * this body goes behind a loader without that answer changing. One class, one owner —
+ * the module-shape rule in `apps/desktop/AGENTS.md` states it, and a second collision
+ * is caught by reading it there rather than by a census.
  */
 
 /* -------------------------------------------------------------- run controls */
@@ -130,9 +128,9 @@
 }
 
 /*
- * What the port answered the last press, beside the button that asked. Set at the
- * quiet size the budget and the re-pin target line use: it reports on an act that has
- * already happened, and it must not out-shout the control it stands under.
+ * The answer to the last press, beside the button that asked. Set at the quiet size
+ * the budget and the re-pin target line use: it reports on an act that has already
+ * happened, and it must not out-shout the control it stands under.
  */
 .meridian-workflow-run-controls__budget,
 .meridian-workflow-run-controls__outcome,

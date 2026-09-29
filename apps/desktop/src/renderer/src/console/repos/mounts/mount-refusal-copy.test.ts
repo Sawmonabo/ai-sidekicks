@@ -59,6 +59,22 @@ describe("mountRefusalRecovery — the reuse conflict's three-way distinction", 
   });
 });
 
+describe("mountRefusalRecovery — a folder with no repository in it", () => {
+  it("says the attach failed because the folder is not a git repository", () => {
+    const recovery = mountRefusalRecovery("repo.root_resolution_failed", {
+      resolutionReason: "not_a_git_repository",
+    });
+    expect(recovery?.nextMove).toBe("Could not attach: not a git repository");
+  });
+
+  it("negative control: another resolution reason takes the table's arm", () => {
+    const recovery = mountRefusalRecovery("repo.root_resolution_failed", {
+      resolutionReason: "path_not_found",
+    });
+    expect(recovery?.nextMove).toContain("Nothing was attached");
+  });
+});
+
 describe("mountRefusalRecovery — the unsupported mode answers from the mount", () => {
   it("quotes the mount's own restriction reason when the caller has one", () => {
     const recovery = mountRefusalRecovery("workspace.mode_unsupported", {
@@ -77,15 +93,20 @@ describe("mountRefusalRecovery — the unsupported mode answers from the mount",
 describe("modeRestrictionReason", () => {
   it("reads the reason for the mode that was pressed", () => {
     expect(
-      modeRestrictionReason({ worktree: "no git repository at the mount root" }, "worktree"),
-    ).toBe("no git repository at the mount root");
+      modeRestrictionReason(
+        { "provisioned-worktree": "this workspace runs only in its own root" },
+        "provisioned-worktree",
+      ),
+    ).toBe("this workspace runs only in its own root");
   });
 
   it("negative control: a sparse map gives nothing for a mode it does not name", () => {
     // `restrictions` is sparse on the wire, so a reader that returned some other
     // mode's sentence would attribute one mode's reason to another.
-    expect(modeRestrictionReason({ worktree: "no git repository" }, "branch")).toBeUndefined();
-    expect(modeRestrictionReason(undefined, "branch")).toBeUndefined();
-    expect(modeRestrictionReason({ branch: "reason" }, undefined)).toBeUndefined();
+    expect(
+      modeRestrictionReason({ "provisioned-worktree": "its own root only" }, "bound-root"),
+    ).toBeUndefined();
+    expect(modeRestrictionReason(undefined, "bound-root")).toBeUndefined();
+    expect(modeRestrictionReason({ "bound-root": "reason" }, undefined)).toBeUndefined();
   });
 });

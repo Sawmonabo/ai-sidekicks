@@ -9,9 +9,9 @@
 //   • `lastError` IS PRESENT ONLY ON A `stale` ROW and renders inline on that row.
 //     It is the daemon's captured detail of a failed mode switch, so it is quoted
 //     rather than paraphrased.
-//   • "ROOT PENDING" WHILE `provisioning`. `WorkspaceBindResponse.fsRoot` is absent
-//     for a writable bind until provisioning completes, and the honest word for a
-//     root that does not exist yet is not an empty cell.
+//   • "ROOT PENDING" WHILE `provisioning`. A row's `fsRoot` is absent until its
+//     execution root is prepared, and the honest word for a root that does not exist
+//     yet is not an empty cell.
 //
 // NO HEALTH CHIP HERE, EVER. This row's own Never: the workspace list carries no
 // health member by design — `RepoMountHealth` is the MOUNT's reachability projection
@@ -20,8 +20,8 @@
 // renderer inventing an answer the daemon deliberately did not give.
 //
 // THE ROOT LINE IS THE BOUND ROOT AND NOTHING DERIVED FROM IT. The mount's `canonicalRoot`
-// and the workspace's `fsRoot` can differ in `branch` mode, and neither is computed from
-// the other, so this row prints the `fsRoot` the workspace list gave it.
+// and the workspace's `fsRoot` can differ, and neither is computed from the other, so this
+// row prints the `fsRoot` the workspace list gave it.
 
 import type {
   ExecutionMode,

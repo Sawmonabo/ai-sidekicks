@@ -1,15 +1,12 @@
 // What every accessory-rail suite needs before it can mount the rail.
 //
-// The rail has two subjects, the attachment strip and the context meter, and each has
-// a file of its own beside this one. What they share is the mount and the session it
-// is mounted over, so that lives here once: a store with real events applied, a real
-// fixture bridge, and the two entities a composer has to be addressed to before any
-// run-scoped reading exists at all.
+// The mount and the session it is mounted over, once: a store with real events applied,
+// a real fixture bridge, and the two entities a composer has to be addressed to before
+// any run-scoped reading exists at all.
 
-import { useRef } from "react";
 import { render } from "@testing-library/react";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
+import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario/runtime/vocabulary.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
@@ -89,63 +86,19 @@ export function mountRail(
   sessionStore.initialise({
     cursor: 0,
     entities: [...(addressing.entities ?? [])],
-    userJoinLog: ["user-you"],
   });
   sessionStore.applyBatch(events);
   const { container } = render(
-    <RailHost
+    <ComposerAccessoryRail
       sessionStore={sessionStore}
       bridge={createFixtureBridge({ scenario: RAIL_SCENARIO })}
-      // Built here rather than in the host's render body: a store minted per render
-      // would be a fresh one on every pass, which is the construction-in-a-render
-      // defect the package's own rule names.
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new FrameStore()}
+      route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
     />,
   );
   return container;
-}
-
-/**
- * The rail inside the region the composer's host would own.
- *
- * A HOST AND NOT A BARE MOUNT, because one of the rail's inputs is that region: drop
- * and paste are bound to the whole composer, and a harness that handed the rail a ref
- * pointing at nothing would exercise a binding that never attached — green, and about
- * nothing. The section wears the production class so a suite can find the region the
- * same way a person's pointer does.
- */
-function RailHost(props: {
-  readonly sessionStore: SessionStore;
-  readonly bridge: ConsoleBridge;
-  readonly draftStore: DraftStore;
-  readonly frameStore: FrameStore;
-  readonly focusedPane: ConsolePaneAddress | undefined;
-}): React.JSX.Element {
-  const regionRef = useRef<HTMLElement | null>(null);
-  return (
-    <section className="meridian-composer" ref={regionRef}>
-      <ComposerAccessoryRail
-        sessionStore={props.sessionStore}
-        bridge={props.bridge}
-        draftStore={props.draftStore}
-        frameStore={props.frameStore}
-        route={DEFAULT_ROUTE}
-        focusedPane={props.focusedPane}
-        region={regionRef}
-      />
-    </section>
-  );
-}
-
-/** The composer region a mounted rail is bound to, for the drop-and-paste cases. */
-export function railRegion(container: HTMLElement): HTMLElement {
-  const region = container.querySelector("section.meridian-composer");
-  if (region === null) {
-    throw new Error("the rail harness mounted no composer region");
-  }
-  return region as HTMLElement;
 }
 
 /** One context-window reading, positioned so two rows of one session never collide. */

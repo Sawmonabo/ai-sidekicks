@@ -100,7 +100,7 @@ function agentsSessionStore(): SessionStore {
     sessionId: SESSION_ID,
     projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [] });
   return store;
 }
 

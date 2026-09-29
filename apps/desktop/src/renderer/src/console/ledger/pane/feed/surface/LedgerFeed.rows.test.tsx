@@ -1,12 +1,12 @@
 // What a ROW is, in the mounted feed: a chapter header, a seam line, or the seat.
 //
 // The feed's other subjects are their own files (`LedgerFeed.test.tsx` for the hue
-// seam, `LedgerFeed.absences.test.tsx`, `LedgerFeed.jump.test.tsx`,
-// `LedgerFeed.seats.test.tsx`), and this one holds the three dispatches the row
-// renderer performs and the one piece of state it keeps for a row body. Every case
-// drives the composed feed, because each defect it pins was a correct model that
-// reached no component: the chapter fold, the seam metadata, and the window's lease
-// table were all derived on every pass and drawn by nothing.
+// seam, `LedgerFeed.absences.test.tsx`, `LedgerFeed.seats.test.tsx`), and this one
+// holds the three dispatches the row renderer performs and the one piece of state it
+// keeps for a row body. Every case drives the composed feed, because each defect it
+// pins was a correct model that reached no component: the chapter fold, the seam
+// metadata, and the window's lease table were all derived on every pass and drawn by
+// nothing.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

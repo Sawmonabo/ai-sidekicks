@@ -11,7 +11,7 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import type { GrowthArtifactSummary } from "../../bridge/index.js";
+import type { ArtifactManifest } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -59,7 +59,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
       await readThrough(clock);
       expect(reader.performCount).toBe(1);
 
-      sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+      sessionStore.initialise({ cursor: 0, entities: [] });
       sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
@@ -90,7 +90,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     await readThrough(clock);
 
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [] });
     await readThrough(clock);
 
     expect(reader.performCount).toBe(2);
@@ -107,7 +107,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     reader.start();
     await readThrough(clock);
 
-    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [] });
     sessionStore.applyBatch([
       eventOfKind(SESSION_ID, "run.queued", 1),
       eventOfKind(SESSION_ID, "workspace.stale", 2),
@@ -128,7 +128,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     expect(clock.pendingCount).toBe(0);
 
     reader.dispose();
-    sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    sessionStore.initialise({ cursor: 0, entities: [] });
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));
     await readThrough(clock);
@@ -201,7 +201,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // The generation stamp, exercised: the read is in flight when the pane unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
-    const listCall = handAnsweredCall<readonly GrowthArtifactSummary[]>();
+    const listCall = handAnsweredCall<readonly ArtifactManifest[]>();
     const reader = new ArtifactPaneReader({
       ...artifactOperations({ listArtifacts: listCall.invoke }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),

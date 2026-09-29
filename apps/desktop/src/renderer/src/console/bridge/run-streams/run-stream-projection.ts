@@ -38,7 +38,7 @@
 // for it, and a parse failure is a refusal carrying the failing member's own path.
 // Hand-checking the required members and then CASTING the result would leave the
 // optionals unchecked entirely: a scenario scripting `intendedClose: false`,
-// `healthSignal: "healthy"`, or a malformed `executionPosture` would have them copied
+// `completionKind: "session"`, or a malformed `executionPosture` would have them copied
 // through wire-verbatim and presented to a subscriber as a valid `RunStateChangeEvent`.
 // Nothing else catches it — the scenario wire-truth predicate cannot, because the
 // run-lifecycle kinds are census-only in `SessionEventSchema` and register no payload
@@ -116,7 +116,6 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   failureCategory: true,
   recoveryCondition: true,
   recoverySpanClassification: true,
-  healthSignal: true,
   providerFailureDetail: true,
   completionKind: true,
   intendedClose: true,
@@ -124,7 +123,6 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   trigger: true,
   parentRunId: true,
   internalHelper: true,
-  producingNodeId: true,
   admittedUnpricedCapCents: true,
   admittedModelFamily: true,
 };

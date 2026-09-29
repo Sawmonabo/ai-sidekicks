@@ -9,14 +9,14 @@
 // controller and really arms its triggers, and no effect ever commits to end it. The
 // resource seam that hook is built on closes one inside the render that drops it.
 //
-// WHAT IS LEFT HERE IS THE ARMING. The three sibling controllers all bind through that
-// one hook; this one is the only one that also has to `start()` the triggers in an
-// effect, because its question arrives late and the hook takes no first read for it.
+// WHAT IS LEFT HERE IS THE ARMING. The bind controller binds through the same hook; this
+// one also has to `start()` the triggers in an effect, because its question arrives late
+// and the hook takes no first read for it.
 
 import { useCallback, useEffect, useMemo } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import { useActController, type SessionStore } from "../../../store/index.js";
+import { useSessionScopedActController, type SessionStore } from "../../../store/index.js";
 import {
   ExecutionRootPrepareController,
   type PrepareOperations,
@@ -62,7 +62,7 @@ export function usePrepareController(
   // arm mints a fresh clock per call and a new object every render would re-mint the
   // controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { controller, reading } = useActController(
+  const { controller, reading } = useSessionScopedActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
     sessionStore,

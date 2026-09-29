@@ -18,7 +18,6 @@ import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
-import { SessionStore } from "../../../store/index.js";
 import { ReattachControl } from "./ReattachControl.js";
 
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -41,7 +40,6 @@ function operationsAnsweringTheCall(): RepoOperations {
         state: "attached",
         vcsType: "git",
         canonicalRoot: LOCAL_PATH,
-        defaultWorkspaceId: "workspace-new",
       } as unknown as RepoAttachResponse),
   });
 }
@@ -51,7 +49,7 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
     <ReattachControl
       bridge={bridgeOnClock()}
       operations={operations}
-      sessionStore={new SessionStore({ sessionId: SESSION_ID })}
+      sessionId={SESSION_ID}
       localPath={LOCAL_PATH}
       onAttached={() => undefined}
     />,

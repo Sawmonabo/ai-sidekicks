@@ -74,9 +74,7 @@
 //
 // The preload contract is what the preload actually exposes, and it exposes no
 // connection state. Putting one there would make the fixture shape-identical to a
-// lie — the same reasoning that keeps the growth port beside the bridge rather than
-// inside it. This sits on `ConsoleBridge` beside the port, where the console's own
-// seams live.
+// lie. This sits on `ConsoleBridge`, where the console's own seams live.
 
 import { Emitter, type TransportReconnectObservable, type Unsubscribe } from "../../core/index.js";
 

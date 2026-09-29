@@ -1,14 +1,10 @@
 // What arrives on the account-plane tail, and what it is allowed to do to the fold.
 //
-// Split from `provider-account-quota.ts`, which owns the WIRE — opening the stream,
-// taking the registry read, saying what the console renders when either could not be
-// read — and had been carrying this second job beside it: the ORDER in which a frame
-// reaches the fold. The two are separable because nothing here opens, reads, closes,
-// or publishes; it is handed the fold, applies frames to it, and says when something
-// moved.
+// This module owns the ORDER in which a frame reaches the fold. Nothing here opens,
+// reads, closes, or publishes; it is handed the fold, applies frames to it, and says
+// when something moved.
 //
-// TWO OF THE THREE DECISIONS THAT FILE ANNOUNCES ARE MADE HERE, each argued at the
-// site that makes it rather than twice:
+// TWO DECISIONS ABOUT THE TAIL ARE MADE HERE, each argued at the site that makes it:
 //
 //   • A frame arriving across the opening read is HELD and replayed rather than
 //     silently overwritten by the snapshot, and an overflowing hold degrades to a
@@ -27,7 +23,7 @@
 // held and published, correlated by the caller on its `attemptId` and never taken as a
 // verdict about the account.
 //
-// The third — that a delivery outside the registered union is counted rather than
+// A third — that a delivery outside the registered union is counted rather than
 // dropped — is `unreadable-deliveries.ts`', and the one part of it this stream owns
 // is that it NEVER clears the count. The registry read answers for an instant the
 // tail has already moved past, which is the very reason frames are held across it, so
@@ -88,6 +84,8 @@ export interface ProviderQuotaDeliverySink {
  * The FOLD is a constructor parameter rather than something built here: the reading
  * seats the registry snapshot's accounts into the same fold and composes its readout
  * off it, so a fold owned here would be a second one to keep in step with the first.
+ *
+ * @consumedBy the provider account service, which folds quota frames
  */
 export class ProviderQuotaDeliveries {
   readonly #fold: ProviderQuotaFold;

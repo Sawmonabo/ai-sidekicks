@@ -215,6 +215,8 @@ export function useSessionReadTriggers(
  * sequence gap on a wire that never went away, and a wire returns to a window whose
  * store was never degraded. When they do coincide, the reading's own scheduler
  * coalesces the pair into one read, which is what it is for.
+ *
+ * @consumedBy a session-owned reading that re-reads when the wire or the session comes back
  */
 export function useReadTriggers(
   reader: ReadTriggerTarget,

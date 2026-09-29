@@ -38,13 +38,13 @@
 // is one act at a time across every row states that by claiming ONE key, rather than
 // by asking this object for a mode it does not have.
 //
-// A SUBJECT IS A LIVE OBJECT AND IS HELD WEAKLY. A bridge, a growth port, a session
-// store, or a holder that has no subject of its own and passes itself: each is
-// something whose replacement retires the calls made through it, which is what
-// identity comparison expresses, and a subject that becomes unreachable takes its keys
-// with it rather than pinning them to a root. Within a live subject the register is
-// bounded the other way, by RELEASE: a settled key is removed, so a long-lived bridge
-// accumulates nothing across a session's worth of runs.
+// A SUBJECT IS A LIVE OBJECT AND IS HELD WEAKLY. A bridge, a session store, or a holder
+// that has no subject of its own and passes itself: each is something whose replacement
+// retires the calls made through it, which is what identity comparison expresses, and a
+// subject that becomes unreachable takes its keys with it rather than pinning them to a
+// root. Within a live subject the register is bounded the other way, by RELEASE: a
+// settled key is removed, so a long-lived bridge accumulates nothing across a session's
+// worth of runs.
 //
 // NEVER TERMINAL. `supersedeAll` is what a teardown calls, and React invokes an
 // effect's cleanup between the two invocations strict mode makes of one effect — a

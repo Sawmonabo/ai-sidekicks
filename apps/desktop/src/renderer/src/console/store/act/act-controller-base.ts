@@ -1,53 +1,44 @@
-// The half of an act controller that is the same in every one of them.
+// An act that asks a question first: the two halves of `act-controller.ts`, composed.
 //
 // WHAT A SUBCLASS IS LEFT WITH. Which prerequisite question it asks and how it asks it,
-// which call each act sends, and what a settled arm carries. Everything else — the
-// scheduler, the trigger wiring, the emitter, the disposed latch, the four read arms,
-// the four act arms, and the single-flight guard — is `act-controller.ts`'s, and this
-// class is how a controller composes that one without writing the wiring again.
+// which call each act sends, and what a settled arm carries. The scheduler, the trigger
+// wiring, the emitters, the disposed latch, and the single-flight guard are the two
+// halves'; this class holds one of each and publishes both as one reading.
 //
-// A BASE CLASS AND NOT SIX FORWARDING MEMBERS PER CONTROLLER.
-// `store/act/act-controller.ts` already ended three copies of the machine; what survived
-// it was three copies of the pass-through — `snapshot`, `isDisposed`, `subscribe`,
-// `requestRead`, `clearAct`, and `dispose`, each one line of body and each one written
-// three times. The package's shared-code rule hoists on the SECOND use, and a forwarding
-// member is exactly where a copy drifts silently: a controller that forgot to forward
-// `requestRead` still compiles, still renders, and is simply never refreshed.
+// A BASE CLASS AND NOT FORWARDING MEMBERS PER CONTROLLER. `snapshot`, `isDisposed`,
+// `subscribe`, `requestRead`, `clearAct`, and `dispose` are one line of body each and
+// the same in every controller that asks first, and a forwarding member is exactly where
+// a copy drifts silently: a controller that forgot to forward `requestRead` still
+// compiles, still renders, and is simply never refreshed.
 //
-// THE COMPOSITION SURVIVES THE INHERITANCE, which is the point of the shape. This class
-// still HOLDS an `ActController` rather than extending it: the machine's `ask`,
-// `withdraw`, and `act` stay off a controller's public surface, so a dialog cannot
-// reach past `requestRoster` into the primitive and name its own question. What
-// inheritance buys is only the pass-through, which is the part that had no reason to
-// differ.
+// THE HALVES ARE HELD, NOT INHERITED. `ask`, `withdraw`, and `act` stay off a
+// controller's public surface, so a dialog cannot reach past `requestCapabilities` into
+// the primitive and name its own question.
 //
 // AND THE PREREQUISITE ARRIVES AS AN ABSTRACT METHOD RATHER THAN AS A CLOSURE IN THE
-// OPTIONS. A subclass cannot write `readPrerequisite: () => this.#readRoster()` in its
-// own `super()` call — `this` is unreachable until `super()` returns — but `this` is
-// perfectly available INSIDE this constructor, so the closure handed to the machine is
-// written here and dispatches to the subclass's override. It is called only after the
-// first read is scheduled, which is after every subclass field has been initialised.
+// OPTIONS. A subclass cannot close over its own state in its `super()` call — `this` is
+// unreachable until `super()` returns — but `this` is available INSIDE this constructor,
+// so the closure handed to the reader is written here and dispatches to the subclass's
+// override. It is called only after the first read is scheduled, which is after every
+// subclass field has been initialized.
 //
 // WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge` and
-// knows no method name, so the package's chokepoint rule does not count it as a reading.
-// What a subclass inherits from here is the scheduler and the trigger contract it used to
-// declare by hand, which keeps it a subject of that rule.
+// knows no method name.
 
-import type { ConsoleClock, RejectionFallback, Unsubscribe } from "../../core/index.js";
-import { ActController } from "./act-controller.js";
-import type { ActOutcome, ActOwnArm, ActReading, ActSettlementArm } from "./act-reading.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
+import { ActController, PrerequisiteReader } from "./act-controller.js";
+import {
+  ACT_NOT_STARTED,
+  type ActOwnArm,
+  type ActReading,
+  type ActSettlementArm,
+} from "./act-reading.js";
 import type { ReadTriggerTarget, RefreshReason } from "../read/index.js";
 import type { SessionStore, SessionStoreScoped } from "../session/index.js";
 
-/**
- * What a subclass hands the machine underneath it.
- *
- * `ActControllerOptions` minus its `readPrerequisite`, which is the abstract method
- * below instead — see this module's header for why a subclass cannot supply a closure
- * over its own state in a `super()` call.
- */
+/** What a subclass hands the two halves underneath it. */
 export interface ActSurfaceControllerOptions {
-  /** What this controller's emitter reports under when a sink throws. */
+  /** What this controller's emitters report under when a sink throws. */
   readonly label: string;
   /** The window's one clock, so this refresh coalesces on its surface's time base. */
   readonly clock: ConsoleClock;
@@ -55,138 +46,129 @@ export interface ActSurfaceControllerOptions {
   readonly sessionStore: SessionStore;
   /** The frames that owe the prerequisite a fresh answer. A property of the QUESTION. */
   readonly triggeringEventKinds: ReadonlySet<string>;
-  /** The subsystem a rejection raised on the read path names as its author. */
-  readonly refusalOrigin: string;
-  /** What a rejection with no readable code of its own says instead. */
-  readonly readRejection?: RejectionFallback;
 }
 
 /**
- * One act, its prerequisite question, and the six members every surface reads them by.
+ * One act, its prerequisite question, and the members every surface reads them by.
  *
- * ONE PER SUBJECT AND NOT PER SURFACE — per session for a roster, per mount for the
- * modes it admits, per workspace-and-mode for an execution root — which is why a
- * prerequisite survives a dialog that is closed and reopened.
+ * ONE PER SUBJECT AND NOT PER SURFACE — per mount for the modes it admits, per
+ * workspace-and-mode for an execution root — which is why a prerequisite survives a
+ * dialog that is closed and reopened.
  */
 export abstract class ActSurfaceController<TValue, TSettlement extends ActSettlementArm>
   implements ReadTriggerTarget, SessionStoreScoped
 {
   /** The frames that owe this controller's prerequisite a fresh answer. */
   public readonly triggeringEventKinds: ReadonlySet<string>;
-  readonly #acts: ActController<TValue, TSettlement>;
+  readonly #prerequisite: PrerequisiteReader<TValue>;
+  readonly #acts: ActController<TSettlement>;
+  readonly #changes: Emitter<ActReading<TValue, TSettlement>>;
   readonly #sessionStore: SessionStore;
+  #reading: ActReading<TValue, TSettlement> = ACT_NOT_STARTED;
+  #disposed = false;
 
   protected constructor(options: ActSurfaceControllerOptions) {
     this.triggeringEventKinds = options.triggeringEventKinds;
     this.#sessionStore = options.sessionStore;
-    this.#acts = new ActController<TValue, TSettlement>({
+    this.#changes = new Emitter<ActReading<TValue, TSettlement>>(options.label);
+    this.#prerequisite = new PrerequisiteReader<TValue>({
       label: options.label,
       clock: options.clock,
       sessionStore: options.sessionStore,
       triggeringEventKinds: options.triggeringEventKinds,
-      refusalOrigin: options.refusalOrigin,
-      ...(options.readRejection === undefined ? {} : { readRejection: options.readRejection }),
-      // DISPATCHED TO THE SUBCLASS AND NOT CAPTURED FROM IT. The machine stores this
+      // DISPATCHED TO THE SUBCLASS AND NOT CAPTURED FROM IT. The reader stores this
       // closure and calls it no earlier than the first scheduled read, so a subclass
-      // field the override reads is initialised long before it runs.
+      // field the override reads is initialized long before it runs.
       readPrerequisite: async (question: string, signal: AbortSignal) =>
         await this.readPrerequisite(question, signal),
+    });
+    this.#acts = new ActController<TSettlement>({ label: options.label });
+    // One reading for both halves, rebuilt as either moves, so a surface reading the
+    // snapshot gets the same object until something changed.
+    this.#prerequisite.subscribe((prerequisite) => {
+      this.#publish({ ...this.#reading, prerequisite });
+    });
+    this.#acts.subscribe((act) => {
+      this.#publish({ ...this.#reading, act });
     });
   }
 
   public get snapshot(): ActReading<TValue, TSettlement> {
-    return this.#acts.snapshot;
+    return this.#reading;
   }
 
   public get isDisposed(): boolean {
-    return this.#acts.isDisposed;
+    return this.#disposed;
   }
 
   /**
    * Whether this controller's triggers are armed on `sessionStore`.
    *
-   * `store/session/session-store-rebind.ts` states the axis; this is where every act controller
-   * answers it, rather than three subclasses each holding the store again. A store
-   * replaced under an unchanged bridge and identity retires the triggers this
-   * controller armed, and the binding above it mints a replacement on this answer.
+   * `store/session/session-store-rebind.ts` states the axis; this is where every
+   * controller that asks first answers it. A store replaced under an unchanged bridge and
+   * identity retires the triggers this controller armed, and the binding above it mints a
+   * replacement on this answer.
    */
   public isReadingFor(sessionStore: SessionStore): boolean {
     return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ActReading<TValue, TSettlement>) => void): Unsubscribe {
-    return this.#acts.subscribe(sink);
+    return this.#changes.subscribe(sink);
   }
 
   /**
    * Ask again, on one of the four reasons the policy admits.
    *
-   * ASKS NOTHING WITH NO QUESTION NAMED, which is what lets a controller arm its
-   * triggers before anybody has opened its dialog or typed into its form: a window
-   * focus over a surface with no question has nothing to re-ask, and requesting anyway
-   * would put a call on the wire on every focus for the life of the surface.
+   * ASKS NOTHING WITH NO QUESTION NAMED, which is what lets a controller arm its triggers
+   * before anybody has opened its dialog or typed into its form.
    */
   public requestRead(reason: RefreshReason): void {
-    this.#acts.requestRead(reason);
+    this.#prerequisite.requestRead(reason);
   }
 
-  /**
-   * Put the act half back to idle. The prerequisite half is deliberately untouched.
-   *
-   * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
-   * moments: a settlement is read after the call settles and the surface is still open,
-   * and a user who comes back to act a second time must not meet the first
-   * one's sentence.
-   */
+  /** Put the act half back to idle. The prerequisite half is deliberately untouched. */
   public clearAct(): void {
     this.#acts.clearAct();
   }
 
   /** Terminal. A reply still on the wire publishes into nothing after this. */
   public dispose(): void {
+    this.#disposed = true;
+    this.#prerequisite.dispose();
     this.#acts.dispose();
+    this.#changes.clear();
   }
 
   /**
    * Ask the question this act depends on. The string is whatever {@link askPrerequisite}
-   * was given — a constant for a roster, the branch name for a reuse check.
+   * was given — a constant for a mount's modes, the branch name for a reuse check.
    *
-   * THE SIGNAL IS PART OF THE OVERRIDE'S CONTRACT AND NOT AN OPTION IT MAY DECLINE.
-   * It belongs to the round the machine's scheduler opened for this read, so an
-   * override that hands it to its call door lets a controller that is disposed — or
-   * whose read has been superseded by a newer fire — drop the reply before it is
-   * parsed and before any projection is built from it. An override whose port takes
-   * no signal stops WAITING on it instead, through `settleUnlessAbandoned`; what no
-   * override may do is take one and use it for neither.
+   * THE SIGNAL IS PART OF THE OVERRIDE'S CONTRACT AND NOT AN OPTION IT MAY DECLINE. It
+   * belongs to the round the reader's scheduler opened for this read, so an override that
+   * hands it to its call lets a controller that is disposed — or whose read has been
+   * superseded by a newer fire — drop the reply before anything is built from it.
    */
-  protected abstract readPrerequisite(
-    question: string,
-    signal: AbortSignal,
-  ): Promise<ActOutcome<TValue>>;
+  protected abstract readPrerequisite(question: string, signal: AbortSignal): Promise<TValue>;
 
   /** Arm the refresh triggers and take NO read. Idempotent. */
   protected startTriggers(): void {
-    this.#acts.start();
+    this.#prerequisite.start();
   }
 
   /** Name the prerequisite question and read it. Idempotent on the same question. */
   protected askPrerequisite(question: string, reason: RefreshReason): void {
-    this.#acts.ask(question, reason);
+    this.#prerequisite.ask(question, reason);
   }
 
   /** Withdraw the question, and put the prerequisite half back to unasked. */
   protected withdrawPrerequisite(): void {
-    this.#acts.withdraw();
+    this.#prerequisite.withdraw();
   }
 
-  /** Ask again after a refused read. The user-driven one of the four reasons. */
-  protected retryPrerequisite(): void {
-    this.#acts.retryRead();
-  }
-
-  /** Send one act, and publish what came back. Refuses to overlap itself. */
+  /** Send one act, and publish what came back. Does not overlap itself. */
   protected async sendAct<TReplyValue>(
-    send: () => Promise<ActOutcome<TReplyValue>>,
+    send: () => Promise<TReplyValue>,
     settle: (value: TReplyValue) => ActOwnArm<TSettlement>,
   ): Promise<void> {
     await this.#acts.act(send, settle);
@@ -194,7 +176,16 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
 
   /** What the newest prerequisite answer carried, where one has been read at all. */
   protected get prerequisiteValue(): TValue | undefined {
-    const { prerequisite } = this.#acts.snapshot;
+    const { prerequisite } = this.#reading;
     return prerequisite.status === "read" ? prerequisite.value : undefined;
+  }
+
+  /** The one write. Disposed is terminal here rather than at each caller. */
+  #publish(reading: ActReading<TValue, TSettlement>): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#reading = reading;
+    this.#changes.emit(reading);
   }
 }

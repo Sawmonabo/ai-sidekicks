@@ -4,17 +4,16 @@
 // `core/refusal.ts` closes the refusal at `code` / `detail` / `origin` and says why:
 // three fields, each earning its place, one shape for the whole console. Producers
 // still widen it — this module's own `retry` for a rate-limited wire reply, and the
-// growth port's `operationId` / `owningDocument` for a wire the corpus
-// has not registered yet — and a widening is legitimate exactly while it is
-// REGISTERED. That is what this file is: the registry, and one reader per member.
+// `failedBindingIds` a fan-out mutation names — and a widening is legitimate exactly
+// while it is REGISTERED. That is what this file is: the registry, and one reader per member.
 //
 // IT EXISTS BECAUSE THE NORMALIZER REBUILDS. `core/wire-rejection.ts` recognizes a
 // refusal structurally and then rebuilds it onto a fresh object rather than handing
 // the candidate back, because a candidate's second property read is free to throw
 // into a renderer that has already left every `catch`. That rebuild is correct and it
-// dropped everything it did not know about — so a growth refusal that travelled as a
-// thrown `ConsoleRefusalError` reached a surface with its ledger gone, and the one
-// answer available was for the caller to skip the normalizer for that case and hand
+// dropped everything it did not know about — so a refusal that travelled as a thrown
+// `ConsoleRefusalError` reached a surface with its extensions gone, and the one answer
+// available was for the caller to skip the normalizer for that case and hand
 // the value back verbatim. Verbatim is the thing the rebuild exists to prevent. So
 // the rebuild learns the set instead, and there is no arm anywhere that returns a
 // candidate by reference.
@@ -30,20 +29,12 @@
 // EACH MEMBER IS READ ONCE, GUARDEDLY, AND TYPE-CHECKED. Every reader goes through
 // `readGuardedProperty`, so a getter that throws is an absent member rather than a
 // throw on the failure path; and every reader answers `undefined` for a value that is
-// not what the member is registered as, so a hostile `{ operationId: { …a Proxy… } }`
+// not what the member is registered as, so a hostile `{ failedBindingIds: { …a Proxy… } }`
 // contributes nothing rather than travelling to a renderer that will format it.
 //
 // `code`, `detail` and `origin` are NOT here. They are the refusal, not an extension
 // of one, and `wire-rejection.ts` classifies on them — a member in both places would
 // be read twice and could be classified one way and rebuilt another.
-//
-// AND A UNION'S DISCRIMINANT IS NOT AN EXTENSION EITHER. `GrowthUnavailable` carries
-// `status: "unavailable"` because it is one arm of `GrowthOutcome`, and that member is
-// deliberately absent from the registry below: reading it off an unvalidated candidate
-// and carrying it onto a rebuilt refusal would let a rejection that happened to spell
-// `status: "served"` answer as the arm it is not, and the next reader would go looking
-// for the value that arm carries. What travels is the ledger a person can act on, never
-// the word that decides which shape a value is.
 
 import { readGuardedProperty } from "../../../../shared/wire-errors.js";
 
@@ -76,18 +67,11 @@ export interface WireRetryHint {
  * Every member a console producer may carry on a refusal beyond the core three.
  *
  * Each is optional because each belongs to one producer, and a refusal from any other
- * producer carries none of them. They are typed as widely as `core/` can type them:
- * the ledger members are `GrowthOperationId` / a document name at their producer, and
- * naming those types here would make the bottom family import the bridge — the
- * inversion `core/refusal.ts` refuses for `code` and refuses again here.
+ * producer carries none of them.
  */
 export interface ConsoleRefusalExtensions {
   /** Registered by `core/wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
-  /** Registered by `bridge/growth-port/growth-port.ts`: which growth operation was called. */
-  readonly operationId?: string;
-  /** Registered by `bridge/growth-port/growth-port.ts`: which document owes the wire. */
-  readonly owningDocument?: string;
   /**
    * Registered by `core/wire-rejection.ts`: the bindings a fan-out mutation failed on.
    *
@@ -171,26 +155,11 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
 }
 
 /**
- * A member registered as an identifier: a non-empty string, or nothing.
- *
- * Non-EMPTY rather than merely a string, because an empty identifier is not one — it
- * would travel to a ledger renderer as a row naming nobody, which is worse than the
- * member being absent and honest about it. That is `readWireString`'s rule and its
- * whole subject, so the predicate is imported rather than restated: a second copy of
- * "present means a non-empty string" is a rule two modules can come to disagree
- * about, with the gate green on both sides of the disagreement.
- */
-function identifierMemberReader(memberName: string): (candidate: unknown) => string | undefined {
-  return (candidate: unknown): string | undefined =>
-    readWireString(readGuardedProperty(candidate, memberName));
-}
-
-/**
  * A list of identifiers, or nothing.
  *
- * Every element goes through the same non-empty-string rule a single identifier
- * member takes, and an element that fails it is dropped rather than rendered as a
- * row naming nobody. A source that is not an array, or whose elements are all
+ * Every element must be a non-empty string, `readWireString`'s rule, imported rather
+ * than restated; an element that fails it is dropped rather than rendered as a row
+ * naming nobody. A source that is not an array, or whose elements are all
  * unreadable, answers `undefined` — an EMPTY list would tell a surface the daemon
  * named no failing binding, which is a different fact from its having named none
  * this console could read.
@@ -220,8 +189,6 @@ const REFUSAL_EXTENSION_READERS: {
   ) => Required<ConsoleRefusalExtensions>[Member] | undefined;
 } = {
   retry: carriedRetryHint,
-  operationId: identifierMemberReader("operationId"),
-  owningDocument: identifierMemberReader("owningDocument"),
   failedBindingIds: (candidate: unknown) =>
     identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
 };

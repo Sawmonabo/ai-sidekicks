@@ -13,12 +13,14 @@
 // and a reader looking for what a tier can reuse would have to know the difference by
 // name. The directory is the difference, and it scales.
 //
-// THREE MOUNTS, AND THE TWO TIERS TAKE DIFFERENT SUBSETS. The family registers one
-// rail destination and TWO pane kinds, so all three are mounted here. The
-// accessibility tier audits every one of them — a family-wide claim that skipped a
-// registered pane could not fail on a regression unique to it. The screenshot tier
-// pins its own subset, which is a separate judgement about which COMPOSITIONS a
-// committed image is worth holding still, made in that tier's own table.
+// THE THREE REGISTERED SURFACES, AND ONE PIECE NO SURFACE MOUNTS YET. The family registers
+// one rail destination and TWO pane kinds, so all three are mounted here, each drawing
+// what it has with no call to read a run or a definition through. The accessibility tier
+// audits every one of them — a family-wide claim that skipped a registered pane could not
+// fail on a regression unique to it. The screenshot tier pins its own subset, a separate
+// judgement made in that tier's own table. The run's phase graph is mounted on its own,
+// from a hand-built run, because no surface composes it until the run read is built and
+// its geometry and readiness are still worth holding.
 //
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through
@@ -36,28 +38,14 @@
 // field, because that retention is the store's own rule and a tier that wrote the
 // member directly would pin a frame the shipped store could no longer produce.
 //
-// BOTH SURFACES ARE DRIVEN BY THE SCENARIO AND NOT BY HAND-BUILT ROWS. The workflows
-// scenario scripts the definition enumeration and the run read, and the fixture
-// growth port answers both from it — so the destination shows the definitions a
-// daemon would have listed, and the run pane shows the run that fixture's own header
-// calls the parked one: two park kinds at once, one with an armed resume and one
-// without, which is the pair a park banner most easily conflates and therefore the
-// frame worth pinning.
-//
 // WHY EACH SURFACE IS FOUND A DIFFERENT WAY. Each pane IS one region, and
 // `seats/ConsolePaneChrome` names it with `aria-labelledby` pointing at the crumb
 // TRAIL rather than at a heading — so a pane's accessible name is its whole address
 // ("session-1 run-01 Workflow run") and two panes of one kind in one deck are told
 // apart by what they are scoped to. That is why the lookup below reads the trail's
-// current crumb rather than comparing the whole name: an exact match against
-// "Workflow run" was correct while this family drew its own heading and is wrong the
-// moment a pane is named by where it is. The destination is not a region at all: it
-// is a composition of the scope line, the named browser region, and whatever sections
-// stand beside it, so an accessible-name lookup would return one of its parts and a
-// tier would capture a fragment of the surface. It is addressed by its own root
-// instead.
+// current crumb rather than comparing the whole name. The destination is not a region
+// at all, so it is addressed by its own root instead.
 
-import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../console-harness.js";
@@ -67,19 +55,19 @@ import {
   DesktopBridgeProvider,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/workflows/workflows.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenario/workflows/definitions.js";
-import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenario/workflows/ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenario/workflows/runs.js";
+import { unscriptedScenario } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
+import {
+  PARKED_RUN,
+  PROBE_SESSION_ID,
+  definition,
+} from "../../../src/renderer/src/console/workflows/workflows-probe.test-support.js";
+import { RunPhaseGraph } from "../../../src/renderer/src/console/workflows/pane/run/RunPhaseGraph.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
 import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface/surface-context.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
-// The leaf and not the seats door, on `settled-capture.ts`'s reasoning: the reader has no
-// production caller, so the door does not publish it.
-import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pane/pending-pane-body.js";
 import {
   FrameStore,
   SessionStore,
@@ -97,14 +85,6 @@ import {
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
-// The seat's own readings, from the module that also mounts it for the accessibility
-// tier: one answer to "is this form ready", per the shared-code rule in `AGENTS.md`.
-import {
-  SCHEMA_FORM_VERDICT_DEADLINE_MS,
-  holdsSchemaForm,
-  resolveSchemaFormChunks,
-  schemaFormIsAwaitingCompiler,
-} from "./schema-form.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -158,7 +138,7 @@ function paneContext(
     // without projectors folds every event into no entity, so a partition a surface
     // reads answers the empty map a session with no runs answers.
     sessionStore: new SessionStore({
-      sessionId: WORKFLOWS_SESSION_ID,
+      sessionId: PROBE_SESSION_ID,
       projectors: COMPOSED_CONSOLE_PROJECTORS,
     }),
   };
@@ -223,7 +203,7 @@ async function surfaceBodyComponent(): Promise<
  */
 function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
   const frameStore = new FrameStore({
-    initialRoute: { kind: "workspace", sessionId: WORKFLOWS_SESSION_ID },
+    initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
   });
   frameStore.navigate({ kind: "workflows" });
   return {
@@ -248,35 +228,19 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
 }
 
 /**
- * The workflows destination, mounted and waited on until its rows have landed.
+ * The workflows destination, mounted through the rail's own surface seat.
  *
  * Every workflows mount here renders under the bridge provider, as the shell mounts
  * every body: a pane body reads its bridge off its context, but a slot body standing
  * in a seat is handed only the owner's mount and reaches the bridge through the
- * provider (`workflows/pane/run/slots/HumanFormSubmitChannel.tsx`), so a capture mounted bare would
- * throw where the running console does not.
+ * provider, so a capture mounted bare would throw where the running console does not.
  *
- * Through the rail's own surface seat, with a session in scope — which is how a
- * person reaches it, and what the definition enumeration's request requires. The
- * announcer is mounted around it because the surface announces the scope it settled
- * on, and `useAnnounce` throws outside its provider rather than falling back to a
- * region created at the moment something spoke.
- *
- * The wait is the difference between a surface and its empty state: the read crosses
- * a promise, so a tier reading straight after the mount would pin three empty groups
- * and compare them against a baseline of the populated list on the next warm run.
- *
- * BOTH READS, because the element this returns holds both. The destination composes
- * the definitions browser AND `WorkflowRuns`, whose own `workflowRunList` read is a
- * second, independent promise with no wait of its own — so a helper that waited on
- * `.meridian-definition-row` alone handed the screenshot and accessibility tiers a
- * surface holding `Reading this session's runs.` in place of four run rows, three park
- * badges, a frozen-pin chip and the summary counts. The two settle in dispatch order
- * today, which is ordering luck rather than a guarantee, and is the same class of luck
- * `phase-graph-settled.ts` was written to remove for the graph chunk.
+ * With a session in scope, which is how a person reaches it. The announcer is mounted
+ * around it because `useAnnounce` throws outside its provider rather than falling back to
+ * a region created at the moment something spoke.
  */
 export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
     <DesktopBridgeProvider bridge={bridge}>
@@ -289,57 +253,12 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
   if (element === null) {
     throw new Error("the workflows destination rendered no root");
   }
-  // Deliberately NOT inside `act`: the read resolves in a promise React knows
-  // nothing about, and an `act` scope holds the resulting commit back until it
-  // exits, so a wait placed inside one waits for a render its own scope prevents.
-  // `waitFor` already wraps its polling in the async act the library installs.
-  await waitFor(() => {
-    if (element.querySelector(".meridian-definition-row") === null) {
-      throw new Error("the definition enumeration has not landed yet");
-    }
-    if (element.querySelector(".meridian-run-row") === null) {
-      throw new Error("the run enumeration has not landed yet");
-    }
-  });
   return { element, bridge };
 }
 
-/**
- * The run pane on the scenario's parked run, waited on until its parks have landed.
- *
- * The parked run rather than the working one, for the reason that fixture's own
- * header gives: a run with nothing parked would pin the emptiest frame the surface
- * has instead of its busiest, and the park banner is the thing an operator opens
- * this pane for.
- *
- * WAITED ON THREE TIMES, because the pane arrives in three steps. The run read landing
- * puts the park banners on the page; the waiting-human park then mounts the schema form,
- * whose kit is its own chunk and rides the pending-body marker until it lands; and the
- * form itself then fetches the schema compiler, which is a second chunk and the one thing
- * that decides whether its submit control is armed. A mount that returned on the first
- * step handed the screenshot tier a tree still carrying the pending marker, and the tier
- * refused the capture — correctly, and non-deterministically, since the chunk sometimes
- * beat the capture and sometimes did not. The third wait is that same hazard one layer
- * in, and it photographs rather than refuses: the form announces the window with
- * `aria-busy`, so a capture taken inside it pins a quieted, un-pressable submit against a
- * baseline of an armed one. What that third wait reads is `holdsSchemaForm` and then
- * `schemaFormIsAwaitingCompiler`, in that order and for the reason stated at the wait —
- * both live in `./schema-form.tsx`, which mounts the same seat for the accessibility
- * tier, because their subject is the seat rather than this family.
- *
- * AND BOTH CHUNKS ARE RESOLVED BEFORE THE MOUNT, under the seat's own deadline. The two
- * later steps are dynamic imports, and the wait below is a poll with a ceiling; a wait
- * that started the imports by mounting and then polled at the library's one-second
- * default lost to a COLD compiler load on the macOS runner and refused the capture under
- * the third message, for a form that armed a moment later. `resolveSchemaFormChunks`
- * puts both chunks in the module cache first, so the mount's own loads settle in
- * microtasks, and the ceiling is `SCHEMA_FORM_VERDICT_DEADLINE_MS` — the seat's, taken
- * from where it is declared rather than restated — so the hang this wait still guards
- * against is refused on the same clock the seat's own mount refuses it on.
- */
-export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
-  await resolveSchemaFormChunks();
-  const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+/** The run pane addressed at a run, drawing the frame it has without a run read. */
+export async function mountWorkflowRunPane(): Promise<MountedFamilySurface> {
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
     <DesktopBridgeProvider bridge={bridge}>
@@ -348,71 +267,39 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
           {
             kind: "workflow-run",
             paneId: "pane-workflow-run-surface",
-            entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
+            entity: { kind: "workflow-run", id: PARKED_RUN.workflowRunId },
           },
           bridge,
         )}
       />
     </DesktopBridgeProvider>,
   );
-  const region = requirePaneNamed(container, "Workflow run");
-  await waitFor(
-    () => {
-      if (region.querySelector(".meridian-park") === null) {
-        throw new Error("the run read has not landed yet");
-      }
-      const pendingKinds = pendingPaneKindsIn(region);
-      if (pendingKinds.length > 0) {
-        throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
-      }
-      // The form FIRST and its state second, for the reason stated where they are declared.
-      if (!holdsSchemaForm(region)) {
-        throw new Error("the waiting-human park has not mounted its schema form yet");
-      }
-      if (schemaFormIsAwaitingCompiler(region)) {
-        throw new Error("the schema form's compiler has not arrived yet");
-      }
-    },
-    { timeout: SCHEMA_FORM_VERDICT_DEADLINE_MS },
-  );
-  return { element: region, bridge };
+  return { element: requirePaneNamed(container, "Workflow run"), bridge };
 }
 
 /**
- * The definition the builder pane is opened on: the scenario's own, resolved.
+ * The run's phase graph, drawn from a hand-built run parked on a usage window and on a
+ * person's sign-off.
  *
- * The row a run started here would actually pick — the same
- * most-specific-first resolution the browser marks — rather than the first entry in
- * declaration order, so the pane is addressed at a definition the fixture treats as
- * real. A throw rather than a fallback id: an address nothing in the scenario
- * describes would mount a pane whose subject exists nowhere, and a tier would audit
- * it as if it did.
+ * The presentational piece alone, because no surface composes it until the run read is
+ * built. The graph renderer is its own lazily-loaded chunk, so a reader waits on
+ * `phase-graph-settled.ts` before it reads the picture.
  */
-function scenarioDefinitionId(): string {
-  const resolved = WORKFLOWS_SCENARIO_DEFINITIONS.find(
-    (definition) => definition.resolvesAtThisContext,
-  );
-  if (resolved === undefined) {
-    throw new Error("the workflows scenario declares no definition resolving at this context");
-  }
-  return resolved.id;
+export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
+  const { container } = await renderSettled(<RunPhaseGraph phases={PARKED_RUN.phaseStates} />);
+  return container;
 }
 
 /**
- * The builder pane on that definition, which is its one arm that renders a body.
+ * The builder pane on a definition, which is its one arm that renders a body.
  *
  * ADDRESSED RATHER THAN EMPTY, and that is what makes the mount worth auditing: the
  * unaddressed arm draws a single absence block the frame tier already covers, while
- * this one composes the three things only this pane has — the pane head's action slot
- * carrying an INLINE refusal, the not-checked absence beneath it, and the two reserved
- * slot shells the bodies another plan owns will replace.
- *
- * No wait, deliberately: this pane puts no read on any arm — every authoring
- * operation is off the growth port — so there is nothing in flight to settle and a
- * `waitFor` here would be waiting on a promise that was never made.
+ * this one composes the node-graph and drafts slots only this pane has. No wait: this
+ * pane puts no read on any arm, so there is nothing in flight to settle.
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
     <DesktopBridgeProvider bridge={bridge}>
@@ -421,7 +308,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
           {
             kind: "workflow-builder",
             paneId: "pane-workflow-builder-surface",
-            entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
+            entity: { kind: "workflow-definition", id: definition().id },
           },
           bridge,
         )}

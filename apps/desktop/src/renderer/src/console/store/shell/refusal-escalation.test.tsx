@@ -188,7 +188,7 @@ describe("which refusal a collection hands over", () => {
   });
 
   it("answers with the FIRST banner-class candidate, which is the preferred one", () => {
-    const lessPreferred = refuse("growth-port", "session.not_found", "Gone at the port.");
+    const lessPreferred = refuse("ledger", "session.not_found", "Gone before the read.");
     expect(
       preferredBannerClassRefusalAmong([undefined, GONE_SESSION, lessPreferred]),
     ).toStrictEqual(GONE_SESSION);
@@ -197,9 +197,9 @@ describe("which refusal a collection hands over", () => {
   it("hands over ONE refusal where several noticed the same loss", () => {
     // One fact, one handover: the frame keys a banner on origin AND code, so two reads
     // that noticed one vanished session under two origins would otherwise raise two
-    // banners saying one thing — a call that rejected wears the calling surface's own
-    // origin while one the port refused wears the port's.
-    const atThePort = refuse("growth-port", "session.not_found", "Gone at the port.");
+    // banners saying one thing — each call that rejected wears its calling surface's
+    // own origin.
+    const atThePort = refuse("ledger", "session.not_found", "Gone before the read.");
     expect(preferredBannerClassRefusalAmong([GONE_SESSION, atThePort])).toStrictEqual(GONE_SESSION);
   });
 

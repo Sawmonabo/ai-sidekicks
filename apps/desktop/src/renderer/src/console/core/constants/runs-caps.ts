@@ -15,6 +15,8 @@
  * far past what a person scrolls back through in a live view, and small enough
  * that a hundred concurrent runs cost thousands of rows rather than millions. The
  * durable record is the session log, which is not this.
+ *
+ * @consumedBy the composer's run reading
  */
 export const RUN_STATUS_ROW_CAP = 32;
 
@@ -24,6 +26,8 @@ export const RUN_STATUS_ROW_CAP = 32;
  * A session's runs accumulate for as long as the session is open, and terminal
  * runs never leave the stream's history. The oldest-touched run is dropped first,
  * so what survives is what is moving — the reading a live pane exists to give.
+ *
+ * @consumedBy the composer's run reading
  */
 export const PROJECTED_RUN_CAP = 200;
 
@@ -39,6 +43,8 @@ export const PROJECTED_RUN_CAP = 200;
  * less than a projected row does: no confirmed run version, no status history, no
  * controls. Fifty is past what a person scrolls to at the end of that list, and the
  * order is newest-touched first, so the ones that fall off are the coldest.
+ *
+ * @consumedBy the composer's run reading
  */
 export const SEATED_KNOWN_RUN_CAP = 50;
 
@@ -49,6 +55,8 @@ export const SEATED_KNOWN_RUN_CAP = 50;
  * live, and that is a lookup: past a handful of ids it stops being one and becomes a
  * paragraph of hex nobody reads. The count still names every run, seated or not, so
  * nothing disappears from the reading — only from the enumeration.
+ *
+ * @consumedBy the composer's run reading
  */
 export const AWAITING_RUN_IDS_NAMED_CAP = 6;
 

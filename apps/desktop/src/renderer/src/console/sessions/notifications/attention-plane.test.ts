@@ -81,8 +81,8 @@ describe("the fold over one read", () => {
 });
 
 describe("the order the fold establishes", () => {
-  // `attentionProjectionRead` is a growth row with no registered ordering, so a
-  // projection is free to answer newest-first. These cases feed exactly that, and
+  // `attentionProjectionRead` is registered in no code package and states no ordering,
+  // so a projection is free to answer newest-first. These cases feed exactly that, and
   // the two items differ only in `createdAt`, which is the documented key — so
   // nothing but the rule under test can separate them.
   const NEWEST_FIRST: readonly AttentionItem[] = [

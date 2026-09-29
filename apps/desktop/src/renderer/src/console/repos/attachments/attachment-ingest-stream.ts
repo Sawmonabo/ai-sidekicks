@@ -3,7 +3,7 @@
 //
 // SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM BETWEEN AN ACT AND A WIRE. That
 // module owns what a user's act does to the carrier's record — attach, retry,
-// abandon, remove, reorder — a set of synchronous decisions over the ledger. This one
+// abandon, remove — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
 // three modules.
@@ -34,6 +34,7 @@
 // NO TIMER, ANYWHERE. Work happens when a user asks for it and at no other
 // moment. There is no interval, no backoff timer, and no automatic re-drive.
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import { lossyStringify, reportTripwire, type ConsoleClock } from "../../core/index.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
@@ -46,7 +47,7 @@ export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-s
 /** What one ingest stream driver is given to run an upload. */
 export interface AttachmentIngestStreamDriverOptions {
   readonly port: IngestLegs;
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   readonly clock: ConsoleClock;
   /** The carrier's own record. Written here, owned next door. */
   readonly ledger: AttachmentIngestLedger;
@@ -67,7 +68,7 @@ export interface AttachmentIngestStreamDriverOptions {
  */
 export class AttachmentIngestStreamDriver {
   readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
-  readonly #sessionId: string;
+  readonly #sessionId: SessionId;
   readonly #clock: ConsoleClock;
   readonly #ledger: AttachmentIngestLedger;
   readonly #reclaimer: AttachmentSpoolReclaimer;

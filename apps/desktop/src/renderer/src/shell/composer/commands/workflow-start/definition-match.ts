@@ -25,8 +25,8 @@ export type WorkflowDefinitionMatch =
  * Match one typed name against the definitions a session can start.
  *
  * Exported beside the dispatch because it is the whole of the naming rule, and a case
- * that drove it through a growth port would be asserting the rule and the transport
- * at once.
+ * that drove it through a bridge would be asserting the rule and the transport at
+ * once.
  */
 export function matchWorkflowDefinition(
   definitions: readonly WorkflowDefinitionSummary[],

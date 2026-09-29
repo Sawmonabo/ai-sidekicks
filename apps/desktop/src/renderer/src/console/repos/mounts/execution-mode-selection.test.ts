@@ -83,16 +83,16 @@ async function openWithHeldSelect(released: ReleasedSelect = "served"): Promise<
   return { reader, clock, port };
 }
 
-const GIT_WORKSPACE = HEALTHY_WORKSPACE_ID as WorkspaceId;
-const PLAIN_WORKSPACE = "workspace-unreachable" as WorkspaceId;
-const WORKTREE_MODE = "worktree" satisfies ExecutionMode;
-const BRANCH_MODE = "branch" satisfies ExecutionMode;
+const HEALTHY_WORKSPACE = HEALTHY_WORKSPACE_ID as WorkspaceId;
+const UNREACHABLE_WORKSPACE = "workspace-unreachable" as WorkspaceId;
+const WORKTREE_MODE = "provisioned-worktree" satisfies ExecutionMode;
+const BOUND_ROOT_MODE = "bound-root" satisfies ExecutionMode;
 
 describe("ExecutionModeSelections — one switch per workspace at a time", () => {
   it("names the mode it sent while the daemon has not answered", async () => {
     const { reader } = await openWithHeldSelect();
 
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
 
     // THE MODE AND NOT A FLAG: the rows go on showing the mode the workspace is bound
@@ -106,10 +106,10 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // daemon last decides what the workspace is bound as — so a corrected choice could
     // lose to the one it corrected away from, silently, with both calls reporting success.
     const { reader, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
 
-    await reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
+    await reader.requestModeSelection(HEALTHY_WORKSPACE, BOUND_ROOT_MODE);
 
     expect(port.selectCallCount()).toBe(1);
     expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBe(WORKTREE_MODE);
@@ -117,7 +117,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 
   it("releases the picker and re-reads once the held switch settles", async () => {
     const { reader, clock, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
     const readsBefore = reader.performCount;
 
@@ -137,16 +137,16 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   it("accepts the corrected choice once the first has settled", async () => {
     // The user's correction is not lost: it waits for a picker that comes back.
     const { reader, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
     port.release();
     await crossMacrotaskBoundary();
 
-    void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, BOUND_ROOT_MODE);
     await crossMacrotaskBoundary();
 
     expect(port.selectCallCount()).toBe(2);
-    expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBe(BRANCH_MODE);
+    expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBe(BOUND_ROOT_MODE);
   });
 
   it("negative control: another workspace's switch is not held", async () => {
@@ -154,22 +154,22 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // register would satisfy every assertion above while dropping a press on a row that
     // cannot collide with the one waiting.
     const { reader, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
 
-    void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
+    void reader.requestModeSelection(UNREACHABLE_WORKSPACE, BOUND_ROOT_MODE);
     await crossMacrotaskBoundary();
 
     expect(port.selectCallCount()).toBe(2);
     expect(reader.snapshot.pendingModeByWorkspaceId).toStrictEqual({
       [HEALTHY_WORKSPACE_ID]: WORKTREE_MODE,
-      [PLAIN_WORKSPACE]: BRANCH_MODE,
+      [UNREACHABLE_WORKSPACE]: BOUND_ROOT_MODE,
     });
   });
 
   it("releases the picker and the key, re-reads nothing, and passes the rejection on", async () => {
     const { reader, port } = await openWithHeldSelect("rejected");
-    const pressed = reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    const pressed = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     const outcome = expect(pressed).rejects.toThrow("The daemon could not be reached.");
     await crossMacrotaskBoundary();
     const readsBefore = reader.performCount;
@@ -186,7 +186,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // A read is published beside a mutation it knows nothing about: a publish that rebuilt
     // the pending map would release the picker before the switch it is holding for settled.
     const { reader, clock, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
     const readsBefore = reader.performCount;
 
@@ -205,7 +205,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // `finally` is the write that would move the snapshot, so a continuation that
     // published on a torn-down section would show here.
     const { reader, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
     const readingBefore = reader.snapshot;
 
@@ -222,7 +222,7 @@ describe("ExecutionModeSelections — the register empties on every exit", () =>
     const { reader, port } = await openWithHeldSelect();
     expect(reader.inFlightSelectionCount).toBe(0);
 
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
     expect(reader.inFlightSelectionCount).toBe(1);
 
@@ -239,9 +239,9 @@ describe("ExecutionModeSelections — the register empties on every exit", () =>
     // Without this a register that held one key for the whole section would satisfy
     // both cases above while dropping a press on a row that cannot collide.
     const { reader, port } = await openWithHeldSelect();
-    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
-    void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
+    void reader.requestModeSelection(UNREACHABLE_WORKSPACE, BOUND_ROOT_MODE);
     await crossMacrotaskBoundary();
 
     expect(reader.inFlightSelectionCount).toBe(2);

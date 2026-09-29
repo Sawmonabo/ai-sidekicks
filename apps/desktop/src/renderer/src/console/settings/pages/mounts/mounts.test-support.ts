@@ -46,7 +46,7 @@ export function workspaceListWith(mountIds: readonly string[]): WorkspaceListRes
     workspaces: mountIds.map((repoMountId, index) => ({
       id: workspaceIdAt(index),
       repoMountId: repoMountId as WorkspaceListResponse["workspaces"][number]["repoMountId"],
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
       state: "ready",
     })),
   };
@@ -64,7 +64,6 @@ export function mountReadFor(
 ): RepoMountReadResponse {
   return {
     id: repoMountId as RepoMountReadResponse["id"],
-    sessionId: SESSION_ID as RepoMountReadResponse["sessionId"],
     nodeId: NODE_ID as RepoMountReadResponse["nodeId"],
     localPath: `/repos/${repoMountId}`,
     canonicalRoot: `/repos/${repoMountId}`,

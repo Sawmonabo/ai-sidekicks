@@ -36,7 +36,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     reader.start();
     await readThrough(clock);
 
-    const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    const firstPress = reader.fetchPayload(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     await expect(reader.fetchPayload(OTHER_ARTIFACT_ID)).rejects.toThrow("already in flight");
 
@@ -44,10 +44,10 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     // The payload arm still belongs to the fetch that is genuinely outstanding.
     expect(reader.snapshot.payload).toStrictEqual({
       status: "fetching",
-      artifactId: SERVED_SUMMARY.artifactId,
+      artifactId: SERVED_SUMMARY.id,
     });
 
-    releaseRead(inlinePayloadRead(SERVED_SUMMARY.artifactId, "the first press"));
+    releaseRead(inlinePayloadRead(SERVED_SUMMARY.id, "the first press"));
     expect((await firstPress).status).toBe("settled");
     expect(fetchedText(reader)).toBe("the first press");
   });
@@ -60,15 +60,15 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     reader.start();
     await readThrough(clock);
 
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    const press = reader.fetchPayload(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     reader.dispose();
-    releaseRead(inlinePayloadRead(SERVED_SUMMARY.artifactId, "an answer nobody is waiting for"));
+    releaseRead(inlinePayloadRead(SERVED_SUMMARY.id, "an answer nobody is waiting for"));
 
     expect(await press).toStrictEqual({ status: "superseded" });
     expect(reader.snapshot.payload).toStrictEqual({
       status: "fetching",
-      artifactId: SERVED_SUMMARY.artifactId,
+      artifactId: SERVED_SUMMARY.id,
     });
   });
 
@@ -81,13 +81,13 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     reader.start();
     await readThrough(clock);
 
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    const press = reader.fetchPayload(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
     reader.refresh();
     await readThrough(clock);
     expect(reader.performCount).toBe(2);
 
-    releaseRead(inlinePayloadRead(SERVED_SUMMARY.artifactId, "the bytes the press asked for"));
+    releaseRead(inlinePayloadRead(SERVED_SUMMARY.id, "the bytes the press asked for"));
 
     expect((await press).status).toBe("settled");
     expect(fetchedText(reader)).toBe("the bytes the press asked for");
@@ -101,14 +101,14 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     reader.start();
     await readThrough(clock);
 
-    const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    const firstPress = reader.fetchPayload(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
-    releaseRead(inlinePayloadRead(SERVED_SUMMARY.artifactId, "first"));
+    releaseRead(inlinePayloadRead(SERVED_SUMMARY.id, "first"));
     await firstPress;
 
-    const secondPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    const secondPress = reader.fetchPayload(SERVED_SUMMARY.id);
     await crossMacrotaskBoundary();
-    releaseRead(inlinePayloadRead(SERVED_SUMMARY.artifactId, "second"));
+    releaseRead(inlinePayloadRead(SERVED_SUMMARY.id, "second"));
 
     expect((await secondPress).status).toBe("settled");
     expect(artifactRead).toHaveBeenCalledTimes(2);
@@ -122,7 +122,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     const artifactRead = vi
       .fn<ReadArtifact>()
       .mockRejectedValueOnce(new Error("the read failed"))
-      .mockResolvedValueOnce(inlinePayloadRead(SERVED_SUMMARY.artifactId, "the retry"));
+      .mockResolvedValueOnce(inlinePayloadRead(SERVED_SUMMARY.id, "the retry"));
     const reader = new ArtifactPaneReader({
       listArtifacts: async () => LISTED_ONE_ROW,
       readArtifact: artifactRead,
@@ -132,10 +132,10 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     reader.start();
     await readThrough(clock);
 
-    await expect(reader.fetchPayload(SERVED_SUMMARY.artifactId)).rejects.toThrow("the read failed");
+    await expect(reader.fetchPayload(SERVED_SUMMARY.id)).rejects.toThrow("the read failed");
     expect(reader.snapshot.payload).toBeUndefined();
 
-    expect((await reader.fetchPayload(SERVED_SUMMARY.artifactId)).status).toBe("settled");
+    expect((await reader.fetchPayload(SERVED_SUMMARY.id)).status).toBe("settled");
     expect(fetchedText(reader)).toBe("the retry");
   });
 });

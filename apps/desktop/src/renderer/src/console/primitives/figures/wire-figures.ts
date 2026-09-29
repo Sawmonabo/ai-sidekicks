@@ -168,15 +168,9 @@ export function formatCount(value: number, locale?: string): string {
  * it. Sub-second durations render in milliseconds because a run that took 340 ms is not
  * "0.3 s" to anyone debugging it.
  *
- * Digital is composed from `NumberFormat` rather than taken from
- * `Intl.DurationFormat`, and that is a runtime-range decision rather than a
- * preference. `DurationFormat` is absent below Node 23 while this repo's floor is
- * 22.14, so the `console-unit` tier would fail on a Node-22 leg even though
- * Electron 44's Chromium carries the API — and a guarded two-path implementation
- * would render one shape in CI and another in production, which is the single
- * outcome a formatting chokepoint exists to prevent. Every numeral still passes
- * through `Intl`; only the `:` separators are ours, and the padding is
- * `minimumIntegerDigits`, so a locale with its own digits pads in its own digits.
+ * Digital is composed from `NumberFormat`. Every numeral passes through `Intl`; only
+ * the `:` separators are ours, and the padding is `minimumIntegerDigits`, so a locale
+ * with its own digits pads in its own digits.
  */
 export function formatDuration(milliseconds: number, locale?: string): string {
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {

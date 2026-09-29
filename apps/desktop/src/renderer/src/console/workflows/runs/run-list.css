@@ -4,7 +4,7 @@
  * Owned by `RunList.tsx` and imported from the family door, `workflows/index.ts`. Every
  * class here belongs to one of the list's own blocks (`meridian-run-list`,
  * `meridian-run-row`, `meridian-run-attention`), and no other sheet declares them. The
- * park badges a row stacks are next door in `park-badge.css`.
+ * park badges a row stacks are in `parks/park-badge.css`.
  */
 
 /* ----------------------------------------------------------------- run list */

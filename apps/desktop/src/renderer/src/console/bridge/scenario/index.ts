@@ -27,3 +27,10 @@
 export { CONSOLE_SCENARIOS } from "./corpus.js";
 
 export { consoleScenario } from "./manifest.js";
+
+export {
+  /** @consumedBy the diff pane's scripted diff replies */
+  RUN_ATTRIBUTED_DIFF_PATCH,
+  /** @consumedBy the diff pane's scripted diff replies */
+  WORKSPACE_FALLBACK_DIFF_PATCH,
+} from "./repos/repos-diff-patches.js";

@@ -23,7 +23,7 @@
 
 import type { WorkflowVersionChainEntry } from "../../../bridge/index.js";
 import { formatCount } from "../../../primitives/index.js";
-import { useSubjectRead } from "../../subject-read.js";
+import { useSubjectRead } from "../../../store/index.js";
 import type { WorkflowVersionChoice } from "./run-controls.js";
 
 /**

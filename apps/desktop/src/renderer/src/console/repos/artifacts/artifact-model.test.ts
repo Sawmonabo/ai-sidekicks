@@ -7,12 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
-import { ARTIFACT_PRODUCER_ID, artifactRow, artifactSummary } from "./artifacts.test-support.js";
+import { ARTIFACT_PRODUCER_ID, artifactRow, artifactManifest } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";
 import {
+  ARTIFACT_FILTER_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
-  artifactManifestRowFromSummary,
+  artifactManifestRowFrom,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactManifestRow,
@@ -32,14 +32,14 @@ describe("artifact-model and artifact-copy — the closed sets", () => {
     // is total over the wire's own set by the compiler rather than by a second array
     // this module would have had to keep in step.
     expect(Object.keys(ARTIFACT_STATE_PRESENTATION)).toHaveLength(3);
-    expect(GROWTH_ARTIFACT_TYPES).toHaveLength(6);
+    expect(ARTIFACT_FILTER_TYPES).toHaveLength(6);
   });
 
   it("carries `diff` as a type rather than as a separate collection", () => {
     // Every diff artifact is an artifact and appears in artifact listings, so the
     // diff pane is a view onto this list and never a second store. Membership here
     // is what makes that structural rather than a convention.
-    expect(GROWTH_ARTIFACT_TYPES).toContain("diff");
+    expect(ARTIFACT_FILTER_TYPES).toContain("diff");
   });
 
   it("negative control: no vocabulary is declared a second time in this family", () => {
@@ -83,7 +83,7 @@ describe("artifact-model — the type filter", () => {
     // Total over the six, so the filter can offer a type nothing has produced yet —
     // hiding it would hide the vocabulary exactly when somebody is looking for
     // something that is not there.
-    expect(Object.keys(counts)).toHaveLength(GROWTH_ARTIFACT_TYPES.length);
+    expect(Object.keys(counts)).toHaveLength(ARTIFACT_FILTER_TYPES.length);
   });
 
   it("negative control: a filter for a type nothing carries returns nothing, not everything", () => {
@@ -107,14 +107,14 @@ describe("artifact-copy — the producer absence is a fact", () => {
 });
 
 describe("artifact manifest row — free-form maps a daemon can send and JSON cannot hold", () => {
-  /** One row read from a summary whose metadata is whatever the case is about. */
+  /** One row read from a manifest whose metadata is whatever the case is about. */
   function rowWithMetadata(metadata: unknown): ArtifactManifestRow {
-    return artifactManifestRowFromSummary(artifactSummary({ metadata }));
+    return artifactManifestRowFrom(artifactManifest({ metadata }));
   }
 
   /** The same, on the sibling map. */
   function rowWithAnnotations(annotations: unknown): ArtifactManifestRow {
-    return artifactManifestRowFromSummary(artifactSummary({ annotations }));
+    return artifactManifestRowFrom(artifactManifest({ annotations }));
   }
 
   it("renders a value JSON refuses to serialize rather than taking the pane down", () => {

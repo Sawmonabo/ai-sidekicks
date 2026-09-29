@@ -12,14 +12,11 @@
 // nobody, and the surface sits on the answer it read before the reconnect with nothing on
 // screen saying why.
 //
-// THE RULE IS WRITTEN ONCE HERE BECAUSE FOUR BINDINGS WOULD OTHERWISE WRITE IT. The three
-// repos act controllers reach it through `store/act/use-act-controller.ts`, which every
-// act controller binds through, and the workspace execution-context reader calls it
-// directly beside its own `useSubjectScopedResource`. The package's shared-code rule
-// hoists on the second use, and the shape a copy of this drifts in is the COMPARISON: a
-// binding that compared session ids rather than store identities would look identical in
-// a diff and would never rebind at all, because the id is exactly what the key already
-// carries.
+// THE RULE IS WRITTEN ONCE HERE. Every act controller reaches it through
+// `store/act/use-act-controller.ts`, and the shape a copy of this drifts in is the
+// COMPARISON: a binding that compared session ids rather than store identities would
+// look identical in a diff and would never rebind at all, because the id is exactly
+// what the key already carries.
 //
 // THE REPLACEMENT IS PUBLISHED THROUGH THE SEAM AND NEVER CONSTRUCTED IN A RENDER.
 // `settle()` names the visit ON SCREEN, so the resource this mints is installed as the

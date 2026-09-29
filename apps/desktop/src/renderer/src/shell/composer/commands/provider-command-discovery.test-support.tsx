@@ -205,7 +205,7 @@ export function composerSessionStore(): SessionStore {
     sessionId: COMPOSER_SCENARIO.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [] });
   store.applyBatch(COMPOSER_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
   return store;
 }

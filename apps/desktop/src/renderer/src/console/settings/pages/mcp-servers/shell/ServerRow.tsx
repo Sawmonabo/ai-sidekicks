@@ -7,7 +7,7 @@ import {
   WireFigure,
   formatDateTime,
 } from "../../../../primitives/index.js";
-import type { GrowthMcpBindingRef, GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
+import type { McpServerBindingRef, McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
@@ -38,11 +38,11 @@ import type { McpMutationOutcome } from "./mcp-mutation.js";
  * asserting one.
  */
 export function ServerRow(props: {
-  readonly entry: GrowthMcpInventoryEntry;
+  readonly entry: McpServerInventoryEntry;
   readonly outcome: McpMutationOutcome;
   readonly pending: boolean;
-  readonly onSetEnabled: (binding: GrowthMcpBindingRef, enabled: boolean) => void;
-  readonly onSetTrust: (binding: GrowthMcpBindingRef, trusted: boolean) => void;
+  readonly onSetEnabled: (binding: McpServerBindingRef, enabled: boolean) => void;
+  readonly onSetTrust: (binding: McpServerBindingRef, trusted: boolean) => void;
 }): ReactNode {
   const { entry, outcome, pending, onSetEnabled, onSetTrust } = props;
   const binding = bindingOf(entry);
@@ -143,7 +143,7 @@ export function ServerRow(props: {
  * the mutation signature cannot take without a cast — and a cast here would switch off
  * exactly the checking that keeps `(codex, local)` unrepresentable.
  */
-function bindingOf(entry: GrowthMcpInventoryEntry): GrowthMcpBindingRef {
+function bindingOf(entry: McpServerInventoryEntry): McpServerBindingRef {
   if (entry.scope === "user") {
     return { provider: entry.provider, scope: "user", serverName: entry.serverName };
   }

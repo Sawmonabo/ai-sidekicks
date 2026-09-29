@@ -16,7 +16,7 @@
 import { useState } from "react";
 
 import { Glyph } from "../../../primitives/index.js";
-import { pagesOf, type BrowserPage, type PageListReading } from "../page-state.js";
+import { activePageOf, pagesOf, type BrowserPage, type PageListReading } from "../page-state.js";
 import {
   isTabDrag,
   pageMoveIndex,
@@ -42,6 +42,7 @@ export function TabStrip(props: TabStripProps): React.JSX.Element | null {
   // indicator cannot be left painted after a drag that ended somewhere else.
   const [hoveredSlot, setHoveredSlot] = useState<number | undefined>(undefined);
   const pages = pagesOf(reading);
+  const activePageId = activePageOf(reading)?.pageId;
 
   const dropAt = (slot: number, transfer: DataTransfer): void => {
     setHoveredSlot(undefined);
@@ -73,7 +74,7 @@ export function TabStrip(props: TabStripProps): React.JSX.Element | null {
         {pages.map((page, index) => (
           <li
             key={page.pageId}
-            className={tabClassName(page.isSelected, hoveredSlot === index)}
+            className={tabClassName(page.pageId === activePageId, hoveredSlot === index)}
             draggable
             onDragStart={(event) => {
               writeTabDragPayload(event.dataTransfer, page.pageId);
@@ -99,7 +100,7 @@ export function TabStrip(props: TabStripProps): React.JSX.Element | null {
             <button
               type="button"
               className="meridian-browser-tab__face"
-              aria-current={page.isSelected ? "page" : undefined}
+              aria-current={page.pageId === activePageId ? "page" : undefined}
               onClick={() => {
                 onSelect(page.pageId);
               }}
@@ -111,9 +112,6 @@ export function TabStrip(props: TabStripProps): React.JSX.Element | null {
                 </>
               ) : null}
               <span className="meridian-browser-tab__label">{tabLabel(page)}</span>
-              {page.isShown ? null : (
-                <span className="meridian-browser-tab__background">background</span>
-              )}
             </button>
             <button
               type="button"

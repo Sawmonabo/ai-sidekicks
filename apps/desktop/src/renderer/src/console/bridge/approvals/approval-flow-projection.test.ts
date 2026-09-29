@@ -17,16 +17,16 @@ import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-projection/run-lifecy
 import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-support.js";
 
 describe("the kinds the composer family claims", () => {
-  it("is the approval_flow category minus the one event that is not a request's", () => {
+  it("is the approval_flow category minus the events that are not a request's", () => {
     const categoryKinds = [...SESSION_EVENT_CATEGORY_BY_TYPE]
       .filter(([, category]) => category === "approval_flow")
       .map(([eventType]) => eventType);
 
-    // The subtraction is held to exactly one member. A ninth kind landing in the
+    // The subtraction is held to exactly these members. Another kind landing in the
     // category under some other namespace fails here rather than being dropped by a
     // prefix filter nobody re-read.
     expect(categoryKinds.filter((kind) => !APPROVAL_FLOW_EVENT_KINDS.includes(kind))).toStrictEqual(
-      ["moderation.review_flagged"],
+      ["moderation.review_flagged", "plan.proposed", "plan.accepted", "plan.handed_off"],
     );
     expect(APPROVAL_FLOW_EVENT_KINDS).toHaveLength(6);
     expect(Object.keys(APPROVAL_FLOW_PROJECTORS).toSorted()).toStrictEqual(

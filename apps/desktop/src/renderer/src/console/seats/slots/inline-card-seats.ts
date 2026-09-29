@@ -11,20 +11,14 @@
 //
 // WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
 //
-// A card body needs the artifact's size, its media type, its allow-list verdict —
-// and NONE of those is a wire member that exists. The console growth slate carries
-// `artifact-ingest-and-crud` ("attachment ingest method-name table and artifact CRUD
-// method strings") and `artifact-allowlist-and-abort` ("effective allow-list read;
-// ingest abort") precisely because they do not. Minting a `ConsoleArtifact` shape
-// here with the members a card would like would be the console inventing wire
-// members, which `store/entities/entities.ts` names as a change this console may not
-// make.
+// A card body needs the artifact's size, its media type, its allow-list verdict — and
+// NONE of those is a wire member that exists. Minting a `ConsoleArtifact` shape here
+// with the members a card would like would be the console inventing wire members, which
+// `store/entities/entities.ts` names as a change this console may not make.
 //
-// So each arm carries the identity its body fetches WITH, and the fetch goes through
-// `bridge/growth-port/growth-port.ts`, which refuses by name until the wire lands. The
-// day the typed attachment reference is registered, the local
-// `InlineCardAttachmentRef` below is deleted and the contract type imported in its place
-// — one edit, in the PR that removes the slate rows.
+// So each arm carries the identity its body fetches WITH. The day the typed attachment
+// reference is registered, the local `InlineCardAttachmentRef` below is deleted and
+// the contract type imported in its place — one edit.
 
 import { ConsoleRefusalError, KeyedRegistry, refuse } from "../../core/index.js";
 import { type ConsoleEntityRef } from "../../store/index.js";

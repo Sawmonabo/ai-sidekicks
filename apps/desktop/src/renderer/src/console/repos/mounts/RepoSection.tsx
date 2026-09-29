@@ -66,7 +66,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
       */}
       <AttachRepositoryDialog
         bridge={bridge}
-        sessionStore={sessionStore}
+        sessionId={sessionStore.sessionId}
         operations={operations}
         onAttached={requestRead}
       />

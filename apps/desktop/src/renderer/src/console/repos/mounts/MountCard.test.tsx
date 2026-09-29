@@ -14,6 +14,14 @@ import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { CANONICAL_ROOT, ENTERED_PATH, mount, workspaceRow } from "./repo-mounts.test-support.js";
 
+/**
+ * The card's own state sentence. Each workspace's prepare form repeats a held reason
+ * inside its collapsed disclosure, so a whole-tree text query would find it twice.
+ */
+function withheldLine(container: HTMLElement): string | null {
+  return container.querySelector(".meridian-mount-card__withheld")?.textContent ?? null;
+}
+
 const WORKSPACE: RepoWorkspaceRow = workspaceRow();
 
 function renderCard(
@@ -92,31 +100,18 @@ describe("MountCard — the two axes", () => {
   });
 
   it("puts an unreachable mount in an error posture and withholds its bind controls", () => {
-    const { container, getByText } = renderCard({
+    const { container } = renderCard({
       mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" } }),
     });
     expect(container.querySelector(".meridian-mount-card--withheld")).not.toBeNull();
-    expect(getByText(/could not be probed/u)).toBeDefined();
+    expect(withheldLine(container)).toMatch(/could not be probed/u);
     expect(container.querySelector("fieldset")).toBeNull();
   });
 
   it("negative control: a detached mount does not read as an unreachable one", () => {
-    const { queryByText, getByText } = renderCard({ mount: mount({ state: "detached" }) });
-    expect(getByText(/mints a new mount/u)).toBeDefined();
-    expect(queryByText(/could not be probed/u)).toBeNull();
-  });
-});
-
-describe("MountCard — the plain-directory mount", () => {
-  it("badges reduced capability and names the reason", () => {
-    const { getByText } = renderCard({ mount: mount({ vcsType: "none" }) });
-    expect(getByText("reduced capability")).toBeDefined();
-    expect(getByText(/git-specific features off/u)).toBeDefined();
-  });
-
-  it("negative control: a git mount carries no reduced-capability badge", () => {
-    const { queryByText } = renderCard();
-    expect(queryByText("reduced capability")).toBeNull();
+    const { container } = renderCard({ mount: mount({ state: "detached" }) });
+    expect(withheldLine(container)).toMatch(/mints a new mount/u);
+    expect(withheldLine(container)).not.toMatch(/could not be probed/u);
   });
 });
 
@@ -168,21 +163,20 @@ describe("MountCard — the drifted mount and its one control", () => {
   });
 
   it("says the mount is not repaired, and that a new row is minted", () => {
-    const { getByText } = renderCard({
+    const { container } = renderCard({
       mount: mount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
     // The card states the consequence before the confirm does, because a user
     // reads the card before they press anything.
-    expect(getByText(/mints a new mount/)).toBeDefined();
+    expect(withheldLine(container)).toMatch(/mints a new mount/u);
   });
 });
 
 describe("MountCard — the bind entry point", () => {
   it("offers a bind on an attached, healthy mount", () => {
-    // Attach mints one workspace and nothing more, so this trigger is where every
-    // workspace past the default comes from.
+    // Attach mints no workspace, so this trigger is where every workspace comes from.
     const { getByText } = renderCard();
     expect(getByText("Bind a workspace")).toBeDefined();
   });
