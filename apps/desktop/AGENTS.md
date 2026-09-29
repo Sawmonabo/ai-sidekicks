@@ -6,6 +6,10 @@ Binding for every change under `apps/desktop/`, in any tool. Repo-wide conventio
 
 The rule on governance identifiers is AGENTS.md rule 3; it applies to every file in this package.
 
+## Launching
+
+`pnpm --filter @ai-sidekicks/desktop dev` runs the app against the renderer's dev server. Arguments after `--` reach the app: `-- --fixture <scenario>` plays a scenario from `fixtures/index.ts`, and `--session <session-id>` added to it opens that scenario's session. An unknown scenario, a missing value or a session the scenario does not hold stops the launch before any window opens. The development build and `build:fixtures` carry the scenarios; a release build refuses `--fixture`.
+
 ## Mechanical gates
 
 **A structural rule lives in one of the three configs below or in this file. No test reads source text.**
@@ -22,7 +26,7 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 
 The ESLint rules that carry this file's structural claims. Each states its own scope: a rule is only as strong as the file set it matches, and a lifted selector is stated here rather than discovered in the config.
 
-1. The preload bridge is read off the global only in `services/platform/live-bridge.ts`; every surface above takes it from `PlatformBridgeProvider`'s context, which calls `readInstalledBridge` there. Five spellings — `window.desktopBridge`, `globalThis.desktopBridge`, the cast form `(window as { sidekicks?: … }).sidekicks`, the computed key `globalThis["sidekicks"]`, and the destructure `const { sidekicks } = window` — are banned across the whole renderer, and lifted for its test files, which install a fixture bridge on the global as the substitution seam. An ALIAS — `const w = window; w.sidekicks` — evades every selector and is rejected in review.
+1. The preload bridge is read off the global only in `services/platform/live-bridge.ts`; every surface above takes it from `PlatformBridgeProvider`'s context, which calls `readInstalledBridge` there. The fixture launch the preload exposes is read there too, by `readFixtureLaunch`, which only `app/fixture-composition.ts` calls. Five spellings — `window.desktopBridge`, `globalThis.desktopBridge`, the cast form `(window as { sidekicks?: … }).sidekicks`, the computed key `globalThis["sidekicks"]`, and the destructure `const { sidekicks } = window` — are banned across the whole renderer, and lifted for its test files, which install a fixture bridge on the global as the substitution seam. An ALIAS — `const w = window; w.sidekicks` — evades every selector and is rejected in review.
 2. No `setInterval` anywhere in renderer source, in either spelling — the bare global and `window` / `globalThis`-qualified.
 3. No `export default` outside the package-root tool configs, which their tools load by default export. Off for `**/*.d.ts`, where the `export default` inside an ambient `declare module` is how a default-exporting virtual module is typed.
 4. No module-level `let` in shipped renderer source. Lifted for `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}`: a `let` reassigned in `beforeEach` is the standard Vitest shape and holds no state anything else can reach.

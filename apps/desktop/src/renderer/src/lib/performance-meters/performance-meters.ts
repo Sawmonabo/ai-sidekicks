@@ -15,12 +15,13 @@
 // p95 itself. Naming the split is what lets a later lane re-derive the budget set from
 // `budgets.json` and find it agrees.
 //
-// COMPILED OUT OF RELEASE BY THE FIXTURE DEFINE, not gated at runtime. Every
-// recording entry point below is a `if (__SIDEKICKS_CONSOLE_FIXTURES__)` body, which
-// is a build-time literal, so Rollup folds the call to nothing and the registry that
-// would have received it is unreachable from a release entry. A runtime flag would
-// leave the measurement code — and its retained samples — in the shipped bundle,
-// which is the cost the meters exist to avoid paying twice.
+// DEVELOPMENT ONLY, COMPILED OUT OF EVERY BUILT BUNDLE, not gated at runtime. Every
+// recording entry point below is an `if (import.meta.env.DEV)` body, which Vite replaces
+// with a literal — `true` under `electron-vite dev` and in the Vitest projects, `false`
+// in every `electron-vite build` — so Rollup folds the call to nothing and the registry
+// that would have received it is unreachable from a built entry. The call sites check
+// nothing. A runtime flag would leave the measurement code — and its retained samples —
+// in the shipped bundle, which is the cost the meters exist to avoid paying twice.
 //
 // WHY A REGISTRY OF SERIES AND NOT FOUR COUNTERS. All four readings are the same
 // question asked of different producers: what does this thing usually cost, and what
@@ -282,14 +283,13 @@ function nearestRankSample(sortedSamples: readonly number[], percentile: number)
 }
 
 /**
- * The console's registry under a fixture or development build, and `null` in a
- * release one.
+ * The console's registry in development, and `null` in a built bundle.
  *
  * The ternary's condition is a build-time literal, so a release bundle folds this to
  * `null` and the class above becomes unreachable from every release entry — which is
  * what "compiled out" means here, as opposed to constructed and then not consulted.
  */
-export const devPerfMeters: PerformanceMeterRegistry | null = __SIDEKICKS_CONSOLE_FIXTURES__
+export const devPerfMeters: PerformanceMeterRegistry | null = import.meta.env.DEV
   ? new PerformanceMeterRegistry()
   : null;
 
@@ -300,25 +300,25 @@ export const devPerfMeters: PerformanceMeterRegistry | null = __SIDEKICKS_CONSOL
  * `Date.now()`: its resolution is one millisecond, which is the whole of a frame
  * budget, so a frame timed against it reads 0 ms or 17 ms and nothing in between.
  *
- * It is not a second clock seam. Nothing here schedules, every call site is inside a
- * `__SIDEKICKS_CONSOLE_FIXTURES__` branch that folds away with the recording it
- * feeds, and a value from here is only ever subtracted from another value from here.
+ * It is not a second clock seam. Nothing here schedules, a built bundle reads `0` here
+ * and records nothing with it, and a value from here is only ever subtracted from
+ * another value from here.
  * One home rather than a `performance.now()` at each producer, so the four durations
  * a reader compares are all measured off the same source.
  */
 export function perfMeterNow(): number {
-  return performance.now();
+  return import.meta.env.DEV ? performance.now() : 0;
 }
 
 /**
  * Record a frame's cost. The call site shape every producer uses.
  *
- * The guard is the define and not a null check on `devPerfMeters`, so the argument
- * expressions at the call site fold away with the call in a release build. A null
- * check would leave the producer computing a figure nothing reads.
+ * The guard is the build literal and not a null check on `devPerfMeters`, so the
+ * body folds to nothing in a built bundle and the call with it. A null check would
+ * leave the producer recording into a registry that is not there.
  */
 export function recordFrameTime(seriesKey: string, milliseconds: number): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.record("frame-time", seriesKey, milliseconds);
   }
 }
@@ -332,7 +332,7 @@ export function recordFrameTime(seriesKey: string, milliseconds: number): void {
  * would promise a per-lane figure the producer never measures.
  */
 export function recordRevealDrain(seriesKey: string, revealedUnitCount: number): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.record("reveal-drain", seriesKey, revealedUnitCount);
   }
 }
@@ -346,28 +346,28 @@ export function recordRevealDrain(seriesKey: string, revealedUnitCount: number):
  * door it would never call.
  */
 export function retireFrameTimeSeries(seriesKey: string): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.retire("frame-time", seriesKey);
   }
 }
 
 /** Retire one composed reveal-drain series. Called from the coordinator's dispose. */
 export function retireRevealDrainSeries(seriesKey: string): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.retire("reveal-drain", seriesKey);
   }
 }
 
 /** Record how long one store's apply chokepoint took to fold one batch. */
 export function recordApplyLatency(storeScope: string, milliseconds: number): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.record("apply-latency", storeScope, milliseconds);
   }
 }
 
 /** Record how many entries one store's partition holds. */
 export function recordStoreSize(storeScope: string, entryCount: number): void {
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (import.meta.env.DEV) {
     devPerfMeters?.record("store-size", storeScope, entryCount);
   }
 }

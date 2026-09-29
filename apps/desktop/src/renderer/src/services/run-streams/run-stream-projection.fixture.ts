@@ -50,10 +50,10 @@
 // budget is enforced, and this module's sibling `session-event-streams.ts` keeps its
 // contracts import type-only for exactly that reason — it is on the release path,
 // reached from the binder one family up. This module is not: its only importer is
-// `services/daemon/scenario-subscriptions.fixture.ts`, which `PlatformBridgeProvider.tsx` reaches solely inside the
-// `__SIDEKICKS_CONSOLE_FIXTURES__` branch, and that identifier is a build-time
-// literal, so a release bundle folds the branch away and drops this module with the
-// rest of the fixture subtree. The budget therefore pays nothing for the schemas,
+// `services/daemon/scenario-subscriptions.fixture.ts`, which the fixture bridge reaches,
+// and the fixture composition that builds that bridge is called only inside `App.tsx`'s
+// `__FIXTURE_BUILD__` branch, a build-time literal, so a release bundle folds
+// the branch away and drops this module with the rest of the fixture subtree. The budget therefore pays nothing for the schemas,
 // and a fixture that validates what it delivers is worth strictly more than one that
 // asserts it.
 //

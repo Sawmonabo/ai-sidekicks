@@ -12,7 +12,9 @@
 //     open yet, which is a read in flight and renders as one.
 //
 // A route whose slot has no registered surface is a composition defect, not an absence
-// a person can act on, so it throws.
+// a person can act on, so it throws. One slot is the exception: only a fixture launch's
+// composition registers the pane harness, so in any other window its address names
+// nothing and renders as not-found.
 //
 // AND THE SURFACE THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
 // routes can resolve to ONE slot — a second session's workspace, a second pane kind
@@ -50,15 +52,7 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const { route } = context;
 
   if (route.kind === "not-found") {
-    return (
-      <SurfaceAbsence>
-        <Nothing
-          kind="error"
-          title="That address does not name anything in the console."
-          detail={`Nothing is registered for ${route.attempted}. The Sessions list is the way back.`}
-        />
-      </SurfaceAbsence>
-    );
+    return <AddressNamesNothing attempted={route.attempted} />;
   }
 
   // A route that names a session shows nothing of that session until its store is
@@ -76,10 +70,25 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const slot = surfaceSlotFor(route);
   const descriptor = slot === undefined ? undefined : consoleSurfaceRegistry.descriptorFor(slot);
   if (descriptor === undefined) {
+    if (route.kind === "pane-harness") {
+      return <AddressNamesNothing attempted={formatRoute(route)} />;
+    }
     throw new Error(`no surface is registered for the ${route.kind} route`);
   }
   // Keyed, not bare: the fragment IS the mount, so a different address is a
   // different element in this position and React unmounts what the previous one
   // built rather than handing it to a subject it was not addressed at.
   return <Fragment key={formatRoute(route)}>{descriptor.render(context)}</Fragment>;
+}
+
+function AddressNamesNothing(props: { readonly attempted: string }): React.JSX.Element {
+  return (
+    <SurfaceAbsence>
+      <Nothing
+        kind="error"
+        title="That address does not name anything in the console."
+        detail={`Nothing is registered for ${props.attempted}. The Sessions list is the way back.`}
+      />
+    </SurfaceAbsence>
+  );
 }

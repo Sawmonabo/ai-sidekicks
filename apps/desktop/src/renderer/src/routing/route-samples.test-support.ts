@@ -28,10 +28,8 @@ export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   // The paged arm carrying its page's own selection — the deep link a provider row
   // hands the frame store. Listed here so both suites are asked about it.
   { kind: "settings", page: "providers", selection: "codex" },
-  // The fixture-only arm. `parseRoute` produces it exactly where
-  // `__SIDEKICKS_CONSOLE_FIXTURES__` is true, which the `console-unit` project
-  // substitutes as it does for every console tier — so the round trip that walks this
-  // list is testing the same build the fixture console runs.
+  // The pane harness a fixture launch registers; `parseRoute` produces it in every
+  // window.
   { kind: "pane-harness", paneKind: "terminal", sessionId: "session-1" },
   { kind: "not-found", attempted: "#/nowhere" },
 ];

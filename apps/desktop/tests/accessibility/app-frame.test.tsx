@@ -28,6 +28,7 @@ import {
   runTierAxe,
 } from "./axe-run.js";
 
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { ConsoleRoot } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
@@ -50,7 +51,9 @@ describe("accessibility — the frame", () => {
       // would silently run both cases against the light palette and report the
       // contrast rules as clean in a scheme nobody measured.
       await emulateSystemScheme(scheme);
-      const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+      const { container } = await renderSettled(
+        <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      );
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });

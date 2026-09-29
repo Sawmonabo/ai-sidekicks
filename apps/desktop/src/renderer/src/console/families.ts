@@ -44,7 +44,6 @@
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { registerComposerFamily } from "@renderer/features/composer/contributions/composer-view.js";
 import { registerComposerInlineCards } from "@renderer/features/composer/contributions/inline-cards.js";
-import { registerPaneHarnessSurface } from "@renderer/app/pane-harness/register-pane-harness-screen.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
@@ -105,14 +104,6 @@ export function registerConsoleFamilies(
   // The approval-flow fold, whose entities the approval card reads. Without it the
   // `approval` partition has no producer at all.
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
-  // The fixture-only pane harness, which is the one surface that mounts a
-  // REGISTERED pane body in a running window. It takes both boards because it
-  // resolves its body out of the pane board this composition owns, and it decides
-  // for itself — behind `__SIDEKICKS_CONSOLE_FIXTURES__`, inside its own module —
-  // whether it registers at all, so no condition lands here. It is composed after
-  // `registerConsolePanes` because that is the family order; resolution happens at
-  // render, so the order is legibility rather than a dependency.
-  registerPaneHarnessSurface(surfaces, panes);
   // The browser-terminal family has landed and claims no surface slot: both of its
   // kinds are pane bodies, registered through `registerBrowserPanes` and
   // `registerTerminalPanes` on the pane board in `panes/index.ts`, so it has nothing

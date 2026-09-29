@@ -35,6 +35,7 @@ import {
 import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clock.js";
 import { requireCapturedElement } from "./captured-element.js";
 
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { ConsoleRoot } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
@@ -83,7 +84,9 @@ interface LedgerMount {
  */
 async function openLedgerSession(scenarioId: string, sessionId: string): Promise<LedgerMount> {
   document.location.hash = formatRoute({ kind: "workspace", sessionId });
-  const { container } = await renderSettled(<ConsoleRoot scenarioId={scenarioId} />);
+  const { container } = await renderSettled(
+    <ConsoleRoot composition={createFixtureComposition(scenarioId)} />,
+  );
   expect(requireScenarioControl().scenarioId).toBe(scenarioId);
 
   await awaitSessionRouteMounted(container);
@@ -204,7 +207,9 @@ describe("the ledger mount wait", () => {
   // DEADLINE that refuses, since no number of turns passed in between.
   it("refuses a route that mounts no ledger body, on the deadline rather than on a turn count", async () => {
     document.location.hash = formatRoute({ kind: "sessions" });
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={LEDGER_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />,
+    );
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
       "the session directory mounted a ledger body, so this control is asserting the refusal of a " +

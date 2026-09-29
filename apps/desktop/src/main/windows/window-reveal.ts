@@ -42,21 +42,20 @@
 // the inactive reveal. Linux runs the tiers under Xvfb, where there is no
 // operator to disturb, and takes the inactive reveal as well.
 //
-// All three sit behind the compile-time build flags, so a release bundle carries
+// All three sit behind the compile-time build flag, so a release bundle carries
 // neither the environment read nor the branch — the same production-safety
-// shape as the smoke probe in `./index.ts`. Within a test build the variable is
+// shape as the smoke probe in `../index.ts`. Within a test build the variable is
 // still an opt-in, so a developer running a fixture build by hand to LOOK at
 // the console gets an ordinary, focused window.
 
 import type { App, BrowserWindow, WebContents } from "electron";
 
 // Substituted by the `define` block in `electron.vite.config.ts` for the main
-// target, and by every Vitest project that reaches this module (see
-// `vitest.config.ts`). Declared here rather than imported: `./index.ts` declares
-// the same two names for its own probe branch, and a `declare const` is
-// module-scoped, so the two declarations never meet.
-declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
-declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
+// target, and by the Vitest project that reaches this module (see
+// `vitest.config.ts`): `true` in the smoke and fixtures builds the automated tiers
+// launch, `false` in every other build. Not the fixture flag, which the
+// development build turns on too: a developer's window is never hidden.
+declare const __TEST_TIER_BUILD__: boolean;
 
 /**
  * The environment variable the automated tiers set to `"1"`.
@@ -82,8 +81,8 @@ type ActivationPolicyChange = "accessory" | null;
  * Decides how a window is revealed, from the build kind, the environment, and
  * the platform.
  *
- * Pure so the decision is testable under a unit project whose build flags are
- * both `false`: the flags are an ARGUMENT here and are read only by the
+ * Pure so the decision is testable under a unit project whose build flag is
+ * `false`: the flag is an ARGUMENT here and is read only by the
  * wrappers below. The check is against exactly the string `"1"`, the same
  * deliberate opt-in shape the smoke probe uses. A requested test build stays
  * hidden on macOS and reveals inactive elsewhere — the measured split the
@@ -132,13 +131,13 @@ export function revealWindow(
   browserWindow: Pick<BrowserWindow, "show" | "showInactive">,
   platform: NodeJS.Platform = process.platform,
 ): void {
-  // The build flags are tested INLINE, as literals, in every wrapper: Vite
-  // substitutes them textually, so a release bundle reads `if (false || false)`
-  // here and Rollup drops the branch, the resolver it called, and the variable
-  // name with it. Behind a helper the flags would be a call's return value and
+  // The build flag is tested INLINE, as a literal, in every wrapper: Vite
+  // substitutes it textually, so a release bundle reads `if (false)` here and
+  // Rollup drops the branch, the resolver it called, and the variable name with
+  // it. Behind a helper the flag would be a call's return value and
   // the environment read would survive into the release binary — verified by
   // grepping `out/main/index.js` for the variable after `pnpm build`.
-  if (__SIDEKICKS_SMOKE_BUILD__ || __SIDEKICKS_CONSOLE_FIXTURES__) {
+  if (__TEST_TIER_BUILD__) {
     const mode = resolveWindowRevealMode(true, process.env, platform);
     if (mode === "hidden") {
       // Left as constructed. The document still loads, `ready-to-show` has
@@ -166,10 +165,7 @@ export function applyRevealPreferences(
   browserWindow: { readonly webContents: Pick<WebContents, "setBackgroundThrottling"> },
   platform: NodeJS.Platform = process.platform,
 ): void {
-  if (
-    (__SIDEKICKS_SMOKE_BUILD__ || __SIDEKICKS_CONSOLE_FIXTURES__) &&
-    resolveWindowRevealMode(true, process.env, platform) !== "active"
-  ) {
+  if (__TEST_TIER_BUILD__ && resolveWindowRevealMode(true, process.env, platform) !== "active") {
     browserWindow.webContents.setBackgroundThrottling(false);
   }
 }
@@ -184,7 +180,7 @@ export function installActivationPolicy(
   app: Pick<App, "setActivationPolicy">,
   platform: NodeJS.Platform = process.platform,
 ): void {
-  if (!(__SIDEKICKS_SMOKE_BUILD__ || __SIDEKICKS_CONSOLE_FIXTURES__)) {
+  if (!__TEST_TIER_BUILD__) {
     return;
   }
   const change = resolveActivationPolicyChange(true, process.env, platform);

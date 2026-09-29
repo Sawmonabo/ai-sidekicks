@@ -73,10 +73,10 @@
 // gains an argument and nothing else about the lifecycle moves.
 //
 // Reading a delivered payload is a different job (`bridge/daemon/session-event-payload.ts`): this
-// module owns WHICH sessions are bound, that one owns WHAT a payload looks like. A third, the
-// fixture handle (`session-diagnostics-handle.ts`), owns the page property, the define gating it,
-// and the identity check keeping a replaced binder's teardown from deleting the live one's handle.
-// This class composes the four reads — three off its own state, one from the floor's registry.
+// module owns WHICH sessions are bound, that one owns WHAT a payload looks like. The four reads
+// the endurance tier makes (`session-diagnostics-handle.ts`) are composed here, three off this
+// class's own state and one from the floor's registry, and handed out as `diagnostics`; the
+// window's registry hook gives them to the fixture composition, which alone writes the page.
 
 import type { LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
@@ -87,10 +87,7 @@ import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
-import {
-  SessionDiagnosticsHandle,
-  type ConsoleSessionDiagnostics,
-} from "./session-diagnostics-handle.js";
+import { type ConsoleSessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
@@ -109,7 +106,7 @@ export class SessionEventBinder {
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
   readonly #retry: FailedSubscriptionRetry;
-  readonly #diagnosticsHandle = new SessionDiagnosticsHandle();
+  readonly #diagnostics: ConsoleSessionDiagnostics;
   #unsubscribeFromRegistry: Unsubscribe | undefined;
   #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
@@ -129,6 +126,7 @@ export class SessionEventBinder {
         this.#bindSession(sessionId);
       },
     });
+    this.#diagnostics = this.#buildDiagnostics();
   }
 
   /**
@@ -171,7 +169,11 @@ export class SessionEventBinder {
     for (const sessionId of this.#registry.openSessionIds) {
       this.#bindSession(sessionId);
     }
-    this.#diagnosticsHandle.install(this.#buildFixtureDiagnostics());
+  }
+
+  /** What the endurance tier reads about this binder, frozen and read-only. */
+  public get diagnostics(): ConsoleSessionDiagnostics {
+    return this.#diagnostics;
   }
 
   /** Sessions this binder holds a wire subscription for, in bind order. */
@@ -228,8 +230,8 @@ export class SessionEventBinder {
    * Release every subscription this binder holds. Final, and idempotent.
    *
    * The applied-event counts survive on purpose — see
-   * `ConsoleSessionDiagnostics.appliedEventCountFor` — but nothing can read them
-   * afterwards, because the fixture handle is removed here too.
+   * `ConsoleSessionDiagnostics.appliedEventCountFor` — and stay readable through
+   * `diagnostics` for whoever still holds it.
    */
   public dispose(): void {
     if (this.#disposed) {
@@ -247,7 +249,6 @@ export class SessionEventBinder {
     // Released with the rest: a retained id is a promise to re-attempt, and a
     // disposed binder makes none.
     this.#retry.clear();
-    this.#diagnosticsHandle.remove();
   }
 
   /**
@@ -358,7 +359,7 @@ export class SessionEventBinder {
     this.#appliedEventCountBySessionId.set(sessionId, this.appliedEventCountFor(sessionId) + 1);
   }
 
-  #buildFixtureDiagnostics(): ConsoleSessionDiagnostics {
+  #buildDiagnostics(): ConsoleSessionDiagnostics {
     return Object.freeze({
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),

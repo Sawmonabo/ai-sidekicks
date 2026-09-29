@@ -59,7 +59,7 @@ export function installMeridianTokens(targetDocument: Document): boolean {
  *
  * `"system"` REMOVES the attribute rather than writing a resolved value. The sheet's
  * middle layer is a `prefers-color-scheme` block guarded by
- * `:root:not([data-console-scheme="light"])`, so with no attribute the OS decides
+ * `:root:not([data-color-scheme="light"])`, so with no attribute the OS decides
  * and keeps deciding — a resolved value written once would freeze the window at
  * whatever the OS was doing at mount and stop following a later change.
  */

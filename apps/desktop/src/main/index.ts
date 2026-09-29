@@ -27,6 +27,8 @@
 import path from "node:path";
 
 import { app } from "electron";
+import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launch.js";
+import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./services/diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
@@ -63,55 +65,30 @@ registerRendererScheme();
 declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
 
 // The console's fixture gate, substituted for this target by the same `define`
-// block. `electron-vite build --mode=fixtures` substitutes `true`; every other
-// mode, the release build included, substitutes `false`.
-declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
+// block: `true` in the development and fixtures builds, `false` in every other,
+// the release build included.
+declare const __FIXTURE_BUILD__: boolean;
 
 /**
- * Environment variable a fixture build names its scenario on.
+ * The fixture launch this command line asks for, checked, or `undefined` for a normal launch.
  *
- * Set by `tests/helpers/electron-harness.ts` for the two Electron tiers, and by a
- * developer running the fixtures build by hand. It is read in exactly one place —
- * below — and never reaches the renderer as an environment value: the renderer is
- * sandboxed and has no process environment, which is why this crosses the boundary
- * as a document-URL query instead.
+ * A build without the catalog refuses `--fixture` rather than launching normally. The
+ * `if`/`else` shape is what lets a release bundle fold to the refusal alone: the define
+ * becomes `false`, the catalog check and its dynamic import go, and the scenarios with them.
  */
-const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
-
-/**
- * The query parameter the renderer reads the id back off.
- *
- * Pinned to `SCENARIO_QUERY_PARAMETER` in
- * `src/renderer/src/console/bridge/scenario/selection.ts`, which cannot be
- * imported here: the renderer is untrusted, so `src/main/**` and the renderer
- * tree are separate programs by design, and a shared module would be bundled
- * into the renderer. The two ends are held together end-to-end instead — the
- * endurance tier launches with a scenario id and asserts the console is playing
- * that scenario, so a drift on either side fails a tier rather than silently
- * selecting nothing.
- */
-const FIXTURE_SCENARIO_QUERY_PARAMETER = "scenario";
-
-/**
- * The document-URL query a fixture build opens its window with, or `""`.
- *
- * `typeof` rather than a bare read of the define, and that is load-bearing: the
- * `main-unit` Vitest project evaluates this module with only the smoke define in
- * its substitution map, so a bare identifier would be a `ReferenceError` the
- * moment the ready continuation runs. Substitution happens before parsing, so a
- * release build reads `typeof false === "boolean" && false` — statically false,
- * with the environment read and the query behind it — and a fixtures build reads
- * `typeof true === "boolean" && true`.
- */
-function resolveFixtureScenarioQuery(): string {
-  if (!(typeof __SIDEKICKS_CONSOLE_FIXTURES__ === "boolean" && __SIDEKICKS_CONSOLE_FIXTURES__)) {
-    return "";
+async function resolveFixtureLaunch(): Promise<FixtureLaunch | undefined> {
+  const launch = parseFixtureLaunch(process.argv.slice(1));
+  if (launch === undefined) {
+    return undefined;
   }
-  const scenarioId = process.env[FIXTURE_SCENARIO_ENV_VAR];
-  if (scenarioId === undefined || scenarioId === "") {
-    return "";
+  if (__FIXTURE_BUILD__) {
+    await checkFixtureLaunchAgainstCatalog(launch);
+    return launch;
+  } else {
+    throw new Error(
+      "--fixture needs a development or fixtures build, and this build carries no scenarios",
+    );
   }
-  return `?${FIXTURE_SCENARIO_QUERY_PARAMETER}=${encodeURIComponent(scenarioId)}`;
 }
 
 // Without `requestSingleInstanceLock()`, a `sidekicks://` deep link arriving at a
@@ -153,7 +130,11 @@ if (!gotTheLock) {
 } else {
   app
     .whenReady()
-    .then(() => {
+    .then(async () => {
+      // First, so a launch this build cannot play stops before anything is installed and
+      // before any window exists.
+      const fixtureLaunch = await resolveFixtureLaunch();
+
       // Test builds only, and only when the launching harness asked for it: the
       // macOS accessory activation policy has to be in place before the first
       // reveal could activate the application. A release bundle folds the call
@@ -183,10 +164,10 @@ if (!gotTheLock) {
       // a later tick — a property of the runtime, not of this code. See
       // `WindowLoadOptions`.
       createMainWindow({
-        // Empty in every build but the fixtures one, where it names the scripted
-        // session this window plays. The renderer reads it once, before its first
-        // render, and never again.
-        documentQuery: resolveFixtureScenarioQuery(),
+        // Empty for a normal launch. A fixture launch reaches the window as renderer
+        // switches, which the preload reads once, before the page's first render.
+        additionalArguments:
+          fixtureLaunch === undefined ? [] : fixtureLaunchSwitches(fixtureLaunch),
         beforeLoad: (window) => {
           if (smokeProbeRequested) {
             // Registered here, ahead of the load, so a boot that never reaches

@@ -324,10 +324,9 @@ export class SessionStore {
     }
 
     this.#applying = true;
-    // Sampled inside the define's branch, so a release build folds the read away with
-    // the recording below and the chokepoint's cost is one branch on a build-time
-    // literal that Rollup removes.
-    const startedAt = __SIDEKICKS_CONSOLE_FIXTURES__ ? perfMeterNow() : 0;
+    // The meters are development-only and fold away in a built bundle, where this
+    // reads `0` and the recordings below record nothing.
+    const startedAt = perfMeterNow();
     try {
       const current = this.#store.getState();
       const { outcome, nextState } = foldAppliedBatch(current, events, {
@@ -343,20 +342,18 @@ export class SessionStore {
       if (nextState !== undefined) {
         this.#store.setState(nextState);
       }
-      if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-        // Both readings under one key, this store's session: the latency is what the
-        // fold cost and the size is what it left behind, and reading them under two
-        // keys would make the pair impossible to line up.
-        //
-        // The size is taken from the state that was just SET rather than re-read from
-        // the store, and it is the timeline rather than the partitions because the
-        // timeline is what the cap bounds and what the ledger mounts from. A batch
-        // that admitted nothing leaves `nextState` undefined and the gauge holds its
-        // last reading, which is correct: nothing changed.
-        recordApplyLatency(this.#sessionId, perfMeterNow() - startedAt);
-        if (nextState !== undefined) {
-          recordStoreSize(this.#sessionId, nextState.timeline.length);
-        }
+      // Both readings under one key, this store's session: the latency is what the
+      // fold cost and the size is what it left behind, and reading them under two
+      // keys would make the pair impossible to line up.
+      //
+      // The size is taken from the state that was just SET rather than re-read from
+      // the store, and it is the timeline rather than the partitions because the
+      // timeline is what the cap bounds and what the ledger mounts from. A batch
+      // that admitted nothing leaves `nextState` undefined and the gauge holds its
+      // last reading, which is correct: nothing changed.
+      recordApplyLatency(this.#sessionId, perfMeterNow() - startedAt);
+      if (nextState !== undefined) {
+        recordStoreSize(this.#sessionId, nextState.timeline.length);
       }
       return outcome;
     } finally {

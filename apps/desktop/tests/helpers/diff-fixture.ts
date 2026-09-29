@@ -11,7 +11,7 @@
 // model as a prop and render an honest absence without one; only tests reach for
 // this file. That is deliberate: a fixture the application could reach is a
 // fixture that can ship, and the console's one legitimate fixture seam is the
-// bridge's, gated by `__SIDEKICKS_CONSOLE_FIXTURES__`.
+// fixture composition, gated by `__FIXTURE_BUILD__`.
 //
 // IT GENERATES A PATCH AND PARSES IT, rather than assembling the model directly. `diff`
 // 9.0.0 is adopted for parse and intraline compute, and a fixture that hand-built hunk

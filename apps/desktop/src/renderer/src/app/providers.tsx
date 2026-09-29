@@ -13,6 +13,7 @@
 // would record none of those breaches.
 
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { registerConsoleFamilies } from "@renderer/console/families.js";
 import {
   consolePaneRegistry,
@@ -61,15 +62,15 @@ registerConsoleFamilies(
 
 /** What the root hands the provider stack. */
 export interface AppProvidersProps {
-  /** Which fixture scenario to play. Ignored when fixtures are compiled out. */
-  readonly scenarioId?: string;
+  /** How to build the bridge. Absent, the window reads the preload. */
+  readonly composition?: BridgeComposition;
 }
 
 /** The provider stack: the platform bridge, then the window. `App.tsx` renders exactly this. */
 export function ConsoleRoot(props: AppProvidersProps): React.JSX.Element {
   return (
     <DesktopBridgeProvider
-      {...(props.scenarioId === undefined ? {} : { scenarioId: props.scenarioId })}
+      {...(props.composition === undefined ? {} : { composition: props.composition })}
       clockToRebind={consoleTripwireRouteClock}
     >
       <AppBootstrap />

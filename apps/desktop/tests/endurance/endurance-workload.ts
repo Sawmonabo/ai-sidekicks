@@ -45,11 +45,11 @@ import type { AppUnderTest, LaunchAppOptions } from "../helpers/electron-harness
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../helpers/launch-budgets.js";
 import { closePalette, openPalette } from "../helpers/palette-interaction.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
 import {
+  SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  type ConsoleSessionDiagnostics,
-} from "@renderer/services/session-events/session-diagnostics-handle.js";
+} from "@renderer/app/fixture-global-names.js";
+import type { ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
 import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";

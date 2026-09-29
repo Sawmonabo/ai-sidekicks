@@ -18,10 +18,6 @@ import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import {
-  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  type ConsoleSessionDiagnostics,
-} from "./session-diagnostics-handle.js";
 import { SessionEventBinder } from "./session-event-subscriber.js";
 import {
   PAST_EVERY_BEAT_MS,
@@ -33,13 +29,6 @@ const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
 const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
   (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
 ).length;
-
-/** The page slot the fixture diagnostics are hung on, read as the tier reads it. */
-function readInstalledDiagnostics(): ConsoleSessionDiagnostics | undefined {
-  return (globalThis as Record<string, unknown>)[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL] as
-    | ConsoleSessionDiagnostics
-    | undefined;
-}
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test
 // they are RECORDED instead, because these cases assert that a breach was detected
@@ -189,25 +178,25 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     expect(registry.listenerCount).toBe(0);
   });
 
-  it("exposes the fixture diagnostics while attached, and removes them on dispose", () => {
-    // Read before attaching, so the presence assertion below cannot be satisfied
-    // by a handle some earlier case left behind.
-    expect(readInstalledDiagnostics()).toBeUndefined();
-
+  it("hands out diagnostics that read its live state and keep the counts after dispose", () => {
     const { registry, binder, engine } = createHarness();
+    // Taken before anything is bound, so a reading frozen at construction would fail
+    // every assertion below.
+    const diagnostics = binder.diagnostics;
+    expect(diagnostics.boundSessionIds()).toEqual([]);
+
     binder.attach();
     registry.open(SESSION_ID);
     engine.advance(PAST_EVERY_BEAT_MS);
 
-    const diagnostics = readInstalledDiagnostics();
-    expect(diagnostics).toBeDefined();
-    expect(diagnostics?.openSessionIds()).toEqual([SESSION_ID]);
-    expect(diagnostics?.boundSessionIds()).toEqual([SESSION_ID]);
-    expect(diagnostics?.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
-    expect(diagnostics?.appliedEventCountFor("session-nobody-opened")).toBe(0);
+    expect(diagnostics.openSessionIds()).toEqual([SESSION_ID]);
+    expect(diagnostics.boundSessionIds()).toEqual([SESSION_ID]);
+    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(diagnostics.appliedEventCountFor("session-nobody-opened")).toBe(0);
 
     binder.dispose();
-    expect(readInstalledDiagnostics()).toBeUndefined();
+    expect(diagnostics.boundSessionIds()).toEqual([]);
+    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
   });
 
   it("asks for the base-state read in the same act as taking the subscription", async () => {

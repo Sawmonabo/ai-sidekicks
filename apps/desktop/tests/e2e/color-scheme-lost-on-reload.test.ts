@@ -41,6 +41,7 @@ import {
   CONSOLE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { openPalette } from "../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
@@ -56,7 +57,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", (
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>
         await consoleWindow.evaluate(
-          () => document.documentElement.dataset["consoleScheme"] ?? null,
+          (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
+          SCHEME_ATTRIBUTE,
         );
 
       // What is actually ON DISK, read through a second connection rather than
@@ -115,9 +117,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", (
       // Driven through the palette rather than by calling the store, because the
       // durable write is the point: this proves the whole path a person takes —
       // command, store, chokepoint, IndexedDB — and a direct store call would
-      // prove only that the store works, which the unit tier already knows.
+      // prove only that the store works, which the unit tier already knows. The
+      // `Color scheme` row moves to the next scheme in its cycle, and the one after
+      // "system" is dark.
       await openPalette(consoleApplication);
-      await consoleWindow.keyboard.type("Use the dark color scheme");
+      await consoleWindow.keyboard.type("Color scheme");
       await consoleWindow.keyboard.press("Enter");
       await expect
         .poll(readScheme, {

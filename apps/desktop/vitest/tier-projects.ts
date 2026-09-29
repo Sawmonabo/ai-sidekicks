@@ -73,7 +73,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // Tier: unit. Store transitions, projection arms, exhaustiveness, the
     // refusal grammar. Co-located with the code it proves, because a renderer
     // module and its unit test are read together.
-    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+    define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
     ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
     test: {
@@ -87,7 +87,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // Tier: browser. Geometry and pixel invariants that a DOM shim cannot
     // answer — happy-dom returns zeroes for every rect, so a reading-anchor
     // or scroll-monotonicity assertion under it would pass vacuously.
-    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+    define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
     test: {
@@ -102,7 +102,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // it writes every surface's picture into the gitignored `__screenshots__/`
     // and compares against nothing, so it gates no branch and runs in no CI job.
     // The Electron-window half rides Playwright and is not wired yet.
-    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+    define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
     test: {
@@ -129,7 +129,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // server-side custom commands, never to test code — and that handle is
     // the orchestrator page, not the tester iframe. Same engine, same rule
     // set, one less indirection.
-    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+    define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
     test: {
@@ -152,7 +152,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // compile time, and those modules read the renderer's build-time gate.
     // `false`, because the process doing the reading is not a build at all.
     define: {
-      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+      __FIXTURE_BUILD__: "false",
     },
     test: {
       name: "bundle",
@@ -179,7 +179,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // `false`, because the DRIVER process is not a fixture build; the window
     // it launches is one, in another process entirely.
     define: {
-      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+      __FIXTURE_BUILD__: "false",
     },
     test: {
       name: "e2e",
@@ -218,7 +218,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // entirely. Same shape as `main-unit`'s `__SIDEKICKS_SMOKE_BUILD__`
     // define above.
     define: {
-      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+      __FIXTURE_BUILD__: "false",
     },
     test: {
       name: "endurance",
@@ -243,7 +243,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // that imports a renderer module imports `lib/tripwires.ts` with it, and the flag
     // is what decides whether they publish themselves onto `globalThis`. A benchmark
     // measures the shipping path, so it measures the shipping value.
-    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
+    define: { __FIXTURE_BUILD__: "false" },
     test: {
       name: "bench",
       environment: "node",

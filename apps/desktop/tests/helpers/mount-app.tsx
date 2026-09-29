@@ -8,7 +8,9 @@
 
 import { act, render, type RenderResult } from "@testing-library/react";
 
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { ConsoleRoot } from "@renderer/app/providers.js";
+import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
@@ -16,7 +18,10 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 export const SESSIONS_HASH = "#/sessions";
 
 /**
- * Mount and let the settled promises land.
+ * Mount the console playing the transcript-states scenario, and let the settled promises land.
+ *
+ * One named scenario for every suite that mounts the whole window, and the busy transcript
+ * because a window with rows exercises what these suites drive.
  *
  * `ConsoleRoot` starts the persistence open on mount and swaps the durable adapter
  * in when it settles, so a test that asserted straight after `render` would assert
@@ -28,7 +33,7 @@ export async function mountConsole(): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
   openWindowAt();
   await act(async () => {
-    mounted = render(<ConsoleRoot />);
+    mounted = render(<ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />);
     await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {

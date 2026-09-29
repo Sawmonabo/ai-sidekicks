@@ -18,6 +18,9 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "../PlatformBridgeProvider.js";
+import type { ConsoleBridge } from "../platform-bridge.js";
+import { createFixtureBridge } from "../platform-bridge.fixture.js";
+import { findScenario } from "../../../../../../fixtures/index.js";
 import { useConsoleBridge } from "./usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./useClock.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
@@ -44,6 +47,23 @@ function ClockProbe(props: ClockProbeProps): null {
   return null;
 }
 
+/**
+ * One bridge per scenario, built on first ask and handed back on every later one, so a
+ * re-render that names the same scenario keeps the provider's resolution.
+ */
+function scenarioBridges(): (scenarioId: string) => ConsoleBridge {
+  const bridges = new Map<string, ConsoleBridge>();
+  return (scenarioId) => {
+    const existing = bridges.get(scenarioId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const bridge = createFixtureBridge({ scenario: findScenario(scenarioId) });
+    bridges.set(scenarioId, bridge);
+    return bridge;
+  };
+}
+
 function lastOf<TSeen>(seen: readonly TSeen[], what: string): TSeen {
   const value = seen.at(-1);
   if (value === undefined) {
@@ -56,8 +76,9 @@ describe("useConsoleClock — one identity, and the window's current reading", (
   it("reads the replacement's clock through the identity it handed out first", () => {
     const clocks: ConsoleClock[] = [];
     const windowTimes: number[] = [];
+    const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <DesktopBridgeProvider scenarioId={scenarioId}>
+      <DesktopBridgeProvider bridge={bridgeFor(scenarioId)}>
         <ClockProbe
           onClock={(clock) => clocks.push(clock)}
           onWindowTime={(time) => windowTimes.push(time)}
@@ -86,8 +107,9 @@ describe("useConsoleClock — one identity, and the window's current reading", (
     // discriminate rather than to restate that both clocks answer.
     const pinnedTimes: number[] = [];
     const windowTimes: number[] = [];
+    const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <DesktopBridgeProvider scenarioId={scenarioId}>
+      <DesktopBridgeProvider bridge={bridgeFor(scenarioId)}>
         <PinnedClockProbe
           onPinnedTime={(time) => pinnedTimes.push(time)}
           onWindowTime={(time) => windowTimes.push(time)}

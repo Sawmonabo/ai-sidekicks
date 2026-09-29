@@ -70,10 +70,12 @@ import { applyRevealPreferences, revealWindow } from "./window-reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
 
-/** The pixel size a window opens at. */
+/** The pixel size a window opens at, and the switches its renderer starts with. */
 export interface LockedWindowOptions {
   readonly width: number;
   readonly height: number;
+  /** Appended to the renderer's command line, where the preload reads them. */
+  readonly additionalArguments: readonly string[];
 }
 
 /**
@@ -98,6 +100,7 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
       nodeIntegrationInWorker: false,
       webSecurity: true,
       preload: PRELOAD_PATH,
+      additionalArguments: [...options.additionalArguments],
     },
   });
 
@@ -117,12 +120,13 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
 /**
  * Resolves the document URL a window loads.
  *
- * This is the ONE place `ELECTRON_RENDERER_URL` is read. Under
+ * The load half of the `ELECTRON_RENDERER_URL` branch; `./navigation.ts` reads
+ * the same variable for the origins a window may navigate within. Under
  * `electron-vite dev` both conditions hold and the dev server is loaded so HMR
  * works; in a packaged app, or with no dev server running, the built bundle is
  * loaded over the renderer scheme. The dev server serves the same
  * Content-Security-Policy the protocol handler does (see
- * `./renderer-scheme.ts` and `electron.vite.config.ts`), so the document's
+ * `../services/renderer-scheme.ts` and `electron.vite.config.ts`), so the document's
  * policy does not depend on which branch ran.
  *
  * The two origins differ, so the renderer's browser-storage partition differs
@@ -133,12 +137,12 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
  * partition split costs a pane its remembered layout and can never cost a
  * draft, and every console test tier runs the built bundle regardless.
  */
-export function resolveRendererDocumentUrl(routeFragment: string): string {
+function resolveRendererDocumentUrl(): string {
   const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
   if (!app.isPackaged && devServerUrl !== undefined && devServerUrl !== "") {
-    return `${devServerUrl}${routeFragment}`;
+    return devServerUrl;
   }
-  return `${RENDERER_INDEX_URL}${routeFragment}`;
+  return RENDERER_INDEX_URL;
 }
 
 /**
@@ -186,30 +190,24 @@ function prepareAndLoad(
   loadDocument(browserWindow, documentUrl);
 }
 
-/**
- * How the main window opens, beyond the load hook every window shares.
- *
- * `documentQuery` is a QUERY string (`?name=value`) and never a route: routes
- * travel in the hash, which the renderer owns and navigates itself, and a query is
- * the only part of the document URL that is fixed for the window's whole life.
- * The main window opens with no hash, so the query is simply appended; an empty
- * string — the default, and what every release build passes — resolves to exactly
- * the URL this factory has always loaded.
- *
- * The one caller that passes a non-empty value is `main/index.ts`, behind the
- * console's fixture `define`: a fixture build names the scenario it plays on the
- * document URL because the renderer has no other way to be told, and a release
- * build folds that branch away.
- */
+/** How the main window opens, beyond the load hook every window shares. */
 export interface MainWindowOptions extends WindowLoadOptions {
-  readonly documentQuery?: string;
+  /**
+   * Renderer switches for this window. Empty for a normal launch; a fixture launch names
+   * its scenario here (`@shared/fixture-launch.ts`).
+   */
+  readonly additionalArguments?: readonly string[];
 }
 
 /** The main session window. */
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
-  const browserWindow = constructLockedWindow({ width: 1280, height: 800 });
+  const browserWindow = constructLockedWindow({
+    width: 1280,
+    height: 800,
+    additionalArguments: options.additionalArguments ?? [],
+  });
 
-  prepareAndLoad(browserWindow, resolveRendererDocumentUrl(options.documentQuery ?? ""), options);
+  prepareAndLoad(browserWindow, resolveRendererDocumentUrl(), options);
 
   return browserWindow;
 }

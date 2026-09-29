@@ -60,6 +60,7 @@ import { useEffect } from "react";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridgeComposition.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -124,6 +125,14 @@ export function useSessionStoreRegistry(
     }
     plumbing.binder.attach();
   }, [plumbing]);
+  // WHAT A DRIVER READS ABOUT THE SUBSCRIPTIONS, handed to the composition that built
+  // this window's bridge, which puts it on the page. A window reading the preload has no
+  // composition and puts nothing up.
+  const composition = useBridgeComposition();
+  useEffect(
+    () => composition?.installSessionDiagnostics(plumbing.binder.diagnostics),
+    [composition, plumbing],
+  );
   return plumbing.registry;
 }
 

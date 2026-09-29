@@ -95,48 +95,10 @@ import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
-/**
- * The directories that make up the console's fixture corpus.
- *
- * The first two are the three directories the fixture bridge is made of, in two
- * entries rather than three: `bridge/scenario/` holds both the scenario
- * INSTANCES and — in `runtime/` inside it — the vocabulary and engine a scenario is
- * written in and played by, and `bridge/fixture/` is the bridge that serves them. The
- * runtime carried its own entry while it was a sibling directory; one prefix reaches
- * every module of both halves now, and a second entry under it would state twice what
- * the first already covers.
- *
- * THE LAST TWO ARE OWNER-SLOT FIXTURE SHELLS, and they are here for the half of the
- * problem the `define` cannot reach. A slot's shell is referenced through a
- * `__SIDEKICKS_CONSOLE_FIXTURES__` ternary, so a release build folds the binding to
- * `undefined` and the shell's JAVASCRIPT leaves the bundle — measured, no built asset
- * mentions either shell. Its STYLESHEET used to enter separately, as a bare
- * side-effect import on the settings chunk root that no ternary guards, and a release
- * renderer therefore carried ~296 lines of rules for two subtrees it does not contain.
- *
- * IT TAKES BOTH HALVES, and each was measured alone before both were kept. Moving the
- * sheet onto a sub-module door inside the shell — which is what
- * `apps/desktop/AGENTS.md`'s stylesheet rule asks for once a directory carries a door
- * of its own — is not enough by itself: the door then holds the side-effect import,
- * and a module with a side effect is retained even when nothing takes its exports.
- * This declaration alone is not enough either, and for a reason worth writing down:
- * Vite's own CSS transform returns `moduleSideEffects: "no-treeshake"` for a plain
- * stylesheet in a build, which overrides what this hook says about the same module.
- * What the declaration decides is the fate of the DOOR — a `.ts` module holding a
- * re-export and an import — and dropping the door is what removes the edge that would
- * have pulled the sheet in.
- *
- * The declaration is admissible here for the corpus's own reason: these directories
- * hold components and pure readings and run nothing at import time, so declaring them
- * side-effect-free drops what nothing references and keeps what does.
- */
-const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
-  fileURLToPath(new URL("./fixtures/", import.meta.url))
-    .split("\\")
-    .join("/"),
-  "/src/renderer/src/console/bridge/scenario/",
-  "/src/renderer/src/console/bridge/fixture/",
-];
+/** The scenario catalog: scenario definitions and the scripted data they play. */
+const FIXTURE_CATALOG_DIRECTORY: string = fileURLToPath(new URL("./fixtures/", import.meta.url))
+  .split("\\")
+  .join("/");
 
 /** A fixture implementation, which sits beside the real boundary it substitutes. */
 const FIXTURE_IMPLEMENTATION_PATTERN = /\.fixture\.[cm]?tsx?$/u;
@@ -145,30 +107,41 @@ const FIXTURE_IMPLEMENTATION_PATTERN = /\.fixture\.[cm]?tsx?$/u;
 const FEATURE_FIXTURES_PATTERN = /\/src\/renderer\/src\/features\/.+\/fixtures\//u;
 
 /**
- * Does this module belong to the fixture corpus?
+ * Does this module belong to the fixture corpus: the catalog, a fixture implementation,
+ * or a feature's `fixtures/` folder?
  *
- * Path-scoped rather than a package-wide `sideEffects` claim, because the claim is
- * only true here: the console installs its token sheet and its tripwires at module
- * scope elsewhere, and a blanket declaration would invite the bundler to drop those.
+ * The corpus holds components and pure readings and runs nothing at import time, so the
+ * renderer build declares it side-effect-free and drops what nothing references. Path-scoped
+ * rather than a package-wide `sideEffects` claim, because the claim is only true here: the
+ * console installs its token sheet and registers its families at module scope elsewhere, and
+ * a blanket declaration would invite the bundler to drop those.
+ *
+ * A feature's `fixtures/` folder needs the declaration for its stylesheet. Its JavaScript is
+ * referenced only from folded fixture branches and leaves the bundle on its own, but a door
+ * module holding a bare stylesheet import is a side effect the bundler keeps, and Vite's CSS
+ * transform marks the sheet itself `"no-treeshake"`. Declaring the door side-effect-free is
+ * what drops the edge that would have pulled the sheet into a release renderer.
  */
 function isFixtureCorpusModule(moduleId: string): boolean {
   const normalized = moduleId.split("\\").join("/");
   return (
     FIXTURE_IMPLEMENTATION_PATTERN.test(normalized) ||
     FEATURE_FIXTURES_PATTERN.test(normalized) ||
-    FIXTURE_CORPUS_DIRECTORIES.some((directory) => normalized.includes(directory))
+    normalized.includes(FIXTURE_CATALOG_DIRECTORY)
   );
 }
 
 /**
  * Fixture-only modules that live outside the corpus directories.
  *
- * They are not in `FIXTURE_CORPUS_DIRECTORIES` because the build does not need to be told
- * about them: what they declare is read only inside folded `__SIDEKICKS_CONSOLE_FIXTURES__`
- * branches, so they leave the bundle without a side-effect declaration. They are named here
+ * They are not in the corpus because the build does not need to be told about them: they
+ * are reached only through the fixture composition, which `App.tsx` calls inside a folded
+ * `__FIXTURE_BUILD__` branch, so they leave the bundle without a side-effect
+ * declaration. They are named here
  * so the release gate can prove that they did.
  */
 const FIXTURE_ONLY_PATHS: readonly string[] = [
+  "/src/renderer/src/app/fixture-composition.ts",
   "/src/renderer/src/app/fixture-global-names.ts",
   "/src/renderer/src/app/pane-harness/",
 ];
@@ -205,11 +178,16 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
   // ships the probe; the default `electron-vite build` produces a release
   // artifact that tree-shakes the probe entirely. See header comment.
   const isSmokeBuild = mode === "smoke";
-  // `electron-vite build --mode=fixtures` produces the gallery/screenshot
-  // artifact, which serves the console from scripted scenarios instead of the
-  // preload bridge. Every other mode — the release build included — folds the
-  // fixture subtree away.
-  const isFixtureBuild = mode === "fixtures";
+  // The builds that carry the scenario catalog: `electron-vite dev` (mode
+  // `development`) and `electron-vite build --mode=fixtures`, the bundle the test
+  // tiers launch. Either plays a scenario only when launched with
+  // `--fixture <scenario>`; without it the console composes normally. Every other
+  // mode, the release build included, folds the fixture code away.
+  const isFixtureBuild = mode === "development" || mode === "fixtures";
+  // The builds the automated Electron tiers launch, which may hide their windows
+  // (`src/main/windows/window-reveal.ts`). Narrower than the fixture flag: a
+  // development window is never hidden.
+  const isTestTierBuild = isSmokeBuild || mode === "fixtures";
 
   return {
     main: {
@@ -221,12 +199,11 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // emitted code, dropping the probe body from the release bundle.
       define: {
         __SIDEKICKS_SMOKE_BUILD__: JSON.stringify(isSmokeBuild),
-        // The console's fixture gate reaches `main` too, because the scenario a
-        // fixture build plays is named by a launch environment variable that main
-        // reads and forwards onto the renderer document URL. Substituted the same
-        // way and for the same reason: a release main bundle folds the branch
-        // away, so it carries neither the environment read nor the query.
-        __SIDEKICKS_CONSOLE_FIXTURES__: JSON.stringify(isFixtureBuild),
+        // The console's fixture gate reaches `main` too, because main checks a
+        // `--fixture` launch against the scenario catalog. A release main bundle
+        // folds the check and its catalog import away and refuses the argument.
+        __FIXTURE_BUILD__: JSON.stringify(isFixtureBuild),
+        __TEST_TIER_BUILD__: JSON.stringify(isTestTierBuild),
       },
       build: {
         outDir: "out/main",
@@ -245,6 +222,11 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
     },
     preload: {
       resolve: { alias: PATH_ALIASES },
+      // The preload hands a fixture launch to the page, and only in a build that
+      // carries the catalog; a release preload folds the read away.
+      define: {
+        __FIXTURE_BUILD__: JSON.stringify(isFixtureBuild),
+      },
       build: {
         outDir: "out/preload",
         sourcemap: "hidden",
@@ -293,10 +275,10 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // `tests/budget/release-absence.test.ts` asserts by reading the release
       // build's source maps: no module `isFixtureOnlyModule` names may appear in them.
       //
-      // True only under `--mode=fixtures` (the gallery and screenshot builds) and
-      // in the Vitest console projects, which set the same define.
+      // True under `electron-vite dev` and `--mode=fixtures`, and in the Vitest
+      // console projects, which set the same define.
       define: {
-        __SIDEKICKS_CONSOLE_FIXTURES__: JSON.stringify(isFixtureBuild),
+        __FIXTURE_BUILD__: JSON.stringify(isFixtureBuild),
       },
       build: {
         outDir: "out/renderer",
@@ -343,12 +325,12 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
           // The second half of the fixture gate, and without it the first half
           // does not finish the job it claims to.
           //
-          // The `define` above folds every fixture CALL SITE to nothing, which is
-          // what drops `createFixtureBridge`, `ScenarioSelection`, and the pane
-          // harness. It does not remove the static IMPORT edges that reach the
-          // corpus — `BridgeProvider.tsx` imports the fixture bridge, the manifest,
-          // and a scenario id at module scope — and a module the graph still
-          // reaches keeps every top-level statement the bundler cannot prove pure.
+          // The `define` above folds the one fixture CALL SITE, `App.tsx`'s
+          // composition, to nothing. It does not remove the static IMPORT edges
+          // that reach the corpus — `App.tsx` imports the fixture composition,
+          // which imports the fixture bridge and the catalog at module scope — and
+          // a module the graph still reaches keeps every top-level statement the
+          // bundler cannot prove pure.
           // A scenario is built by calling builders at module scope, so none of
           // those statements is provably pure and all of them were retained.
           //

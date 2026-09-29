@@ -130,6 +130,8 @@ export interface LaunchArgsOptions {
   readonly isPreciseHeapReadingRequired: boolean;
   /** The host being launched on, which decides the graphics stack. */
   readonly platform: LaunchPlatform;
+  /** The fixture scenario the console plays, or `undefined` for a normal launch. */
+  readonly fixtureScenarioId?: string;
 }
 
 /**
@@ -141,7 +143,7 @@ export interface LaunchArgsOptions {
  * because `_electron.launch` declares `args` as one, and handing it a `readonly`
  * array would cost a copy at the only call site that exists.
  *
- * The profile comes first and the entry path last. That ordering is legibility
+ * The profile comes first and the entry path after the switches. That ordering is legibility
  * rather than protection — Chromium's `base::CommandLine` assigns each switch as
  * it parses, so the LAST duplicate wins, measured on a real launch — and the
  * protection is that no switch below repeats `--user-data-dir`, which is the one
@@ -154,5 +156,8 @@ export function composeLaunchArgs(options: LaunchArgsOptions): string[] {
     ...softwareGraphicsSwitchesFor(options.platform),
     ...(options.isPreciseHeapReadingRequired ? [PRECISE_MEMORY_INFO_FLAG] : []),
     options.mainEntryPath,
+    // The application's own arguments follow the entry path, where the main process
+    // reads them; a Chromium switch would be read there too, which is why none is.
+    ...(options.fixtureScenarioId === undefined ? [] : ["--fixture", options.fixtureScenarioId]),
   ];
 }

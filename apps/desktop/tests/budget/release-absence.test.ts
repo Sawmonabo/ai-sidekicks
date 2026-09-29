@@ -1,8 +1,9 @@
 // Tier: bundle — what a RELEASE build must not contain.
 //
-// The fixture bridge, every scenario, the pane harness and the fixture handles sit behind
-// `__SIDEKICKS_CONSOLE_FIXTURES__`, so a release build folds `if (false) { … }` and the
-// bodies are PHYSICALLY ABSENT from what ships, not merely unreachable. The distinction is
+// The fixture bridge, every scenario, the pane harness and the fixture handles are reached
+// only through the fixture composition, which sits behind `__FIXTURE_BUILD__`,
+// so a release build folds `if (false) { … }` and they are PHYSICALLY ABSENT from what
+// ships, not merely unreachable. The distinction is
 // the point: unreachable code still hands anyone who reads the file a way into the
 // console's internals and a set of fabricated sessions.
 //
@@ -22,10 +23,10 @@
 // that list appearing in any map means a shipped module imports it outside a folded
 // branch, whatever the module holds, including a module added after this file was written.
 //
-// Guarded bodies inside production modules. The tripwire installer, the diagnostics handle
-// and the perf meters ship as modules, and only the code inside their guards must fold.
-// Their fixture-only content is a set of names, so the second check sweeps the shipped
-// text for those names, imported from the tuples their installers read.
+// Names inside production modules. The fixture launch's page property is read by a module
+// that ships, and the perf meters ship as a module whose recordings fold under
+// `import.meta.env.DEV`; what must be absent is a set of names, so the second check sweeps
+// the shipped text for them, imported from the modules that declare them.
 //
 // Stylesheets are neither: no source map lists one, and an owner-slot shell's sheet ships
 // its rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that
@@ -37,9 +38,10 @@
 // nothing is the false pass this file exists to prevent, which is also why each check
 // carries a positive control and a planted negative control.
 //
-// `FIXTURE_GLOBAL_NAMES` is imported from its leaf rather than through `core/index.js`
-// because a name is all this tier needs, and the installers live in families whose graphs
-// reach React and the DOM, which this Node-context project does not compile.
+// `FIXTURE_GLOBAL_NAMES` and `FIXTURE_LAUNCH_GLOBAL` are imported from their leaves rather
+// than from the modules that install them, because a name is all this tier needs, and the
+// installers' graphs reach React and the DOM, which this Node-context project does not
+// compile.
 
 import { join } from "node:path";
 
@@ -48,6 +50,7 @@ import { describe, expect, it } from "vitest";
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
 import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mjs";
 import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
+import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
 import {
   PERF_METER_KINDS,
   type PerfMeterKind,
@@ -144,16 +147,19 @@ describe("release build — the fixture surface is absent, not merely unreachabl
     ).toBeGreaterThan(0);
   });
 
-  it.each(FIXTURE_GLOBAL_NAMES)("does not ship the fixture handle %s", (fixtureGlobalName) => {
-    const carriers = carriersOf(fixtureGlobalName, builtFiles);
-    expect(
-      carriers,
-      `"${fixtureGlobalName}" reached the built tree. Either the assignment left its ` +
-        "`__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `out/renderer` currently holds a " +
-        "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same directory. " +
-        "Re-run `pnpm --filter @ai-sidekicks/desktop build` and try again.",
-    ).toStrictEqual([]);
-  });
+  it.each([...FIXTURE_GLOBAL_NAMES, FIXTURE_LAUNCH_GLOBAL])(
+    "does not ship the fixture handle %s",
+    (fixtureGlobalName) => {
+      const carriers = carriersOf(fixtureGlobalName, builtFiles);
+      expect(
+        carriers,
+        `"${fixtureGlobalName}" reached the built tree. Either the assignment left its ` +
+          "`__FIXTURE_BUILD__` guard, or `out/` currently holds a " +
+          "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same directory. " +
+          "Re-run `pnpm --filter @ai-sidekicks/desktop build` and try again.",
+      ).toStrictEqual([]);
+    },
+  );
 
   it("positive control: every named meter kind is one the module still declares", () => {
     // The list above is written out rather than derived, so this is the control against
@@ -174,7 +180,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
       `"${kind}" reached the built tree, so a release renderer is carrying the dev-tier ` +
         "perf meters. Either `out/renderer` currently holds a fixtures build — " +
         "`pnpm build:fixtures` and `pnpm build` write the same directory — or a recording " +
-        "call site has left its `__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `PERF_METER_KINDS` " +
+        "entry point has left its `import.meta.env.DEV` guard, or `PERF_METER_KINDS` " +
         "gained a production reader that keeps the tuple in the graph. The guard is the " +
         "mechanism the module's own header claims; this is the outcome.",
     ).toStrictEqual([]);
@@ -217,7 +223,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
       "a release build rendered code from a fixture-only module. Either `out/` currently " +
         "holds a fixtures build — `pnpm build:fixtures` and `pnpm build` write the same " +
         "directory — or a module the release build keeps imports this one outside a " +
-        "`__SIDEKICKS_CONSOLE_FIXTURES__` branch. The `define` folds a guarded call site " +
+        "`__FIXTURE_BUILD__` branch. The `define` folds a guarded call site " +
         "but not a static import edge, so a value a shipped module reads from the fixture " +
         "belongs in a production module instead.",
     ).toStrictEqual([]);
@@ -232,6 +238,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
       "fixtures/scenarios/planted.ts",
       "src/renderer/src/services/daemon/planted.fixture.ts",
       "src/renderer/src/features/settings/pages/providers/fixtures/planted.ts",
+      "src/renderer/src/app/fixture-composition.ts",
       "src/renderer/src/app/fixture-global-names.ts",
       "src/renderer/src/app/pane-harness/Planted.tsx",
       "src/renderer/src/features/transcript/planted.test.ts",

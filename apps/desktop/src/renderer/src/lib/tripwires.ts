@@ -7,9 +7,9 @@
 //
 // What this module does at runtime: it holds one process-wide `TripwireRegistry` per
 // renderer, records every firing on it with a bounded report buffer and an unbounded
-// per-kind count, hands each report to whatever diagnostic sinks are subscribed, and —
-// under the fixture build define alone — hangs that registry on `globalThis` so a tier
-// driving a real window can read what fired.
+// per-kind count, and hands each report to whatever diagnostic sinks are subscribed. A
+// fixture launch's composition (`app/fixture-composition.ts`) hangs the registry on the
+// page so a tier driving a real window can read what fired.
 //
 // The five kinds, each a value rather than a token:
 //
@@ -38,7 +38,6 @@
 
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
 import { Emitter, type Unsubscribe } from "./emitter.js";
-import { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 
 /**
  * Every runtime tripwire. Closed — adding one is a deliberate edit to this tuple.
@@ -184,36 +183,6 @@ export class TripwireRegistry {
 export const consoleTripwires: TripwireRegistry = new TripwireRegistry({
   throwOnReport: import.meta.env.DEV,
 });
-
-/*
- * The property a fixture build hangs the registry on, for the endurance tier.
- *
- * Declared in `core/fixture-globals.ts` and re-exported here, so the module that
- * INSTALLS the handle and the release-absence sweep that proves it absent read one
- * string. Re-exported rather than only imported because the two Electron tiers
- * reach this module by name for it, and a typo on either side would make an
- * assertion silently vacuous — the failure mode that matters most for a check
- * whose whole job is to report nothing most of the time.
- */
-export { TRIPWIRE_FIXTURE_GLOBAL };
-
-/*
- * Expose the registry to the page under the fixture define, and only there.
- *
- * The endurance tier drives a real window from outside the renderer, so the only
- * way it can read this registry is through the page. The alternative — letting
- * the tier treat an unreachable registry as "nothing to assert" — is a test that
- * passes whether or not the thing it checks exists, which is worse than not
- * having the test.
- *
- * `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so Rollup folds
- * this to nothing in a release bundle: the property does not exist in shipped
- * code, and `test/console/budget/release-absence.test.ts` sweeps the built artifact
- * for every fixture global to keep that true.
- */
-if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-  (globalThis as Record<string, unknown>)[TRIPWIRE_FIXTURE_GLOBAL] = consoleTripwires;
-}
 
 /** Report to the console's registry. The one call site shape every tripwire uses. */
 export function reportTripwire(kind: TripwireKind, site: string, detail: string): void {

@@ -116,20 +116,18 @@ export function useTranscriptFeedWindows(
   });
 
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
-  // here because this is where the session id and the one binding meet, and gated on
-  // the fixture define so a release build registers nothing at all — the reading
+  // here because this is where the session id and the one binding meet. The reading
   // exists for the endurance tier, which drives a real window from outside the
   // renderer and can otherwise tell "the ledger mounted nothing" from "the ledger has
-  // nothing to mount" only by guessing. The reader is stable, so this registers once
-  // per mount rather than once per render.
+  // nothing to mount" only by guessing; it reaches the page only through the session
+  // diagnostics a fixture composition installs. The reader is stable, so this registers
+  // once per mount rather than once per render.
   const readWindowDiagnostics = viewport.readWindowDiagnostics;
   const diagnosticsSessionId = inputs.sessionStore.sessionId;
-  useEffect(() => {
-    if (!__SIDEKICKS_CONSOLE_FIXTURES__) {
-      return;
-    }
-    return consoleLedgerWindows.register(diagnosticsSessionId, readWindowDiagnostics);
-  }, [diagnosticsSessionId, readWindowDiagnostics]);
+  useEffect(
+    () => consoleLedgerWindows.register(diagnosticsSessionId, readWindowDiagnostics),
+    [diagnosticsSessionId, readWindowDiagnostics],
+  );
 
   // A lane whose row this window no longer holds, or holds only inside a chapter that
   // has reached its terminal, is a turn that is over: the engine drops it so a

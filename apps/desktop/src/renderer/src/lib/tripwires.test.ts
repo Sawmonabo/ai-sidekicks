@@ -12,7 +12,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
 import {
-  TRIPWIRE_FIXTURE_GLOBAL,
   TRIPWIRE_KINDS,
   TripwireError,
   TripwireRegistry,
@@ -229,13 +228,5 @@ describe("the console's own registry", () => {
 
     expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
     expect(consoleTripwires.reports()[0]?.site).toBe("console/core/tripwires.test.ts");
-  });
-
-  it("is reachable through the fixture global under the fixture define", () => {
-    // The endurance tier drives a real window from outside the renderer and can
-    // only read this registry through the page. If the handle were missing, that
-    // tier would treat an unreachable registry as nothing to assert.
-    const page = globalThis as Record<string, unknown>;
-    expect(page[TRIPWIRE_FIXTURE_GLOBAL]).toBe(consoleTripwires);
   });
 });

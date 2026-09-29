@@ -74,17 +74,6 @@ import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
 import { awaitPaintingAppWindow } from "./launch-readiness.js";
 import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 
-/**
- * The environment variable the built main process reads a scenario id from.
- *
- * Held here rather than imported: `src/main/index.ts` boots Electron at module
- * evaluation, so importing it into a driver process is not available. The two
- * literals are pinned end-to-end instead — `steady-state.test.ts` launches with a
- * scenario id and asserts the console is playing that scenario, so a drift on
- * either side fails that tier rather than quietly selecting nothing.
- */
-const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
-
 /** What a settled launch produces, before the body's own allowance is minted. */
 interface LaunchedApp {
   readonly application: ElectronApplication;
@@ -128,15 +117,12 @@ export interface LaunchAppOptions {
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
-   * Which scripted scenario the launched console plays.
+   * Which scripted scenario the launched console plays, passed as `--fixture`.
    *
-   * A named option rather than an `env` entry a caller spells itself, so the one
-   * thing every tier needs to say is said the same way and the variable name lives
-   * in one place. Pass a manifest id — a tier reads it off the scenario module it
-   * is driving, so a renamed scenario is a compile error rather than a launch that
-   * quietly falls back. An unknown id does NOT fail the launch: the console plays
-   * its first-run scenario and says why, which is what makes the assertion that it
-   * is playing the RIGHT one worth making.
+   * Absent, the console launches normally, reading the preload as the shipped
+   * application does. Pass a catalog id — a tier reads it off the scenario module it
+   * is driving, so a renamed scenario is a compile error. An unknown id fails the
+   * launch: the main process refuses it and exits before any window opens.
    */
   readonly scenarioId?: string;
   /**
@@ -187,11 +173,6 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
   // which is why it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
   const profile = createLaunchProfile();
-  // The scenario is applied LAST so a named option cannot be shadowed by an `env`
-  // entry that happens to spell the same variable — one place decides, and it is
-  // the typed one.
-  const scenarioEnvironment =
-    options.scenarioId === undefined ? {} : { [FIXTURE_SCENARIO_ENV_VAR]: options.scenarioId };
   let application: ElectronApplication;
   try {
     application = await electron.launch({
@@ -200,11 +181,11 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
         mainEntryPath: MAIN_ENTRY_PATH,
         isPreciseHeapReadingRequired: options.isPreciseHeapReadingRequired === true,
         platform: process.platform,
+        ...(options.scenarioId === undefined ? {} : { fixtureScenarioId: options.scenarioId }),
       }),
       env: {
         ...process.env,
         ...options.env,
-        ...scenarioEnvironment,
         // Every automated launch asks for an unobtrusive window: on macOS an
         // ordinary reveal activates the application, steals focus, and switches
         // the operator to the Space the window opened on — a dozen times per

@@ -1,16 +1,12 @@
 // The bridge provider: one context, one decision, made once at mount.
 //
-// The fixture is a `define`-gated build-time constant, not a runtime flag:
-// `__SIDEKICKS_CONSOLE_FIXTURES__` is replaced by `electron.vite.config.ts` with a literal, so
-// a production bundle drops every scenario, the engine and the catalog as dead code, where a
-// runtime environment variable would ship them. The context holds a `ConsoleBridge` and
-// nothing else; no component reads `window.desktopBridge` or subscribes to a bridge event
-// directly.
+// A window handed a bridge plays it; one handed a composition plays what the composition
+// builds; one handed neither reads the preload. The provider holds no fixture branch: the
+// fixture launch is a composition built in `app/`, and a release build has none to hand
+// over. The context holds a `ConsoleBridge` and nothing else; no component reads
+// `window.desktopBridge` or subscribes to a bridge event directly.
 //
-// Which scenario the fixture plays is decided at boot and arrives as a prop that never
-// changes for the life of the provider.
-//
-// The resolution is state, not a memo. The fixture arm builds a `ScenarioEngine`, a mutable
+// The resolution is state, not a memo. A composition may build a `ScenarioEngine`, a mutable
 // resource (subscriptions, an advanced frozen clock, parked replies); React may discard and
 // recompute a memo, which would start a second engine at tick zero mid-scenario. A resource
 // also has an end, so replacement and teardown are explicit, and the provider disposes only
@@ -19,24 +15,22 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
-import { BridgeContext, type BridgeResolution } from "./bridge-context.js";
+import {
+  BridgeCompositionContext,
+  BridgeContext,
+  type BridgeComposition,
+  type BridgeResolution,
+} from "./bridge-context.js";
 import { consoleClockFor } from "./hooks/useClock.js";
-import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { findScenario } from "../../../../../fixtures/index.js";
-import { DEFAULT_SCENARIO_ID } from "@renderer/console/bridge/scenario/selection.js";
-import { ScenarioFixtureControl } from "../daemon/selection.fixture.js";
 
 /** The bridge provider's props. */
 export interface PlatformBridgeProviderProps {
   readonly children: ReactNode;
-  /**
-   * Override the resolved bridge. Tests pass a fixture directly; the app passes nothing and
-   * gets the `define`-gated resolution below.
-   */
+  /** A bridge to play as it is. Tests pass a fixture directly; a composition owns none of it. */
   readonly bridge?: ConsoleBridge;
-  /** Which scenario the fixture plays. Ignored when fixtures are compiled out. */
-  readonly scenarioId?: string;
+  /** How to build the bridge when none is handed over. Absent, the window reads the preload. */
+  readonly composition?: BridgeComposition;
   /**
    * A clock identity minted outside the tree, rebound onto the resolved bridge's clock.
    * The composition root arms the tripwire route at module scope, before any bridge exists,
@@ -53,9 +47,9 @@ export interface PlatformBridgeProviderProps {
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
 export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
-  const { children, bridge, scenarioId, clockToRebind } = props;
+  const { children, bridge, composition, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
-    () => new ResolvedConsoleBridge(bridge, scenarioId),
+    () => new ResolvedConsoleBridge(bridge, composition),
   );
 
   // The one clock the window reads, handed to the identity a caller armed before this
@@ -75,25 +69,22 @@ export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React
   // One effect, because replacement and installation are one decision made in one
   // order: the previous resolution's teardown has already run by the time this
   // body sees a superseded one, so the replacement never disposes something a
-  // later commit still reads.
-  //
-  // `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so a release
-  // bundle folds the install to nothing and drops `scenario-selection.js` with it.
-  // The replacement arm is NOT inside that guard: the resolution is replaced under
-  // the live bridge too, and a `bridge` prop that changes has to be honoured in
-  // every build.
+  // later commit still reads. Installed from an effect rather than during render
+  // because React may discard a render pass, and a handle installed during one would
+  // point at an engine no window is reading.
   useEffect(() => {
-    if (resolved.isSupersededBy(bridge, scenarioId)) {
-      setResolved(new ResolvedConsoleBridge(bridge, scenarioId));
+    if (resolved.isSupersededBy(bridge, composition)) {
+      setResolved(new ResolvedConsoleBridge(bridge, composition));
       return undefined;
     }
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      return installScenarioControl(resolved, globalThis as unknown as Record<string, unknown>);
-    }
-    return undefined;
-  }, [resolved, bridge, scenarioId]);
+    return resolved.install();
+  }, [resolved, bridge, composition]);
 
-  return <BridgeContext.Provider value={resolved.resolution}>{children}</BridgeContext.Provider>;
+  return (
+    <BridgeCompositionContext.Provider value={composition}>
+      <BridgeContext.Provider value={resolved.resolution}>{children}</BridgeContext.Provider>
+    </BridgeCompositionContext.Provider>
+  );
 }
 
 /**
@@ -107,15 +98,18 @@ export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React
  */
 class ResolvedConsoleBridge {
   readonly #suppliedBridge: ConsoleBridge | undefined;
-  readonly #scenarioId: string | undefined;
+  readonly #composition: BridgeComposition | undefined;
   readonly #resolution: BridgeResolution;
-  /** The engine this provider BUILT. `undefined` when the caller supplied one. */
+  /** The engine this provider BUILT. `undefined` when the caller supplied the bridge. */
   readonly #ownedEngine: ConsoleBridge["scenarioEngine"];
 
-  public constructor(suppliedBridge: ConsoleBridge | undefined, scenarioId: string | undefined) {
+  public constructor(
+    suppliedBridge: ConsoleBridge | undefined,
+    composition: BridgeComposition | undefined,
+  ) {
     this.#suppliedBridge = suppliedBridge;
-    this.#scenarioId = scenarioId;
-    this.#resolution = resolveBridge(suppliedBridge, scenarioId);
+    this.#composition = composition;
+    this.#resolution = resolveBridge(suppliedBridge, composition);
     this.#ownedEngine =
       suppliedBridge === undefined && this.#resolution.status === "ready"
         ? this.#resolution.bridge.scenarioEngine
@@ -136,87 +130,54 @@ class ResolvedConsoleBridge {
    * take a fresh one rather than a corpse.
    *
    * The two window-lifetime resources one layer down answer the same pair, but in
-   * two places rather than one: `frame/session/session-lifecycle.ts` and
-   * `frame/bindings/ui-state-lifecycle.ts` compare the bridge DURING the render that first
-   * sees a new one — `store/subject-scoped/subject-scoped-holder.ts` is what holds that comparison —
-   * and keep only the disposed arm in an effect, because a resource that tore itself
-   * down did so in a cleanup the preceding render could not see. This one cannot
-   * split the same way: it is deciding what the bridge IS, so there is no resolved
-   * subject to compare against during render.
+   * two places rather than one: `app/hooks/useSessionStoreRegistry.ts` and
+   * `app/hooks/useUiStateStore.ts` compare the bridge DURING the render that first
+   * sees a new one — `hooks/subject-scoped/useSubjectScopedResource.ts` is what holds
+   * that comparison — and keep only the disposed arm in an effect, because a resource
+   * that tore itself down did so in a cleanup the preceding render could not see. This
+   * one cannot split the same way: it is deciding what the bridge IS, so there is no
+   * resolved subject to compare against during render.
    */
   public isSupersededBy(
     suppliedBridge: ConsoleBridge | undefined,
-    scenarioId: string | undefined,
+    composition: BridgeComposition | undefined,
   ): boolean {
-    if (suppliedBridge !== this.#suppliedBridge || scenarioId !== this.#scenarioId) {
+    if (suppliedBridge !== this.#suppliedBridge || composition !== this.#composition) {
       return true;
     }
     return this.#ownedEngine?.isDisposed === true;
   }
 
   /**
-   * The engine this window renders against, whichever side built it. The
-   * scenario control is hung on THIS one, because a driver in another process
-   * reaches the running scenario through nothing else.
+   * Put the composition's handles for the bridge it built on the page, and return the
+   * teardown for them and for the engine this provider owns.
+   *
+   * A supplied bridge installs nothing: its caller owns it, and whatever a driver reads
+   * about it is the caller's to put up.
    */
-  public get renderedEngine(): ConsoleBridge["scenarioEngine"] {
-    return this.#resolution.status === "ready" ? this.#resolution.bridge.scenarioEngine : undefined;
+  public install(): () => void {
+    const removeHandles =
+      this.#suppliedBridge === undefined &&
+      this.#composition !== undefined &&
+      this.#resolution.status === "ready"
+        ? this.#composition.installBridgeHandles(this.#resolution.bridge)
+        : undefined;
+    return () => {
+      removeHandles?.();
+      this.#ownedEngine?.dispose();
+    };
   }
-
-  /**
-   * Tear down the engine this provider BUILT, and only that one: a bridge the
-   * caller handed in outlives this component, and disposing it here would leave
-   * the next render of a story or a test driving a corpse.
-   */
-  public disposeOwnedEngine(): void {
-    this.#ownedEngine?.dispose();
-  }
-}
-
-/**
- * Hang the scenario control on the page and return the teardown for both it and
- * the engine the resolution owns.
- *
- * A free function referenced ONLY under the build-time guard in the provider's
- * effect, never a method on `ResolvedConsoleBridge`: Rollup drops an unreferenced
- * function and `scenario-selection.js` with it, but it keeps every method of a class
- * that is constructed, so a method here would carry the fixture handle's name into
- * the release bundle — which `tests/budget/release-absence.test.ts` refuses.
- *
- * The install runs from an effect rather than the constructor because React may
- * discard a render pass, and a handle installed during one would point at an engine
- * no window is reading; the effect's return is the one place removal is paired with
- * install.
- */
-function installScenarioControl(
-  resolved: ResolvedConsoleBridge,
-  page: Record<string, unknown>,
-): () => void {
-  const renderedEngine = resolved.renderedEngine;
-  const removeControl =
-    renderedEngine === undefined
-      ? undefined
-      : new ScenarioFixtureControl(renderedEngine).install(page);
-  return () => {
-    removeControl?.();
-    resolved.disposeOwnedEngine();
-  };
 }
 
 function resolveBridge(
   suppliedBridge: ConsoleBridge | undefined,
-  scenarioId: string | undefined,
+  composition: BridgeComposition | undefined,
 ): BridgeResolution {
   if (suppliedBridge !== undefined) {
     return { status: "ready", bridge: suppliedBridge };
   }
-  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-    return {
-      status: "ready",
-      bridge: createFixtureBridge({
-        scenario: findScenario(scenarioId ?? DEFAULT_SCENARIO_ID),
-      }),
-    };
+  if (composition !== undefined) {
+    return { status: "ready", bridge: composition.createBridge() };
   }
   const installed = readInstalledBridge();
   if (installed === undefined) {

@@ -2,12 +2,10 @@
 // reading across the family DAG.
 //
 // WHY THIS SITS AT THE FLOOR. The producer is the ledger — a VIEW family, the top of
-// the DAG — and the consumer is `frame/session/session-event-binder.ts`, which composes the
-// fixture handle a driver process reads and sits BELOW every view family. The
-// consumer therefore cannot import the producer, and the producer must not import
-// `frame/index.ts` (that door closes a cycle through `families.ts`). The floor is the
-// only home both can reach, which is `transport-reconnect.ts`' reason with the two
-// ends swapped.
+// the DAG — and the consumer is `services/session-events/session-event-subscriber.ts`,
+// which composes the session diagnostics a driver process reads and sits BELOW every
+// feature. The consumer therefore cannot import the producer. `lib/` is the only home
+// both can reach, which is `transport-reconnect.ts`' reason with the two ends swapped.
 //
 // WHY A LIVE READER AND NOT A PUBLISHED VALUE. Every figure below is scroll geometry
 // or a virtualizer computation over it, and the ledger deliberately keeps both off

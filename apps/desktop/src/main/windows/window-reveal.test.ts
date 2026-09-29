@@ -1,6 +1,6 @@
 // `window-reveal.ts` unit tests — the unobtrusive-windows decision.
 //
-// This project substitutes both build flags with `false` (see `vitest.config.ts`,
+// This project substitutes the test-tier build flag with `false` (see `vitest.config.ts`,
 // `main-unit`), which is the release shape. The two pure resolvers therefore
 // take the build kind as an argument so the test-build arm is reachable here,
 // and the two wrappers are exercised on the release arm they are compiled into.

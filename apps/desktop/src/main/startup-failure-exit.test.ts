@@ -31,11 +31,13 @@ vi.mock("electron", () => electronMock.moduleExports);
  */
 const STARTUP_FAILURE = new Error("the main window could not be created");
 
+const createMainWindow = vi.fn(() => {
+  throw STARTUP_FAILURE;
+});
+
 vi.mock("./windows/window.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./windows/window.js")>()),
-  createMainWindow: vi.fn(() => {
-    throw STARTUP_FAILURE;
-  }),
+  createMainWindow,
 }));
 
 /** Entries the startup log was handed. In memory: no case here touches a disk. */
@@ -80,6 +82,7 @@ describe("a failed startup exits, whatever the record of it does first", () => {
     vi.resetModules();
     writtenEntries.length = 0;
     reportUnwrittenDiagnosticsOutcome = async () => {};
+    createMainWindow.mockClear();
     // Silenced rather than left to the terminal: both cases deliberately log a
     // failure, and a suite that printed them would read as a broken run.
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -117,6 +120,24 @@ describe("a failed startup exits, whatever the record of it does first", () => {
     // is the drain, not the write.
     expect(writtenEntries).toHaveLength(1);
     expect(writtenEntries[0]?.level).toBe("error");
+    expect(electronMock.exitCodes).toEqual([1]);
+  });
+
+  it("refuses --fixture in a build without the catalog, before any window", async () => {
+    // This project substitutes the fixture define with `false`, the release shape. A release
+    // build launched with `--fixture` must not open a normal window as though it had not been
+    // asked: the failure factory above would also exit 1, so what tells the two apart is that
+    // no window was attempted and the record names the argument.
+    const launchArguments = process.argv;
+    process.argv = [...launchArguments, "--fixture", "first-run"];
+    try {
+      await runStartupToFailure();
+    } finally {
+      process.argv = launchArguments;
+    }
+
+    expect(createMainWindow).not.toHaveBeenCalled();
+    expect(writtenEntries[0]?.message).toContain("--fixture");
     expect(electronMock.exitCodes).toEqual([1]);
   });
 

@@ -31,6 +31,7 @@ import {
 import { requireCapturedElement } from "./captured-element.js";
 import { captureSettled } from "./settled-capture.js";
 
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { ConsoleRoot } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
@@ -59,7 +60,9 @@ describe("screenshot — the frame under the first-run scenario", () => {
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
-      const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+      const { container } = await renderSettled(
+        <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      );
 
       await captureSettled(
         requireCapturedElement(container, FRAME_SELECTOR),
@@ -73,7 +76,9 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // composition worth capturing before the families ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
     await emulateSystemScheme("light");
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+    );
     await pressKeys("{Control>}{Shift>}p{/Shift}{/Control}");
     await pressKeys("{Meta>}{Shift>}p{/Shift}{/Meta}");
 

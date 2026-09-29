@@ -5,9 +5,8 @@
 // what a driver reads to know how many bodies are mounted, and an arm that rendered
 // an absence without it would leave a driver waiting on a line that never appears.
 //
-// Fixture-only, like the surface it frames: nothing production-side imports it, and
-// under `__SIDEKICKS_CONSOLE_FIXTURES__ === false` the surface's registration
-// collapses and this module leaves the bundle with it.
+// Fixture-only, like the surface it frames: only the fixture composition registers
+// the surface, and a release bundle drops the composition and this module with it.
 
 import type { ReactNode } from "react";
 

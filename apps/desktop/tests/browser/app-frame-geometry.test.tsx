@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../helpers/app-harness.js";
 
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { ConsoleRoot } from "@renderer/app/providers.js";
 import { applyConsoleScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "@renderer/app/token-installation.js";
@@ -120,7 +121,9 @@ describe("browser — the token sheet reaches the cascade", () => {
 
 describe("browser — the frame lays out", () => {
   it("gives the rail a real width and the surface the rest of the row", async () => {
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+    );
 
     const rail = container.querySelector(".meridian-rail");
     const frame = container.querySelector(".meridian-frame");
@@ -145,7 +148,9 @@ describe("browser — the frame lays out", () => {
     // are what it lists on a first run. Driving it with a real key press rather
     // than by setting state proves the whole path — the chord listener, the
     // registry, the `when` evaluation, and the overlay's portal.
-    await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+    await renderSettled(
+      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+    );
 
     expect(document.querySelector("[role='dialog']")).toBeNull();
     await pressKeys("{Control>}{Shift>}p{/Shift}{/Control}");
@@ -165,7 +170,9 @@ describe("browser — the frame lays out", () => {
   });
 
   it("does not scroll the frame horizontally at a narrow window", async () => {
-    const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
+    const { container } = await renderSettled(
+      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+    );
     const frame = container.querySelector(".meridian-frame");
     expect(frame).not.toBeNull();
     if (frame === null) {

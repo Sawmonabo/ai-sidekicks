@@ -310,10 +310,9 @@ export class AnimationFrameCoordinator {
    * at the end, which is the next frame.
    */
   #drainFrame(): void {
-    // Sampled inside the define's branch so a release build folds the read away with
-    // the recording it feeds — the whole cost of the meter in a shipped bundle is
-    // this branch on a build-time literal, which Rollup removes.
-    const startedAt = __SIDEKICKS_CONSOLE_FIXTURES__ ? perfMeterNow() : 0;
+    // The meters are development-only: a built bundle reads `0` here and records
+    // nothing below.
+    const startedAt = perfMeterNow();
     for (const [phaseIndex, phase] of ANIMATION_FRAME_PHASES.entries()) {
       const queue = this.#queueByPhase.get(phase);
       if (queue === undefined || queue.size === 0) {
@@ -327,9 +326,7 @@ export class AnimationFrameCoordinator {
       }
     }
     this.#drainingPhaseIndex = undefined;
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      recordFrameTime(this.#coordinatorId, perfMeterNow() - startedAt);
-    }
+    recordFrameTime(this.#coordinatorId, perfMeterNow() - startedAt);
     // AFTER the recording and before the next frame is armed: the sample belongs to
     // the frame that has just finished, and arming first would put the next frame's
     // scheduling inside this one's reading.

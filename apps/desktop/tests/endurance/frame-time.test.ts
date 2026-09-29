@@ -85,7 +85,7 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
   openConcurrentStreamingSessionRoute,

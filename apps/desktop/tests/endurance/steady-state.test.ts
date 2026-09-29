@@ -38,11 +38,11 @@
 // name, and green for the same reason it was measuring nothing.
 //
 // So the run does two things the earlier shape did not. It NAMES the scenario it
-// wants — `withLaunchedApp({ scenarioId }, …)`, which the main process turns into a
-// document-URL query the renderer reads once at boot — because the default is the
-// first-run scenario, whose script is one beat long by design. And it advances the
-// frozen clock on every churn cycle through the fixture-only handle the bridge
-// provider installs, by a budget derived from the script's own length so the whole
+// wants — `withLaunchedApp({ scenarioId }, …)`, which the harness passes as
+// `--fixture` and the renderer reads once at boot — because a launch that names none
+// plays no scenario at all. And it advances the frozen clock on every churn cycle
+// through the fixture-only handle the fixture composition installs, by a budget
+// derived from the script's own length so the whole
 // run walks it about once. The beats the engine delivered are then read back and
 // asserted to GROW, because a run that never moved the clock looks exactly as busy
 // while delivering nothing — that count is the evidence the workload was a
@@ -93,9 +93,11 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/services/session-events/session-diagnostics-handle.js";
-import { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/lib/tripwires.js";
+import {
+  SCENARIO_FIXTURE_GLOBAL,
+  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
+  TRIPWIRE_FIXTURE_GLOBAL,
+} from "@renderer/app/fixture-global-names.js";
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
@@ -258,11 +260,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // then growth minus the measurement's own scaffolding.
       const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
       try {
-        // The workload is named before it is measured. A launch that fell back to
-        // the first-run scenario would churn a one-beat script and pass every
-        // reading below, so this is the negative control for the whole run rather
-        // than a sanity check: it fails on exactly the regression — no query, no
-        // read, no selection — that makes this tier idle.
+        // The workload is named before it is measured. A launch playing some other
+        // scenario would churn the wrong script and pass every reading below, so
+        // this is the negative control for the whole run rather than a sanity
+        // check: it fails on exactly the regression — no argument, no read, no
+        // composition — that makes this tier idle.
         expect(
           await readPlayingScenarioId(consoleApplication),
           `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,

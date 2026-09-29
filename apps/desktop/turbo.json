@@ -273,6 +273,7 @@
         "tsconfig.paths.json",
         "electron.vite.config.ts",
         "src/renderer/src/app/fixture-global-names.ts",
+        "src/shared/fixture-launch.ts",
         "out/main/**",
         "out/preload/**",
         "out/renderer/**"

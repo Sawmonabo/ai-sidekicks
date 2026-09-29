@@ -1,4 +1,5 @@
-// The live bridge: the ONLY module in the console that reads `window.desktopBridge`.
+// The live bridge: the ONLY module in the console that reads `window.desktopBridge`, and the
+// one reader of the fixture launch the preload exposes beside it.
 //
 // Everything above this file takes a `ConsoleBridge` from React context, which is
 // what makes the fixture substitutable at all. A single stray `window.desktopBridge` in
@@ -17,6 +18,7 @@
 // of a blank window.
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
+import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
 import { TransportReconnectSignal } from "../transport/transport-reconnect.js";
@@ -28,6 +30,17 @@ export function readInstalledBridge(): PreloadApi | undefined {
   }
   const candidate = (window as { desktopBridge?: PreloadApi }).desktopBridge;
   return isBridgeShaped(candidate) ? candidate : undefined;
+}
+
+/**
+ * The fixture launch the preload exposed, or `undefined` for a window started without one.
+ *
+ * Read here for the same reason the bridge is: this module is the one reader of what the
+ * preload puts on the page. Only the fixture composition calls it, behind the fixture define,
+ * so a release bundle carries neither the call nor the property name.
+ */
+export function readFixtureLaunch(): FixtureLaunch | undefined {
+  return (window as unknown as Record<string, FixtureLaunch | undefined>)[FIXTURE_LAUNCH_GLOBAL];
 }
 
 /** Wrap the installed preload bridge for console use. */

@@ -5,19 +5,19 @@
 // in wholesale; the two members the console actually reads are declared here
 // instead of widening that config.
 //
-// `__SIDEKICKS_CONSOLE_FIXTURES__` is the console's compile-time gate, sibling to
-// `__SIDEKICKS_SMOKE_BUILD__`. The fixture bridge, every scenario, and the scenario
-// switcher must sit behind a `define`-substituted identifier so Rollup collapses
-// `if (false && …)` and the bodies are physically absent from a release bundle; a
-// runtime `process.env` check around any of them is a tripwire failure, not a style
-// choice.
+// `__FIXTURE_BUILD__` is the console's compile-time fixture gate. The
+// fixture composition, and through it the fixture bridge and every scenario, sits behind
+// a `define`-substituted identifier so Rollup collapses `if (false)` and the bodies are
+// physically absent from a release bundle; a runtime `process.env` check around any of
+// them would ship them.
 
 /**
- * `true` only in a build that ships the console's fixture bridge and scenarios.
+ * `true` only in a build that carries the scenario catalog: the development and fixtures
+ * builds.
  * Substituted textually by Vite's `define` before parsing, so this is a literal
  * at build time and never a variable read.
  */
-declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
+declare const __FIXTURE_BUILD__: boolean;
 
 interface ImportMetaEnv {
   /** Vite's development-mode flag. Used only to decide whether a tripwire throws. */

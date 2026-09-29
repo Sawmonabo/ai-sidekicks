@@ -1,7 +1,6 @@
 // The handle a driver in another process holds on the running scenario: the Electron
 // tiers advance the frozen clock through it and read how far the script has got.
 
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 
 /** What a driver may do with the running scenario. Closed, and read-mostly. */
@@ -39,22 +38,5 @@ export class ScenarioFixtureControl implements ScenarioFixtureHandle {
 
   public deliveredBeatCount(): number {
     return this.#engine.progress.deliveredBeatCount;
-  }
-
-  /**
-   * Hang this control on a page. Returns the teardown that removes it.
-   *
-   * The teardown removes the property only when it still holds THIS control. The
-   * browser tiers mount several consoles into one document, so a later provider's
-   * install supersedes an earlier one — and an unconditional `delete` on the
-   * earlier one's unmount would strip the handle a live window had just installed.
-   */
-  public install(target: Record<string, unknown>): () => void {
-    target[SCENARIO_FIXTURE_GLOBAL] = this;
-    return () => {
-      if (target[SCENARIO_FIXTURE_GLOBAL] === this) {
-        delete target[SCENARIO_FIXTURE_GLOBAL];
-      }
-    };
   }
 }

@@ -103,9 +103,10 @@ export default defineConfig({
           // is in a release bundle. Without it the bare identifier is a
           // ReferenceError the moment the ready continuation runs.
           __SIDEKICKS_SMOKE_BUILD__: "false",
-          // `src/main/windows/window-reveal.ts` reads both flags; substituted for the same
-          // reason as the one above.
-          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+          // `main/index.ts`'s fixture-launch check and `src/main/windows/window-reveal.ts`'s
+          // hidden windows; substituted for the same reason as the one above.
+          __FIXTURE_BUILD__: "false",
+          __TEST_TIER_BUILD__: "false",
         },
         // `src/main/**` imports contracts values, so this project must resolve the
         // provider to TS source rather than a possibly-stale `dist/`. Node

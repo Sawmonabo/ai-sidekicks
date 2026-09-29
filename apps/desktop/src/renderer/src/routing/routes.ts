@@ -72,10 +72,9 @@ export type ConsoleRoute =
   // decide. Routing owns the grammar and never the meaning.
   | { readonly kind: "settings"; readonly page: undefined }
   | { readonly kind: "settings"; readonly page: string; readonly selection?: string }
-  // Fixture builds only. The arm exists in the type in every build — types are
-  // erased — but {@link parseRoute} can only PRODUCE it behind
-  // `__SIDEKICKS_CONSOLE_FIXTURES__`, so a release renderer resolves this address
-  // to `not-found` exactly as it resolves any other unknown one.
+  // The pane harness a fixture launch registers. {@link parseRoute} produces it in
+  // every window, and a window whose composition registered no harness renders it as
+  // not-found, exactly as it renders any other unknown address.
   //
   // The pane kind travels as a bare `string` rather than as `PaneKind`, and that is
   // the DAG rather than laziness: `seats/` sits four families above `routing/`, so
@@ -159,14 +158,13 @@ export function parseRoute(hash: string): ConsoleRoute {
     return selection === undefined ? notFound(hash) : { kind: "settings", page, selection };
   }
 
-  // Behind the build-time constant so Rollup collapses `if (false && …)` and this
-  // arm is physically absent from a release renderer, which is the same treatment the
-  // fixture bridge and its scenarios get. The address is
+  // The pane harness a fixture launch registers. Parsed in every window; a window whose
+  // composition registered no harness renders the address as not-found. The address is
   // `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are required: the pane
   // bodies this mounts are session-scoped, so an address with no session would open a
   // harness that could only ever render the pane's own not-bound absence — a surface
   // measuring nothing.
-  if (__SIDEKICKS_CONSOLE_FIXTURES__ && head === "pane-harness") {
+  if (head === "pane-harness") {
     const [paneKindSegment, sessionIdSegment] = rest;
     if (paneKindSegment === undefined || sessionIdSegment === undefined || rest.length > 2) {
       return notFound(hash);

@@ -10,26 +10,28 @@
 //
 // So the cases here are about IDENTITY and about TEARDOWN, and the two that fail
 // the way the regression did are the replacement and the unmount: a memo can keep
-// an identity, and it can never dispose one.
+// an identity, and it can never dispose one. The composition is a recording one built
+// here rather than the fixture launch's, so what is asserted is the provider's contract
+// with any composition: build once, install once, take both down.
 //
 // `ConsoleRoot` states the same rule one family up — "one store per window,
 // created once; `useRef` rather than `useMemo`, because a memo may be discarded
-// and recomputed and store identity is correctness" — and `frame/session/session-lifecycle.ts`
+// and recomputed and store identity is correctness" — and `app/hooks/useSessionStoreRegistry.ts`
 // is where the re-mint arm this file's last case drives comes from.
 
 import { render } from "@testing-library/react";
 import { StrictMode, useState, type ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { DesktopBridgeProvider } from "./PlatformBridgeProvider.js";
 import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
 import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
 import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
+import { type BridgeComposition } from "./bridge-context.js";
 import { type ConsoleBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { findScenario } from "../../../../../fixtures/index.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
   FLAGSHIP_SCENARIO,
@@ -65,27 +67,40 @@ function engineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEng
   return engine;
 }
 
-/** The page slot the provider hangs the scenario control on, read as a driver reads it. */
-function scenarioControlIsInstalled(): boolean {
-  return (globalThis as Record<string, unknown>)[SCENARIO_FIXTURE_GLOBAL] !== undefined;
+/** A composition that plays one scenario and records which of its bridges hold handles. */
+interface RecordingComposition extends BridgeComposition {
+  readonly bridgesWithHandles: ReadonlySet<ConsoleBridge>;
 }
 
-afterEach(() => {
-  delete (globalThis as Record<string, unknown>)[SCENARIO_FIXTURE_GLOBAL];
-});
+function recordingComposition(scenarioId: string): RecordingComposition {
+  const scenario = findScenario(scenarioId);
+  const bridgesWithHandles = new Set<ConsoleBridge>();
+  return {
+    bridgesWithHandles,
+    createBridge: () => createFixtureBridge({ scenario }),
+    installBridgeHandles: (bridge) => {
+      bridgesWithHandles.add(bridge);
+      return () => {
+        bridgesWithHandles.delete(bridge);
+      };
+    },
+    installSessionDiagnostics: () => () => undefined,
+  };
+}
 
 describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("holds one engine across re-renders that change nothing it resolves on", () => {
+    const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
+      <DesktopBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
     const first = lastBridge(observed);
 
     rerender(
-      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
+      <DesktopBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
@@ -95,17 +110,19 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     expect(engineOf(first).isDisposed).toBe(false);
   });
 
-  it("replaces the engine when the scenario changes, and disposes the one it replaced", () => {
+  it("replaces the engine when the composition changes, and disposes the one it replaced", () => {
+    const concurrentStreamingComposition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
+    const firstRunComposition = recordingComposition(FIRST_RUN_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
+      <DesktopBridgeProvider composition={concurrentStreamingComposition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
     const concurrentStreaming = engineOf(lastBridge(observed));
 
     rerender(
-      <DesktopBridgeProvider scenarioId={FIRST_RUN_SCENARIO_ID}>
+      <DesktopBridgeProvider composition={firstRunComposition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
@@ -119,13 +136,16 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     expect(concurrentStreaming.isDisposed).toBe(true);
     expect(concurrentStreaming.sinkCount).toBe(0);
     expect(firstRun.isDisposed).toBe(false);
-    expect(scenarioControlIsInstalled()).toBe(true);
+    // The replaced bridge's handles come down with it; the live one's go up.
+    expect(concurrentStreamingComposition.bridgesWithHandles.size).toBe(0);
+    expect([...firstRunComposition.bridgesWithHandles]).toEqual([lastBridge(observed)]);
   });
 
   it("disposes the engine it built when the console unmounts", () => {
+    const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
+      <DesktopBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
       </DesktopBridgeProvider>,
     );
@@ -135,7 +155,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     unmount();
 
     expect(engine.isDisposed).toBe(true);
-    expect(scenarioControlIsInstalled()).toBe(false);
+    expect(composition.bridgesWithHandles.size).toBe(0);
   });
 
   it("never disposes a bridge the caller supplied", () => {
@@ -159,12 +179,13 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
   it("re-mints after a double mount, so the console never holds a torn-down engine", () => {
     // React's StrictMode mounts, tears down, and mounts again. The teardown
     // disposes this provider's engine, so the second mount has to notice and
-    // build a fresh one — the same re-mint arm `frame/session/session-lifecycle.ts`
+    // build a fresh one — the same re-mint arm `app/hooks/useSessionStoreRegistry.ts`
     // carries for the registry and binder it owns.
+    const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const tree: ReactNode = (
       <StrictMode>
-        <DesktopBridgeProvider scenarioId={CONCURRENT_STREAMING_SCENARIO_ID}>
+        <DesktopBridgeProvider composition={composition}>
           <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
         </DesktopBridgeProvider>
       </StrictMode>
@@ -174,7 +195,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
 
     const engine = engineOf(lastBridge(observed));
     expect(engine.isDisposed).toBe(false);
-    expect(scenarioControlIsInstalled()).toBe(true);
+    expect([...composition.bridgesWithHandles]).toEqual([lastBridge(observed)]);
   });
 });
 
