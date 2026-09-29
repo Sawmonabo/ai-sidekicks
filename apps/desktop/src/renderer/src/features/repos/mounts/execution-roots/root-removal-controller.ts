@@ -15,7 +15,7 @@
 import type { WorktreeId } from "@ai-sidekicks/contracts";
 
 import type { RepoOperations } from "../../repo-operations.js";
-import type { RootRemovalSubject } from "./root-removal-subject";
+import type { RootRemovalSubject } from "./root-removal-subject.js";
 
 /** The one call this controller makes. */
 export type RootRemovalOperations = Pick<RepoOperations, "retireWorktree">;

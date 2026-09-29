@@ -113,7 +113,7 @@ describe("inline card seats — one owner per card kind", () => {
     const registry = new InlineCardRegistry();
     registry.register("artifact", { owner: "repos-family", render: () => "repos" });
     expect(() => {
-      registry.register("artifact", { owner: "workspace-family", render: () => "workspace" });
+      registry.register("artifact", { owner: "transcript-family", render: () => "transcript" });
     }).toThrow(DuplicateRegistrationError);
     expect(registry.render(ARTIFACT_CARD)).toBe("repos");
   });

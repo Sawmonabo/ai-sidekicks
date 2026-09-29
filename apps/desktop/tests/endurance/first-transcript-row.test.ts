@@ -107,7 +107,7 @@ interface UnmeasuredLaunch {
 }
 
 /** What one launch measured, on the renderer's own monotonic timeline. */
-interface FirstLedgerRowReading {
+interface FirstTranscriptRowReading {
   /** `first-contentful-paint`, which is when the window was shown. */
   readonly windowShownAtMs: number;
   /** When this page function started — the driver's share of the interval. */
@@ -119,7 +119,7 @@ interface FirstLedgerRowReading {
 }
 
 /** One launch's outcome: the reading, or the reason there is none. */
-type FirstLedgerRowOutcome = FirstLedgerRowReading | UnmeasuredLaunch;
+type FirstTranscriptRowOutcome = FirstTranscriptRowReading | UnmeasuredLaunch;
 
 /**
  * Open the concurrent-streaming session, deliver its script, and time the first painted row.
@@ -130,10 +130,10 @@ type FirstLedgerRowOutcome = FirstLedgerRowReading | UnmeasuredLaunch;
  * second copy of this function, so the negative control drives the REAL instrument
  * rather than a re-implementation of it.
  */
-async function measureFirstLedgerRow(
+async function measureFirstTranscriptRow(
   consoleApplication: AppUnderTest,
   plantedStallMilliseconds: number,
-): Promise<FirstLedgerRowOutcome> {
+): Promise<FirstTranscriptRowOutcome> {
   const { stepMilliseconds, stepCount } = concurrentStreamingDeliverySchedule();
   return consoleApplication.window.evaluate(
     async ([
@@ -154,7 +154,7 @@ async function measureFirstLedgerRow(
       number,
       number,
       number,
-    ]): Promise<FirstLedgerRowOutcome> => {
+    ]): Promise<FirstTranscriptRowOutcome> => {
       // THE START INSTANT IS WAITED FOR, NOT READ ONCE. `first-contentful-paint`
       // is recorded when the renderer first paints content, and this page
       // function can begin before that has happened: the launch handshake
@@ -294,7 +294,7 @@ async function measureFirstLedgerRow(
 }
 
 /** The measured interval, from the two instants the reading carries. */
-function elapsedFromWindowShow(reading: FirstLedgerRowReading): number {
+function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
   return reading.firstRowPaintedAtMs - reading.windowShownAtMs;
 }
 
@@ -325,7 +325,7 @@ const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string
 };
 
 /** The reading, or a failure naming which of the four things did not happen. */
-function requireReading(outcome: FirstLedgerRowOutcome): FirstLedgerRowReading {
+function requireReading(outcome: FirstTranscriptRowOutcome): FirstTranscriptRowReading {
   if ("unmeasured" in outcome) {
     // The arm is the asserted value, so the diff line names it and the message
     // explains it — a collapsed sentence is what made a console that mounts no
@@ -337,7 +337,7 @@ function requireReading(outcome: FirstLedgerRowOutcome): FirstLedgerRowReading {
 }
 
 /** One line per reading, printed whether it passed or failed. */
-function reportReading(label: string, reading: FirstLedgerRowReading): void {
+function reportReading(label: string, reading: FirstTranscriptRowReading): void {
   const verdict = evaluateBudget(budget, elapsedFromWindowShow(reading));
   process.stdout.write(
     `[console-endurance] ${label}: first transcript row ${elapsedFromWindowShow(reading).toFixed(1)} ms ` +
@@ -363,7 +363,7 @@ describe("the time-to-first-transcript-row budget row", () => {
 describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after launch", () => {
   it("paints the first transcript row inside the budget's ceiling", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      const reading = requireReading(await measureFirstLedgerRow(consoleApplication, 0));
+      const reading = requireReading(await measureFirstTranscriptRow(consoleApplication, 0));
 
       // The run delivered a session rather than timing an empty one. Both halves
       // are load-bearing: the whole script is in, and it reached the screen.
@@ -391,7 +391,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
     // comparison fails on a console that boots slowly.
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(
-        await measureFirstLedgerRow(consoleApplication, PLANTED_PAINT_STALL_MS),
+        await measureFirstTranscriptRow(consoleApplication, PLANTED_PAINT_STALL_MS),
       );
       reportReading("planted stall", reading);
 

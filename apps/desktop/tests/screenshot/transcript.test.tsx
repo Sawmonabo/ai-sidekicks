@@ -52,7 +52,7 @@ import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcri
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */
-interface LedgerMount {
+interface TranscriptMount {
   readonly container: HTMLElement;
   /** The whole window: the composition the concurrent-streaming pair captures. */
   readonly frame: Element;
@@ -63,7 +63,7 @@ interface LedgerMount {
    * for the same box: a capture element resolved independently of the wait could
    * name a surface the wait never guaranteed had arrived, and the two would drift.
    */
-  readonly ledgerBody: Element;
+  readonly transcriptBody: Element;
 }
 
 /**
@@ -82,7 +82,10 @@ interface LedgerMount {
  * MOUNT rather than the arrival of content, which is what the empty-state capture
  * needs it to observe.
  */
-async function openLedgerSession(scenarioId: string, sessionId: string): Promise<LedgerMount> {
+async function openTranscriptSession(
+  scenarioId: string,
+  sessionId: string,
+): Promise<TranscriptMount> {
   document.location.hash = formatRoute({ kind: "session", sessionId });
   const { container } = await renderSettled(
     <AppProviders composition={createFixtureComposition(scenarioId)} />,
@@ -94,7 +97,7 @@ async function openLedgerSession(scenarioId: string, sessionId: string): Promise
   return {
     container,
     frame: requireCapturedElement(container, ".meridian-frame"),
-    ledgerBody: requireCapturedElement(container, SESSION_ROUTE_BODY_SELECTOR),
+    transcriptBody: requireCapturedElement(container, SESSION_ROUTE_BODY_SELECTOR),
   };
 }
 
@@ -117,7 +120,7 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
   for (const scheme of COLOR_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async () => {
       await emulateSystemScheme(scheme);
-      const { container, frame } = await openLedgerSession(
+      const { container, frame } = await openTranscriptSession(
         CONCURRENT_STREAMING_SCENARIO_ID,
         CONCURRENT_STREAMING_SCENARIO.sessionId,
       );
@@ -151,7 +154,7 @@ describe("screenshot — the transcript's empty state", () => {
     // exists for is the copy and the shape of the absence, neither of which the
     // scheme decides.
     await emulateSystemScheme("light");
-    const { ledgerBody } = await openLedgerSession(
+    const { transcriptBody } = await openTranscriptSession(
       EMPTY_SESSION_SCENARIO_ID,
       EMPTY_SESSION_SCENARIO.sessionId,
     );
@@ -180,10 +183,10 @@ describe("screenshot — the transcript's empty state", () => {
     // scoping changed about them: a sentence read off the window is a sentence that
     // may be anywhere in it, and the claim this capture makes is that it is in the
     // box being photographed.
-    expect(ledgerBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
-    expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
+    expect(transcriptBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
+    expect(transcriptBody.textContent).toContain("Nothing has happened in this session yet.");
 
-    await captureSettled(ledgerBody, "empty-session-light");
+    await captureSettled(transcriptBody, "empty-session-light");
   });
 });
 

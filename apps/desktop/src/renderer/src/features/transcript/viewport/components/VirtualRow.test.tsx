@@ -32,12 +32,12 @@ function renderMount(rowIndex: number, totalRowCount: number): HTMLElement {
   );
   const row = container.querySelector<HTMLElement>(".meridian-transcript-viewport__row");
   if (row === null) {
-    throw new Error("LedgerRowMount rendered no row element");
+    throw new Error("TranscriptRowMount rendered no row element");
   }
   return row;
 }
 
-describe("LedgerRowMount — where the row sits in the whole log", () => {
+describe("TranscriptRowMount — where the row sits in the whole log", () => {
   it("announces its one-based position and the whole log's length", () => {
     const row = renderMount(3, 4000);
     expect(row.getAttribute("role")).toBe("article");

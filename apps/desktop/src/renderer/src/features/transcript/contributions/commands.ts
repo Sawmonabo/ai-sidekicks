@@ -97,7 +97,7 @@ export function registerTranscriptCommands(
 ): void {
   surface.contribute({
     owner: TRANSCRIPT_COMMAND_OWNER,
-    commands: createTranscriptCommands(actsOnTheMountedLedger(seat)),
+    commands: createTranscriptCommands(actsOnTheMountedTranscript(seat)),
     keyBindings: TRANSCRIPT_KEY_BINDINGS,
   });
 }
@@ -109,9 +109,9 @@ export function registerTranscriptCommands(
  * `TranscriptActs` fails to compile here, at the seat's forwarder and at the feed's
  * builder together, instead of being contributed as a command that reaches nothing.
  */
-function actsOnTheMountedLedger(seat: MountedTranscript): TranscriptActs {
+function actsOnTheMountedTranscript(seat: MountedTranscript): TranscriptActs {
   const perform = (act: TranscriptActName): void => {
-    performOnMountedLedger(seat, act);
+    performOnMountedTranscript(seat, act);
   };
   return {
     openFind: () => {
@@ -138,7 +138,7 @@ function actsOnTheMountedLedger(seat: MountedTranscript): TranscriptActs {
  * The banner is the only rendering available to an act with no surface of its own,
  * which is what a transcript command pressed from a window with no transcript is.
  */
-function performOnMountedLedger(seat: MountedTranscript, act: TranscriptActName): void {
+function performOnMountedTranscript(seat: MountedTranscript, act: TranscriptActName): void {
   const outcome = seat.perform(act);
   if (outcome.status === "refused") {
     raiseCommandRefusal(outcome.refusal);

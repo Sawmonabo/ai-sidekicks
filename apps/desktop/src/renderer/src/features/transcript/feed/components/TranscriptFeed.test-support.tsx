@@ -36,7 +36,7 @@ import { TranscriptFeed } from "./TranscriptFeed.js";
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
 /** The pane every fixture feed is the body of, so its seat is read under one key. */
-export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-ledger-fixture";
+export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-transcript-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const SHORT_LOG_EVENT_COUNT = 10;
 export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;

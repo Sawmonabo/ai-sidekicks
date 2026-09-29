@@ -7,8 +7,8 @@ import {
   type RootRemovalOperations,
   type RootRemovalReading,
   type RootRemovalHost,
-} from "./root-removal-controller";
-import { rootRemovalSubjectFor } from "./root-removal-subject";
+} from "./root-removal-controller.js";
+import { rootRemovalSubjectFor } from "./root-removal-subject.js";
 
 /** The roots the scripted daemon answers for. */
 const WORKTREE_ID = "worktree-reviewer";

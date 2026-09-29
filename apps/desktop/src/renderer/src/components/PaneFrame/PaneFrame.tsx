@@ -52,7 +52,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
  * what a person can hold, which is the cost `tokens/glyphs.ts` names.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
-  transcript: "timeline",
+  transcript: "transcript",
   inspector: "inspector",
   runs: "run",
   approvals: "approval",

@@ -25,7 +25,7 @@ const RAIL_ENTRIES: readonly RailEntry[] = [
 export const SESSIONS_ROUTE: AppRoute = { kind: "sessions" };
 
 export function CalmScreen(): React.JSX.Element {
-  return <p>the settings surface rendered</p>;
+  return <p>the settings screen rendered</p>;
 }
 
 /** Everything `AppFrame` needs that a case is not making a claim about. */

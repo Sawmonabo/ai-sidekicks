@@ -168,7 +168,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
-    <div className="meridian-workspace">
+    <div className="meridian-session-screen">
       {banners.map((banner) => (
         <SessionBannerRow
           key={sessionBannerKey(banner.refusal)}
@@ -184,7 +184,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         restoreRefusals={restoreRefusals}
       />
       {composer === undefined || props.sessionStore === undefined ? null : (
-        <div className="meridian-workspace__composer">
+        <div className="meridian-session-screen__composer">
           {composer({
             sessionStore: props.sessionStore,
             bridge: props.bridge,

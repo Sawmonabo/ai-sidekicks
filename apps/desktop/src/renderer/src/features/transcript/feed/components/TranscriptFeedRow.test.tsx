@@ -36,8 +36,8 @@ import {
 } from "../../window/transcript-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
-function viewportRowFor(ledgerWindow: TranscriptWindowModel, key: string): ViewportRow {
-  const row = ledgerWindow.viewportRows.find((candidate) => candidate.key === key);
+function viewportRowFor(transcriptWindow: TranscriptWindowModel, key: string): ViewportRow {
+  const row = transcriptWindow.viewportRows.find((candidate) => candidate.key === key);
   if (row === undefined) {
     throw new Error(`the fixture window holds no viewport row keyed ${key}`);
   }
@@ -46,11 +46,11 @@ function viewportRowFor(ledgerWindow: TranscriptWindowModel, key: string): Viewp
 
 /** The options every case starts from, over one folded window. */
 function rendererOptions(
-  ledgerWindow: TranscriptWindowModel,
+  transcriptWindow: TranscriptWindowModel,
   overrides: Partial<TranscriptRowRendererOptions> = {},
 ): TranscriptRowRendererOptions {
   return {
-    ledgerWindow,
+    transcriptWindow,
     openedTerminalRunIds: new Set<string>(),
     hueForActor: () => undefined,
     toggleRunGroup: () => undefined,
@@ -63,7 +63,9 @@ function rendererOptions(
 /** Render whatever the dispatch returned for one key. */
 function renderDispatch(options: TranscriptRowRendererOptions, key: string): HTMLElement {
   const { result } = renderHook(() => useTranscriptRowRenderer(options));
-  const { container } = render(<>{result.current(viewportRowFor(options.ledgerWindow, key))}</>);
+  const { container } = render(
+    <>{result.current(viewportRowFor(options.transcriptWindow, key))}</>,
+  );
   return container;
 }
 
@@ -78,10 +80,10 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   }
 
   it("draws a run group header for the run's own key, never through the seat", () => {
-    const ledgerWindow = foldedRunGroupWindow();
+    const transcriptWindow = foldedRunGroupWindow();
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(ledgerWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
       TERMINAL_RUN_ID,
     );
 
@@ -93,14 +95,14 @@ describe("the feed's row dispatch — which of the four a key is", () => {
 
   it("draws a seam for a row the seam index names, never through the seat", () => {
     const sessionStore = openSessionStoreWithSystemMessage();
-    const ledgerWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline, false);
-    const seamRowId = [...ledgerWindow.seamByRowId.keys()][0];
+    const transcriptWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline, false);
+    const seamRowId = [...transcriptWindow.seamByRowId.keys()][0];
     if (seamRowId === undefined) {
       throw new Error("the seam fixture projected no seam row");
     }
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(ledgerWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
       seamRowId,
     );
 
@@ -111,8 +113,8 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   it("names a row the window no longer holds rather than drawing a blank band", () => {
     // The window moved under the viewport between its reconcile and this paint. A
     // blank would read as a row with nothing in it; this is a fact about the cap.
-    const ledgerWindow = foldedRunGroupWindow();
-    const vanished = viewportRowFor(ledgerWindow, TERMINAL_RUN_ID);
+    const transcriptWindow = foldedRunGroupWindow();
+    const vanished = viewportRowFor(transcriptWindow, TERMINAL_RUN_ID);
     const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
     const { result } = renderHook(() =>
       useTranscriptRowRenderer(
@@ -130,9 +132,9 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   });
 
   it("hands an ordinary row to the seat with the four values the seat is given", () => {
-    const ledgerWindow = foldedRunGroupWindow();
-    const sessionRow = ledgerWindow.viewportRows.find(
-      (row) => row.key !== TERMINAL_RUN_ID && ledgerWindow.rowsByKey.has(row.key),
+    const transcriptWindow = foldedRunGroupWindow();
+    const sessionRow = transcriptWindow.viewportRows.find(
+      (row) => row.key !== TERMINAL_RUN_ID && transcriptWindow.rowsByKey.has(row.key),
     );
     if (sessionRow === undefined) {
       throw new Error("the run group fixture projected no ordinary row");
@@ -141,7 +143,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       (slot: TranscriptRowProps): ReactNode => <output data-seat-row={slot.row.id} />,
     );
     const container = renderDispatch(
-      rendererOptions(ledgerWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
       sessionRow.key,
     );
 
@@ -195,7 +197,7 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     const seatCalls = vi.fn((): ReactNode => <output data-seat-row="yes" />);
     const Dispatch = (props: { readonly options: TranscriptRowRendererOptions }): ReactNode => {
       const renderRow = useTranscriptRowRenderer(props.options);
-      return renderRow(viewportRowFor(props.options.ledgerWindow, rowKey));
+      return renderRow(viewportRowFor(props.options.transcriptWindow, rowKey));
     };
     const view = render(
       <Dispatch options={rendererOptions(before, { renderTimelineRow: seatCalls })} />,

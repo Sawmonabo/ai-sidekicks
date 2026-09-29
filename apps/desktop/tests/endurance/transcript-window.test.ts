@@ -165,9 +165,9 @@ function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): nu
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
-    const ledgerWindow = deriveTranscriptWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline, false);
     const elapsedMilliseconds = performance.now() - startedAt;
-    if (ledgerWindow.rows.length === 0) {
+    if (transcriptWindow.rows.length === 0) {
       throw new Error("the fold produced no rows, so its timing describes nothing");
     }
     fastestPass = Math.min(fastestPass, elapsedMilliseconds);
@@ -220,17 +220,17 @@ describe("endurance — the transcript's fold over a long session", () => {
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const ledgerWindow = deriveTranscriptWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline, false);
 
     // Every event the generator scripts is a registered kind the projection places,
     // so every one becomes a row; a window that dropped an event family would
     // otherwise still read as complete.
-    expect(ledgerWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
+    expect(transcriptWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
     // The virtualizer's identity list and the body lookup are two views of one set:
     // a viewport row with no body renders the not-loaded absence, and a body with no
     // viewport row is never drawn at all.
-    expect(ledgerWindow.viewportRows).toHaveLength(ledgerWindow.rows.length);
-    expect(ledgerWindow.rowsByKey.size).toBe(ledgerWindow.rows.length);
+    expect(transcriptWindow.viewportRows).toHaveLength(transcriptWindow.rows.length);
+    expect(transcriptWindow.rowsByKey.size).toBe(transcriptWindow.rows.length);
     // Every generated run group closes, so the window holds no live turn — and every
     // row that hangs from a run group is collapsed under the terminal run group fold.
     // The rows that are NOT collapsed are exactly the ones that belong to no run group:
@@ -239,14 +239,14 @@ describe("endurance — the transcript's fold over a long session", () => {
     // generator happens to spend opening a session — and it still fails the day the
     // run group index stops recognizing a run's terminal at scale, because those rows
     // would join the uncollapsed set carrying a run.
-    expect(ledgerWindow.hasActiveTurn).toBe(false);
+    expect(transcriptWindow.hasActiveTurn).toBe(false);
     const uncollapsedRowKinds = new Set(
-      ledgerWindow.rows
-        .filter((row) => !ledgerWindow.collapsedRowIds.has(row.id))
+      transcriptWindow.rows
+        .filter((row) => !transcriptWindow.collapsedRowIds.has(row.id))
         .map((row) => row.kind),
     );
     expect([...uncollapsedRowKinds]).toStrictEqual(["general"]);
-    expect(ledgerWindow.collapsedRowIds.size).toBeGreaterThan(0);
+    expect(transcriptWindow.collapsedRowIds.size).toBeGreaterThan(0);
   });
 
   it("does not fold superlinearly as the log grows", () => {

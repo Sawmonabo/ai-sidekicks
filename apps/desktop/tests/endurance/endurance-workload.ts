@@ -100,7 +100,7 @@ export const SETTINGS_ROUTE: string = "#/settings";
  * would no longer be route-exclusive against the session screen's. The rail is the one
  * piece of markup that exists if and only if this surface mounted.
  */
-export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridian-settings__rail";
+export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-settings__rail";
 
 /**
  * What the session screen renders and the settings route does not.
@@ -117,8 +117,7 @@ export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .merid
  * asking about. The pane is the element the ROUTE mounts, which is the claim this
  * constant is making.
  */
-export const SESSION_SCREEN_SELECTOR: string =
-  ".meridian-frame__surface .meridian-pane--transcript";
+export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-pane--transcript";
 
 /**
  * One transcript row, anchored under the frame's surface.
@@ -129,7 +128,7 @@ export const SESSION_SCREEN_SELECTOR: string =
  * the first, so both selectors live here and neither tier spells one itself.
  */
 export const TRANSCRIPT_ROW_SELECTOR: string =
-  ".meridian-frame__surface .meridian-transcript-row-layout";
+  ".meridian-frame__screen .meridian-transcript-row-layout";
 
 /**
  * Assign the hash and wait for the surface only that route mounts.

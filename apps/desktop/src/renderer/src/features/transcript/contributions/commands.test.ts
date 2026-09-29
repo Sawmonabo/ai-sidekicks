@@ -128,7 +128,7 @@ describe("transcript commands — the rows themselves", () => {
 
 describe("transcript commands — the contribution reaches the palette and the keyboard", () => {
   /** Contributing an empty set is how a window is left with none of this family's rows. */
-  function withdrawLedgerContribution(): void {
+  function withdrawTranscriptContribution(): void {
     commandContributionRegistry.contribute({
       owner: TRANSCRIPT_COMMAND_OWNER,
       commands: [],
@@ -137,7 +137,7 @@ describe("transcript commands — the contribution reaches the palette and the k
   }
 
   afterEach(() => {
-    withdrawLedgerContribution();
+    withdrawTranscriptContribution();
   });
 
   /** A table over the window's real registry and its real chord list. */
@@ -220,7 +220,7 @@ describe("transcript commands — the contribution reaches the palette and the k
   it("negative control: nothing of this family is offered or bound before it composes", () => {
     // Every case above passes over a console that had these rows all along, which is
     // precisely what this family did NOT have.
-    withdrawLedgerContribution();
+    withdrawTranscriptContribution();
     expect(commandRegistry.has("transcript.find")).toBe(false);
     expect(keybindingOverrides.snapshot.bindings.map((binding) => binding.commandId)).not.toContain(
       "transcript.find",

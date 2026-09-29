@@ -197,7 +197,7 @@ async function settleOneTurn(): Promise<void> {
  * arrival of content.
  */
 export const SESSION_ROUTE_BODY_SELECTOR: string =
-  ".meridian-frame__surface .meridian-transcript-feed__body";
+  ".meridian-frame__screen .meridian-transcript-feed__body";
 
 /**
  * How long a session route gets to arrive before the window is called half-mounted.

@@ -364,7 +364,7 @@ export class SessionEventSubscriber {
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
-      ledgerWindowFor: (sessionId: string): TranscriptWindowReading | null =>
+      transcriptWindowFor: (sessionId: string): TranscriptWindowReading | null =>
         transcriptWindowDiagnostics.readingFor(sessionId),
     });
   }

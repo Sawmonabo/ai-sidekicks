@@ -8,7 +8,7 @@ import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { PaneRegistry, ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
-import { TranscriptSurface } from "../TranscriptSurface.js";
+import { SessionScreenShell } from "../SessionScreenShell.js";
 import { registerTranscriptScreens } from "./screens.js";
 
 /**
@@ -19,7 +19,7 @@ import { registerTranscriptScreens } from "./screens.js";
  * building all of that to hand a handful of fields to a function that copies them
  * would make the setup the subject.
  */
-function surfaceContext(sessionId = "session-7"): ScreenContext {
+function screenContext(sessionId = "session-7"): ScreenContext {
   return {
     route: { kind: "session", sessionId },
     bridge: { source: "fixture" },
@@ -43,7 +43,7 @@ function TestSessionScreenBody(): null {
   return null;
 }
 
-function registeredLedger(): ScreenRegistry {
+function registeredTranscript(): ScreenRegistry {
   const registry = new ScreenRegistry();
   registerTranscriptScreens(registry, { sessionScreen: TestSessionScreenBody });
   return registry;
@@ -81,7 +81,7 @@ function sessionScreenBodyIn(shell: { props: Record<string, unknown> }): {
 
 describe("the transcript — which slots it holds", () => {
   it("claims the session screen under its owner", () => {
-    const registry = registeredLedger();
+    const registry = registeredTranscript();
     const claims = registry
       .registeredSlots()
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
@@ -95,7 +95,7 @@ describe("the transcript — which slots it holds", () => {
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
-    const registry = registeredLedger();
+    const registry = registeredTranscript();
     const afterFirst = registry.registeredSlots();
     registerTranscriptScreens(registry, { sessionScreen: TestSessionScreenBody });
     expect(registry.registeredSlots()).toStrictEqual(afterFirst);
@@ -104,12 +104,15 @@ describe("the transcript — which slots it holds", () => {
 
 describe("the transcript — what it mounts", () => {
   it("mounts the session screen — the session header, the pane layout, and the composer's seat", () => {
-    const registry = registeredLedger();
-    const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
-    expect(shell.type).toBe(TranscriptSurface);
-    const workspace = sessionScreenBodyIn(shell);
-    expect(workspace.type).toBe(TestSessionScreenBody);
-    expect(workspace.props["route"]).toStrictEqual({ kind: "session", sessionId: "session-7" });
+    const registry = registeredTranscript();
+    const shell = renderedElement(registry.descriptorFor("session")?.render(screenContext()));
+    expect(shell.type).toBe(SessionScreenShell);
+    const sessionScreenBody = sessionScreenBodyIn(shell);
+    expect(sessionScreenBody.type).toBe(TestSessionScreenBody);
+    expect(sessionScreenBody.props["route"]).toStrictEqual({
+      kind: "session",
+      sessionId: "session-7",
+    });
   });
 });
 
@@ -125,8 +128,8 @@ describe("the transcript — what decides the mounted subtree's lifetime", () =>
   // a key is carried by the element, and asserting it here is asserting the wiring.
 
   it("keys the session screen subtree on the route's session", () => {
-    const registry = registeredLedger();
-    const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
+    const registry = registeredTranscript();
+    const shell = renderedElement(registry.descriptorFor("session")?.render(screenContext()));
     expect(sessionScreenBodyIn(shell).key).toBe("session-7");
   });
 
@@ -134,21 +137,21 @@ describe("the transcript — what decides the mounted subtree's lifetime", () =>
     // Without this, the case above would pass over a key that changed on every render,
     // which remounts the session screen on every keystroke and loses the state the key
     // exists to scope.
-    const registry = registeredLedger();
-    const workspace = registry.descriptorFor("session");
+    const registry = registeredTranscript();
+    const sessionDescriptor = registry.descriptorFor("session");
     const firstWorkspaceKey = sessionScreenBodyIn(
-      renderedElement(workspace?.render(surfaceContext())),
+      renderedElement(sessionDescriptor?.render(screenContext())),
     ).key;
-    expect(sessionScreenBodyIn(renderedElement(workspace?.render(surfaceContext()))).key).toBe(
-      firstWorkspaceKey,
-    );
+    expect(
+      sessionScreenBodyIn(renderedElement(sessionDescriptor?.render(screenContext()))).key,
+    ).toBe(firstWorkspaceKey);
   });
 
   it("falls back to a named key rather than an absent one when the route names no session", () => {
-    const registry = registeredLedger();
+    const registry = registeredTranscript();
     const shell = renderedElement(
       registry.descriptorFor("session")?.render({
-        ...surfaceContext(),
+        ...screenContext(),
         route: { kind: "settings" },
       } as unknown as ScreenContext),
     );

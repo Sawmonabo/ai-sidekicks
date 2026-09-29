@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { RootRemovalConfirmation } from "./RootRemovalConfirmation";
+import { RootRemovalConfirmation } from "./RootRemovalConfirmation.js";
 
 /** A canonical UUID, so `repo.worktreeRetire` is a request the binding will send. */
 const WORKTREE_ID = "019b79ee-0280-740e-8110-d1a4c1150091";

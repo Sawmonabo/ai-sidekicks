@@ -8,8 +8,8 @@ import {
   type RootRemovalOperations,
   type RootRemovalReading,
   type RootRemovalHost,
-} from "../root-removal-controller";
-import type { RootRemovalSubject } from "../root-removal-subject";
+} from "../root-removal-controller.js";
+import type { RootRemovalSubject } from "../root-removal-subject.js";
 
 /** Nothing sent. */
 export const ROOT_REMOVAL_IDLE: RootRemovalReading = { status: "idle" };

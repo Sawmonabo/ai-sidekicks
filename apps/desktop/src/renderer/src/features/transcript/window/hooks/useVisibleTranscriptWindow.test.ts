@@ -42,9 +42,9 @@ function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof us
 
 describe("the visible transcript window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
-    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
-    const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
-    const { result } = renderHook(() => useVisibleTranscriptWindow(ledgerWindow, retained));
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
+    const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
     expect(result.current.prunedAwayRows).toHaveLength(LOG_EVENT_COUNT - RETAINED_ROW_COUNT);
     // The partition is DECIDED by this set, and it is published rather than
@@ -54,11 +54,11 @@ describe("the visible transcript window", () => {
   });
 
   it("walks only rows the viewport can scroll to, and names the matches beyond it", () => {
-    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
-    const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const retainedKeys = new Set(retained.map((row) => row.key));
     const { result } = renderHook(() => {
-      const visible = useVisibleTranscriptWindow(ledgerWindow, retained);
+      const visible = useVisibleTranscriptWindow(transcriptWindow, retained);
       return findOverVisible(visible);
     });
 
@@ -81,15 +81,15 @@ describe("the visible transcript window", () => {
     // to look at. Handed the log instead of the window — which is what the field was
     // handed before — the same query counts every row and steps to the oldest one,
     // which the viewport reconciled away and `jumpToRow` cannot reach.
-    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retainedKeys = new Set(
-      ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
+      transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
     );
     const wholeLogWindow: VisibleTranscriptWindow = {
-      rows: ledgerWindow.rows,
+      rows: transcriptWindow.rows,
       prunedAwayRows: [],
       hasEarlierRows: false,
-      heldRowKeys: new Set(ledgerWindow.rows.map((row) => row.id)),
+      heldRowKeys: new Set(transcriptWindow.rows.map((row) => row.id)),
     };
     const { result } = renderHook(() => findOverVisible(wholeLogWindow));
     act(() => {
@@ -109,18 +109,18 @@ describe("the clip the window states", () => {
   }
 
   it("says earlier rows exist exactly when the cap took some", () => {
-    const ledgerWindow = loadedWindow();
-    const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
-    const { result } = renderHook(() => useVisibleTranscriptWindow(ledgerWindow, retained));
+    const transcriptWindow = loadedWindow();
+    const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
+    const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
     expect(result.current.hasEarlierRows).toBe(true);
   });
 
   it("negative control: a window holding its whole log claims nothing before it", () => {
     // Without this the case above would pass over a clip hard-coded the other
     // way round, which would put a truncation notice on every complete session.
-    const ledgerWindow = loadedWindow();
+    const transcriptWindow = loadedWindow();
     const { result } = renderHook(() =>
-      useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),
+      useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
     );
     expect(result.current.prunedAwayRows).toHaveLength(0);
     expect(result.current.hasEarlierRows).toBe(false);

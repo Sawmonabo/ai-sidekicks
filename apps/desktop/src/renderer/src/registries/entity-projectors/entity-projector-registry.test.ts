@@ -38,24 +38,24 @@ describe("the console's entity-projector board — one owner per event kind", ()
     // depend on which family's module evaluated first, and the store would report a
     // partition built by whichever that happened to be.
     const registry = new EntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
       registry.register(PROBE_EVENT_KIND, probeProjector("second"), "composer");
-    }).toThrowError(/ledger[\s\S]*composer/);
+    }).toThrowError(/transcript[\s\S]*composer/);
     // The first claim survives the refusal — a rejected registration is not a
     // half-applied one.
-    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("ledger");
+    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("transcript");
   });
 
   it("lets one owner re-claim its own kind, as a hot reload does it", () => {
     // The other half of the owner-scoped policy, and the reason it is not plain
     // `"throw"`: a family's module re-evaluating must not raise.
     const registry = new EntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
-      registry.register(PROBE_EVENT_KIND, probeProjector("second"), "ledger");
+      registry.register(PROBE_EVENT_KIND, probeProjector("second"), "transcript");
     }).not.toThrow();
   });
 
@@ -65,7 +65,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
     const registry = new EntityProjectorRegistry();
 
     expect(() => {
-      registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+      registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
       registry.register("probe.other", probeProjector("second"), "composer");
     }).not.toThrow();
     expect(registry.ownerOf("probe.other")).toBe("composer");
@@ -73,7 +73,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
 
   it("leaves a colliding batch exactly as it was, rather than half-claimed", () => {
     const registry = new EntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
       registry.registerAll(
@@ -82,7 +82,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
       );
     }).toThrow();
     expect(registry.ownerOf("probe.fresh")).toBeUndefined();
-    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("ledger");
+    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("transcript");
   });
 });
 
@@ -92,7 +92,7 @@ describe("the console's entity-projector board — the snapshot a store opens wi
     // long as its session is open, and a table that grew underneath it would fold
     // two events of one kind two different ways inside one session.
     const registry = new EntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     const snapshot = registry.snapshot();
 
@@ -102,7 +102,7 @@ describe("the console's entity-projector board — the snapshot a store opens wi
 
   it("does not grow when the board does, so a store's fold is fixed at open", () => {
     const registry = new EntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
     const taken = registry.snapshot();
 
     registry.register("probe.later", probeProjector("later"), "composer");

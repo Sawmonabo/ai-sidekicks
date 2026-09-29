@@ -91,14 +91,14 @@ export interface TranscriptFeedProps {
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
-  const { runGroupDisclosure, ledgerWindow, viewport, visible } = windows;
+  const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD AND ITS WALK — one seam, wired next door.
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
     visible,
     jumpToRow,
-    focusLedgerSurface: viewport.focusSurface,
+    focusTranscriptViewport: viewport.focusSurface,
   });
   const find = findAndJump.find;
 
@@ -125,7 +125,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useTranscriptRowRenderer({
-    ledgerWindow,
+    transcriptWindow,
     openedTerminalRunIds,
     hueForActor,
     toggleRunGroup,
@@ -138,8 +138,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // claimed here for the mount's lifetime; what each act does is its own module's.
   const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
   const collapseAllTerminalRunGroups = useCallback(() => {
-    collapseAllTerminal([...ledgerWindow.runGroupByHeaderKey.values()]);
-  }, [collapseAllTerminal, ledgerWindow]);
+    collapseAllTerminal([...transcriptWindow.runGroupByHeaderKey.values()]);
+  }, [collapseAllTerminal, transcriptWindow]);
   useTranscriptStructureActs({
     find,
     jumpToRow,
@@ -158,7 +158,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               renderRow={renderRow}
               feedLabel={props.feedLabel}
               firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={ledgerWindow.hasActiveTurn}
+              hasActiveTurn={transcriptWindow.hasActiveTurn}
               earlierHistoryControl={
                 props.readEarlierPage === undefined ? undefined : (
                   <LoadEarlier
@@ -174,7 +174,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       <TranscriptReadState sessionStore={props.sessionStore} />
       <TranscriptWindowNotices
         droppedRowCount={visible.prunedAwayRows.length}
-        hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
+        hasUnreceivedEntries={transcriptWindow.hasUnreceivedEntries}
       />
     </div>
   );

@@ -86,7 +86,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
               ))}
             </div>
           )}
-          <main className="meridian-frame__surface">
+          <main className="meridian-frame__screen">
             {/*
               KEYED BY THE ROUTE, so navigating away from a crash is the retry.
               The boundary's caught error is its own state and its identity used to
@@ -98,7 +98,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
               rendering of a route, so two routes are one boundary exactly when they
               are one address.
             */}
-            <ErrorBoundary key={formatRoute(props.route)} regionName={surfaceNameFor(props.route)}>
+            <ErrorBoundary key={formatRoute(props.route)} regionName={screenNameFor(props.route)}>
               {props.children}
             </ErrorBoundary>
           </main>
@@ -110,7 +110,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
 }
 
 /** A name a person would use, for the boundary's copy. Never a route id. */
-function surfaceNameFor(route: AppRoute): string {
+function screenNameFor(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "The sessions list";

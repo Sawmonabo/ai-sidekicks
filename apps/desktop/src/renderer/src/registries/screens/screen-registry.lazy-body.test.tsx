@@ -25,7 +25,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     registry.register({
       slot: "settings",
       owner: "settings-family",
-      body: countingLoader<ScreenContext>(() => createElement("p", null, "the settings surface"))
+      body: countingLoader<ScreenContext>(() => createElement("p", null, "the settings screen"))
         .load,
     });
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
@@ -33,9 +33,9 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     const { container } = render(
       <>{registry.descriptorFor("settings")?.render(createSyntheticScreenContext())}</>,
     );
-    expect(container.textContent).not.toContain("the settings surface");
+    expect(container.textContent).not.toContain("the settings screen");
     await settle();
-    expect(container.textContent).toContain("the settings surface");
+    expect(container.textContent).toContain("the settings screen");
   });
 
   it("mounts a preloaded screen without ever committing its reserved frame", async () => {

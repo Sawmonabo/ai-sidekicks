@@ -51,7 +51,7 @@ export function testRegistry(): PaneRegistry {
   for (const kind of ["transcript", "runs"] as const) {
     registry.register({
       kind,
-      owner: "workspace-test",
+      owner: "session-screen-test",
       render: () => <TestPaneBody kind={kind} />,
     });
   }

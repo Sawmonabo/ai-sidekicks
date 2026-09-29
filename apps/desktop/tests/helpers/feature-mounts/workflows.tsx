@@ -175,7 +175,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * message names the slot — instead of rendering nothing and letting a tier compare an
  * empty box against a baseline.
  */
-async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
+async function screenBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
   const render = await resolvedScreenBody("workflows", registerWorkflowScreens);
   return ({ context }) => render(context);
 }
@@ -190,7 +190,7 @@ async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: Scre
  * empty: this window has opened nothing, which is the ordinary case for a person who
  * reached the rail from a session the route has since left.
  */
-function surfaceContext(bridge: PlatformBridge): ScreenContext {
+function screenContext(bridge: PlatformBridge): ScreenContext {
   const frameStore = new WindowStore({
     initialRoute: { kind: "session", sessionId: PROBE_SESSION_ID },
   });
@@ -231,11 +231,11 @@ function surfaceContext(bridge: PlatformBridge): ScreenContext {
  */
 export async function mountWorkflowsDestination(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
-  const WorkflowsDestinationBody = await surfaceBodyComponent();
+  const WorkflowsDestinationBody = await screenBodyComponent();
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <WorkflowsDestinationBody context={surfaceContext(bridge)} />
+        <WorkflowsDestinationBody context={screenContext(bridge)} />
       </LiveAnnouncerProvider>
     </PlatformBridgeProvider>,
   );

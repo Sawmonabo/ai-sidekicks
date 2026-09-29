@@ -82,7 +82,7 @@ describe("mounted transcript — which feed an act reaches", () => {
 
 describe("mounted transcript — a component holds the seat for its lifetime", () => {
   /** A stand-in for the feed: it holds the seat and renders nothing. */
-  function LedgerMountProbe(props: {
+  function TranscriptMountProbe(props: {
     readonly name: string;
     readonly fired: string[];
     readonly seat: MountedTranscript;
@@ -94,7 +94,7 @@ describe("mounted transcript — a component holds the seat for its lifetime", (
   it("takes the seat while mounted and gives it back on unmount", () => {
     const fired: string[] = [];
     const seat = new MountedTranscript();
-    const mounted = render(createElement(LedgerMountProbe, { name: "feed", fired, seat }));
+    const mounted = render(createElement(TranscriptMountProbe, { name: "feed", fired, seat }));
     expect(seat.mountedCount).toBe(1);
     seat.perform("jumpToLatest");
     expect(fired).toStrictEqual(["feed:jumpToLatest"]);
@@ -109,9 +109,9 @@ describe("mounted transcript — a component holds the seat for its lifetime", (
     const laterPass: string[] = [];
     const seat = new MountedTranscript();
     const mounted = render(
-      createElement(LedgerMountProbe, { name: "feed", fired: firstPass, seat }),
+      createElement(TranscriptMountProbe, { name: "feed", fired: firstPass, seat }),
     );
-    mounted.rerender(createElement(LedgerMountProbe, { name: "feed", fired: laterPass, seat }));
+    mounted.rerender(createElement(TranscriptMountProbe, { name: "feed", fired: laterPass, seat }));
     seat.perform("stepFindNext");
     expect(laterPass).toStrictEqual(["feed:stepFindNext"]);
     expect(firstPass).toStrictEqual([]);

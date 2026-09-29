@@ -100,7 +100,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
 
   const sessionStore = useActiveSessionStore(sessionStoreRegistry, frameStore.activeSessionId);
 
-  const surfaceContext: ScreenContext = {
+  const screenContext: ScreenContext = {
     route,
     bridge: props.bridge,
     frameStore,
@@ -115,7 +115,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
 
   return (
     <AppShell frameStore={frameStore} surfaceRegistry={screenRegistry} palette={palette}>
-      <AppRouter context={surfaceContext} />
+      <AppRouter context={screenContext} />
     </AppShell>
   );
 }

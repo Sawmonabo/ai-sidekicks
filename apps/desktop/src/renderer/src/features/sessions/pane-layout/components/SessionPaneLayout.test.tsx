@@ -111,7 +111,7 @@ function threePaneLayout(): HTMLElement {
 
 describe("the pane layout's mount door", () => {
   it("refuses a second owner claiming a kind rather than replacing the first", () => {
-    const registry = registryWith({ kind: "transcript", owner: "ledger" });
+    const registry = registryWith({ kind: "transcript", owner: "transcript" });
     expect(() =>
       registry.register({
         kind: "transcript",
@@ -124,11 +124,11 @@ describe("the pane layout's mount door", () => {
   it("negative control: the SAME owner re-registering replaces, so a hot reload works", () => {
     // Without this, the case above would pass over a registry that refused every
     // second registration, which would make reloading a module fatal.
-    const registry = registryWith({ kind: "transcript", owner: "ledger" });
+    const registry = registryWith({ kind: "transcript", owner: "transcript" });
     expect(() =>
       registry.register({
         kind: "transcript",
-        owner: "ledger",
+        owner: "transcript",
         render: () => null,
       }),
     ).not.toThrow();

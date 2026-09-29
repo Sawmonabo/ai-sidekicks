@@ -165,10 +165,10 @@ describe("the walk when the result moves under it", () => {
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
-    const ledgerWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useTranscriptFind({
-        visible: useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),
+        visible: useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
       }),

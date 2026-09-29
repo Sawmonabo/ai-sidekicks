@@ -4,7 +4,7 @@ import { type ScreenRegistration, type ScreenRegistry } from "@renderer/console/
 import { WORKFLOWS_OWNER } from "./panes.js";
 
 /** The screen slot this family claims: the rail's workflows destination. */
-const WORKFLOW_SURFACES: readonly ScreenRegistration[] = [
+const WORKFLOW_SCREENS: readonly ScreenRegistration[] = [
   {
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
@@ -23,7 +23,7 @@ const WORKFLOW_SURFACES: readonly ScreenRegistration[] = [
  * path.
  */
 export function registerWorkflowScreens(registry: ScreenRegistry): void {
-  for (const descriptor of WORKFLOW_SURFACES) {
+  for (const descriptor of WORKFLOW_SCREENS) {
     registry.register(descriptor);
   }
 }

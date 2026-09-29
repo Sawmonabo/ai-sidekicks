@@ -34,7 +34,7 @@ const NO_DIAGNOSTICS: SessionDiagnostics = {
   openSessionIds: () => [],
   appliedEventCountFor: () => 0,
   boundSessionIds: () => [],
-  ledgerWindowFor: () => null,
+  transcriptWindowFor: () => null,
 };
 
 afterEach(() => {

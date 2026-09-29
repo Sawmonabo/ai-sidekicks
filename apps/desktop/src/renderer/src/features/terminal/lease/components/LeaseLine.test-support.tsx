@@ -16,7 +16,7 @@ import type {
   TerminalLeaseCalls,
   UseTakeShellResult,
 } from "../hooks/useTakeShell.js";
-import { LeaseTakeControl } from "./LeaseTakeControl";
+import { LeaseTakeControl } from "./LeaseTakeControl.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.js";

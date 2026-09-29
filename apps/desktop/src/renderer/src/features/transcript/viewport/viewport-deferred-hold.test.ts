@@ -71,7 +71,7 @@ function scrollAwayFromTail(anchor: ReadingAnchor): void {
   });
 }
 
-describe("LedgerDeferredHold — which arm a reconcile arms", () => {
+describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
   it("holds the anchored position immediately when nothing was deferred", () => {
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
@@ -186,7 +186,7 @@ describe("LedgerDeferredHold — which arm a reconcile arms", () => {
   });
 });
 
-describe("LedgerDeferredHold — three windows, two pages, one row under the reader", () => {
+describe("TranscriptDeferredHold — three windows, two pages, one row under the reader", () => {
   /** Which row the top of the viewport is showing, at this flat row height. */
   function rowAtViewportTop(rowKeys: readonly string[], scrollTopPx: number): string | undefined {
     return rowKeys[Math.floor(scrollTopPx / ROW_HEIGHT_PX)];

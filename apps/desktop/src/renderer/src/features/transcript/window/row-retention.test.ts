@@ -24,7 +24,7 @@ import {
 import { TranscriptRowRetention } from "./row-retention.js";
 import { deriveTranscriptWindow } from "./transcript-window.js";
 
-const SESSION_ID = "session-ledger-row-retention";
+const SESSION_ID = "session-transcript-row-retention";
 
 /** A log entry the fixture shell can project. The row id it takes is derived from these. */
 function logEntry(

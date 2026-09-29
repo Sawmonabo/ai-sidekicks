@@ -35,8 +35,8 @@ describe("screen registry — the module-scope door", () => {
     // `pane-harness` deliberately: only the fixture composition claims it, and this
     // case is about the door rather than about who got there first.
     try {
-      registerScreen(descriptor("pane-harness", "surface-registry-test"));
-      expect(screenRegistry.descriptorFor("pane-harness")?.owner).toBe("surface-registry-test");
+      registerScreen(descriptor("pane-harness", "screen-registry-test"));
+      expect(screenRegistry.descriptorFor("pane-harness")?.owner).toBe("screen-registry-test");
       expect(screenRegistry.registeredSlots()).toContain("pane-harness");
     } finally {
       screenRegistry.unregister("pane-harness");

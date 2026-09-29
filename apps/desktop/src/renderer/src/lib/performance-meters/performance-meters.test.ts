@@ -22,9 +22,9 @@ describe("perf meter series", () => {
   it("reports the nearest-rank percentile, which is a sample that was observed", () => {
     const registry = new PerformanceMeterRegistry();
     for (const milliseconds of [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]) {
-      registry.record("frame-time", "ledger", milliseconds);
+      registry.record("frame-time", "transcript", milliseconds);
     }
-    const reading = registry.reading("frame-time", "ledger");
+    const reading = registry.reading("frame-time", "transcript");
     expect(reading).not.toBeNull();
     expect(reading?.sampleCount).toBe(10);
     expect(reading?.median).toBe(5);
@@ -127,10 +127,10 @@ describe("perf meter series", () => {
 
   it("drops a non-finite sample rather than poisoning every percentile with it", () => {
     const registry = new PerformanceMeterRegistry();
-    registry.record("frame-time", "ledger", 8);
-    registry.record("frame-time", "ledger", Number.NaN);
-    registry.record("frame-time", "ledger", Number.POSITIVE_INFINITY);
-    const reading = registry.reading("frame-time", "ledger");
+    registry.record("frame-time", "transcript", 8);
+    registry.record("frame-time", "transcript", Number.NaN);
+    registry.record("frame-time", "transcript", Number.POSITIVE_INFINITY);
+    const reading = registry.reading("frame-time", "transcript");
     expect(reading?.sampleCount).toBe(1);
     expect(reading?.worst).toBe(8);
   });
@@ -138,7 +138,7 @@ describe("perf meter series", () => {
   it("keeps the four kinds apart on one series key", () => {
     const registry = new PerformanceMeterRegistry();
     for (const kind of PERFORMANCE_METER_KINDS) {
-      registry.record(kind, "ledger", PERFORMANCE_METER_KINDS.indexOf(kind));
+      registry.record(kind, "transcript", PERFORMANCE_METER_KINDS.indexOf(kind));
     }
     expect(registry.seriesCount).toBe(PERFORMANCE_METER_KINDS.length);
     expect(registry.readings().map((reading) => reading.kind)).toStrictEqual([
@@ -154,7 +154,7 @@ describe("perf meter series", () => {
 
   it("forgets every sample and refusal on reset", () => {
     const registry = new PerformanceMeterRegistry();
-    registry.record("frame-time", "ledger", 4);
+    registry.record("frame-time", "transcript", 4);
     registry.reset();
     expect(registry.seriesCount).toBe(0);
     expect(registry.refusedSeriesCount).toBe(0);

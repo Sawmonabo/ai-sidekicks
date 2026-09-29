@@ -2,10 +2,10 @@
  * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
  *
  * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered session screen draws `.meridian-transcript-surface` before any pane
+ * eagerly registered session screen draws `.meridian-session-screen-shell` before any pane
  * body has loaded.
  *
- *   • `.meridian-transcript-surface`, the session screen's wrapper (`TranscriptSurface.tsx`,
+ *   • `.meridian-session-screen-shell`, the session screen's wrapper (`SessionScreenShell.tsx`,
  *     which imports this sheet).
  *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
@@ -21,7 +21,7 @@
 /*
  * The empty pane layout state: one pane, full width, filling the surface.
  *
- * A grid rather than a block, because `.meridian-frame__surface` is a scroll
+ * A grid rather than a block, because `.meridian-frame__screen` is a scroll
  * container and a percentage-height chain through a block would collapse the moment
  * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
  * lets the feed inside be the thing that scrolls.
@@ -39,7 +39,7 @@
  * surface that overflows and differ for one that does not, and only this one leaves
  * every already-fitting surface exactly where it was.
  */
-.meridian-transcript-surface {
+.meridian-session-screen-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;

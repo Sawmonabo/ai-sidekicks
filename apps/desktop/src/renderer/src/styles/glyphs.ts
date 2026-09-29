@@ -111,19 +111,18 @@ export const GLYPH_SIZE_CHROME = 14;
  * set is CLOSED; the face map's totality over it is what the compiler checks.
  */
 export const GLYPH_NAMES = [
-  // --- The top-level destinations (the design language's surface set) and the session
-  // screen reached from the first of them.
+  // --- The top-level destinations (the design language's surface set).
   "sessions",
-  "workspace",
   "settings",
   // --- Entity and pane kinds — the breadcrumb's kind glyph.
   "agent",
   "run",
   "approval",
   "artifact",
+  "workspace",
   "worktree",
   "repo",
-  "timeline",
+  "transcript",
   "terminal",
   "browser",
   "workflow",

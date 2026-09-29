@@ -6,7 +6,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ScreenContext, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
-import { TranscriptSurface } from "../TranscriptSurface.js";
+import { SessionScreenShell } from "../SessionScreenShell.js";
 
 /**
  * What the composition root supplies this feature, because this file may not import it.
@@ -85,7 +85,7 @@ function mountSessionScreen(
 ): ReactNode {
   const sessionId = routeSessionId(context.route);
   return createElement(
-    TranscriptSurface,
+    SessionScreenShell,
     null,
     // ABOVE the session screen body and never in place of it. The refused arm says the
     // position this session was last read up to could not be resolved and the log was

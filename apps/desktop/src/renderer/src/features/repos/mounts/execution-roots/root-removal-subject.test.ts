@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { rootRemovalSubjectFor } from "./root-removal-subject";
+import { rootRemovalSubjectFor } from "./root-removal-subject.js";
 
 const WORKTREE_ID = "9f2c4a10-0000-4000-8000-000000000020";
 

@@ -75,7 +75,7 @@ export class ScrollFrameWrites {
     }
     if (this.#frameCoordinator !== undefined) {
       throw new Error(
-        "LedgerScrollFrameWrites: a second frame coordinator was adopted; one controller writes inside one frame",
+        "ScrollFrameWrites: a second frame coordinator was adopted; one controller writes inside one frame",
       );
     }
     this.#frameCoordinator = frameCoordinator;
@@ -149,7 +149,7 @@ export class ScrollFrameWrites {
     if (existing !== undefined) {
       return existing;
     }
-    const taskKey = frameCoordinator.claimTaskKey(`ledger-scroll-${caller}`);
+    const taskKey = frameCoordinator.claimTaskKey(`transcript-scroll-${caller}`);
     this.#taskKeyByCaller.set(caller, taskKey);
     return taskKey;
   }

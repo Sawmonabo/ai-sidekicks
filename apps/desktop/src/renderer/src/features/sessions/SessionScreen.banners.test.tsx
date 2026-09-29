@@ -108,7 +108,7 @@ function renderRoutableSession(store: UiStateStore): {
 }
 
 function bannerRows(container: HTMLElement): readonly HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".meridian-workspace__banner")];
+  return [...container.querySelectorAll<HTMLElement>(".meridian-session-screen__banner")];
 }
 
 function rowCarrying(container: HTMLElement, text: string): HTMLElement {

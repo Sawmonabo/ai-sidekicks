@@ -154,10 +154,10 @@ describe("a linked inspector says which pane opened it", () => {
     const container = renderPane(
       { kind: "worktree", id: "worktree-1" },
       storeWithWorktree(),
-      "pane-ledger-2",
+      "pane-transcript-2",
     );
     const link = container.querySelector(".meridian-entity-record__link");
-    expect(link?.textContent).toContain("pane-ledger-2");
+    expect(link?.textContent).toContain("pane-transcript-2");
     expect(link?.textContent).toContain("Closing that pane does not close this one.");
   });
 

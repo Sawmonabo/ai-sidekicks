@@ -26,7 +26,7 @@ import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-di
  * the card vocabulary rather than about the window.
  */
 export const TRANSCRIPT_ROW_BOX_SELECTOR: string =
-  ".meridian-frame__surface .meridian-transcript-viewport__row";
+  ".meridian-frame__screen .meridian-transcript-viewport__row";
 
 /**
  * Wait for the transcript to have reconciled a row, then report its window.
@@ -46,12 +46,12 @@ export async function readTranscriptWindow(
   consoleApplication: AppUnderTest,
   sessionId: string,
 ): Promise<TranscriptWindowReading | null> {
-  const firstLedgerRow = consoleApplication.window.locator(TRANSCRIPT_ROW_BOX_SELECTOR).first();
+  const firstTranscriptRow = consoleApplication.window.locator(TRANSCRIPT_ROW_BOX_SELECTOR).first();
   try {
     // The allowance is spelled INSIDE the wait's own arguments rather than bound to a
     // local first: a hoisted local charges the allowance correctly and still reads as
     // a wait bounded by something else.
-    await firstLedgerRow.waitFor({
+    await firstTranscriptRow.waitFor({
       state: "attached",
       timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
     });
@@ -68,7 +68,7 @@ export async function readTranscriptWindow(
       const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
         globalName
       ];
-      return sessions === undefined ? null : sessions.ledgerWindowFor(targetSessionId);
+      return sessions === undefined ? null : sessions.transcriptWindowFor(targetSessionId);
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
   );

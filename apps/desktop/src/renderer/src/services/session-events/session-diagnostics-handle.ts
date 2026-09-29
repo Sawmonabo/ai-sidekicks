@@ -49,5 +49,5 @@ export interface SessionDiagnostics {
    * Not the binder's own state and deliberately not composed here: it is read from
    * the mounted viewport that registered it, through the floor's registry.
    */
-  ledgerWindowFor: (sessionId: string) => TranscriptWindowReading | null;
+  transcriptWindowFor: (sessionId: string) => TranscriptWindowReading | null;
 }

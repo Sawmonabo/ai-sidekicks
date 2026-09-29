@@ -279,7 +279,7 @@ describe("normalizeWireRejection — each member is read once", () => {
     // envelope arm used to read it again. A code that changes between the two
     // readings was classified on the second and rendered as a refusal the wire never
     // sent.
-    const refusal = normalizeWireRejection("ledger", envelopeAnsweringOnce());
+    const refusal = normalizeWireRejection("transcript", envelopeAnsweringOnce());
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("No such session.");
   });

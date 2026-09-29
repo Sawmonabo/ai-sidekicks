@@ -49,12 +49,12 @@ describe("pane registry — one owner per kind", () => {
 
   it("refuses a second owner rather than swapping", () => {
     const registry = new PaneRegistry();
-    registry.register(descriptor("transcript", "workspace-family"));
+    registry.register(descriptor("transcript", "transcript-family"));
     expect(() => {
       registry.register(descriptor("transcript", "second-owner"));
     }).toThrow(DuplicateRegistrationError);
     // The first owner keeps the kind: a refused claim must not have half-applied.
-    expect(registry.descriptorFor("transcript")?.owner).toBe("workspace-family");
+    expect(registry.descriptorFor("transcript")?.owner).toBe("transcript-family");
   });
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
@@ -166,9 +166,9 @@ describe("pane opener — a pane that opens another can name itself", () => {
 
   it("carries the source pane id through to the pane layout", () => {
     const { openPane, opens } = recordingOpener();
-    openPane(diffAddress, { linkedSourcePaneId: "pane-ledger-2" });
+    openPane(diffAddress, { linkedSourcePaneId: "pane-transcript-2" });
     expect(opens).toStrictEqual([
-      { address: diffAddress, link: { linkedSourcePaneId: "pane-ledger-2" } },
+      { address: diffAddress, link: { linkedSourcePaneId: "pane-transcript-2" } },
     ]);
   });
 

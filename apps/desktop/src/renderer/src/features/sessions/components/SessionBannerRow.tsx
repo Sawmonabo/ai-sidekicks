@@ -21,7 +21,7 @@ export function SessionBannerRow(props: {
 }): React.JSX.Element {
   const { refusal, repeatCount } = props.banner;
   return (
-    <div className="meridian-workspace__banner">
+    <div className="meridian-session-screen__banner">
       <RefusalBanner
         code={refusal.code}
         detail={refusal.detail}

@@ -12,7 +12,7 @@
 import { EVENT_ID_STEM } from "../../../../../fixtures/scenarios/transcript-states.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
-export const SESSION_ID = "session-ledger-feed";
+export const SESSION_ID = "session-transcript-feed";
 
 /**
  * The wire instant of the row at one log position — one second apart, from one epoch.

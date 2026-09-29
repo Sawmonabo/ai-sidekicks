@@ -587,7 +587,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         // acknowledged on its NEXT read, and a reply carrying only `latest` names
         // no position to submit. Behind `latest`, as a real one is — this
         // user has read most of the log and not all of it.
-        timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
+        timelineCursors: { latest: "transcript-cursor-33", acknowledged: "transcript-cursor-30" },
       },
     },
   ],

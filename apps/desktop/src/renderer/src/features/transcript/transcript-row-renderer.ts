@@ -1,6 +1,6 @@
 // The transcript row renderer: the one body every transcript row is drawn with.
 //
-// The transcript feature registers it (`contributions/timeline-rows.ts`, under
+// The transcript feature registers it (`contributions/transcript-rows.ts`, under
 // `TRANSCRIPT_ROW_OWNER`) and the transcript pane reads it back through
 // `findTranscriptRowRenderer`. It holds one renderer, owner-scoped: the same owner may
 // register again, which is what a hot reload does, and a different owner is refused by

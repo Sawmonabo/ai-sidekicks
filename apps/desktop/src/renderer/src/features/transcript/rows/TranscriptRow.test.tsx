@@ -19,7 +19,7 @@ import {
   registerTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,
 } from "../transcript-row-footer-renderer.js";
-import { TRANSCRIPT_ROW_OWNER, registerTranscriptRows } from "../contributions/timeline-rows.js";
+import { TRANSCRIPT_ROW_OWNER, registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 

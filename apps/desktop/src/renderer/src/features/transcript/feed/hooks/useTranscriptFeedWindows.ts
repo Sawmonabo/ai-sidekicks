@@ -72,7 +72,7 @@ export interface TranscriptFeedWindows {
   readonly unfurledWindow: TranscriptWindowModel;
   readonly runGroupFold: TranscriptPipelineStage;
   /** The last model window: folded by run group. */
-  readonly ledgerWindow: TranscriptWindowModel;
+  readonly transcriptWindow: TranscriptWindowModel;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
   /** What the viewport reconciled onto the screen, with both absences separable. */
@@ -97,7 +97,7 @@ export function useTranscriptFeedWindows(
     runGroupDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
-  const ledgerWindow = runGroupFold.window;
+  const transcriptWindow = runGroupFold.window;
   // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
   // publishes reaches a row through the frame's own channel; what it is DOING reaches
   // the viewport as the drain state, which used to be the literal `false` — a default
@@ -110,8 +110,8 @@ export function useTranscriptFeedWindows(
   const reveal = useReveal({ frameCoordinator });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
-    rows: ledgerWindow.viewportRows,
-    hasActiveTurn: ledgerWindow.hasActiveTurn,
+    rows: transcriptWindow.viewportRows,
+    hasActiveTurn: transcriptWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
   });
 
@@ -137,21 +137,22 @@ export function useTranscriptFeedWindows(
   const retireRevealLanes = reveal.retireLanes;
   useEffect(() => {
     retireRevealLanes(
-      (laneId) => !ledgerWindow.rowsByKey.has(laneId) || ledgerWindow.collapsedRowIds.has(laneId),
+      (laneId) =>
+        !transcriptWindow.rowsByKey.has(laneId) || transcriptWindow.collapsedRowIds.has(laneId),
     );
-  }, [retireRevealLanes, ledgerWindow]);
+  }, [retireRevealLanes, transcriptWindow]);
 
   // Read back off the viewport's own reconciled snapshot, so find is looking at the
   // window on screen rather than at the log behind it. What the cap took is the
   // difference between the two.
-  const visible = useVisibleTranscriptWindow(ledgerWindow, viewport.snapshot.rows);
+  const visible = useVisibleTranscriptWindow(transcriptWindow, viewport.snapshot.rows);
 
   return {
     firstReadSettled,
     runGroupDisclosure,
     unfurledWindow,
     runGroupFold,
-    ledgerWindow,
+    transcriptWindow,
     reveal,
     viewport,
     visible,

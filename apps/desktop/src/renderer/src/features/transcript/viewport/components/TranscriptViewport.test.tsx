@@ -66,7 +66,7 @@ interface BindingHolder {
   binding: TranscriptViewportBinding | undefined;
 }
 
-interface BoundLedgerViewportProps {
+interface BoundTranscriptViewportProps {
   readonly clock: Clock;
   readonly rows: readonly ViewportRow[];
   readonly renderRow: (row: ViewportRow) => React.ReactNode;
@@ -87,7 +87,7 @@ interface BoundLedgerViewportProps {
  * property under test — so a case that rendered it bare would be asserting against
  * a component that cannot be rendered at all.
  */
-function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element {
+function BoundTranscriptViewport(props: BoundTranscriptViewportProps): React.JSX.Element {
   const binding = useTranscriptViewport({
     clock: props.clock,
     rows: props.rows,
@@ -137,7 +137,7 @@ function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
     holder.binding = detachedBinding;
   });
   return (
-    <BoundLedgerViewport
+    <BoundTranscriptViewport
       clock={props.clock}
       rows={props.rows}
       renderRow={renderRow}
@@ -166,7 +166,7 @@ describe("the transcript viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
     withLaidOutViewport();
     const { container } = render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={syntheticRows(LONG_LOG_ROW_COUNT)}
         renderRow={renderRow}
@@ -187,7 +187,7 @@ describe("the transcript viewport — the feed", () => {
     withLaidOutViewport();
     const rows = syntheticRows(LONG_LOG_ROW_COUNT);
     const { container } = render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
@@ -206,7 +206,7 @@ describe("the transcript viewport — the feed", () => {
 
   it("teaches rather than blames when the session has done nothing yet", () => {
     render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
@@ -221,7 +221,7 @@ describe("the transcript viewport — the feed", () => {
     // rendered above them said the session was empty at the one moment nobody could
     // know that — two statements about one screen, and this is the false one.
     render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
@@ -237,7 +237,7 @@ describe("the transcript viewport — the feed", () => {
     // a settled read over an empty log is exactly when the sentence is true, and a
     // window that stayed silent then would leave a genuinely empty session blank.
     const { rerender } = render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
@@ -246,7 +246,7 @@ describe("the transcript viewport — the feed", () => {
       />,
     );
     rerender(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
@@ -261,7 +261,7 @@ describe("the transcript viewport — the feed", () => {
     withLaidOutViewport();
     const clock = new ManualClock();
     render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={clock}
         rows={syntheticRows(20)}
         renderRow={renderRow}
@@ -279,7 +279,7 @@ describe("the transcript viewport — the feed", () => {
   it("renders the ranked error slot above the feed", () => {
     withLaidOutViewport();
     render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={syntheticRows(4)}
         renderRow={renderRow}
@@ -306,7 +306,7 @@ describe("the transcript viewport — the feed", () => {
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },
     ];
     const { container } = render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
@@ -325,7 +325,7 @@ describe("the transcript viewport — the feed", () => {
     withScrollableContent();
     const holder: BindingHolder = { binding: undefined };
     const { container } = render(
-      <BoundLedgerViewport
+      <BoundTranscriptViewport
         clock={new ManualClock()}
         rows={syntheticRows(LONG_LOG_ROW_COUNT)}
         renderRow={renderRow}
@@ -347,7 +347,7 @@ describe("the transcript viewport — the feed", () => {
 
   it("negative control: a binding the viewport was not handed scrolls nothing", () => {
     // The assertion above is only worth having if an unattached binding is visibly
-    // inert — which is exactly what a second `useLedgerViewport` beside the tree is.
+    // inert — which is exactly what a second `useTranscriptViewport` beside the tree is.
     withLaidOutViewport();
     withScrollableContent();
     const detachedHolder: BindingHolder = { binding: undefined };

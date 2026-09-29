@@ -19,7 +19,7 @@ export interface TranscriptJumpReach {
  * readings the folded arm consults, in one value, because the table below is keyed by
  * absence and cannot take an argument list per arm.
  */
-interface LedgerJumpActContext {
+interface TranscriptJumpActContext {
   readonly foldedWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   /** Open the shut run group holding this row, so the jump that follows can land. */
@@ -28,9 +28,9 @@ interface LedgerJumpActContext {
 }
 
 /** How one absence resolves its act, or answers that this transcript offers none. */
-type LedgerJumpAct = (
+type TranscriptJumpAct = (
   row: TimelineRow,
-  context: LedgerJumpActContext,
+  context: TranscriptJumpActContext,
 ) => TranscriptJumpReach | undefined;
 
 /**
@@ -66,7 +66,7 @@ const JUMP_ACTS = {
     };
   },
   "outside-window": () => undefined,
-} satisfies Readonly<Record<RowJumpAbsence, LedgerJumpAct>>;
+} satisfies Readonly<Record<RowJumpAbsence, TranscriptJumpAct>>;
 
 /**
  * The act this transcript offers for one outcome, or `undefined` where it offers none.

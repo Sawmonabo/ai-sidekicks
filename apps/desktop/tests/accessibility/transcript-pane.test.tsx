@@ -20,7 +20,7 @@
 //
 // Everything else is the real composition: the real `SessionStore`, the real
 // projection, the real `@tanstack/react-virtual` instance, the real card family
-// through the seat the console actually registers, and the same `TranscriptSurface`
+// through the seat the console actually registers, and the same `SessionScreenShell`
 // wrapper the session screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
@@ -44,7 +44,7 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.
-import { registerTranscriptRows } from "@renderer/features/transcript/contributions/timeline-rows.js";
+import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
 import {
   TranscriptPane,
   type TranscriptPaneContext,
@@ -53,7 +53,7 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
-import { TranscriptSurface } from "@renderer/features/transcript/TranscriptSurface.js";
+import { SessionScreenShell } from "@renderer/features/transcript/SessionScreenShell.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
@@ -76,10 +76,13 @@ const SCENARIO_BASE_CURSOR = 0;
  * building it to satisfy a field nothing reads would make the setup the subject.
  * (The bridge the transcript DOES read is the provider's, one level up, which is real.)
  */
-function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TranscriptPaneContext {
+function transcriptPaneContext(
+  sessionId: string,
+  sessionStore: SessionStore,
+): TranscriptPaneContext {
   return {
     kind: "transcript",
-    paneId: "ledger-timeline",
+    paneId: "transcript-pane",
     frameStore: new WindowStore({ initialRoute: { kind: "session", sessionId } }),
     sessionStore,
     focusHue: undefined,
@@ -110,17 +113,17 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 /**
  * Mount one scenario's transcript the way a window mounts it.
  *
- * `TranscriptSurface` is the production wrapper around the session screen, and it is
+ * `SessionScreenShell` is the production wrapper around the session screen, and it is
  * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */
-async function mountLedger(scenario: Scenario): Promise<HTMLElement> {
+async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={createFixtureBridge({ scenario })}>
-      <TranscriptSurface>
-        <TranscriptPane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
-      </TranscriptSurface>
+      <SessionScreenShell>
+        <TranscriptPane context={transcriptPaneContext(scenario.sessionId, sessionStore)} />
+      </SessionScreenShell>
     </PlatformBridgeProvider>,
   );
   return container;
@@ -147,7 +150,7 @@ describe("accessibility — the transcript", () => {
       // case's reasoning: the scheme attribute has an owner, and a test that wrote
       // it would have both cases silently measured against one palette.
       await emulateSystemScheme(scheme);
-      const container = await mountLedger(TRANSCRIPT_STATES_SCENARIO);
+      const container = await mountTranscript(TRANSCRIPT_STATES_SCENARIO);
 
       // The positive control for the whole case, and it is not a formality: axe over
       // a feed that mounted no rows returns the same empty violation list as axe over
@@ -163,7 +166,7 @@ describe("accessibility — the transcript", () => {
 
     it(`has no axe violation over the transcript's empty state in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
-      const container = await mountLedger(EMPTY_SESSION_SCENARIO);
+      const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 
       // The same control from the other side: this case is only about the empty
       // state if the surface actually reached it, and a scenario that had grown a
@@ -180,7 +183,7 @@ describe("accessibility — the transcript", () => {
     // run scoped to the wrong root, given the wrong tags, or swallowing an exception
     // returns exactly the same nothing as a clean one, and planting within the
     // container proves the run reaches the subtree the cases above assert over.
-    const container = await mountLedger(TRANSCRIPT_STATES_SCENARIO);
+    const container = await mountTranscript(TRANSCRIPT_STATES_SCENARIO);
     const planted = document.createElement("div");
     planted.innerHTML = '<img src="data:," />';
     container.append(planted);

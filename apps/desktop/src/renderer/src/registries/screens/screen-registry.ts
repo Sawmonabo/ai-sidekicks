@@ -71,11 +71,11 @@ export interface ScreenDescriptor {
  * console opens on is the flagship first paint and keeps `render`.
  */
 export type ScreenRegistration =
-  | (ConsoleSurfaceRegistrationBase & {
+  | (ScreenRegistrationBase & {
       readonly render: (context: ScreenContext) => React.ReactNode;
       readonly body?: never;
     })
-  | (ConsoleSurfaceRegistrationBase & {
+  | (ScreenRegistrationBase & {
       readonly body: LazyBodyLoader<ScreenContext>;
       readonly render?: never;
     });
@@ -163,7 +163,7 @@ export class ScreenRegistry {
 }
 
 /** What every registration carries, whichever form it takes. */
-interface ConsoleSurfaceRegistrationBase {
+interface ScreenRegistrationBase {
   readonly slot: ScreenName;
   readonly owner: string;
 }

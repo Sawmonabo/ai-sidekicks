@@ -45,7 +45,7 @@ describe("reading a drag payload", () => {
   it("negative control: somebody else's draggable is not a pane drag", () => {
     // Without this the pane layout's monitor would act on every element drag on the page,
     // including a transcript row somebody made draggable later.
-    expect(paneIdFromDragData({ ledgerRowId: "row-9" })).toBeUndefined();
+    expect(paneIdFromDragData({ transcriptRowId: "row-9" })).toBeUndefined();
     expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: 7 })).toBeUndefined();
   });
 });

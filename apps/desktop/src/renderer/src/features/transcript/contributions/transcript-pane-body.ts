@@ -23,7 +23,7 @@
 import { createElement } from "react";
 
 import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
-import { registerTranscriptRows } from "./timeline-rows.js";
+import { registerTranscriptRows } from "./transcript-rows.js";
 import { TranscriptPane } from "../TranscriptPane.js";
 
 import "../rows/rows.css";

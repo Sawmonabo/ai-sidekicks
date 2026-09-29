@@ -55,9 +55,9 @@ describe("composing rows", () => {
       shippedBindings: bindings,
       platform: "darwin",
     });
-    const workspace = rows.find((row) => row.commandId === "frame.goToWorkflows");
-    expect(workspace?.chord).toBe("$mod+2");
-    expect(workspace?.whenExpression).toBe("sessionActive");
+    const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
+    expect(workflows?.chord).toBe("$mod+2");
+    expect(workflows?.whenExpression).toBe("sessionActive");
   });
 
   it("leaves a command with no binding without a chord rather than inventing one", () => {

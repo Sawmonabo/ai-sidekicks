@@ -18,9 +18,9 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller";
-import { useRootRemoval } from "./hooks/useRootRemoval";
-import { rootRemovalSubjectFor } from "./root-removal-subject";
+import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
+import { useRootRemoval } from "./hooks/useRootRemoval.js";
+import { rootRemovalSubjectFor } from "./root-removal-subject.js";
 
 /** What the control says. */
 const REMOVAL_LABEL = "Remove";

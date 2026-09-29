@@ -13,7 +13,7 @@
  * no ceiling the pane layout took the height of whatever its panes wanted, so a pane whose
  * body overflowed pushed the pane layout past the session screen region and the pane's own
  * scroller never engaged — the surface below it laid out in full, off the bottom of
- * the window, and every list inside it mounted every row it held. `.meridian-transcript-surface`
+ * the window, and every list inside it mounted every row it held. `.meridian-session-screen-shell`
  * carries the same ceiling one level up, and its rule states the measurement.
  *
  * A CEILING AND NOT A `height`: the two agree wherever the pane layout overflows and differ

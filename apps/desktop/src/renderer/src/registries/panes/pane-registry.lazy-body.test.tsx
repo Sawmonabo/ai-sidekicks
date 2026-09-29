@@ -49,7 +49,7 @@ describe("the pane layout's board — a loader-form registration", () => {
       owner: "repos-family",
       body: countingLoader(() => null).load,
     });
-    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "transcript-family", render: () => null });
     // Nothing downstream of `descriptorFor` branches on how the body was registered, so
     // the two forms have to be indistinguishable HERE or every mount site learns to ask.
     expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "diff"]);
@@ -222,7 +222,7 @@ describe("the pane layout's board — one fetch per registration", () => {
     // A caller preloading an address it has not opened must not have to ask first
     // whether the kind is loader-backed, or every call site carries that question.
     const registry = new PaneRegistry();
-    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "transcript-family", render: () => null });
     await expect(registry.preload("transcript")).resolves.toBeUndefined();
     await expect(registry.preload("workflow-builder")).resolves.toBeUndefined();
   });
@@ -239,7 +239,7 @@ describe("the pane layout's board — what the warm walk is offered", () => {
       owner: "agents-family",
       body: countingLoader<PaneContext>(() => null).load,
     });
-    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "transcript-family", render: () => null });
     registry.register({
       kind: "diff",
       owner: "repos-family",
@@ -263,7 +263,7 @@ describe("the pane layout's board — what the warm walk is offered", () => {
 
   it("negative control: a board of component-form bodies offers the walk nothing", () => {
     const registry = new PaneRegistry();
-    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "transcript-family", render: () => null });
     expect(registry.registeredPaneKinds()).toStrictEqual(["transcript"]);
     expect(registry.unloadedKeys()).toStrictEqual([]);
   });

@@ -15,7 +15,7 @@ import {
   type TranscriptPaneProps,
 } from "./TranscriptPane.js";
 
-export const TRANSCRIPT_PANE_SESSION_ID = "session-ledger";
+export const TRANSCRIPT_PANE_SESSION_ID = "session-transcript";
 
 /**
  * The pane context, with the members this component reads real and the rest cast.
@@ -39,7 +39,7 @@ export function paneContext(
   // is scoped to the session rather than to one of its entities.
   return {
     kind: "transcript",
-    paneId: "ledger-timeline",
+    paneId: "transcript-pane",
     frameStore: new WindowStore({
       initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "session", sessionId },
     }),

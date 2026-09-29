@@ -38,8 +38,8 @@ const SEAT_ROW = ".meridian-transcript-viewport__row";
 function outsideTranscriptRowProps(): TranscriptRowProps {
   return {
     row: {
-      id: "row-with-no-ledger",
-      sessionId: "session-ledger-feed" as TranscriptRowProps["row"]["sessionId"],
+      id: "row-with-no-transcript",
+      sessionId: "session-transcript-feed" as TranscriptRowProps["row"]["sessionId"],
       sequence: 0,
       category: "session_lifecycle",
       kind: "general",

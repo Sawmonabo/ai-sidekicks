@@ -83,7 +83,7 @@ async function renderSessionScreen(input: {
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
   const surfaces = new ScreenRegistry();
   registerTranscriptScreens(surfaces, {
-    sessionScreen: () => <div data-testid="workspace-body" />,
+    sessionScreen: () => <div data-testid="session-screen-body" />,
   });
   const descriptor = surfaces.descriptorFor("session");
   if (descriptor === undefined) {
@@ -180,7 +180,7 @@ describe("the session screen renders the refused resume position", () => {
       refreshes: 2,
     });
 
-    expect(screen.getByTestId("workspace-body")).toBeTruthy();
+    expect(screen.getByTestId("session-screen-body")).toBeTruthy();
   });
 
   it("clears once a later read settles a position of its own", async () => {
