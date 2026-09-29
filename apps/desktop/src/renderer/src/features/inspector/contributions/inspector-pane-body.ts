@@ -1,10 +1,10 @@
 // The inspector pane's body, as the registry loads it, and the root of its chunk.
 //
-// A LOADER-BACKED BODY, on the runs pane's reasoning: the inspector opens from a
-// control and from an address, so its readers, its sections, and its stylesheet ride
+// A LOADER-BACKED BODY: the inspector is not on the first paint — it opens from a
+// control and from an address — so its readers, its sections, and its stylesheet ride
 // behind the boundary rather than on the initial import graph.
 //
-// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because that is the export name the lazy body loader resolves.
 
 import { createElement } from "react";
 

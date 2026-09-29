@@ -46,7 +46,7 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
   // row reads the run list, the comparand source, and the dispatcher through
   // this at invoke time, and a render-body write would let a concurrent pass React
   // throws away — one composed against another session's runs, another bridge's
-  // surface — leave the row on screen dispatching through what that discarded pass
+  // dispatch state — leave the row on screen dispatching through what that discarded pass
   // saw, latch and all.
   const inputRef = useLatestRef(input);
 

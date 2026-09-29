@@ -1,6 +1,6 @@
 // The `BrowserWindow` stand-in the one `electron` mock hands to production code.
 //
-// SPLIT FROM `./electron-mock.ts`, which owns the `electron` module surface itself —
+// SPLIT FROM `./electron-mock.ts`, which owns the `electron` module itself —
 // `app`, `Menu`, `ipcMain`, `protocol`, the operation log. This file owns one window:
 // what a test can read off it, and what it does when the code under test loads a URL,
 // focuses it, or destroys it. The mock composes this; nothing else constructs one.
@@ -19,7 +19,7 @@ export interface MockBrowserWindowOptions {
   readonly webPreferences: Record<string, unknown>;
 }
 
-/** The `webContents` surface the main process actually touches. */
+/** The `webContents` members the main process actually touches. */
 export interface MockWebContents {
   readonly id: number;
   /**
@@ -81,7 +81,7 @@ export interface MockBrowserWindow {
  * or the `ipcMain` registry from inside a window, which is the coupling this split
  * exists to remove.
  */
-export interface MockWindowHost {
+export interface MockWindowOwner {
   record(operation: string): void;
   recordConstruction(browserWindow: MockBrowserWindow): void;
   mintWindowId(): number;
@@ -103,10 +103,10 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
   #focusCount = 0;
   #closeCount = 0;
   #destroyed = false;
-  readonly #mock: MockWindowHost;
+  readonly #mock: MockWindowOwner;
 
   public constructor(
-    mock: MockWindowHost,
+    mock: MockWindowOwner,
     public readonly options: MockBrowserWindowOptions,
   ) {
     this.#mock = mock;

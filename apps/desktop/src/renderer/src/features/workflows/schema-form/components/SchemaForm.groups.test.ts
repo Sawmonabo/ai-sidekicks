@@ -15,7 +15,11 @@
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { composedAnswer, renderForm, reportedIssueTexts } from "./SchemaFormHost.test-support.js";
+import {
+  composedAnswer,
+  renderForm,
+  reportedIssueTexts,
+} from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 

@@ -1,4 +1,4 @@
-// The drop-slot translation, exercised in the direction that is easy to get wrong.
+// The drop-position translation, exercised in the direction that is easy to get wrong.
 //
 // The rightward case is the whole reason `pageMoveIndex` exists, so the cases below
 // walk a four-tab strip rather than asserting one number: a subtraction applied in
@@ -38,33 +38,33 @@ function dragTransfer(): DataTransfer {
   return new DataTransfer();
 }
 
-describe("the tab drop-slot translation", () => {
+describe("the tab drop-position translation", () => {
   it("moves a tab rightward to the place it was dropped", () => {
-    // `alpha` (index 0) dropped in the slot between `gamma` and `delta` (slot 3).
+    // `alpha` (index 0) dropped between `gamma` and `delta` (drop position 3).
     const moveIndex = pageMoveIndex(0, 3);
     expect(moveIndex).toBe(2);
     expect(reorderPages(0, 2)).toStrictEqual(["beta", "gamma", "alpha", "delta"]);
   });
 
   it("moves a tab leftward without subtracting", () => {
-    // `delta` (index 3) dropped in the slot between `alpha` and `beta` (slot 1).
+    // `delta` (index 3) dropped between `alpha` and `beta` (drop position 1).
     const moveIndex = pageMoveIndex(3, 1);
     expect(moveIndex).toBe(1);
     expect(reorderPages(3, 1)).toStrictEqual(["alpha", "delta", "beta", "gamma"]);
   });
 
-  it("reaches the last position through the trailing slot", () => {
+  it("reaches the last position through the trailing drop position", () => {
     const moveIndex = pageMoveIndex(0, PAGES.length);
     expect(moveIndex).toBe(PAGES.length - 1);
     expect(reorderPages(0, PAGES.length - 1)).toStrictEqual(["beta", "gamma", "delta", "alpha"]);
   });
 
-  it("answers nothing for a drop in the tab's own slot", () => {
+  it("answers nothing for a drop at the tab's own position", () => {
     expect(pageMoveIndex(2, 2)).toBeUndefined();
   });
 
-  it("answers nothing for a drop in the slot immediately after the tab", () => {
-    // Slot 3 for the tab at index 2 names the position it already occupies, and the
+  it("answers nothing for a drop at the position immediately after the tab", () => {
+    // Drop position 3 for the tab at index 2 names the position it already occupies, and the
     // subtraction is what reveals that — the negative control for the case above.
     expect(pageMoveIndex(2, 3)).toBeUndefined();
   });

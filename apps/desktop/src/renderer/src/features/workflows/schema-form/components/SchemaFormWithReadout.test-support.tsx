@@ -2,7 +2,7 @@
 //
 // HOISTED ON THE SECOND SUITE, not written twice, and READ BY EVERY ONE SINCE — the three
 // that split out of `SchemaForm.test.tsx` (the leaf controls, the group fieldset, and
-// where a description and a finding are attached), the collection surface's, and the raw
+// where a description and a finding are attached), the collection field list's, and the raw
 // editor's. A count of them is deliberately not written here: the number moves every time
 // a cluster earns its own file, which is the one thing this module is indifferent to. What
 // each of them needs is the same thing — one schema, mounted through the real hook, with
@@ -17,10 +17,10 @@ import { resolveSchemaValidatorCompiler } from "../hooks/useSchemaForm.test-supp
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm } from "../hooks/useSchemaForm.js";
 
-/** Where the host below writes the answer the controls composed, for a case to read. */
+/** Where the form below writes the answer the controls composed, for a case to read. */
 const COMPOSED_ANSWER_CLASS = "composed-answer";
 
-/** Where the host writes what the schema actually said, so a case can walk the report. */
+/** Where the form writes what the schema actually said, so a case can walk the report. */
 const REPORTED_ISSUES_CLASS = "reported-issues";
 
 /**
@@ -35,7 +35,7 @@ const REPORTED_ISSUES_CLASS = "reported-issues";
  * case that listed the expected sentences by hand would pass over a report that had grown
  * a fourth one nothing drew.
  */
-export function SchemaFormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
+export function SchemaFormWithReadout(props: { readonly inputSchema: unknown }): React.JSX.Element {
   const form = useSchemaForm(props.inputSchema);
   return (
     <>
@@ -64,7 +64,7 @@ export function SchemaFormHost(props: { readonly inputSchema: unknown }): React.
  */
 export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
   await resolveSchemaValidatorCompiler();
-  const { container } = render(<SchemaFormHost inputSchema={inputSchema} />);
+  const { container } = render(<SchemaFormWithReadout inputSchema={inputSchema} />);
   await settle();
   return container;
 }

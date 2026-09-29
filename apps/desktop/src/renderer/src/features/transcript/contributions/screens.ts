@@ -1,5 +1,5 @@
-// The session screen: the session header, the pane layout, and the
-// composer's seat, which the composition root hands in.
+// The session screen's registration: the session header, the pane layout and the
+// composer, in the session screen component the composition root hands in.
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
@@ -16,8 +16,8 @@ import { SessionScreenShell } from "../SessionScreenShell.js";
  * sits above every feature and is the one place allowed to name more than one.
  *
  * The COMPONENT rather than a built element: which component mounts is the root's
- * decision, and what it is handed is this file's — the surface context exists only when
- * the slot renders, which is long after the root registered it.
+ * decision, and what it is handed is this file's — the screen context exists only when
+ * the screen renders, which is long after the root registered it.
  */
 export interface TranscriptComposition {
   readonly sessionScreen: ComponentType<SessionScreenMountProps>;
@@ -36,7 +36,7 @@ export function registerTranscriptScreens(
   composition: TranscriptComposition,
 ): void {
   registry.register({
-    slot: "session",
+    name: "session",
     owner: TRANSCRIPT_OWNER,
     render: (context) => mountSessionScreen(context, composition.sessionScreen),
   });
@@ -53,9 +53,9 @@ export function registerTranscriptScreens(
 export const TRANSCRIPT_OWNER = "transcript";
 
 /**
- * What the session screen slot hands its body.
+ * What the session screen hands its body.
  *
- * Derived from the surface context rather than restated, so a member added there is
+ * Derived from the screen context rather than restated, so a member added there is
  * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
  * subtracted because the session screen renders ONE session — a screen that has to offer
  * sessions reads the registry, and this one is handed the session it is a view of — and
@@ -64,7 +64,7 @@ export const TRANSCRIPT_OWNER = "transcript";
 type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
- * Mount the session screen: the session header, the pane layout, and the composer's seat.
+ * Mount the session screen: the session header, the pane layout, and the composer.
  *
  * The wrapper keeps the screen's full-height grid, which is what lets the pane layout
  * inside it be the thing that scrolls rather than the window.
@@ -89,8 +89,8 @@ function mountSessionScreen(
     null,
     // ABOVE the session screen body and never in place of it. The refused arm says the
     // position this session was last read up to could not be resolved and the log was
-    // re-read from the beginning of its window, which the surface below is unaffected
-    // by: the store projects, the subscription tails, and what was lost is a remembered
+    // re-read from the beginning of its window, which the session screen body below is
+    // unaffected by: the store projects, the subscription tails, and what was lost is a remembered
     // place. The component is conditional rather than its hooks, which is the only
     // shape React allows for a reading whose session id may not exist.
     sessionId === undefined

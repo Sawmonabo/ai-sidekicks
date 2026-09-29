@@ -7,7 +7,7 @@ import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import {
   elementWithRect,
   moveElementRect,
-  RecordingViewHost,
+  RecordingPageHost,
   rect,
 } from "./geometry-publisher.test-support.js";
 
@@ -23,27 +23,27 @@ describe("PaneGeometryPublisher — the size source", () => {
     vi.unstubAllGlobals();
   });
 
-  function publisherOverRecordingHost(): {
+  function publisherOverRecordingPageHost(): {
     readonly publisher: PaneGeometryPublisher;
     readonly clock: ManualClock;
-    readonly host: RecordingViewHost;
+    readonly pageHost: RecordingPageHost;
   } {
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     return {
-      host,
+      pageHost,
       clock,
       publisher: new PaneGeometryPublisher({
-        host,
+        pageHost,
         clock,
         occlusion: new AirspaceRegistry(),
       }),
     };
   }
 
-  it("resamples on a size delivery for its own host, and disconnects on dispose", () => {
+  it("resamples on a size delivery for its own host element, and disconnects on dispose", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { publisher, clock, host } = publisherOverRecordingHost();
+    const { publisher, clock, pageHost } = publisherOverRecordingPageHost();
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
     publisher.observe(hostElement);
     clock.runFrame();
@@ -54,8 +54,8 @@ describe("PaneGeometryPublisher — the size source", () => {
     clock.runFrame();
 
     expect(publisher.publishCount).toBe(2);
-    expect(host.samples.at(-1)?.reason).toBe("resize-observer");
-    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(0, 0, 100, 240));
+    expect(pageHost.samples.at(-1)?.reason).toBe("resize-observer");
+    expect(pageHost.samples.at(-1)?.rect).toStrictEqual(rect(0, 0, 100, 240));
 
     publisher.dispose();
     expect(resizeObserver.liveObserverCount()).toBe(0);
@@ -67,7 +67,7 @@ describe("PaneGeometryPublisher — the size source", () => {
     // never comes — rather than throwing inside `observe` and leaving the pane
     // publishing nothing at all.
     vi.stubGlobal("ResizeObserver", undefined);
-    const { publisher, clock } = publisherOverRecordingHost();
+    const { publisher, clock } = publisherOverRecordingPageHost();
 
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();

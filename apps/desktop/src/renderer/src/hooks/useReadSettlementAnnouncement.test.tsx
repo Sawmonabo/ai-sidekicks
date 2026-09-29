@@ -18,36 +18,36 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
    * opens with an absent sentence would fix the whole render at `undefined` and reject
    * the string its second pass supplies — which is the pass the case exists to make.
    */
-  interface SettlementSurfaceProps {
+  interface SettlementAnnouncementProps {
     readonly settlement: AnnouncementDedupeKey | undefined;
     readonly sentence: string | undefined;
   }
 
-  function SettlementSurface(props: SettlementSurfaceProps): null {
+  function SettlementAnnouncement(props: SettlementAnnouncementProps): null {
     useReadSettlementAnnouncement(props.settlement, props.sentence);
     return null;
   }
 
   /** The same words through the SENTENCE-keyed arity, which is the foil below. */
-  function SentenceKeyedSurface(props: { readonly sentence: string | undefined }): null {
+  function SentenceKeyedAnnouncement(props: { readonly sentence: string | undefined }): null {
     useSettlementAnnouncement(props.sentence);
     return null;
   }
 
   it("speaks the settlement it was handed, in the polite lane", () => {
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement: { read: "definitions" },
       sentence: IDENTICAL_SENTENCE,
     });
     expect(announced.polite()).toBe(IDENTICAL_SENTENCE);
     // The interrupting lane belongs to a refusal that changed what the whole room can
-    // do; a surface finishing its own read is news for the person reading it.
+    // do; a view finishing its own read is news for the person reading it.
     expect(announced.assertive()).toBe("");
   });
 
   it("says nothing a second time for the settlement it already spoke", () => {
     const settlement = { read: "definitions" };
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement,
       sentence: IDENTICAL_SENTENCE,
     });
@@ -60,10 +60,10 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
   });
 
   it("speaks a second settlement that says exactly the same words", () => {
-    // The case the family wrote its own latch for, and the reason the key is not the
+    // The case the settlement-keyed latch exists for, and the reason the key is not the
     // sentence: two sessions holding the same number of rows say the same words, and
-    // the second one landing in silence is a surface that told nobody it had changed.
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    // the second one landing in silence is a view that told nobody it had changed.
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement: { read: "definitions" },
       sentence: IDENTICAL_SENTENCE,
     });
@@ -76,7 +76,7 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
     // Without this the case above could hold because the announcer republishes anything
     // after its hold, rather than because the key decided it. Same two passes, same two
     // settlements, same words — and the arity that counts by the sentence says nothing.
-    const announced = renderThroughAnnouncer(SentenceKeyedSurface, {
+    const announced = renderThroughAnnouncer(SentenceKeyedAnnouncement, {
       sentence: IDENTICAL_SENTENCE,
     });
     announced.settle();
@@ -87,7 +87,7 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
   it("counts a settled VALUE by its identity too, so a scope change speaks", () => {
     // Not every settlement is an object: the scope this arity was first spent on is a
     // session id, and a different string is a different scope.
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement: "session-a",
       sentence: "Workflows scoped to session session-a.",
     });
@@ -104,7 +104,7 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
     // A read that has not settled makes no claim, and holding the settlement as spoken
     // before it had a sentence would skip that settlement forever.
     const settlement = { read: "runs" };
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement,
       sentence: undefined,
     });
@@ -116,7 +116,7 @@ describe("useReadSettlementAnnouncement — once per settlement, not once per se
   it("says nothing for a settlement with no identity to count it by", () => {
     // The scope arm that has settled on no session. Every caller composes no sentence
     // there either, and a sentence said under no identity would speak on every pass.
-    const announced = renderThroughAnnouncer<SettlementSurfaceProps>(SettlementSurface, {
+    const announced = renderThroughAnnouncer<SettlementAnnouncementProps>(SettlementAnnouncement, {
       settlement: undefined,
       sentence: undefined,
     });

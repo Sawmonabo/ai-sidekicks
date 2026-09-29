@@ -77,27 +77,27 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
 }
 
 /**
- * The owner string this family's command contribution carries.
+ * The owner string the transcript's command contribution carries.
  *
- * The same string its surface and pane claims carry, and for the same reason: the
- * contribution door is owner-scoped, so composing twice — a hot reload, a second
- * test — replaces this family's rows instead of raising on their ids.
+ * The same string its screen and pane claims carry, and for the same reason: the
+ * command registry is owner-scoped, so composing twice — a hot reload, a second
+ * test — replaces the transcript's rows instead of raising on their ids.
  */
 export const TRANSCRIPT_COMMAND_OWNER = "transcript";
 
 /**
  * Contribute the transcript's commands and chords to a window.
  *
- * Takes the surface rather than reaching for the module-scope one, so a test contributes
- * into a surface it owns.
+ * Takes the registry rather than reaching for the module-scope one, so a test contributes
+ * into a registry it owns.
  */
 export function registerTranscriptCommands(
-  surface: CommandContributionRegistry,
-  seat: MountedTranscript = mountedTranscript,
+  registry: CommandContributionRegistry,
+  transcript: MountedTranscript = mountedTranscript,
 ): void {
-  surface.contribute({
+  registry.contribute({
     owner: TRANSCRIPT_COMMAND_OWNER,
-    commands: createTranscriptCommands(actsOnTheMountedTranscript(seat)),
+    commands: createTranscriptCommands(actsOnTheMountedTranscript(transcript)),
     keyBindings: TRANSCRIPT_KEY_BINDINGS,
   });
 }
@@ -106,12 +106,12 @@ export function registerTranscriptCommands(
  * The act set every contributed command runs through.
  *
  * Written out rather than derived from a name list, so an act added to
- * `TranscriptActs` fails to compile here, at the seat's forwarder and at the feed's
+ * `TranscriptActs` fails to compile here, at `MountedTranscript`'s forwarder and at the feed's
  * builder together, instead of being contributed as a command that reaches nothing.
  */
-function actsOnTheMountedTranscript(seat: MountedTranscript): TranscriptActs {
+function actsOnTheMountedTranscript(transcript: MountedTranscript): TranscriptActs {
   const perform = (act: TranscriptActName): void => {
-    performOnMountedTranscript(seat, act);
+    performOnMountedTranscript(transcript, act);
   };
   return {
     openFind: () => {
@@ -135,11 +135,11 @@ function actsOnTheMountedTranscript(seat: MountedTranscript): TranscriptActs {
 /**
  * Perform one act, and state the refusal where a person can see it.
  *
- * The banner is the only rendering available to an act with no surface of its own,
- * which is what a transcript command pressed from a window with no transcript is.
+ * The banner is the only place a transcript command pressed from a window with no
+ * transcript can say so, since no transcript is on screen to show it.
  */
-function performOnMountedTranscript(seat: MountedTranscript, act: TranscriptActName): void {
-  const outcome = seat.perform(act);
+function performOnMountedTranscript(transcript: MountedTranscript, act: TranscriptActName): void {
+  const outcome = transcript.perform(act);
   if (outcome.status === "refused") {
     raiseCommandRefusal(outcome.refusal);
   }

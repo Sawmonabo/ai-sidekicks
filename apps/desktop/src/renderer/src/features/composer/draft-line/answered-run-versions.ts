@@ -22,11 +22,12 @@
 // the router refuses to dispatch rather than sending a zero, which would be a
 // stale-replay guard the caller supplied instead of one the daemon verified.
 //
-// THE SAME RULE IS ENFORCED BY THE RUNS PANE'S OWN DISPATCHER over its six controls.
+// THE SAME RULE IS ENFORCED BY THE RUN CONTROLS' OWN DISPATCHER over its controls.
 // It lives in that class's private state and is reachable from nowhere else, and
 // constructing that class here would give the composer a second idempotency-key
 // source and a second refusal vocabulary for one wire method — so this holds the
-// composer's comparands, and the two surfaces guard their own calls.
+// composer's comparands, and the composer and the run controls each guard their own
+// calls.
 
 export class AnsweredRunVersions {
   readonly #answeredByRunId = new Map<string, number>();

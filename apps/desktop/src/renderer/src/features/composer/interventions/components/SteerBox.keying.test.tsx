@@ -2,9 +2,9 @@
 //
 // Split from the comparand's own cases because the premise is different: every case
 // here re-targets or re-keys a form while a send is still open, so the subject is the
-// IDENTITY the surface holds its records under rather than the version it sent. A
-// composer that carried one run's draft into another, or recorded a dispatch the
-// surface never admitted, would be wrong here and nowhere else.
+// IDENTITY the dispatch state holds its records under rather than the version it sent.
+// A composer that carried one run's draft into another, or recorded a dispatch the
+// dispatch state never admitted, would be wrong here and nowhere else.
 
 import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -55,8 +55,8 @@ describe("the form is keyed by what it is composing against", () => {
   /**
    * The composer over a run the case can change, with or without the key.
    *
-   * Both arms matter: the keyed one is the pane's own shape, and the unkeyed one is
-   * what a later caller that drops the key would render — the arm the component's
+   * Both arms matter: the keyed one is a caller that keys the form by run id, and the
+   * unkeyed one is what a caller that drops the key would render — the arm the component's
    * own reset has to hold on its own.
    */
   function TargetSwitchHarness(props: {
@@ -67,7 +67,7 @@ describe("the form is keyed by what it is composing against", () => {
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
     const [runControlCalls] = useState(() => interventionCalls([], props.answer));
-    const surface = useRunControlDispatch(bridge, runControlCalls);
+    const dispatchState = useRunControlDispatch(bridge, runControlCalls);
     const { onCommit } = props;
     return (
       <>
@@ -75,7 +75,7 @@ describe("the form is keyed by what it is composing against", () => {
           key={props.keyed ? props.runId : "fixed"}
           bridge={bridge}
           run={runAt("paused", 8, props.runId)}
-          surface={surface}
+          dispatchState={dispatchState}
           onDismiss={() => undefined}
         />
         {onCommit === undefined ? null : <CommitProbe record={onCommit} />}
@@ -186,7 +186,7 @@ describe("the form is keyed by what it is composing against", () => {
   });
 });
 
-describe("a dispatch is recorded only where the surface admitted one", () => {
+describe("a dispatch is recorded only where the dispatch state admitted one", () => {
   /** Answers when the case releases it, so a request can be left in flight. */
   function heldAnswer(): { answer: ScriptedAnswer; release: (settlement: unknown) => void } {
     let settle: (settlement: unknown) => void = () => undefined;
@@ -202,10 +202,10 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   }
 
   /**
-   * One surface, one run, and a form the case can close and reopen while the
+   * One dispatch state, one run, and a form the case can close and reopen while the
    * first request is still in flight.
    *
-   * The surface is held across the remount — that is the whole point, since the
+   * The dispatch state is held across the remount — that is the whole point, since the
    * latch it keeps is what the second form runs into.
    */
   function ReopenableHarness(props: {
@@ -215,13 +215,13 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
     const [runControlCalls] = useState(() => interventionCalls([], props.answer));
-    const surface = useRunControlDispatch(bridge, runControlCalls);
+    const dispatchState = useRunControlDispatch(bridge, runControlCalls);
     return (
       <SteerBox
         key={props.formKey}
         bridge={bridge}
         run={runAt("paused")}
-        surface={surface}
+        dispatchState={dispatchState}
         onDismiss={props.onDismiss}
       />
     );

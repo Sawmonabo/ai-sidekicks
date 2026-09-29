@@ -1,4 +1,4 @@
-// What the artifact pane renders from, and the pure reductions over it.
+// What the inspector's `Artifacts` section renders from, and the pure reductions over it.
 //
 // `artifact-list-reader.ts` owns the calls, the scheduler and the generation stamp; this file
 // owns the immutable value those produce and every total function over it, so a
@@ -15,7 +15,7 @@ import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-
  */
 export const UNREAD_AT_MILLISECONDS = 0;
 
-/** Everything the pane renders from, in one immutable value. */
+/** Everything the section renders from, in one immutable value. */
 export interface ArtifactListReading {
   readonly artifacts: ArtifactsSectionState;
   /**

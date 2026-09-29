@@ -1,7 +1,7 @@
 // The shared scaffolding every ledger-feed case is driven through.
 //
 // The feed's cases split by SUBJECT across several files — the rows, the absences,
-// the narrowing, and the two seats — and every one of them needs the same three
+// the narrowing, and the palette registration — and every one of them needs the same three
 // things: a laid-out box, a mount under a bridge, and a way to press a contributed
 // palette row. Written once here, on
 // `features/transcript/timeline-rows.test-support.ts`' terms: a module beside the code it serves,
@@ -35,7 +35,7 @@ import { TranscriptFeed } from "./TranscriptFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
-/** The pane every fixture feed is the body of, so its seat is read under one key. */
+/** The pane every fixture feed is the body of. */
 export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-transcript-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const SHORT_LOG_EVENT_COUNT = 10;
@@ -61,7 +61,7 @@ export function withLaidOutViewport(): void {
  * Mount the feed under a bridge, because the transcript reads the console clock.
  *
  * `onRowMounted` is how a case reads the three decisions the list makes for a row:
- * they reach the seat as arguments and never as markup, so a case that only read
+ * they reach the row renderer as arguments and never as markup, so a case that only read
  * the DOM could not see any of them.
  */
 export function renderFeed(
@@ -92,10 +92,10 @@ export function renderFeed(
 /**
  * A row body that presses its own disclosure through the list's lease.
  *
- * The composed feed hands each row to whichever renderer fills the seat, and the
+ * The composed feed hands each row to whichever renderer is registered, and the
  * shell that ships one is `TranscriptRow.tsx` — whose own suite proves it writes
  * the press to the lease. What a FEED case needs is the other half: that a write
- * reaches the window and comes back as the density the seat is handed. This row is
+ * reaches the window and comes back as the density the row renderer is handed. This row is
  * the smallest thing that can perform the write from inside the tree.
  */
 export function LeasingRowBody(props: TranscriptRowProps): React.JSX.Element {
@@ -118,17 +118,17 @@ export function LeasingRowBody(props: TranscriptRowProps): React.JSX.Element {
 }
 
 /**
- * Contribute the transcript's palette rows into this window's real command surface.
+ * Contribute the transcript's palette rows into this window's real command registry.
  *
  * The real one rather than a private registry, because the seam under test is
  * exactly that a command contributed at COMPOSITION time reaches a feed mounted
- * later. A test-owned surface would prove the acts fire and nothing about that.
+ * later. A test-owned registry would prove the acts fire and nothing about that.
  */
 export function contributeTranscriptCommands(): void {
   registerTranscriptCommands(commandContributionRegistry);
 }
 
-/** Leave the window with none of this family's rows, so cases do not leak into each other. */
+/** Leave the window with none of the transcript's rows, so cases do not leak into each other. */
 export function withdrawTranscriptCommands(): void {
   commandContributionRegistry.contribute({
     owner: TRANSCRIPT_COMMAND_OWNER,

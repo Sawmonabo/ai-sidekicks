@@ -1,22 +1,22 @@
-// When a surface that performs its own reads re-reads, wired to the things that say so.
+// When a view that performs its own reads re-reads, wired to the things that say so.
 //
 // The no-interval-polling policy is fixed: reads happen on subscribe, on window focus, on
-// reconnect, and on the terminal events the owning surface names. `subscribe` belongs to
+// reconnect, and on the terminal events the owning view names. `subscribe` belongs to
 // the reader — it is the read the reader starts itself — and the other three are
 // observations of things outside it, which is what this class owns.
 //
-// IT LIVES BESIDE THE SCHEDULER RATHER THAN IN A VIEW FAMILY, because the three
-// observations are the same three whichever surface is reading: a window focus is a
+// IT LIVES BESIDE THE SCHEDULER RATHER THAN IN A FEATURE, because the three
+// observations are the same three whichever view is reading: a window focus is a
 // window focus, the store's repair edge is the console's one reconnect signal, and
 // "the terminal events the owning spec names" differs only in WHICH kinds — which is
-// the one parameter. The repos section had the only implementation and hard-coded a
-// `workspace.stale` frame into it; the artifact pane needs the same mechanism over
-// three artifact kinds, and a second copy would be the same listener wiring and the
-// same transition scan written twice, drifting apart at the first fix applied to one.
+// the one parameter. The repos section, the inspector's `Artifacts` section, and the
+// workflow run page each read over their own kinds, and a copy per reader would be the
+// same listener wiring and the same transition scan written again, drifting apart at
+// the first fix applied to one.
 //
 // IT WIRES A `ReadTriggerTarget` AND NOT A SCHEDULER, which is the one thing it takes
 // from `read-triggers.ts` beside it. That module wires the same policy through React
-// hooks for a reading a surface mounts; this one wires it imperatively for a reading
+// hooks for a reading a view mounts; this one wires it imperatively for a reading
 // minted outside React, in a resource seam, and started and disposed by hand. Two
 // WIRINGS are honest — a class held per subject cannot call a hook — but two
 // VOCABULARIES are not, and a reading that declared its kinds to one and its request
@@ -55,13 +55,13 @@ export interface SessionRefreshTriggerOptions {
    * own `requestRead` is what decides whether a reason reaches a scheduler at all.
    * The frames it re-reads on come off the same object as `triggeringEventKinds`,
    * rather than being passed beside it, because which events change an answer is a
-   * property of the QUESTION — two surfaces asking the same one must not disagree
+   * property of the QUESTION — two views asking the same one must not disagree
    * about when it goes stale, and a kind list handed in at the call site is exactly
    * how they come to.
    *
    * The `SessionEventType` census check that list used to carry at each call site is
    * not lost by the move: it lives at the home of the kind set the reading declares
-   * from — `repos/repo-lifecycle-events.ts` for this family — which is one place
+   * from — `repos/repo-lifecycle-events.ts` for the repos feature — which is one place
    * instead of one per reader.
    */
   readonly target: ReadTriggerTarget;

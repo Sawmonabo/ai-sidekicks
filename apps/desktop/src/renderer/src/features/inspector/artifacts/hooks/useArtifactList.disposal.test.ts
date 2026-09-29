@@ -17,11 +17,11 @@ import {
 } from "@test/helpers/artifact-list-readers.js";
 import { ArtifactListReader } from "../artifact-list-reader.js";
 import {
-  OTHER_HOSTED_ARTIFACT_ID,
-  hostSubject,
-  hostTree,
-  renderHost,
-  renderHostStrictly,
+  OTHER_ARTIFACT_ID,
+  artifactPayloadSubject,
+  artifactPayloadTree,
+  renderArtifactPayloadSection,
+  renderArtifactPayloadSectionStrictly,
 } from "@test/helpers/render-artifact-payload-section.js";
 
 beforeEach(() => {
@@ -36,8 +36,10 @@ describe("artifact reading — the reader runs on the window's clock, never one 
   it("reads when the window's clock reaches it, not when the host's does", async () => {
     // A reader on its own `RealClock` would coalesce its reads against wall time while the
     // window advanced on frozen time, and the host-timer advance below would list the row.
-    const subject = hostSubject(artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }));
-    const { container } = renderHost(subject);
+    const subject = artifactPayloadSubject(
+      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
+    );
+    const { container } = renderArtifactPayloadSection(subject);
 
     // The HOST's clock, moved the whole debounce window. Nothing lists.
     await readThrough();
@@ -56,8 +58,10 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // cleanup disposes the reader and the replayed setup would call `start()` on the corpse,
     // which returns at once. The binding would then sit on `loading` for the life of the
     // mount.
-    const subject = hostSubject(artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }));
-    const { container } = renderHostStrictly(subject);
+    const subject = artifactPayloadSubject(
+      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
+    );
+    const { container } = renderArtifactPayloadSectionStrictly(subject);
 
     await readThrough(subject.clock);
     await settleAct();
@@ -68,15 +72,15 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // The seam holds the reader in state React owns, so a re-render at the same subject
     // reaches the same reader: the row stands and the call is not made again.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
-    const { container, rerender } = renderHost(subject);
+    const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { container, rerender } = renderArtifactPayloadSection(subject);
 
     await readThrough(subject.clock);
     await settleAct();
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    rerender(hostTree(subject));
+    rerender(artifactPayloadTree(subject));
     await settleAct();
 
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
@@ -87,14 +91,14 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // The subject is the key, so a moved subject is a new reader, and the binding opens on
     // the new artifact's `loading` reading rather than on the previous one's rows.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
-    const { container, rerender } = renderHost(subject);
+    const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { container, rerender } = renderArtifactPayloadSection(subject);
 
     await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    rerender(hostTree(subject, OTHER_HOSTED_ARTIFACT_ID));
+    rerender(artifactPayloadTree(subject, OTHER_ARTIFACT_ID));
     await settleAct();
     // The new reader has read nothing yet, so it shows no rows.
     expect(container.querySelector(".meridian-artifact-row")).toBeNull();
@@ -110,14 +114,19 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // Without that arm the binding would keep observing a retired store.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const operations = artifactOperations({ listArtifacts: artifactList });
-    const subject = hostSubject(operations);
-    const { rerender } = renderHost(subject);
+    const subject = artifactPayloadSubject(operations);
+    const { rerender } = renderArtifactPayloadSection(subject);
 
     await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    rerender(hostTree({ ...subject, sessionStore: new SessionStore({ sessionId: SESSION_ID }) }));
+    rerender(
+      artifactPayloadTree({
+        ...subject,
+        sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      }),
+    );
     await settleAct();
     await readThrough(subject.clock);
     await settleAct();
@@ -130,15 +139,18 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // new pair of calls would go on listing through the calls it was first given.
     const firstList = vi.fn(async () => LISTED_ONE_ROW);
     const secondList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = hostSubject(artifactOperations({ listArtifacts: firstList }));
-    const { rerender } = renderHost(subject);
+    const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: firstList }));
+    const { rerender } = renderArtifactPayloadSection(subject);
 
     await readThrough(subject.clock);
     await settleAct();
     expect(firstList).toHaveBeenCalledTimes(1);
 
     rerender(
-      hostTree({ ...subject, operations: artifactOperations({ listArtifacts: secondList }) }),
+      artifactPayloadTree({
+        ...subject,
+        operations: artifactOperations({ listArtifacts: secondList }),
+      }),
     );
     await settleAct();
     await readThrough(subject.clock);
@@ -150,12 +162,12 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
 
   it("negative control: an unmounted binding's reader is disposed and reads no more", async () => {
     // A binding that answered the double-mount by never disposing would leave a torn-down
-    // pane still scheduling, and one that re-minted on every effect run would read forever.
+    // section still scheduling, and one that re-minted on every effect run would read forever.
     // The seam's cleanup disposes what the last commit held, and a clock advanced afterwards
     // reaches nothing.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
-    const { unmount } = renderHost(subject);
+    const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { unmount } = renderArtifactPayloadSection(subject);
 
     await readThrough(subject.clock);
     await settleAct();
@@ -174,10 +186,10 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // is the observable.
     const disposals = vi.spyOn(ArtifactListReader.prototype, "dispose");
     try {
-      const subject = hostSubject(
+      const subject = artifactPayloadSubject(
         artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
       );
-      const { unmount } = renderHostStrictly(subject);
+      const { unmount } = renderArtifactPayloadSectionStrictly(subject);
       await readThrough(subject.clock);
       await settleAct();
       unmount();

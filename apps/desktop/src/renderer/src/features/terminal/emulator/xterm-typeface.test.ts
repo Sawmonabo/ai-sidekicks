@@ -26,8 +26,8 @@ function fakeTerminal(fontFamily?: string): MonospaceTypefaceTarget & { writeCou
   return record;
 }
 
-/** A host element in the document, carrying whatever face the caller declares. */
-function hostDeclaring(fontFamily: string | undefined): HTMLElement {
+/** A mount element in the document, carrying whatever face the caller declares. */
+function mountElementDeclaring(fontFamily: string | undefined): HTMLElement {
   const element = document.createElement("div");
   if (fontFamily !== undefined) {
     element.style.fontFamily = fontFamily;
@@ -37,26 +37,28 @@ function hostDeclaring(fontFamily: string | undefined): HTMLElement {
 }
 
 describe("the face the grid is told to draw in", () => {
-  it("reads the family its host declares", () => {
-    expect(readDeclaredMonospaceFamily(hostDeclaring("Menlo, monospace"))).toBe("Menlo, monospace");
+  it("reads the font family its mount element declares", () => {
+    expect(readDeclaredMonospaceFamily(mountElementDeclaring("Menlo, monospace"))).toBe(
+      "Menlo, monospace",
+    );
   });
 
-  it("reads nothing from a host outside any document", () => {
+  it("reads nothing from a mount element outside any document", () => {
     // The shape a detached element and a DOM shim both answer with. It has to be
     // distinguishable from a real declaration, because the two are treated
     // differently one function down.
     expect(readDeclaredMonospaceFamily(document.createElement("div"))).toBeUndefined();
   });
 
-  it("tells the emulator the face its host is in", () => {
+  it("tells the emulator the face its mount element is in", () => {
     const terminal = fakeTerminal("courier-new, courier, monospace");
 
-    applyDeclaredMonospaceFamily(terminal, hostDeclaring("Menlo, monospace"));
+    applyDeclaredMonospaceFamily(terminal, mountElementDeclaring("Menlo, monospace"));
 
     expect(terminal.options.fontFamily).toBe("Menlo, monospace");
   });
 
-  it("leaves the library's own default alone where the host declares nothing", () => {
+  it("leaves the library's own default alone where the mount element declares nothing", () => {
     // Not a cleared option: a grid with no face at all draws nothing, and the
     // library's default is a worse face rather than an absent one.
     const terminal = fakeTerminal("courier-new, courier, monospace");
@@ -73,7 +75,7 @@ describe("the face the grid is told to draw in", () => {
     // nothing and one that costs a full re-render.
     const terminal = fakeTerminal("Menlo, monospace");
 
-    applyDeclaredMonospaceFamily(terminal, hostDeclaring("Menlo, monospace"));
+    applyDeclaredMonospaceFamily(terminal, mountElementDeclaring("Menlo, monospace"));
 
     expect(terminal.writeCount).toBe(0);
   });

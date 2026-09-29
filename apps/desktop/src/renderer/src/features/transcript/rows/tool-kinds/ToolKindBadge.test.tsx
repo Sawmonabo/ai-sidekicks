@@ -1,8 +1,8 @@
-// The sub-family badge: what it draws, what it defers to a supplied renderer, and the one
+// The tool kind badge: what it draws, what it defers to a supplied renderer, and the one
 // case where drawing nothing is the right answer.
 //
 // THE THREE OUTCOMES ARE THREE DIFFERENT DECISIONS and are checked apart. An
-// undeclared sub-family draws nothing, because a reserved marker repeated once per
+// undeclared tool kind draws nothing, because a reserved marker repeated once per
 // tool row would print a paragraph of unbuilt-feature prose down a long log. A supplied
 // renderer draws ITS body and none of the badge's. And an unrecognized value
 // draws the explicit unrecognized badge carrying what the daemon sent.
@@ -21,15 +21,15 @@ function renderBadge(
   return container;
 }
 
-describe("the tool sub-family shell", () => {
-  it("draws nothing at all for a row declaring no sub-family", () => {
+describe("the tool kind badge", () => {
+  it("draws nothing at all for a row declaring no tool kind", () => {
     expect(renderBadge(undefined).innerHTML).toBe("");
   });
 
-  it("draws the sub-family a row declared", () => {
+  it("draws the tool kind a row declared", () => {
     const container = renderBadge({
       kind: "declared",
-      subFamily: "command-output",
+      toolKind: "command-output",
       serverLabel: undefined,
       argumentSummary: [],
     });
@@ -39,7 +39,7 @@ describe("the tool sub-family shell", () => {
   it("draws the MCP server badge and the typed argument summary", () => {
     const container = renderBadge({
       kind: "declared",
-      subFamily: "mcp",
+      toolKind: "mcp",
       serverLabel: "sentry",
       argumentSummary: ["issueId: PROJ-4", "limit: 20"],
     });
@@ -50,11 +50,11 @@ describe("the tool sub-family shell", () => {
   });
 
   it("draws no server figure for a declaration that names none", () => {
-    // The negative control for the case above: a shell that always drew the server
-    // slot would print an empty figure on every non-MCP row.
+    // The negative control for the case above: a badge that always drew the server
+    // figure would print an empty figure on every non-MCP row.
     const container = renderBadge({
       kind: "declared",
-      subFamily: "file-edit",
+      toolKind: "file-edit",
       serverLabel: undefined,
       argumentSummary: [],
     });
@@ -69,7 +69,7 @@ describe("the tool sub-family shell", () => {
 
   it("hands a supplied renderer the reading and draws none of the badge", () => {
     const container = renderBadge(
-      { kind: "declared", subFamily: "mcp", serverLabel: "sentry", argumentSummary: [] },
+      { kind: "declared", toolKind: "mcp", serverLabel: "sentry", argumentSummary: [] },
       ({ reading }) => <output data-owner-body="yes">{reading.kind}</output>,
     );
     expect(container.querySelector("[data-owner-body='yes']")?.textContent).toBe("declared");

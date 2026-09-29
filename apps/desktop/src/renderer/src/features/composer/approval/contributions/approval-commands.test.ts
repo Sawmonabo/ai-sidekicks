@@ -1,8 +1,8 @@
-// What the palette is handed for the approvals pane, and what answering from it sends.
+// What the palette is handed for the approval card, and what answering from it sends.
 //
-// Asserted on the two pure halves rather than through a mounted pane: which rows
+// Asserted on the two pure halves rather than through a mounted card: which rows
 // exist is arithmetic over the same values the cards render from, and what a row
-// sends is the card's own request. The pane's suite covers the wiring.
+// sends is the card's own request. The hook's suite covers the registration.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -52,7 +52,7 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
   };
 }
 
-describe("the rows the approvals pane contributes", () => {
+describe("the rows the approval card contributes", () => {
   it("offers both answers for each pending record", () => {
     const rows = approvalCommandRows(inputFor());
 
@@ -81,7 +81,7 @@ describe("the rows the approvals pane contributes", () => {
 
   it("offers nothing for a record a SETTLED refusal already answered", () => {
     // The card takes both buttons off on `approval.already_resolved` — somebody else
-    // answered — so the two palette rows go with them. One reading, both surfaces:
+    // answered — so the two palette rows go with them. One reading serves card and palette:
     // withholding this map is what left the palette offering a decision about a
     // request that was no longer waiting.
     const rows = approvalCommandRows(

@@ -7,15 +7,15 @@ import { InlineDiffCard } from "../diff/components/InlineDiffCard.js";
 import { REPOS_FEATURE_OWNER } from "./owner.js";
 
 /**
- * Fill the transcript row's `diff` card on the board it is given.
+ * Fill the transcript row's `diff` card in the registry it is given.
  *
- * The board is a parameter rather than an import, so an independent composition (a suite
+ * The registry is a parameter rather than an import, so an independent composition (a suite
  * composing one feature in isolation) writes into its own registry and never mutates the
  * running window's. Registered from here rather than at the card module's scope, so a
  * hot reload re-runs one module.
  */
-export function registerReposInlineCards(inlineCardSeats: InlineCardRegistry): void {
-  inlineCardSeats.register("diff", {
+export function registerReposInlineCards(inlineCardRegistry: InlineCardRegistry): void {
+  inlineCardRegistry.register("diff", {
     owner: REPOS_FEATURE_OWNER,
     render: (cardProps) => createElement(InlineDiffCard, { card: cardProps }),
   });

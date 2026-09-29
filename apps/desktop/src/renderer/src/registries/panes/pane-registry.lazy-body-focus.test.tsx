@@ -8,7 +8,7 @@
 // is why it survived every capture the tier takes.
 //
 // DRIVEN THROUGH THE REAL BOARD, not through `LazyBody` directly. What has to hold is the
-// property a family gets by registering a loader, so the case registers one, mounts what
+// property a feature gets by registering a loader, so the case registers one, mounts what
 // the descriptor renders, and asks the document where focus is — the same three steps a
 // pane layout performs.
 
@@ -26,7 +26,7 @@ import { PaneRegistry } from "./pane-registry.js";
 /** The chrome's own label for its close control, which is the identity being matched. */
 const CLOSE_CONTROL_LABEL = "Close this pane";
 
-/** A pane body of the shape every converted family ships: its own chrome around content. */
+/** A pane body of the shape every feature ships: its own chrome around content. */
 function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
   return (context: PaneContext): React.ReactNode =>
     createElement(PaneFrame, {
@@ -38,7 +38,7 @@ function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
 }
 
 /**
- * A registered loader-backed pane, mounted under a host that offers a close control.
+ * A registered loader-backed pane, mounted under a provider that offers a close control.
  *
  * The controls arrive through the pane layout's own context rather than as props, because that
  * is how a pane layout supplies them — and it is what makes the reserved chrome and the loaded
@@ -50,7 +50,7 @@ function mountDeferredPane(): {
 } {
   const deferred = deferredBodyModule<PaneContext>();
   const registry = new PaneRegistry();
-  registry.register({ kind: "diff", owner: "repos-family", body: deferred.load });
+  registry.register({ kind: "diff", owner: "repos", body: deferred.load });
   const { container } = render(
     <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
       {registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}

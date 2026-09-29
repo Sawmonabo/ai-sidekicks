@@ -1,8 +1,9 @@
 // What the palette is handed for the run controls, and what pressing one does.
 //
-// Asserted on the two pure halves rather than through a mounted pane: which rows
+// Asserted on the two pure halves rather than through a mounted hook: which rows
 // exist is arithmetic over the offer reading, and what a row dispatches is a call
-// into the surface the pane already owns. The pane's own suite covers the wiring.
+// into the dispatch state the caller already owns. The hook's own suites cover the
+// registration.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,19 +32,19 @@ const CAPABLE = capabilityReadout(
 
 function inputFor(
   runs: readonly RunControlCommandRun[],
-  surface: RunControlDispatchState,
+  dispatchState: RunControlDispatchState,
   overrides: Partial<RunControlCommandInput> = {},
 ): RunControlCommandInput {
   return {
     runs,
     driverCapabilities: CAPABLE,
-    surface,
+    dispatchState,
     onRequestSteer: () => undefined,
     ...overrides,
   };
 }
 
-describe("the rows the runs pane contributes", () => {
+describe("the rows the run controls contribute", () => {
   it("contributes one row per control the row itself offers", () => {
     const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE);
 
@@ -73,21 +74,21 @@ describe("the rows the runs pane contributes", () => {
 });
 
 describe("what running a contributed row does", () => {
-  it("dispatches through the pane's own surface, carrying the run's comparand", () => {
-    const { surface, calls } = recordingRunControlDispatch();
+  it("dispatches through the caller's dispatch state, carrying the run's comparand", () => {
+    const { dispatchState, calls } = recordingRunControlDispatch();
 
     dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "interrupt", title: "Stop the run" },
-      inputFor([commandRun(FIRST_RUN)], surface),
+      inputFor([commandRun(FIRST_RUN)], dispatchState),
     );
 
     expect(calls).toEqual([{ verb: "interrupt", runId: FIRST_RUN, expectedRunVersion: 7 }]);
   });
 
   it("opens the composer for steer rather than sending an empty body", () => {
-    const { surface, calls } = recordingRunControlDispatch();
+    const { dispatchState, calls } = recordingRunControlDispatch();
     const onRequestSteer = vi.fn();
-    const input = inputFor([commandRun(FIRST_RUN)], surface, { onRequestSteer });
+    const input = inputFor([commandRun(FIRST_RUN)], dispatchState, { onRequestSteer });
 
     dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "steer", title: "Steer the run" },
@@ -99,11 +100,11 @@ describe("what running a contributed row does", () => {
   });
 
   it("sends nothing for a run the stream no longer describes", () => {
-    const { surface, calls } = recordingRunControlDispatch();
+    const { dispatchState, calls } = recordingRunControlDispatch();
 
     dispatchRunControlCommand(
       { runId: SECOND_RUN, control: "interrupt", title: "Stop the run" },
-      inputFor([commandRun(FIRST_RUN)], surface),
+      inputFor([commandRun(FIRST_RUN)], dispatchState),
     );
 
     expect(calls).toEqual([]);

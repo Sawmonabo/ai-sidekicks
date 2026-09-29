@@ -18,7 +18,7 @@ import { terminalEmulatorLoader } from "./emulator-loader.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter, type TerminalRendererMode } from "./xterm-adapter.js";
 import {
-  attachedHost,
+  attachedMountElement,
   disposeLiveEmulators,
   mountedAdapter,
   trackAdapter,
@@ -97,11 +97,11 @@ describe("the adapter, when the context it was drawing on goes away", () => {
 
   it("gives the page's allowance back, because the host destroyed the context", () => {
     const pool = new TerminalRendererPool();
-    const host = attachedHost();
+    const mountElement = attachedMountElement();
     const adapter = trackAdapter(
       new XtermTerminalAdapter({ terminalId: "adapter-reclaimed", pool }),
     );
-    adapter.attach(host);
+    adapter.attach(mountElement);
     expect(pool.holds("adapter-reclaimed")).toBe(true);
 
     newestRenderer().loseContext();
@@ -119,7 +119,7 @@ describe("the adapter, when the context it was drawing on goes away", () => {
     const adapter = trackAdapter(
       new XtermTerminalAdapter({ terminalId: "adapter-throwing-sink", pool }),
     );
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     // The premise: without a context taken, the reclaim below would hold vacuously.
     expect(pool.holds("adapter-throwing-sink")).toBe(true);
     adapter.subscribeToRendererMode((mode) => {
@@ -146,7 +146,7 @@ describe("the adapter, when the context it was drawing on goes away", () => {
     const adapter = trackAdapter(
       new XtermTerminalAdapter({ terminalId: "adapter-quiet-sink", pool }),
     );
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     adapter.subscribeToRendererMode(() => undefined);
 
     expect(() => {
@@ -161,19 +161,19 @@ describe("the adapter, when the context it was drawing on goes away", () => {
 //
 // The fallback clears the addon and hands the page's allowance back — both correct,
 // and between them they undo every condition the renderer selection tests. So an
-// adapter that a pane detaches and re-attaches to a different host would have walked
+// adapter that a pane detaches and re-attaches to a different mount element would have walked
 // straight back onto the renderer it had just been told it cannot have, and churned a
 // context per remount for as long as the pane was moved around.
 describe("the adapter, after the context it lost", () => {
   it("does not take a second one when it is attached somewhere else", () => {
     const pool = new TerminalRendererPool();
     const adapter = trackAdapter(new XtermTerminalAdapter({ terminalId: "lost-then-moved", pool }));
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     expect(adapter.rendererMode).toBe("webgl");
 
     newestRenderer().loseContext();
     adapter.detach();
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
 
     expect(adapter.rendererMode).toBe("dom");
     // One renderer for the whole life of this adapter — the one it lost.
@@ -191,15 +191,15 @@ describe("the adapter, after the context it lost", () => {
         pool: new TerminalRendererPool(),
       }),
     );
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     newestRenderer().loseContext();
 
     const observed: TerminalRendererMode[] = [];
     adapter.subscribeToRendererMode((mode) => observed.push(mode));
     adapter.detach();
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
 
-    // The current mode on subscribe and nothing after it. A surface that heard a
+    // The current mode on subscribe and nothing after it. A consumer that heard a
     // second announcement here would be hearing a renderer change that did not
     // happen — and against the old adapter it was `webgl`, which did.
     expect(observed).toStrictEqual(["dom"]);
@@ -216,12 +216,12 @@ describe("the adapter, after the context it lost", () => {
         pool: new LateGrantingRendererPool(1),
       }),
     );
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     expect(adapter.rendererMode).toBe("dom");
     expect(FakeWebglRenderer.live).toHaveLength(0);
 
     adapter.detach();
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
 
     expect(adapter.rendererMode).toBe("webgl");
     expect(FakeWebglRenderer.live).toHaveLength(1);

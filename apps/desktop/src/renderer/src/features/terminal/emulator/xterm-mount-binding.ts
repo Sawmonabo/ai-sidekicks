@@ -1,10 +1,10 @@
-// What ties one emulator to one host element: the box it is measured against, and
+// What ties one emulator to one mount element: the box it is measured against, and
 // whether this user may type into it.
 //
 // Its own module rather than a section inside `xterm-adapter.ts`, because the two
 // answer different questions: the adapter owns the emulator's LIFE — built once,
-// kept across a detach, disposed once — and this owns its relationship to a host
-// that comes and goes, which is where both the size seam and the write gate live.
+// kept across a detach, disposed once — and this owns its relationship to a mount
+// element that comes and goes, which is where both the size seam and the write gate live.
 //
 // The wrapper's fifth constraint is here: **`disableStdin` plus wire-level gating for
 // watchers.** Watch mode is the default, so stdin starts disabled and opens only when
@@ -16,24 +16,24 @@
 // send.
 //
 // THE GATE IS A CONJUNCTION, AND THE SECOND HALF IS THIS OBJECT'S. The lease says
-// whether this user may write; the host says whether there is a surface to
-// write into. An emulator that has been taken off screen has neither a box a person
-// can click nor a size to be measured against, and the write state belongs to the
-// TIE rather than to the emulator — so a detached binding reports the shut gate and
-// re-opens it, without being told again, on the host that takes the emulator next.
-// Storing the lease's answer and composing it with the host is what makes that one
-// answer rather than two fields a caller has to re-synchronize.
+// whether this user may write; the mount element says whether there is anywhere on
+// screen to write into. An emulator that has been taken off screen has neither a box a
+// person can click nor a size to be measured against, and the write state belongs to
+// the TIE rather than to the emulator — so a detached binding reports the shut gate and
+// re-opens it, without being told again, on the mount element that takes the emulator
+// next. Storing the lease's answer and composing it with the mount element is what
+// makes that one answer rather than two fields a caller has to re-synchronize.
 //
-// WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by a
-// surface that read it off the lease. An emulator that consulted a lease would be a
+// WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by
+// the pane that read it off the lease. An emulator that consulted a lease would be a
 // second place eligibility is decided, and the renderer decides it nowhere.
 //
 // THE SIZE SEAM IS THE CONSOLE'S ONE. `primitives/element-resize.ts` owns the
 // observer construction, its feature detection, and its disconnect. A second
-// construction here would be the same four lines free to drift from the browser
-// family's — the hoist-on-second-use rule `apps/desktop/AGENTS.md` states — and the
-// degrade is the helper's: a host without the observer arms nothing and re-fits when
-// the surface asks. No interval is started either way; a polling terminal would be
+// construction here would be the same four lines free to drift from the preview's —
+// the hoist-on-second-use rule `apps/desktop/AGENTS.md` states — and the degrade is
+// the helper's: a browser without the observer arms nothing and re-fits when a
+// caller asks. No interval is started either way; a polling terminal would be
 // the console's only always-on timer.
 
 import type { IDisposable, Terminal } from "@xterm/xterm";
@@ -41,55 +41,55 @@ import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { observeElementResize } from "@renderer/console/primitives/index.js";
 
-export interface TerminalHostBindingOptions {
+export interface XtermMountBindingOptions {
   /** Whether the lease already says this user may type. Absent is watch mode. */
   readonly isWriteEnabled?: boolean | undefined;
-  /** Where a user's keystrokes go. Absent means this surface never writes. */
+  /** Where a user's keystrokes go. Absent means this terminal never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /**
-   * What a change in the host's box re-enters.
+   * What a change in the mount element's box re-enters.
    *
-   * The ADAPTER's public re-fit rather than this object's, so the surface has exactly
-   * one re-fit path: a resize and a caller's explicit `fitToHost()` go the same way,
+   * The ADAPTER's public re-fit rather than this object's, so the terminal has exactly
+   * one re-fit path: a resize and a caller's explicit `fitToMountPoint()` go the same way,
    * and anything watching that path sees both. Passing the fit itself would give a
    * resize a second route to the grid.
    */
-  readonly onHostResize: () => void;
+  readonly onMountResize: () => void;
 }
 
-/** One emulator's tie to one host element. */
-export class TerminalHostBinding {
+/** One emulator's tie to one mount element. */
+export class XtermMountBinding {
   readonly #onKeystroke: ((data: string) => void) | undefined;
-  readonly #onHostResize: () => void;
+  readonly #onMountResize: () => void;
   #terminal: Terminal | undefined;
-  #hostElement: HTMLElement | undefined;
-  #detachHostSizeObserver: Unsubscribe | undefined;
+  #mountElement: HTMLElement | undefined;
+  #stopObservingMountSize: Unsubscribe | undefined;
   #keystrokeSubscription: IDisposable | undefined;
   #isWriteAllowedByLease: boolean;
 
-  public constructor(options: TerminalHostBindingOptions) {
+  public constructor(options: XtermMountBindingOptions) {
     this.#isWriteAllowedByLease = options.isWriteEnabled ?? false;
     this.#onKeystroke = options.onKeystroke;
-    this.#onHostResize = options.onHostResize;
+    this.#onMountResize = options.onMountResize;
   }
 
   /** The element the emulator is currently on screen in, or `undefined`. */
-  public get hostElement(): HTMLElement | undefined {
-    return this.#hostElement;
+  public get mountElement(): HTMLElement | undefined {
+    return this.#mountElement;
   }
 
-  /** Whether a keystroke may reach the wire: the lease allows it AND a host holds it. */
+  /** Whether a keystroke may reach the wire: the lease allows it AND a mount element holds it. */
   public get isWriteEnabled(): boolean {
-    return this.#isWriteAllowedByLease && this.#hostElement !== undefined;
+    return this.#isWriteAllowedByLease && this.#mountElement !== undefined;
   }
 
   /**
    * The `disableStdin` a fresh emulator is constructed with.
    *
    * Read from the same composed answer the gate is, rather than hard-coded `true`: a
-   * surface that was told the lease before its emulator existed must not have that
+   * terminal that was told the lease before its emulator existed must not have that
    * answer dropped on the floor when the emulator arrives. A fresh emulator is built
-   * before its host is recorded, so this is `true` at every build and `showOn` is
+   * before its mount element is recorded, so this is `true` at every build and `showOn` is
    * what opens it — inside the same `attach()` call, with no turn in between for a
    * keystroke to land in.
    */
@@ -126,35 +126,35 @@ export class TerminalHostBinding {
    * window without the hold gets, and a guess here would guess in the direction that
    * writes into a shell this window does not hold.
    *
-   * The lease's answer is REMEMBERED rather than applied and forgotten, so a surface
+   * The lease's answer is REMEMBERED rather than applied and forgotten, so a terminal
    * that is told the lease while the emulator is off screen still gets the gate it
-   * was promised when a host takes the emulator back.
+   * was promised when a mount element takes the emulator back.
    */
   public setWriteEnabled(isWriteEnabled: boolean): void {
     this.#isWriteAllowedByLease = isWriteEnabled;
     this.#applyStdinGate();
   }
 
-  /** Record the host the emulator is now on, and re-fit whenever its box changes. */
-  public showOn(hostElement: HTMLElement): void {
-    this.#hostElement = hostElement;
-    this.#detachHostSizeObserver?.();
-    this.#detachHostSizeObserver = observeElementResize(hostElement, () => {
-      this.#onHostResize();
+  /** Record the mount element the emulator is now on, and re-fit whenever its box changes. */
+  public showOn(mountElement: HTMLElement): void {
+    this.#mountElement = mountElement;
+    this.#stopObservingMountSize?.();
+    this.#stopObservingMountSize = observeElementResize(mountElement, () => {
+      this.#onMountResize();
     });
     this.#applyStdinGate();
   }
 
   /** Take the emulator off screen. The emulator itself survives — only the tie ends. */
   public detach(): void {
-    this.#detachHostSizeObserver?.();
-    this.#detachHostSizeObserver = undefined;
-    this.#hostElement = undefined;
+    this.#stopObservingMountSize?.();
+    this.#stopObservingMountSize = undefined;
+    this.#mountElement = undefined;
     this.#applyStdinGate();
   }
 
   /**
-   * Final: the host tie and the keystroke path both end.
+   * Final: the mount tie and the keystroke path both end.
    *
    * The emulator handle is dropped rather than disposed — the adapter owns that, and
    * disposing it from two places leaves a half-torn instance behind.

@@ -1,8 +1,8 @@
 // Three card kinds, one owner each, and the dispatch that cannot hand a body the
 // wrong arm.
 //
-// The seat stores bodies erased — a table keyed by one union cannot hold three
-// differently-typed renderers — and re-narrows them at the door. That erasure is
+// The registry stores bodies erased — a table keyed by one union cannot hold three
+// differently-typed renderers — and re-narrows them on the way out. That erasure is
 // the one place a mismatch could reach a body typed against another shape, so it
 // is guarded at runtime rather than asserted, and the guard is driven here.
 
@@ -46,26 +46,26 @@ afterEach(() => {
   }
 });
 
-describe("inline card seats — the closed set", () => {
+describe("inline card registry — the closed set", () => {
   it("declares three kinds, each exactly once, in declaration order", () => {
     expect([...INLINE_CARD_KINDS]).toStrictEqual(["diff", "attachment", "artifact"]);
     expect(new Set(INLINE_CARD_KINDS).size).toBe(INLINE_CARD_KINDS.length);
   });
 });
 
-describe("inline card seats — a body is only ever handed its own arm", () => {
+describe("inline card registry — a body is only ever handed its own arm", () => {
   it("dispatches on the props' own discriminant", () => {
     const registry = new InlineCardRegistry();
     registry.register("diff", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => props.diffArtifactId,
     });
     registry.register("attachment", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => props.attachment.attachmentId,
     });
     registry.register("artifact", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => props.artifact.id,
     });
     expect(registry.render(DIFF_CARD)).toBe("diff-artifact-3");
@@ -74,13 +74,13 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
   });
 
   it("refuses a body handed another kind's props rather than running it", () => {
-    // The mismatch is only reachable through the descriptor door, which hands
+    // The mismatch is only reachable through `bodyFor`, which hands
     // back a renderer typed over the whole union. Without the guard, a diff body
     // would run against attachment props and read `diffArtifactId` off a shape that
     // has none — a silent `undefined` in the rendered card.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => props.diffArtifactId,
     });
     const diffBody = registry.bodyFor("diff");
@@ -94,26 +94,26 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
     // the shape a mis-written guard degenerates into.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => props.diffArtifactId,
     });
     expect(registry.bodyFor("diff")?.render(DIFF_CARD)).toBe("diff-artifact-3");
   });
 });
 
-describe("inline card seats — one owner per card kind", () => {
+describe("inline card registry — one owner per card kind", () => {
   it("replaces when the same owner re-registers", () => {
     const registry = new InlineCardRegistry();
-    registry.register("artifact", { owner: "repos-family", render: () => "first" });
-    registry.register("artifact", { owner: "repos-family", render: () => "second" });
+    registry.register("artifact", { owner: "repos", render: () => "first" });
+    registry.register("artifact", { owner: "repos", render: () => "second" });
     expect(registry.render(ARTIFACT_CARD)).toBe("second");
   });
 
   it("refuses a second owner rather than swapping", () => {
     const registry = new InlineCardRegistry();
-    registry.register("artifact", { owner: "repos-family", render: () => "repos" });
+    registry.register("artifact", { owner: "repos", render: () => "repos" });
     expect(() => {
-      registry.register("artifact", { owner: "transcript-family", render: () => "transcript" });
+      registry.register("artifact", { owner: "transcript", render: () => "transcript" });
     }).toThrow(DuplicateRegistrationError);
     expect(registry.render(ARTIFACT_CARD)).toBe("repos");
   });
@@ -122,8 +122,8 @@ describe("inline card seats — one owner per card kind", () => {
     const registry = new InlineCardRegistry();
     // Registered back to front, so an implementation reporting insertion order
     // would answer differently.
-    registry.register("artifact", { owner: "repos-family", render: () => null });
-    registry.register("diff", { owner: "repos-family", render: () => null });
+    registry.register("artifact", { owner: "repos", render: () => null });
+    registry.register("diff", { owner: "repos", render: () => null });
     expect(registry.registeredCardKinds()).toStrictEqual(["diff", "artifact"]);
   });
 
@@ -136,14 +136,14 @@ describe("inline card seats — one owner per card kind", () => {
   });
 });
 
-describe("inline card seats — a diff card carries the registered diff identity", () => {
+describe("inline card registry — a diff card carries the registered diff identity", () => {
   it("hands a body both identifiers the registered diff result names", () => {
     // Two rows, two ids: a body renders the diff while its provenance and retention
     // hang off the manifest the diff minted. A card carrying one of them could fetch
     // only half of what it draws.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
-      owner: "repos-family",
+      owner: "repos",
       render: (props) => `${props.diffArtifactId}/${props.artifactManifestId}`,
     });
 
@@ -162,7 +162,7 @@ describe("inline card seats — a diff card carries the registered diff identity
   });
 });
 
-describe("inline card seats — an artifact card names an artifact", () => {
+describe("inline card registry — an artifact card names an artifact", () => {
   it("accepts a reference from the artifact partition", () => {
     // The positive half, and it is what makes the refusal below a NARROWING rather
     // than a type nothing can satisfy.
@@ -195,13 +195,13 @@ describe("inline card seats — an artifact card names an artifact", () => {
   });
 });
 
-describe("inline card seats — the module-scope door", () => {
+describe("inline card registry — the module-scope registry", () => {
   it("claims a kind on the process-wide registry", () => {
     inlineCardRegistry.register("attachment", {
-      owner: "inline-card-seats-test",
+      owner: "inline-card-registration-test",
       render: (props) => props.attachment.attachmentId,
     });
-    expect(inlineCardBody("attachment")?.owner).toBe("inline-card-seats-test");
+    expect(inlineCardBody("attachment")?.owner).toBe("inline-card-registration-test");
     expect(inlineCardRegistry.render(ATTACHMENT_CARD)).toBe("attachment-1");
   });
 

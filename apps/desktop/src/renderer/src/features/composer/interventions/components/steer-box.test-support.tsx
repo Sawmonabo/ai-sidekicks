@@ -2,7 +2,7 @@
 //
 // The suites mount the same form against the same run and the same stub calls,
 // because the claims are about one composition: a form that composes against a run
-// reads that run's own comparand and dispatches through the surface it is given.
+// reads that run's own comparand and dispatches through the dispatch state it is given.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -27,7 +27,7 @@ export const APPLIED_STEER: ScriptedAnswer = () => ({
 });
 
 /**
- * The calls the surface is given, recording each intervention into the array the CASE
+ * The calls the run control dispatch is given, recording each intervention into the array the CASE
  * holds.
  *
  * The harness below receives the array as a prop and builds these inside itself, so
@@ -50,7 +50,7 @@ export function interventionCalls(
   };
 }
 
-/** The subject the surface keys its holders on; no case calls through it. */
+/** The subject the dispatch state keys its holders on; no case calls through it. */
 export function inertBridge(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
@@ -64,19 +64,24 @@ export function runAt(
   return { runId, runVersion, state };
 }
 
-/** The steer form mounted over a surface fed by the stub calls. */
+/** The steer form mounted over a run control dispatch fed by the stub calls. */
 export function SteerBoxHarness(props: {
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
 }): React.JSX.Element {
-  // Pinned for the harness's whole life: the surface keys its holders on the
+  // Pinned for the harness's whole life: the dispatch state keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
   const [bridge] = useState(inertBridge);
   const [runControlCalls] = useState(() => interventionCalls(props.calls, props.answer));
-  const surface = useRunControlDispatch(bridge, runControlCalls);
+  const dispatchState = useRunControlDispatch(bridge, runControlCalls);
   return (
-    <SteerBox bridge={bridge} run={runAt("paused")} surface={surface} onDismiss={props.onDismiss} />
+    <SteerBox
+      bridge={bridge}
+      run={runAt("paused")}
+      dispatchState={dispatchState}
+      onDismiss={props.onDismiss}
+    />
   );
 }
 

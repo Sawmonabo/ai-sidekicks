@@ -3,10 +3,10 @@
 // THE MEMO OUTLIVES EVERY MOUNT, which is what makes this a claim about the registration
 // rather than about a render. A `LoaderBackedBody` belongs to the board, and the board
 // belongs to the window — so a promise kept after it rejected is kept for the life of the
-// window, and every later ask is answered from it: the surface error boundary's "Try
+// window, and every later ask is answered from it: the error boundary's "Try
 // again" remounts a subtree onto the same dead promise, and navigating away and back
 // arrives at it too. The loader is never called a second time, so nothing anywhere is
-// retrying anything, and the surface is permanently a failure card with a button that
+// retrying anything, and the region is permanently a failure card with a button that
 // cannot work.
 //
 // WHAT THE CASES BELOW MEASURE IS THE LOADER, not the screen. A memo that kept the
@@ -74,7 +74,7 @@ describe("a rejected body load — the registration does not keep the failure", 
   it("asks the loader again when the next caller arrives, and lands the body", async () => {
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     await expect(registry.preload("diff")).rejects.toThrow(CHUNK_FETCH_FAILURE);
     expect(loader.callCount()).toBe(1);
@@ -89,7 +89,7 @@ describe("a rejected body load — the registration does not keep the failure", 
     // loaded and the loader had never produced a body.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     await expect(registry.preload("diff")).rejects.toThrow(CHUNK_FETCH_FAILURE);
     expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
@@ -105,7 +105,7 @@ describe("a rejected body load — the registration does not keep the failure", 
     // third fetch for a body two callers were already waiting on.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     const firstAsks = await Promise.allSettled([
       registry.preload("diff"),
@@ -127,7 +127,7 @@ describe("a rejected body load — the registration does not keep the failure", 
     // rejected arm alone.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(0, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     await registry.preload("diff");
     await registry.preload("diff");
@@ -140,7 +140,7 @@ describe("a rejected body load — the registration does not keep the failure", 
   });
 });
 
-describe("a rejected body load — the surface boundary's retry reaches it", () => {
+describe("a rejected body load — the error boundary's retry reaches it", () => {
   let restoreThrowOnReport = false;
 
   beforeEach(() => {
@@ -160,7 +160,7 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
   it("mounts the body the retry's own load lands", async () => {
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     const { container } = render(
       <ErrorBoundary regionName="The diff pane">
@@ -183,7 +183,7 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     // exactly the damaged install where it cannot.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(2, diffBody);
-    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     const { container } = render(
       <ErrorBoundary regionName="The diff pane">

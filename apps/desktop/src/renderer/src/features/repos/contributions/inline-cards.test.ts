@@ -1,8 +1,8 @@
-// What the repos feature fills on the inline-card board it is handed.
+// What the repos feature registers in the inline card registry it is handed.
 //
 // The cases drive the REGISTRY rather than the component: a descriptor that was built and
 // never registered renders identically to one that was never built, and it is the
-// registration that the seat boards depend on.
+// registration that the transcript's rows depend on.
 
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +10,7 @@ import { InlineCardRegistry, inlineCardRegistry } from "@renderer/console/seats/
 import { registerReposInlineCards } from "./inline-cards.js";
 
 describe("repos — the inline cards", () => {
-  it("writes the card board it is given and never the process-wide one", () => {
+  it("writes the card registry it is given and never the process-wide one", () => {
     const cards = new InlineCardRegistry();
     registerReposInlineCards(cards);
     expect(cards.registeredCardKinds()).toStrictEqual(["diff"]);

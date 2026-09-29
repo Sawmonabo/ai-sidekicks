@@ -1,15 +1,15 @@
-// When the artifact pane reads again, and which round a completion belongs to.
+// When the artifact list reads again, and which round a completion belongs to.
 //
 // Split from `artifact-list-reader.ts`: deciding when to read is this module's, and holding
-// what a surface renders and what it can act on is the reader's. Nothing here knows what
+// what the section renders and what it can act on is the reader's. Nothing here knows what
 // a reading means; the two abstract members below touch one and the subclass answers them.
 //
-// A base class rather than a composed object, because the reading a surface holds has to
+// A base class rather than a composed object, because the reading the section holds has to
 // be the class that carries the scheduler and the trigger contract. The two abstract
 // members are methods rather than closures in the options, because a subclass cannot
 // write `publish: (reading) => this.#publish(reading)` inside its own `super()` call.
 //
-// No timer and no poll. The read runs once when the pane mounts and again when the user
+// No timer and no poll. The read runs once when the section mounts and again when the user
 // asks, and both go through the console's one `RefreshScheduler`: a burst of presses
 // coalesces into one read, reads never overlap, and every completion carries a generation
 // stamp, so a completion that is no longer current is dropped instead of overwriting a
@@ -42,13 +42,13 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  *
  * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed: a hand-written list is
  * a snapshot of a registry that grows, so a new `artifact.*` kind — a retention sweep, a
- * re-publication — would reach this pane and be ignored, with the list on screen going
+ * re-publication — would reach this section and be ignored, with the list on screen going
  * stale and nothing anywhere saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the
  * canonical type registry and its keys are the whole census, so a kind is watched the
  * day it is registered and a kind renamed stops matching nothing silently rather than
  * compiling and doing so.
  *
- * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
+ * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this section
  * is actually asking. Both of its reads are about artifacts, so any frame that names
  * one changes what one of them would answer — while `artifact_publication`, the
  * category the three live in, also holds `diff.created`, `pr.prepared`, and
@@ -65,7 +65,7 @@ export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
 ].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));
 
 /**
- * The one key this pane's scheduled read is claimed under.
+ * The one key the section's scheduled read is claimed under.
  *
  * One key and not one per artifact, because a scheduled read re-reads the whole list:
  * there is a single round in flight at a time, and every act comparing against it asks the
@@ -82,7 +82,7 @@ export interface ArtifactReadScheduleOptions {
    *
    * The store rather than a bare session id, because the artifact frames and the repair
    * edge that stands for reconnect are both transitions of this object. The id is read
-   * off it, so the pane and the store can never name two sessions.
+   * off it, so the section and the store can never name two sessions.
    */
   readonly sessionStore: SessionStore;
   /**
@@ -95,7 +95,7 @@ export interface ArtifactReadScheduleOptions {
 }
 
 export abstract class ArtifactReadSchedule implements ReadTriggerTarget {
-  /** The frames whose arrival owes this pane a fresh read. */
+  /** The frames whose arrival owes this section a fresh read. */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
     ARTIFACT_TERMINAL_EVENT_KINDS,
   );
@@ -109,7 +109,7 @@ export abstract class ArtifactReadSchedule implements ReadTriggerTarget {
    * A read takes the key, so a completion asks whether its own round is still the one the
    * key is on. The key is superseded when a read starts and when the schedule is disposed,
    * so one question answers both "this answer was superseded" and "this answer outlived
-   * its pane".
+   * its section".
    */
   readonly #reads = new GenerationLatch();
 
@@ -195,7 +195,7 @@ export abstract class ArtifactReadSchedule implements ReadTriggerTarget {
     return this.#reads.currentClaim(this, SCHEDULED_READ_KEY);
   }
 
-  /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */
+  /** Terminal. No later completion, frame, or focus can reach a section that unmounted. */
   public dispose(): void {
     this.#disposed = true;
     this.#reads.supersedeAll();

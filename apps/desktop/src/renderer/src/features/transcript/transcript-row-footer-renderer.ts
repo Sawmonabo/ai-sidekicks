@@ -1,18 +1,18 @@
-// The transcript row's FOOTER seat — where a row-level control another plan owns sits.
+// The transcript row's FOOTER renderer — where a row-level control another feature owns sits.
 //
-// WHY A SECOND SEAT BESIDE THE ROW SLOT. `transcript-row-renderer.ts` hands out the whole
-// row body, and the family that fills it owns everything inside. The edit-and-resend
+// WHY A SECOND REGISTRY BESIDE THE ROW RENDERER. `transcript-row-renderer.ts` hands out the
+// whole row body, and the feature that registers it owns everything inside. The edit-and-resend
 // affordance is not inside it: the pencil belongs in the footer of a user
 // message row, the body it opens is authored by the run-controls plan, and neither
-// of those is the row's renderer. Handing that plan the row slot would make it the
+// of those is the row's renderer. Handing that feature the row renderer would make it the
 // owner of every row in the transcript to obtain one control on one kind of row.
 //
-// AND WHY NOT THE COMPOSER'S ACCESSORY RAIL, WHICH ALREADY HAS A SLOT. That one is
-// the EDITOR's seat — where the inline editor mounts once it is open. This is the
-// seat for the thing that OPENS it, and the design places that in the row, not
-// beside the composer. Two seats, two mounting families, one body between them.
+// AND WHY NOT THE COMPOSER'S ACCESSORY RAIL, WHICH ALREADY TAKES A RENDERER. That one
+// is where the inline EDITOR mounts once it is open. This one is for the control that
+// OPENS it, and the design places that in the row, not beside the composer. Two
+// registries, two mounting features, one body between them.
 //
-// THE SEAT DERIVES NO ELIGIBILITY, AND THAT IS THE LOAD-BEARING RULE. Whether a
+// THE FOOTER DERIVES NO ELIGIBILITY, AND THAT IS THE LOAD-BEARING RULE. Whether a
 // person may correct a message is a daemon predicate; the affordance is a
 // fail-closed PROJECTION of it and never a second source of truth. So this contract
 // hands the body the row and the one fact the row cannot see about itself — whether
@@ -47,13 +47,13 @@ export type TranscriptRowFooterRenderer = (
   props: TranscriptRowFooterRendererProps,
 ) => React.ReactNode;
 
-const transcriptRowFooterSeat = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
+const transcriptRowFooterRegistry = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
   "transcript row footer",
   "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );
 
 /**
- * The call the footer's owner makes to fill the seat.
+ * The call the footer's owner makes to register its renderer.
  *
  * Owner-scoped, so a second owner is a refusal naming both rather than a race decided
  * by import order.
@@ -62,20 +62,20 @@ export function registerTranscriptRowFooterRenderer(
   owner: string,
   render: TranscriptRowFooterRenderer,
 ): void {
-  transcriptRowFooterSeat.register({ owner, render });
+  transcriptRowFooterRegistry.register({ owner, render });
 }
 
 /**
- * Release the seat.
+ * Release the registered renderer.
  *
- * Test scaffolding: the seat is module-scope, so a case that fills it would leak
+ * Test scaffolding: the registry is module-scope, so a case that fills it would leak
  * into the next one.
  */
 export function unregisterTranscriptRowFooterRenderer(): void {
-  transcriptRowFooterSeat.unregister();
+  transcriptRowFooterRegistry.unregister();
 }
 
-/** The footer body, or `undefined` while the seat is empty. */
+/** The footer body, or `undefined` while nothing is registered. */
 export function findTranscriptRowFooterRenderer(): TranscriptRowFooterRenderer | undefined {
-  return transcriptRowFooterSeat.renderer();
+  return transcriptRowFooterRegistry.renderer();
 }

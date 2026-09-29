@@ -9,14 +9,14 @@
 // indistinguishable on screen from a session that has no rows, which is exactly why
 // the endurance tier now reads the window rather than counting elements.
 //
-// The rect reaches the library through one door and one only — the geometry
+// The rect reaches the library through one path and one only — the geometry
 // chokepoint, replayed into `observeElementRect` — so this file drives the binding
-// through the shape the real tree uses: the hook in one component, the surface's ref
+// through the shape the real tree uses: the hook in one component, the scroll container's ref
 // in a child, and no scroll, resize, or extra frame anywhere. What it asserts is that
 // the mount settles with rows, and the control is a box the layout gives no height,
 // which settles with none.
 //
-// `useTranscriptViewport.test.tsx` attaches the surface by hand AFTER the mount, which is
+// `useTranscriptViewport.test.tsx` attaches the scroll container by hand AFTER the mount, which is
 // the right shape for what it drives (a prune the window refused, re-asked) and
 // cannot answer this: the ordering being checked here is the ref callback against the
 // library's own layout effect, and an attach performed from a test body has already
@@ -50,7 +50,7 @@ function MountedTranscriptViewport(props: {
   readonly binding: TranscriptViewportBinding;
 }): React.JSX.Element {
   return (
-    <div ref={props.binding.attachSurface}>
+    <div ref={props.binding.attachScrollContainer}>
       <div ref={props.binding.attachSizer}>
         {props.binding.virtualItems.map((virtualItem) => (
           <div className="transcript-first-commit-row" key={virtualItem.key} />
@@ -61,9 +61,9 @@ function MountedTranscriptViewport(props: {
 }
 
 /**
- * The hook's owner, one component ABOVE the surface — which is the real arrangement
+ * The hook's owner, one component ABOVE the scroll container — which is the real arrangement
  * and is the whole point: React attaches a child's ref before it runs an ancestor's
- * layout effects, so the surface is bound before the library asks for it. The clock
+ * layout effects, so the scroll container is bound before the library asks for it. The clock
  * is minted once; a fresh one per render re-mints the controller the hook keys on and
  * the mount never settles.
  */

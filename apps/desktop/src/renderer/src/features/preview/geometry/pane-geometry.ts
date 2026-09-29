@@ -9,10 +9,10 @@
 // — lives in `geometry-publisher.ts`, which needs a document and cannot be pure.
 //
 // WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. No code package
-// registers that method, so the publish target is the HOST SEAM rather than a
+// registers that method, so the publish target is the PAGE HOST rather than a
 // fabricated method string.
 //
-// The two surfaces beside this one: `view-host.ts` is the host seam — what a
+// The two modules beside this one: `page-host.ts` is the page host — what a
 // sample is published TO — and `core/airspace-registry.ts` is the overlay set every
 // overlay primitive registers into, reached through the narrow `PaneOverlaySource`
 // port so the two do not cycle.
@@ -60,14 +60,14 @@ export type GeometryInvalidationReason = (typeof GEOMETRY_INVALIDATION_REASONS)[
 
 /**
  * One reading of where the pane is, and whether the view may be shown there. It
- * travels WHOLE to the host rather than as four numbers, because 12.3 forbids
- * assuming a rectangle is still current after an await: a host handed the sample can
+ * travels WHOLE to the page host rather than as four numbers, because 12.3 forbids
+ * assuming a rectangle is still current after an await: a page host handed the sample can
  * compare `key` against what it last applied, and one handed coordinates cannot.
  */
 export interface PaneGeometrySample {
   /** The pane's own box, intersected against every clipping ancestor. */
   readonly rect: PaneRect;
-  /** The tightest clip that produced it, for a host that masks rather than moves. */
+  /** The tightest clip that produced it, for a page host that masks rather than moves. */
   readonly clip: PaneRect;
   readonly visible: boolean;
   /** Why it is not visible. `undefined` on a visible sample. */
@@ -156,7 +156,7 @@ export function intersectRects(first: PaneRect, second: PaneRect): PaneRect {
  * version reachable only by mounting a pane in a real window is one nobody could write
  * a negative control for.
  *
- * The host box is narrowed by EVERY clipping ancestor, because a pane scrolled behind
+ * The host rectangle is narrowed by EVERY clipping ancestor, because a pane scrolled behind
  * an overflow edge has a valid bounding box that is nowhere the operator can see, and
  * publishing it paints a live web page over the chrome above it. The result hides
  * outright below one pixel on either axis of either the rectangle or the clip: there

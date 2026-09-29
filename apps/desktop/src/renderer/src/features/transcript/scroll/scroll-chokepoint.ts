@@ -20,9 +20,9 @@
 //     reading back; this controller consults the answer and skips nothing while it is open.
 //   • **Geometry is published, not polled.** Nothing here arms a timer, and every sample
 //     says which number moved, because a box that changed size is not a reader who moved.
-//     WHEN a sample is taken and off which surface is this module's; what one MEANS — the
-//     derivation, the held sample, the replay, and which one is worth waking a subscriber
-//     for — is `scroll-geometry-publisher.ts`', stated once, there.
+//     WHEN a sample is taken and off which scroll container is this module's; what one
+//     MEANS — the derivation, the held sample, the replay, and which one is worth waking a
+//     subscriber for — is `scroll-geometry-publisher.ts`', stated once, there.
 //   • **Following costs no hit test.** The sample reads `scrollTop`, `clientHeight`, and
 //     `scrollHeight` and nothing else — no row rect, no `elementFromPoint` — because those
 //     three are the only reads a scroll event handler can afford at 60 Hz with four
@@ -53,9 +53,9 @@ export interface ScrollWrite {
 }
 
 /**
- * The surface the controller drives.
+ * The scrolling element the controller drives.
  *
- * Structural rather than `HTMLElement` so the unit tier can drive a surface whose
+ * Structural rather than `HTMLElement` so the unit tier can drive a stand-in whose
  * property reads it counts — which is how "no hit test per scroll event" is
  * checked rather than asserted. A real element satisfies it.
  */
@@ -85,8 +85,8 @@ export class ScrollController {
   /** Phase one of the frame: the reactive writes, ordered ahead of reveal work. */
   readonly #frameWrites: ScrollFrameWrites;
 
-  #surface: ScrollContainer | undefined;
-  #onSurfaceScroll: (() => void) | undefined;
+  #scrollContainer: ScrollContainer | undefined;
+  #onContainerScroll: (() => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
   #disposed = false;
@@ -118,9 +118,9 @@ export class ScrollController {
   }
 
   /**
-   * Take ownership of a scroll surface.
+   * Take ownership of a scroll container.
    *
-   * Re-attaching detaches the previous surface first: a pane that re-mounts must
+   * Re-attaching detaches the previous scroll container first: a pane that re-mounts must
    * not leave a listener on a node React has already dropped.
    *
    * AND IT ARMS ITS OWN OVERFLOW PASS. That detach canceled the frame the outgoing
@@ -130,38 +130,38 @@ export class ScrollController {
    * resized still costs one pass. The BOX is not what this covers: that is published on
    * the line above and again by `publishOnResize`, neither of which waits for a frame.
    */
-  public attach(surface: ScrollContainer): void {
+  public attach(scrollContainer: ScrollContainer): void {
     if (this.#disposed) {
       return;
     }
     this.detach();
-    this.#surface = surface;
+    this.#scrollContainer = scrollContainer;
     const onScroll = (): void => {
       this.#publishGeometry("scroll");
     };
-    this.#onSurfaceScroll = onScroll;
-    surface.addEventListener("scroll", onScroll, { passive: true });
-    this.#overflowBatch.observeResize(surface);
+    this.#onContainerScroll = onScroll;
+    scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    this.#overflowBatch.observeResize(scrollContainer);
     this.#overflowBatch.observeFontLoading();
     this.#publishGeometry("scroll");
     this.#overflowBatch.request();
   }
 
   /**
-   * Release the surface.
+   * Release the scroll container.
    *
    * Every read here is null-safe (`TranscriptErrors.tsx`'s teardown rule): teardown runs
    * on an unmount that may follow a failed attach, so the listener and everything the
    * batch holds may each be absent independently.
    */
   public detach(): void {
-    const surface = this.#surface;
-    const onScroll = this.#onSurfaceScroll;
-    if (surface !== undefined && onScroll !== undefined) {
-      surface.removeEventListener("scroll", onScroll);
+    const scrollContainer = this.#scrollContainer;
+    const onScroll = this.#onContainerScroll;
+    if (scrollContainer !== undefined && onScroll !== undefined) {
+      scrollContainer.removeEventListener("scroll", onScroll);
     }
-    this.#onSurfaceScroll = undefined;
-    this.#surface = undefined;
+    this.#onContainerScroll = undefined;
+    this.#scrollContainer = undefined;
     this.#overflowBatch.release();
   }
 
@@ -198,12 +198,12 @@ export class ScrollController {
    * anchor held" and "the browser clamped us to the end of the content".
    */
   public glideTo(caller: ScrollCaller, targetScrollTop: number): ScrollWrite | undefined {
-    const surface = this.#surface;
-    if (surface === undefined || this.#disposed) {
+    const scrollContainer = this.#scrollContainer;
+    if (scrollContainer === undefined || this.#disposed) {
       return undefined;
     }
-    const requestedScrollTop = this.#clampToContent(surface, targetScrollTop);
-    const currentScrollTop = surface.scrollTop;
+    const requestedScrollTop = this.#clampToContent(scrollContainer, targetScrollTop);
+    const currentScrollTop = scrollContainer.scrollTop;
     this.#writeCountByCaller.set(caller, (this.#writeCountByCaller.get(caller) ?? 0) + 1);
     if (this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)) {
       return { caller, requestedScrollTop, appliedScrollTop: currentScrollTop, wasSkipped: true };
@@ -213,8 +213,8 @@ export class ScrollController {
     // under the offset the write had just chosen.
     this.#writeDepth += 1;
     try {
-      surface.scrollTop = requestedScrollTop;
-      const appliedScrollTop = surface.scrollTop;
+      scrollContainer.scrollTop = requestedScrollTop;
+      const appliedScrollTop = scrollContainer.scrollTop;
       this.#quantization.observe(requestedScrollTop, appliedScrollTop);
       this.#publishGeometry("scroll");
       return { caller, requestedScrollTop, appliedScrollTop, wasSkipped: false };
@@ -225,11 +225,11 @@ export class ScrollController {
 
   /** The glide that replaces `scrollIntoView` for the bottom of the log. */
   public glideToTail(caller: ScrollCaller): ScrollWrite | undefined {
-    const surface = this.#surface;
-    if (surface === undefined) {
+    const scrollContainer = this.#scrollContainer;
+    if (scrollContainer === undefined) {
       return undefined;
     }
-    return this.glideTo(caller, surface.scrollHeight - surface.clientHeight);
+    return this.glideTo(caller, scrollContainer.scrollHeight - scrollContainer.clientHeight);
   }
 
   /**
@@ -305,8 +305,8 @@ export class ScrollController {
     return this.#quantization.verdict;
   }
 
-  #clampToContent(surface: ScrollContainer, targetScrollTop: number): number {
-    const maximum = Math.max(0, surface.scrollHeight - surface.clientHeight);
+  #clampToContent(scrollContainer: ScrollContainer, targetScrollTop: number): number {
+    const maximum = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     if (!Number.isFinite(targetScrollTop)) {
       // Fail closed rather than handing `NaN` to the platform, which silently
       // becomes zero and teleports the reader to the top of the log.
@@ -322,19 +322,19 @@ export class ScrollController {
    * fact comes from them, so a row rect read here would be a hit test on the scroll
    * path, which this module forbids while following. What the three MEAN — the tail
    * arithmetic, the held sample, and whether a subscriber is woken — is the publisher's,
-   * and `undefined` is returned for a controller with no surface because there is
+   * and `undefined` is returned for a controller with no scroll container because there is
    * nothing to read rather than nothing to say.
    */
   #publishGeometry(cause: GeometryChangeCause): ScrollGeometry | undefined {
-    const surface = this.#surface;
-    if (surface === undefined) {
+    const scrollContainer = this.#scrollContainer;
+    if (scrollContainer === undefined) {
       return undefined;
     }
     return this.#geometryPublisher.publish(
       {
-        scrollTop: surface.scrollTop,
-        viewportHeight: surface.clientHeight,
-        contentHeight: surface.scrollHeight,
+        scrollTop: scrollContainer.scrollTop,
+        viewportHeight: scrollContainer.clientHeight,
+        contentHeight: scrollContainer.scrollHeight,
       },
       cause,
     );
@@ -345,7 +345,7 @@ export class ScrollController {
    *
    * PUBLISHED and not merely handed over: the emitter is the only way a viewport height
    * reaches the library's rect. One sample serves the batch, the anchor and the rect,
-   * so the pass reads the surface exactly three times, and a pass on a DETACHED
+   * so the pass reads the scroll container exactly three times, and a pass on a DETACHED
    * controller samples nothing and calls nobody. The resize path no longer DEPENDS on
    * this publication — `publishOnResize` took that sample synchronously — and this one
    * is what the font-loading and explicit triggers publish through.

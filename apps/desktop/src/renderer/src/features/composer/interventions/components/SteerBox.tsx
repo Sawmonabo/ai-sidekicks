@@ -18,14 +18,14 @@
 // settlement can still close the form.
 //
 // IT WAITS ON ITS OWN DISPATCH AND NO OTHER. The form records nothing until the
-// surface answers. An admitted dispatch carries the token its settlement will be
+// dispatch state answers. An admitted dispatch carries the token its settlement will be
 // recorded under and the form reads the record by that token, which is exact rather
 // than newest-wins: cancel the form with its request in flight, reopen it, and the
 // old request's settlement is not read as the new body's. A refused dispatch renders
 // as what it is — an earlier request for this run is still settling — with the body
 // kept and the confirm live, so the user confirms again once the first one lands.
 //
-// THE COMPOSER OUTLIVES ITS DISPATCH. The surface record keeps a refusal and nothing
+// THE COMPOSER OUTLIVES ITS DISPATCH. The dispatch record keeps a refusal and nothing
 // keeps the text, so the form does not close when a dispatch STARTS. The settlement is
 // read off `RunControlDispatchState.records`, and only one that LANDED (`applied` or
 // `degraded`) closes the form; everything else keeps the body on screen beside the
@@ -51,23 +51,23 @@ import type { RunControlDispatchState } from "../../run-controls/hooks/useRunCon
 
 import "./SteerBox.css";
 
-/** What the steer form is given: the run it addresses and the surface it dispatches through. */
+/** What the steer form is given: the run it addresses and the dispatch state it goes through. */
 export interface SteerBoxProps {
   /**
-   * The transport this form's state belongs to, and the surface's own subject.
+   * The transport this form's state belongs to, and the dispatch state's own subject.
    *
    * Present for the holder and for nothing else: this component makes no call of its
-   * own — `surface.dispatch` does — but its state is about one transport and one
+   * own — `dispatchState.dispatch` does — but its state is about one transport and one
    * run, and a replacement retires both.
    */
   readonly bridge: PlatformBridge;
   readonly run: RunControlCommandRun;
-  readonly surface: RunControlDispatchState;
+  readonly dispatchState: RunControlDispatchState;
   /** Close the composer. Raised on cancel, and on a settlement that landed. */
   readonly onDismiss: () => void;
 }
 
-/** The dispatch this form is waiting on, named by the token the surface admitted. */
+/** The dispatch this form is waiting on, named by the token the dispatch state admitted. */
 interface PendingDispatch {
   /** The token this form's own settlement will be recorded under. */
   readonly dispatchToken: string;
@@ -113,9 +113,9 @@ const EMPTY_FORM: ComposedForm = Object.freeze({
 
 /** The form that sends a steer to one run. */
 export function SteerBox(props: SteerBoxProps): React.JSX.Element {
-  const { bridge, run, surface, onDismiss } = props;
+  const { bridge, run, dispatchState, onDismiss } = props;
   const bodyId = useId();
-  const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
+  const comparand = dispatchState.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = run.runId;
   const { value: form, publish: publishForm } = useSubjectScopedState<ComposedForm>(
     bridge,
@@ -131,7 +131,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     [publishForm],
   );
 
-  // The dispatcher's answer, read off the record the surface appended for THIS
+  // The dispatcher's answer, read off the record the dispatch state appended for THIS
   // dispatch. The token is what makes that exact: it is minted at admission and is
   // the record's own id, so a record carrying another token is another request's
   // settlement and this form is still waiting.
@@ -139,9 +139,11 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     if (pendingDispatch === undefined || pendingDispatch.composedIdentity !== composedIdentity) {
       return undefined;
     }
-    const own = surface.records.find((record) => record.recordId === pendingDispatch.dispatchToken);
+    const own = dispatchState.records.find(
+      (record) => record.recordId === pendingDispatch.dispatchToken,
+    );
     return own === undefined ? undefined : readInterventionFormSettlement(own.outcome);
-  }, [pendingDispatch, surface.records, composedIdentity]);
+  }, [pendingDispatch, dispatchState.records, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;
   const isConfirmLatched = isSending || settlement?.kind === "recorded";
@@ -175,9 +177,9 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       }
       const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
         dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body });
-      // Dispatch first, then record — and record nothing at all unless the surface
+      // Dispatch first, then record — and record nothing at all unless the dispatch state
       // admitted the call.
-      const admission = surface.dispatch(run.runId, "steer", steer);
+      const admission = dispatchState.dispatch(run.runId, "steer", steer);
       if (!admission.admitted) {
         publishForm((held) => ({ ...held, localRefusal: admissionRefusal(admission.reason) }));
         return;
@@ -188,7 +190,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         pendingDispatch: { dispatchToken: admission.dispatchToken, composedIdentity },
       }));
     },
-    [body, surface, run.runId, comparand, isConfirmLatched, composedIdentity, publishForm],
+    [body, dispatchState, run.runId, comparand, isConfirmLatched, composedIdentity, publishForm],
   );
 
   return (

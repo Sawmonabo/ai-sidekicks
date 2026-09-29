@@ -21,7 +21,7 @@ import { settle } from "./workflows-probe.test-support.js";
 
 /** Whether the screen is showing an opened pane rather than the runs. */
 function isShowingOpenedPane(container: HTMLElement): boolean {
-  return container.querySelector(".meridian-workflows-pane-host") !== null;
+  return container.querySelector(".meridian-workflows-open-pane") !== null;
 }
 
 beforeAll(loadRunPaneBody);

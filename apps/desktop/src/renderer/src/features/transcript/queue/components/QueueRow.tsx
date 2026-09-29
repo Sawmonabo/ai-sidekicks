@@ -1,4 +1,4 @@
-// One queued item in the runs pane's queue list.
+// One queued item in the queue list.
 //
 // Split from `QueueContents.tsx`, which owns the read and the empty case,
 // while this owns one row.

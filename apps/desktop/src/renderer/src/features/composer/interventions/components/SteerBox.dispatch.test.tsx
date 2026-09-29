@@ -2,7 +2,7 @@
 //
 // Every case here is about the interval between a press and a settlement — a composer
 // that outlives its own dispatch, and a version that advanced between two readings. A
-// surface that sent a comparand it had already been told was stale would be wrong in
+// form that sent a comparand it had already been told was stale would be wrong in
 // exactly this interval and nowhere else.
 //
 // What the form is KEYED by, and when a dispatch is recorded at all, are the other
@@ -73,7 +73,7 @@ describe("the composer outlives its dispatch", () => {
 });
 
 describe("the comparand is the newer of the two readings", () => {
-  // One bridge for the surface's whole life, so the dispatcher's cache survives a
+  // One bridge for the harness's whole life, so the dispatcher's cache survives a
   // rerender; the composer itself is remounted (keyed) each time the stream's
   // reading of the run moves. The applied answer reports version 9, which the
   // dispatcher caches; the stream then reports 10.
@@ -82,13 +82,13 @@ describe("the comparand is the newer of the two readings", () => {
     readonly runVersion: number;
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
-    const surface = useRunControlDispatch(bridge, props.calls);
+    const dispatchState = useRunControlDispatch(bridge, props.calls);
     return (
       <SteerBox
         key={props.runVersion}
         bridge={bridge}
         run={runAt("paused", props.runVersion)}
-        surface={surface}
+        dispatchState={dispatchState}
         onDismiss={() => undefined}
       />
     );

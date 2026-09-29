@@ -1,4 +1,4 @@
-// The tool sub-family vocabulary and the reader over a row's own payload.
+// The tool kind vocabulary and the reader over a row's own payload.
 //
 // `row-kind.ts` refuses to read a tool kind out of the tool's name:
 // `ToolActivityPayload` carries `toolName`, `toolCallId` and `durationMs`, and no member
@@ -7,9 +7,9 @@
 // vocabulary is declared here as data and the reading is one function over the payload.
 //
 // The reader is fail-closed in both directions. An ABSENT declaration reads as no
-// sub-family, which is the tool layout this console already draws. An UNRECOGNIZED one
+// tool kind, which is the tool layout this console already draws. An UNRECOGNIZED one
 // reads as unrecognized and says so: an unknown enum member renders as the explicit
-// unrecognized badge and never as a guess, and collapsing it into "no sub-family" would
+// unrecognized badge and never as a guess, and collapsing it into "no tool kind" would
 // be that guess wearing an absence's clothes.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
@@ -20,7 +20,7 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
  * Data rather than prose, so the set can be counted and a seventh treatment is an
  * edit here rather than a sentence somebody has to notice. The tuple is the
  * declaration and the union is derived from it — `row-kind.ts`' rule about its own
- * family set, for its reason.
+ * kind set, for its reason.
  */
 export const TOOL_KINDS = [
   "command-output",
@@ -35,7 +35,7 @@ export const TOOL_KINDS = [
 export type ToolKind = (typeof TOOL_KINDS)[number];
 
 /**
- * The payload member that would declare a row's sub-family.
+ * The payload member that would declare a row's tool kind.
  *
  * NO REGISTERED PAYLOAD CARRIES IT. `ToolActivityPayload` declares `toolName`,
  * `toolCallId` and `durationMs` and nothing else, so the reader below answers
@@ -55,7 +55,7 @@ export const TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY = "toolArgumentSummary";
 export type ToolKindReading =
   | {
       readonly kind: "declared";
-      readonly subFamily: ToolKind;
+      readonly toolKind: ToolKind;
       /** The MCP server the call went to, where the row names one. */
       readonly serverLabel: string | undefined;
       /** The call's arguments as the wire summarized them, never re-parsed here. */
@@ -67,12 +67,12 @@ export type ToolKindReading =
       readonly declared: string;
     };
 
-/** What a sub-family renderer is handed. */
+/** What a tool kind renderer is handed. */
 export interface ToolKindRendererProps {
   readonly reading: ToolKindReading;
 }
 
-/** The sub-family treatment. Returns `React.ReactNode` so the card renders it directly. */
+/** The tool kind treatment. Returns `React.ReactNode` so the card renders it directly. */
 export type ToolKindRenderer = (props: ToolKindRendererProps) => React.ReactNode;
 
 /**
@@ -90,26 +90,26 @@ export function readDeclaredToolKind(
   if (declared === undefined) {
     return undefined;
   }
-  if (!isToolSubFamily(declared)) {
+  if (!isToolKind(declared)) {
     return { kind: "unrecognized", declared };
   }
   return {
     kind: "declared",
-    subFamily: declared,
+    toolKind: declared,
     serverLabel: readWireString(payload[TOOL_SERVER_LABEL_PAYLOAD_KEY]),
     argumentSummary: readArgumentSummary(payload[TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]),
   };
 }
 
 /** Whether a wire string is one of the six. A membership test, never a coercion. */
-function isToolSubFamily(candidate: string): candidate is ToolKind {
+function isToolKind(candidate: string): candidate is ToolKind {
   return (TOOL_KINDS as readonly string[]).includes(candidate);
 }
 
 /**
  * The argument summary the wire supplied, as strings.
  *
- * Every element read through the same wire-string reader the rest of this family
+ * Every element read through the same wire-string reader the rest of this module
  * uses, and an element that is not a string is DROPPED rather than stringified: a
  * summary is what the daemon composed, and `String(value)` on an object would put
  * `[object Object]` on the page as though the daemon had sent it.

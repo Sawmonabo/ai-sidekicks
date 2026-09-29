@@ -15,7 +15,7 @@ import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import {
   elementWithRect,
   moveElementRect,
-  RecordingViewHost,
+  RecordingPageHost,
   rect,
 } from "./geometry-publisher.test-support.js";
 
@@ -38,7 +38,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     detachAttachedRoots();
   });
 
-  /** Reorder the pane's parent around it, which is what a pane layout does to its seats. */
+  /** Reorder the pane's parent around it, which is what a pane layout does to its panes. */
   function reorderAround(hostElement: HTMLElement): void {
     const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.insertBefore(sibling, hostElement);
@@ -47,23 +47,23 @@ describe("PaneGeometryPublisher — the move source", () => {
   function publishingPublisherOver(hostElement: HTMLElement): {
     readonly publisher: PaneGeometryPublisher;
     readonly clock: ManualClock;
-    readonly host: RecordingViewHost;
+    readonly pageHost: RecordingPageHost;
   } {
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
     publisher.observe(hostElement);
     clock.runFrame();
-    return { publisher, clock, host };
+    return { publisher, clock, pageHost };
   }
 
   it("resamples once when the pane's parent is reordered around it", async () => {
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
-    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    const { publisher, clock, pageHost } = publishingPublisherOver(hostElement);
     expect(publisher.publishCount).toBe(1);
 
     moveElementRect(hostElement, rect(0, 40, 100, 100));
@@ -73,8 +73,8 @@ describe("PaneGeometryPublisher — the move source", () => {
     expect(clock.pendingFrameCount).toBe(1);
     clock.runFrame();
     expect(publisher.publishCount).toBe(2);
-    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
-    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(0, 40, 100, 100));
+    expect(pageHost.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(pageHost.samples.at(-1)?.rect).toStrictEqual(rect(0, 40, 100, 100));
     publisher.dispose();
   });
 
@@ -82,7 +82,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     // Three observers firing on one relayout must cost one publish, not three:
     // publishing per source is what makes a pane drag during a rail collapse.
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
-    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    const { publisher, clock, pageHost } = publishingPublisherOver(hostElement);
 
     publisher.invalidate("document-scroll");
     moveElementRect(hostElement, rect(0, 40, 100, 100));
@@ -94,7 +94,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     expect(publisher.publishCount).toBe(2);
     // The move arrived last, so it is the reading that got written — a second
     // queued frame would have written the scroll's stale rectangle first.
-    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(pageHost.samples.at(-1)?.reason).toBe("layout-mover");
     publisher.dispose();
   });
 
@@ -109,7 +109,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
     withAnimations(hostElement, []);
-    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    const { publisher, clock, pageHost } = publishingPublisherOver(hostElement);
     expect(publisher.publishCount).toBe(1);
 
     const motion = movingAnimation();
@@ -120,8 +120,8 @@ describe("PaneGeometryPublisher — the move source", () => {
     clock.runFrame();
 
     expect(publisher.publishCount).toBe(2);
-    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
-    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
+    expect(pageHost.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(pageHost.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
     motion.settle();
     clock.runFrame();
     clock.runFrame();
@@ -140,7 +140,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
     withAnimations(hostElement, []);
-    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    const { publisher, clock, pageHost } = publishingPublisherOver(hostElement);
     expect(publisher.publishCount).toBe(1);
 
     const motion = movingAnimation();
@@ -156,8 +156,8 @@ describe("PaneGeometryPublisher — the move source", () => {
     clock.runFrame();
 
     expect(publisher.publishCount).toBe(2);
-    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
-    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
+    expect(pageHost.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(pageHost.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
 
     motion.settle();
     clock.runFrame();

@@ -1,8 +1,8 @@
-// The attachment card in the ledger, and the seat it fills.
+// The attachment card in the ledger, and its registration.
 //
-// Two claims: the seat is filled by this family, and the body it mounts is the SAME
-// `AttachmentCard` the attachment surface renders rather than a second one written for
-// the transcript. The second is checkable because that card carries its own classes, and
+// Two claims: the composer registers the `attachment` card, and the body it mounts is the
+// composer's own `AttachmentCard` rather than a second one written for the
+// transcript. The second is checkable because that card carries its own classes, and
 // it matters because an unresolved marker is read for details two renderers would drift
 // on — which of the six causes, and what the remedy is.
 
@@ -49,37 +49,37 @@ function quietUpload(): AttachmentIngestEntry {
   };
 }
 
-describe("inline attachment card — the seat", () => {
+describe("inline attachment card — the registration", () => {
   /**
-   * A board this case owns.
+   * A registry this case owns.
    *
    * The registrar writes only what it is handed, so there is nothing to release afterwards.
    */
   function fill(): InlineCardRegistry {
-    const seats = new InlineCardRegistry();
-    registerComposerInlineCards(seats);
-    return seats;
+    const registry = new InlineCardRegistry();
+    registerComposerInlineCards(registry);
+    return registry;
   }
 
   it("fills the ledger's attachment card body", () => {
-    const seats = fill();
-    expect(seats.bodyFor("attachment")?.owner).toBe("composer");
-    expect(seats.registeredCardKinds()).toContain("attachment");
+    const registry = fill();
+    expect(registry.bodyFor("attachment")?.owner).toBe("composer");
+    expect(registry.registeredCardKinds()).toContain("attachment");
   });
 
   it("renders through the registry the ledger reaches it by", () => {
-    const seats = fill();
-    const { container } = render(<>{seats.render(CARD)}</>);
+    const registry = fill();
+    const { container } = render(<>{registry.render(CARD)}</>);
     expect(container.querySelector(".meridian-attachment-card")).not.toBeNull();
   });
 
-  it("negative control: an unfilled board answers nothing", () => {
-    // Without this, the two cases above would pass over a board that answered from
+  it("negative control: an empty registry answers nothing", () => {
+    // Without this, the two cases above would pass over a registry that answered from
     // somewhere else entirely, and the registration call would be doing nothing.
     expect(new InlineCardRegistry().bodyFor("attachment")).toBeUndefined();
   });
 
-  it("writes the board it is given and never the process-wide one", () => {
+  it("writes the registry it is given and never the process-wide one", () => {
     // The registrar closes over no singleton. A body that reached one would render
     // correctly in every case above and still leak into the running console.
     fill();
@@ -88,7 +88,7 @@ describe("inline attachment card — the seat", () => {
 });
 
 describe("inline attachment card — one body", () => {
-  it("names the reference the seat carried when no reading was supplied", () => {
+  it("names the reference the card carried when no reading was supplied", () => {
     const { container, getByRole } = render(<InlineAttachmentCard card={CARD} />);
     getByRole("group", { name: "Attachment artifact-4" });
     expect(container.querySelector(".meridian-attachment")).toBeNull();
@@ -97,7 +97,7 @@ describe("inline attachment card — one body", () => {
     );
   });
 
-  it("mounts the attachment surface's own card once a reading is supplied", () => {
+  it("mounts the composer's own attachment card once a reading is supplied", () => {
     const { container, getByRole } = render(
       <InlineAttachmentCard
         card={CARD}

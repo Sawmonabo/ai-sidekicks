@@ -15,7 +15,7 @@ import {
 
 export const SESSION_ID: string = APPROVAL_REQUEST_SCENARIO.sessionId;
 
-/** One store, opened with exactly what the composer family registers. */
+/** One store, opened with exactly what the composer feature registers. */
 export function storeDrivenByScenario(): SessionStore {
   return storeOver(APPROVAL_FLOW_PROJECTORS);
 }
@@ -23,12 +23,11 @@ export function storeDrivenByScenario(): SessionStore {
 /**
  * One store fed the scenario's whole log, folding with whatever it was opened with.
  *
- * `extraEvents` is appended after the scenario's own beats, for the cases whose
- * subject is a payload no scenario has a reason to play. Defaulted, so the ordinary
- * caller reads as it did — and a parameter rather than a second copy of this
- * function, which is what the approvals pane's provider-ask suite had: the cursor
- * arithmetic and the join-log seeding are the STORE's contract, and a suite holding
- * its own copy of them is a suite that will disagree with the store about a gap.
+ * `extraEvents` is appended after the scenario's own beats, for the cases whose subject is a
+ * payload no scenario has a reason to play. Defaulted, so the ordinary caller reads as it did — and
+ * a parameter rather than a second copy of this function, because the cursor arithmetic and the
+ * join-log seeding are the STORE's contract, and a suite holding its own copy of them is a suite
+ * that will disagree with the store about a gap.
  */
 export function storeOver(
   projectors: EntityProjectorTable | undefined,

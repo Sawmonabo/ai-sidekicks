@@ -1,7 +1,7 @@
 // A fetch that refused has to reach the screen, and the value it refused with is
 // not a string.
 //
-// The arm this file exists for is the one the mount point cannot drive: `XtermHost`
+// The arm this file exists for is the one the mount point cannot drive: `XtermMountPoint`
 // resolves the page's own loader, so a REFUSING fetch is only reachable where the
 // loader is a parameter. Every case below hands the real hook a real loader whose
 // `load()` refuses, and asserts what a person would be shown.

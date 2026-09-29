@@ -17,7 +17,7 @@ import {
   type ScreenContext,
 } from "@renderer/console/seats/index.js";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
-// suites belongs to the module beside it and not on the family's production door.
+// suites belongs to the module beside it and not on the production index.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { useLazyBodyIdleWarm } from "./useLazyBodyIdleWarm.js";
 
@@ -29,7 +29,7 @@ function composeBoards(loaded: string[]): {
   const paneRegistry = new PaneRegistry();
   paneRegistry.register({
     kind: "diff",
-    owner: "repos-family",
+    owner: "repos",
     body: () => {
       loaded.push("pane:diff");
       return Promise.resolve<{ Body: (context: PaneContext) => React.ReactNode }>({
@@ -39,10 +39,10 @@ function composeBoards(loaded: string[]): {
   });
   const screenRegistry = new ScreenRegistry();
   screenRegistry.register({
-    slot: "settings",
-    owner: "settings-family",
+    name: "settings",
+    owner: "settings",
     body: () => {
-      loaded.push("surface:settings");
+      loaded.push("screen:settings");
       return Promise.resolve<{ Body: (context: ScreenContext) => React.ReactNode }>({
         Body: () => null,
       });
@@ -82,7 +82,7 @@ describe("the window's idle warm", () => {
 
     scheduler.runToQuiescence();
 
-    expect([...loaded].sort()).toStrictEqual(["pane:diff", "surface:settings"]);
+    expect([...loaded].sort()).toStrictEqual(["pane:diff", "screen:settings"]);
     expect(boards.paneRegistry.unloadedKeys()).toStrictEqual([]);
     expect(boards.screenRegistry.unloadedKeys()).toStrictEqual([]);
   });
@@ -144,7 +144,7 @@ describe("the window's idle warm", () => {
 
     scheduler.runToQuiescence();
 
-    expect([...loaded].sort()).toStrictEqual(["pane:diff", "surface:settings"]);
+    expect([...loaded].sort()).toStrictEqual(["pane:diff", "screen:settings"]);
     expect(boards.paneRegistry.unloadedKeys()).toStrictEqual([]);
     expect(boards.screenRegistry.unloadedKeys()).toStrictEqual([]);
   });

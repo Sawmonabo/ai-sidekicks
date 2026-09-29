@@ -1,7 +1,7 @@
-// The artifact card, and the seat it fills.
+// The artifact card, and its registration.
 //
-// The registration is checked here rather than in `panes/panes.test.ts`, which is
-// seat-blind: it asserts the seat board's shape and says nothing about occupants.
+// The registration is checked here rather than in the registry's own suite, which says
+// nothing about which feature registers which card.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -32,33 +32,33 @@ const MANIFEST: ArtifactManifestRow = {
   createdAt: "2026-09-01T00:00:00.000Z",
 };
 
-describe("inline artifact card — the seat", () => {
-  /** A board this case owns; the registrar writes only what it is handed. */
+describe("inline artifact card — the registration", () => {
+  /** A registry this case owns; the registrar writes only what it is handed. */
   function fill(): InlineCardRegistry {
-    const seats = new InlineCardRegistry();
-    registerInspectorInlineCards(seats);
-    return seats;
+    const registry = new InlineCardRegistry();
+    registerInspectorInlineCards(registry);
+    return registry;
   }
 
   it("fills the transcript's artifact card body", () => {
-    const seats = fill();
-    expect(seats.bodyFor("artifact")?.owner).toBe("inspector");
-    expect(seats.registeredCardKinds()).toContain("artifact");
+    const registry = fill();
+    expect(registry.bodyFor("artifact")?.owner).toBe("inspector");
+    expect(registry.registeredCardKinds()).toContain("artifact");
   });
 
   it("renders through the registry the transcript reaches it by", () => {
-    const seats = fill();
-    const { container } = render(<>{seats.render(CARD)}</>);
+    const registry = fill();
+    const { container } = render(<>{registry.render(CARD)}</>);
     expect(container.querySelector(".meridian-artifact-card")).not.toBeNull();
   });
 
-  it("negative control: an unfilled board answers nothing", () => {
-    // Without this, the two cases above would pass over a board that answered from
+  it("negative control: an empty registry answers nothing", () => {
+    // Without this, the two cases above would pass over a registry that answered from
     // somewhere else entirely, and the registration call would be doing nothing.
     expect(new InlineCardRegistry().bodyFor("artifact")).toBeUndefined();
   });
 
-  it("writes the board it is given and never the process-wide one", () => {
+  it("writes the registry it is given and never the process-wide one", () => {
     // The registrar closes over no singleton. A body that reached one would render
     // correctly in every case above and still leak into the running console.
     fill();

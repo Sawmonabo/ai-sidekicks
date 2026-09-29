@@ -1,9 +1,9 @@
-// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a surface
+// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a view
 // that draws none.
 //
 // Neither tier that consumes the helper can check it. The screenshot tier takes images
 // and asserts nothing else, and the accessibility tier asserts an EMPTY violation list
-// — which is also what a run over a surface that never settled returns. So without
+// — which is also what a run over a view that never settled returns. So without
 // this file the helper could return on its first call for the rest of its life, and
 // every reference would still be whatever frame the capture reached while every audit
 // stayed green over a graph it never saw.
@@ -139,7 +139,7 @@ describe("the capture's run-graph readiness", () => {
     expect(isRunGraphSettled(graph)).toBe(false);
   });
 
-  it("returns at once for a surface that draws no graph", async () => {
+  it("returns at once for a view that draws no graph", async () => {
     const mounted = await mountWorkflowBuilderPane();
     expect(mounted.element.querySelector(".meridian-run-graph")).toBeNull();
     expect(isRunGraphSettled(mounted.element)).toBe(true);

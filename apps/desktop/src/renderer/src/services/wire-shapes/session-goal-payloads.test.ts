@@ -1,8 +1,7 @@
 // What the goal readings admit, asserted where the validator lives.
 //
-// These cases moved here with the schemas. Left in the approvals suite they would
-// have been a view family's test of a bridge-family rule, and the rule they cover is
-// the daemon's own: a goal is one to four thousand and ninety-six code units,
+// These cases sit beside the schemas rather than in a view's suite, because the rule
+// they cover is the daemon's own: a goal is one to four thousand and ninety-six code units,
 // non-blank, and NUL-free, and the text the console sends is the text the user
 // typed rather than one this module trimmed into shape.
 
@@ -17,7 +16,7 @@ import {
 
 describe("what a sendable goal is", () => {
   it("accepts ordinary text and text at the ceiling", () => {
-    expect(isSendableGoalText("Ship the approvals pane")).toBe(true);
+    expect(isSendableGoalText("Ship the inspector")).toBe(true);
     expect(isSendableGoalText("g".repeat(SESSION_GOAL_MAX_LENGTH))).toBe(true);
   });
 

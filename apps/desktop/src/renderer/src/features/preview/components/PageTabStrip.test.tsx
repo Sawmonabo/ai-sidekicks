@@ -2,9 +2,9 @@
 //
 // The drag cases here are the ones `tab-reorder.test.ts` cannot make: that file proves
 // `pageMoveIndex` computes the right number, and these prove the strip feeds it the
-// right slot — a rightward drag, a leftward one, the trailing slot, and a drop of a
-// payload naming a page this strip does not draw. A component that passed the drop
-// slot straight through would still pass the arithmetic suite.
+// right drop position — a rightward drag, a leftward one, the trailing drop position,
+// and a drop of a payload naming a page this strip does not draw. A component that
+// passed the drop position straight through would still pass the arithmetic suite.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
@@ -60,24 +60,24 @@ function tabAt(index: number): HTMLElement {
   const tabs = document.querySelectorAll(".meridian-preview-tab");
   const tab = tabs[index];
   if (!(tab instanceof HTMLElement)) {
-    throw new Error(`no tab drawn at slot ${String(index)}`);
+    throw new Error(`no tab drawn at position ${String(index)}`);
   }
   return tab;
 }
 
-/** The face of the tab at a slot — the control that selects it. */
+/** The face of the tab at a position — the control that selects it. */
 function tabFace(index: number): HTMLElement {
   const face = tabAt(index).querySelector(".meridian-preview-tab__face");
   if (!(face instanceof HTMLElement)) {
-    throw new Error(`the tab at slot ${String(index)} drew no face`);
+    throw new Error(`the tab at position ${String(index)} drew no face`);
   }
   return face;
 }
 
-function trailingSlot(): HTMLElement {
+function trailingDropPosition(): HTMLElement {
   const tail = document.querySelector(".meridian-preview-tabs__tail");
   if (!(tail instanceof HTMLElement)) {
-    throw new Error("the strip drew no trailing slot");
+    throw new Error("the strip drew no trailing drop position");
   }
   return tail;
 }
@@ -152,13 +152,13 @@ describe("dropping a dragged tab", () => {
     expect(handlers.onReorder).toHaveBeenCalledWith("page-c", 0);
   });
 
-  it("reaches the last position through the trailing slot", () => {
+  it("reaches the last position through the trailing drop position", () => {
     const handlers = renderStrip(THREE_PAGES);
-    fireEvent.drop(trailingSlot(), { dataTransfer: dragTransfer("page-a") });
+    fireEvent.drop(trailingDropPosition(), { dataTransfer: dragTransfer("page-a") });
     expect(handlers.onReorder).toHaveBeenCalledWith("page-a", 2);
   });
 
-  it("dispatches nothing for a drop onto the tab's own slot", () => {
+  it("dispatches nothing for a drop onto the tab's own position", () => {
     const handlers = renderStrip(THREE_PAGES);
     fireEvent.drop(tabAt(1), { dataTransfer: dragTransfer("page-b") });
     expect(handlers.onReorder).not.toHaveBeenCalled();
@@ -176,7 +176,7 @@ describe("dropping a dragged tab", () => {
     expect(handlers.onReorder).not.toHaveBeenCalled();
   });
 
-  it("paints the drop marker only while a tab drag is over a slot", () => {
+  it("paints the drop marker only while a tab drag is over a drop position", () => {
     renderStrip(THREE_PAGES);
     const target = tabAt(1);
     expect(target.className).not.toContain("drop-before");

@@ -1,16 +1,15 @@
 // The inspector pane's registration: one kind claimed, one body behind it.
 //
-// The feature's door publishes the registrar below and `app/registrations.ts` calls it.
+// The feature's `index.ts` publishes the registrar below and `app/registrations.ts` calls it.
 // A feature registers through its own registrar and never edits the pane registry or the
 // pane-kind set.
 //
-// The owner string is the KIND's owner rather than the family's. The registry
-// refuses a second owner on one kind, and a refusal that named a whole family would
+// The owner string is the KIND's owner rather than the feature's. The registry
+// refuses a second owner on one kind, and a refusal that named a whole feature would
 // leave a reader hunting three directories for which body is already there.
 
-// THE SHEET IS NOT IMPORTED HERE — the runs pane's rule, for the runs pane's reason:
-// the pane is loader-backed, so `pane/inspector-pane-body.ts` is the directory carrying
-// the chunk and therefore the sheet's owner.
+// THE SHEET IS NOT IMPORTED HERE. The pane is loader-backed, so the body module is the
+// root of the chunk and therefore the sheet's owner.
 
 import { type PaneRegistry } from "@renderer/console/seats/index.js";
 
@@ -27,8 +26,7 @@ export function registerInspectorPane(registry: PaneRegistry): void {
     owner: "inspector-pane",
     // A LOADER AND NOT A `render`: this pane is not on the flagship first paint, so
     // its body, its readers, and its sheets ride the chunk the specifier below names
-    // rather than the initial import graph. `apps/desktop/AGENTS.md` states the rule
-    // beside the seat-board one.
+    // rather than the initial import graph.
     body: () => import("./inspector-pane-body.js"),
   });
 }

@@ -25,11 +25,11 @@
 // A call that rejects is not caught here: the scheduler re-throws it, so the reading stays
 // where it was and the rejection reaches whoever runs the scheduler's callback.
 //
-// The mode switch is next door. Four reads on a scheduler and one mutation with a register
+// The mode switch is its own class. Four reads on a scheduler and one mutation with a register
 // of its own are two jobs: `execution-mode-selection.ts` holds the mutation,
 // `repo-mounts-model.ts` the reading both of them publish, and `hooks/useRepoMounts.ts` the
-// hook that mounts this class. This class hosts the switch, handing it the three things
-// `ExecutionModeSelectionHost` names: the standing reading, the publish, and the refresh an
+// hook that mounts this class. This class owns the switch, handing it the three things
+// `RepoMountsReadingPublisher` names: the standing reading, the publish, and the refresh an
 // accepted switch asks for.
 
 import type {
@@ -47,7 +47,7 @@ import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   ExecutionModeSelections,
-  type ExecutionModeSelectionHost,
+  type RepoMountsReadingPublisher,
 } from "./execution-mode-selection.js";
 import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
@@ -80,15 +80,15 @@ export interface RepoMountsReaderOptions {
   readonly clock: Clock;
 }
 
-/** Reads a session's mounts, workspaces and roots, and hosts the mode switch. */
+/** Reads a session's mounts, workspaces and roots, and owns the mode switch. */
 export class RepoMountsReader implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this section a fresh read.
    *
    * DECLARED HERE rather than handed to the trigger wiring, because which events
    * change an answer is a property of the question: a kind list passed in at each call
-   * site is how two readers of one answer come to watch different frames. The family's
-   * census is `repo-lifecycle-events.ts`, which derives it from the contract's own
+   * site is how two readers of one answer come to watch different frames. The repos
+   * feature's census is `repo-lifecycle-events.ts`, which derives it from the contract's own
    * registry and is where the `SessionEventType` check lives.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
@@ -129,7 +129,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
     });
     this.#selections = new ExecutionModeSelections({
       operations: options.operations,
-      host: this.#selectionHost(),
+      publisher: this.#readingPublisher(),
     });
   }
 
@@ -156,7 +156,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
    *
    * The seam holds a resource per `(subject, key)` and this reader has three
    * collaborators — the bridge, the calls it makes and the store it reads against — where
-   * the seam has one subject slot and one string key. The bridge and the calls are the
+   * the seam has one subject and one string key. The bridge and the calls are the
    * subject and the session id is the key, so the axis they cannot carry is the store's
    * own identity: a projection replaced under the same id retires every read taken
    * against the old one, and this is how the binding notices.
@@ -210,7 +210,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#scheduler.request(reason);
   }
 
-  /** Record one explicit mode switch. The act next door owns what that means. */
+  /** Record one explicit mode switch. `ExecutionModeSelections` owns what that means. */
   public async requestModeSelection(
     workspaceId: WorkspaceId,
     executionMode: ExecutionMode,
@@ -228,7 +228,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /** The three operations a mode switch needs from the half that reads, and no more. */
-  #selectionHost(): ExecutionModeSelectionHost {
+  #readingPublisher(): RepoMountsReadingPublisher {
     return {
       currentReading: () => this.#reading,
       publish: (reading: RepoMountsReading) => {
@@ -259,7 +259,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
    * mount, the worktree roster, and one capability read per workspace.
    *
    * Serial, and so the most worth abandoning. The round's signal reaches each read, so a
-   * pass abandoned because the section was left costs the door's pre-send check per
+   * pass abandoned because the section was left costs `callDaemon`'s pre-send check per
    * remaining call and nothing else.
    */
   async #performRead(round: ReadRound): Promise<void> {

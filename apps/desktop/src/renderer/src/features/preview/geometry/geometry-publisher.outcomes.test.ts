@@ -4,16 +4,16 @@ import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PANE_VIEW_HOST_REFUSAL_ORIGIN } from "./view-host.js";
-import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
+import { PAGE_HOST_REFUSAL_ORIGIN } from "./page-host.js";
+import { elementWithRect, RecordingPageHost, rect } from "./geometry-publisher.test-support.js";
 
-// Who finds out what the host said.
+// Who finds out what the page host said.
 //
 // The publisher records an outcome on four paths and, until it announced them, the
 // only way to read one was to ask at a moment of your own choosing. The pane's moment
 // is attach — before the first frame has run, when the answer is `undefined` by
 // construction — so a `pane-gone` rejection landed in a private field and reached
-// nobody, and the surface kept saying "no page yet" over a host that had said the
+// nobody, and the pane kept saying "no page yet" over a page host that had said the
 // pane was destroyed.
 describe("PaneGeometryPublisher outcome subscription", () => {
   function countingSubscriber(publisher: PaneGeometryPublisher): {
@@ -28,10 +28,10 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   }
 
   it("announces the publish the pane could not have read at attach", () => {
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -47,10 +47,10 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   });
 
   it("announces a dedupe too, because it is a reading and not a non-event", () => {
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -64,19 +64,19 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     publisher.dispose();
   });
 
-  it("announces the host's rejection over a publisher it has already disposed", () => {
+  it("announces the page host's rejection over a publisher it has already disposed", () => {
     // Both halves in one claim, and the order between them is what the case after
     // this one pins: disposal is terminal and it deliberately keeps the sinks, so a
     // notification raised after it still reaches everyone who was subscribed — and
     // reaches them over a publisher whose `isDisposed` already agrees with the
     // sentence they are about to render.
-    const host = new RecordingViewHost();
-    host.rejectNextWith(
-      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+    const pageHost = new RecordingPageHost();
+    pageHost.rejectNextWith(
+      refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     );
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -87,7 +87,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     expect(publisher.isDisposed).toBe(true);
     expect(publisher.lastOutcome()).toStrictEqual({
       status: "suppressed",
-      refusal: refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+      refusal: refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     });
   });
 
@@ -95,15 +95,15 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     // `Emitter` re-raises what a sink threw. With the announcement first, a single
     // throwing observer carried the exception out of the flush before the disposal
     // ran — leaving the publisher armed, subscribed, and still writing rectangles to
-    // a pane the host had just declared gone. The throw is still raised; what
+    // a pane the page host had just declared gone. The throw is still raised; what
     // changed is that it can no longer keep the publisher alive.
-    const host = new RecordingViewHost();
-    host.rejectNextWith(
-      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+    const pageHost = new RecordingPageHost();
+    pageHost.rejectNextWith(
+      refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     );
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -119,25 +119,25 @@ describe("PaneGeometryPublisher outcome subscription", () => {
 
     expect(publisher.isDisposed).toBe(true);
     expect(publisher.armedSourceCount).toBe(0);
-    expect(host.samples).toHaveLength(1);
+    expect(pageHost.samples).toHaveLength(1);
 
-    // And nothing reaches the host afterwards, however late an invalidation arrives.
+    // And nothing reaches the page host afterwards, however late an invalidation arrives.
     publisher.invalidate("window-resize");
     clock.runFrame();
-    expect(host.samples).toHaveLength(1);
+    expect(pageHost.samples).toHaveLength(1);
   });
 
   it("negative control: a sink that returns leaves the same terminal state", () => {
     // Without this, a flush that disposed and then swallowed every sink failure
     // would satisfy the case above while hiding a defect in the one path whose
     // whole job is to report one.
-    const host = new RecordingViewHost();
-    host.rejectNextWith(
-      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+    const pageHost = new RecordingPageHost();
+    pageHost.rejectNextWith(
+      refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     );
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -157,10 +157,10 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     // Without this, a publisher that announced unconditionally — or one whose
     // unsubscribe did nothing — would satisfy every case above, and a pane that had
     // unmounted would keep being told about rectangles it no longer has.
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });

@@ -39,7 +39,7 @@ describe("withRunDriverBindings", () => {
       driverNameByRunId: new Map(),
       readRefusal: undefined,
     };
-    // The same pointer, so a surface whose session named no binding re-renders no
+    // The same pointer, so a view whose session named no binding re-renders no
     // more often than one that asked for no join at all.
     expect(withRunDriverBindings(declarations, new Map())).toBe(declarations);
     expect(withRunDriverBindings(undefined, new Map([["run-one", "codex"]]))).toBeUndefined();
@@ -53,7 +53,7 @@ describe("declaredFlagsForDriver", () => {
   });
 });
 
-describe("readingForRun — one readout, one run, one answer for every surface", () => {
+describe("readingForRun — one readout, one run, one answer for every view", () => {
   const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
   const CODEX_RUN = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
 
@@ -74,11 +74,10 @@ describe("readingForRun — one readout, one run, one answer for every surface",
   }
 
   it("answers the same for a run whose binding only the sole-report fallback names", () => {
-    // The state the composer's rail and the runs pane disagreed in: exactly one
-    // driver filed a report and the session projection has named no binding, so the
-    // pane resolved the driver through the fallback and offered its gated control
-    // while the rail — handed a driver name the projection had not supplied — said
-    // nobody had asked. One readout, one run, one moment, two answers.
+    // Exactly one driver filed a report and the session projection has named no
+    // binding. The run's reading must resolve the driver through the fallback, the
+    // same answer a view handed the driver's name would get, rather than saying
+    // nobody had asked.
     const readout = soleReportReadout();
     expect(boundDriverNameForRun(readout, CLAUDE_RUN)).toBe("claude");
     expect(readingForRun(readout, CLAUDE_RUN, "context_compaction")).toBe("declared");

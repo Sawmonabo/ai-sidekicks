@@ -1,9 +1,9 @@
 // What the two approval reads answer with, and the one place an `unknown` reply
-// becomes something this surface may render.
+// becomes something the console may render.
 //
 // `PlatformBridge.daemon.call` answers `DaemonResult<M>`, which resolves to
 // `unknown` until the daemon method union lands, and `packages/contracts` registers
-// no approval payload at all — so a surface that rendered whatever arrived would
+// no approval payload at all — so a view that rendered whatever arrived would
 // render a row for a malformed emission as confidently as for a real one. Every
 // field below is parsed before it reaches a component, on the same posture
 // `console/bridge/queue/queue-feed.ts` takes with the registered queue schema.
@@ -12,14 +12,15 @@
 //
 //   • **Wire strings stay strings.** `category` and `state` are parsed as `string`
 //     and classified at render time through `approval-vocabulary.ts`. Parsing them
-//     as enums would make one unrecognized token drop a whole record, and this
-//     surface's history rule is that an unfiltered read renders every record it
+//     as enums would make one unrecognized token drop a whole record, and the
+//     approval history's rule is that an unfiltered read renders every record it
 //     returns and drops nothing. It is also the fail-closed direction every console
-//     surface obeys: an unknown member renders as the explicit unrecognized row or
+//     view obeys: an unknown member renders as the explicit unrecognized row or
 //     badge, never as a guess.
 //   • **A malformed record is dropped and COUNTED, never silently skipped.** The
-//     count is what the pane renders beside the list, because "the daemon returned
-//     eleven and we could read nine" is a fact an operator has to be able to see.
+//     count travels with the read so a view can report it beside the list, because
+//     "the daemon returned eleven and we could read nine" is a fact an operator has to
+//     be able to see.
 //
 //   • **The registered reply is ADAPTED here, at one boundary.** The daemon answers
 //     `{ approvals: [{ id, runId, requestedBy, category, scope, resourceDescriptor,
@@ -29,15 +30,14 @@
 //     the same value, so the rename is an adaptation between two registered spellings
 //     of one identity rather than drift; `scope` keeps the console-side name
 //     `requestedScope` because the reply carries a second scope — `effectiveScope` —
-//     and one word for two of them is how a surface starts showing the granted scope
+//     and one word for two of them is how a view starts showing the granted scope
 //     where the requested one belongs.
 //
 // WHAT IS DELIBERATELY ABSENT: a barrier identifier. The wait-for-all barrier is
-// real — a turn waits on every request it raised — and no member of
-// this reply groups the requests one turn raised. The
-// pane states the rule in copy rather than inventing a field to group by, because
-// a fabricated grouping key would silently claim that two unrelated requests must
-// resolve together.
+// real — a turn waits on every request it raised — and no member of this reply
+// groups the requests one turn raised. The console invents no field to group by,
+// because a fabricated grouping key would silently claim that two unrelated requests
+// must resolve together.
 //
 // AND TWO MEMBERS THAT ARE NOT ON THIS READ AT ALL. `askId` is registered on the
 // approval-flow EVENT payload and persisted on the request row; `auditMetadata` is a
@@ -56,10 +56,10 @@ import {
 /**
  * What one resolve carries.
  *
- * Nothing on it edits the requested action: the Approvals View sketch's interactions
- * are approve / deny / remember and no fourth. Beside the two reply readings rather
- * than beside the surface, because a request shape and the reply shape it is answered
- * with are two sides of one seam.
+ * Nothing on it edits the requested action: an approval is answered with approve, deny or
+ * remember and no fourth. Beside the two reply readings rather than beside the view that
+ * renders it, because a request shape and the reply shape it is answered with are two
+ * sides of one seam.
  */
 export interface ApprovalResolveRequest {
   readonly approvalRequestId: string;
@@ -69,7 +69,7 @@ export interface ApprovalResolveRequest {
    * a mismatch is the daemon's `auth.principal_mismatch`.
    */
   readonly approver?: string;
-  /** Never broader than requested. The surface offers no scope-widening control. */
+  /** Never broader than requested. The console offers no scope-widening control. */
   readonly effectiveScope?: string;
   /**
    * Present only where the user opted in, and only on an `approved`
@@ -80,13 +80,13 @@ export interface ApprovalResolveRequest {
 }
 
 /**
- * One approval record, as this surface holds it.
+ * One approval record, as the console holds it.
  *
  * Written out rather than inferred from the schema below because
  * `isolatedDeclarations` needs the exported shape to be readable without running
  * the checker over zod's inference — and because the resolved quad is FOUR
  * independently-optional members rather than a nested object, which is how the
- * reply carries them and what makes the pane's claim about their PRESENCE
+ * reply carries them and what makes a claim about their PRESENCE
  * checkable: a record that says `approved` and carries no `resolvedAt` is one the
  * console renders as incomplete rather than as resolved-at-unknown.
  */
@@ -148,7 +148,7 @@ export const APPROVAL_RECORD_MEMBERS: readonly (keyof ApprovalRecord)[] = [
 /** What a remembered rule covers. `kind` is a wire string, classified at render. */
 export interface RememberedScope {
   readonly kind: string;
-  /** Absent means category-wide within the boundary, and the surface says so. */
+  /** Absent means category-wide within the boundary, and the view says so. */
   readonly pattern?: string | undefined;
 }
 
@@ -164,7 +164,7 @@ const rememberedScopeSchema: z.ZodType<RememberedScope> = z
  *
  * Loose rather than strict: a member this build does not know is a member a later
  * daemon added, and refusing the whole row over one would turn an additive wire
- * change into an approvals pane that renders nothing. The transform then builds the
+ * change into approval cards that render nothing. The transform then builds the
  * record EXPLICITLY, so an unknown member is dropped at the boundary instead of
  * riding along into a component that never declared it.
  */
@@ -208,7 +208,7 @@ const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
     }),
   );
 
-/** One standing permission, as this surface holds it. */
+/** One standing permission, as the console holds it. */
 export interface RememberedRule {
   readonly ruleId: string;
   readonly sessionId: string;
@@ -228,7 +228,7 @@ export interface RememberedRule {
  * The one scope kind a rule's `runId` belongs to, taken from the vocabulary.
  *
  * Destructured from the closed set rather than spelled again, so the kind this
- * schema keys on and the kind the surface renders cannot come apart — a third kind
+ * schema keys on and the kind the view renders cannot come apart — a third kind
  * added there is a compile-time change here rather than a string that quietly stops
  * matching.
  */
@@ -248,7 +248,7 @@ const [RUN_REMEMBERED_SCOPE_KIND] = REMEMBERED_SCOPE_KINDS;
  * rendered.
  *
  * A `superRefine` rather than a discriminated union because `kind` is a WIRE STRING:
- * this surface's rule is that an unrecognized token renders as itself and never
+ * the console's rule is that an unrecognized token renders as itself and never
  * drops the row, and a union keyed on the two known kinds would refuse a third kind
  * outright the day the daemon grows one. The refinement asks only the question the
  * invariant is about — is this the run kind — and leaves every other kind's rows
@@ -321,7 +321,7 @@ export function readRememberedRuleList(reply: unknown): ParsedRows<RememberedRul
  *
  * THIS MODULE'S OWN RULE, because no committed document states it: the quad is
  * present exactly when the state is `approved` or `rejected`, so a resolved record
- * missing a member of it is a record the surface labels rather than renders as if
+ * missing a member of it is a record the view labels rather than renders as if
  * it were whole.
  */
 export function hasCompleteResolution(record: ApprovalRecord): boolean {

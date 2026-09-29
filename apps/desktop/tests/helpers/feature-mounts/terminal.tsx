@@ -63,7 +63,7 @@ export async function mountTerminalPane(): Promise<MountedView> {
     <TerminalPaneBody
       kind="terminal"
       {...paneBinding({
-        paneId: "pane-terminal-surface",
+        paneId: "pane-terminal",
         bridge,
         sessionStore: terminalSessionStore(),
       })}
@@ -77,7 +77,7 @@ export async function mountTerminalPane(): Promise<MountedView> {
   // `act` scope holds the resulting commit back until it exits.
   await waitFor(
     () => {
-      if (region.querySelector(".meridian-terminal-host__surface") === null) {
+      if (region.querySelector(".meridian-terminal-mount-point__mount-element") === null) {
         throw new Error("the terminal emulator has not mounted yet");
       }
     },

@@ -9,7 +9,7 @@
 // same thing observed twice.
 //
 // The third claim is the one this module got wrong, and it was wrong about WHICH
-// destinations exist rather than about when they are shown. The surface set names
+// destinations exist rather than about when they are shown. The screen set names
 // sessions, workflows, and settings; the rail shipped sessions, workspace, and
 // settings, so the destination that opens the workflow builder was unreachable and the
 // session screen — a route reached from the sessions list — was carrying a rail icon
@@ -82,7 +82,7 @@ describe("the rail and the router answer from one set", () => {
     }
   });
 
-  it("offers exactly the destinations the routing family declares", () => {
+  it("offers exactly the destinations the routing module declares", () => {
     expect(RAIL_ENTRIES.map((entry) => entry.destination)).toStrictEqual([
       "sessions",
       "workflows",
@@ -91,8 +91,8 @@ describe("the rail and the router answer from one set", () => {
   });
 });
 
-describe("warmDestination — the surface a press is about to mount", () => {
-  /** A board of loader-backed surfaces, and a record of which chunks were asked for. */
+describe("warmDestination — the screen a press is about to mount", () => {
+  /** A board of loader-backed screens, and a record of which chunks were asked for. */
   function boardOverDestinations(): {
     readonly screenRegistry: ScreenRegistry;
     readonly loaded: string[];
@@ -101,8 +101,8 @@ describe("warmDestination — the surface a press is about to mount", () => {
     const screenRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
       screenRegistry.register({
-        slot: destination,
-        owner: `${destination}-family`,
+        name: destination,
+        owner: destination,
         body: () => {
           loaded.push(destination);
           return Promise.resolve<{ Body: (context: ScreenContext) => React.ReactNode }>({
@@ -114,10 +114,10 @@ describe("warmDestination — the surface a press is about to mount", () => {
     return { screenRegistry, loaded };
   }
 
-  it("resolves each destination through the route table to its own slot", async () => {
+  it("resolves each destination through the route table to its own screen", async () => {
     // The step that could go wrong twice: a second open-coded reading of
-    // `findScreenNameForRoute` would drift the first time a destination changed slots, so the
-    // walk holds every destination to the slot its own route resolves to.
+    // `findScreenNameForRoute` would drift the first time a destination changed screens, so the
+    // walk holds every destination to the screen its own route resolves to.
     for (const destination of RAIL_DESTINATIONS) {
       const { screenRegistry, loaded } = boardOverDestinations();
       warmDestination(screenRegistry, destination);
@@ -145,11 +145,11 @@ describe("warmDestination — the surface a press is about to mount", () => {
     expect(loaded).toStrictEqual(["settings"]);
   });
 
-  it("does nothing for a destination whose surface is component-form", () => {
+  it("does nothing for a destination whose screen is component-form", () => {
     // A caller must not have to ask first whether what it is about to open is
     // loader-backed, or every call site carries a copy of that question.
     const screenRegistry = new ScreenRegistry();
-    screenRegistry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
+    screenRegistry.register({ name: "sessions", owner: "sessions", render: () => null });
     expect(() => {
       warmDestination(screenRegistry, "sessions");
     }).not.toThrow();
@@ -158,13 +158,13 @@ describe("warmDestination — the surface a press is about to mount", () => {
 
   it("swallows a chunk that will not load rather than raising it here", async () => {
     // A speculative fetch has nobody waiting on it; a chunk that cannot be fetched is a
-    // damaged install, and the honest surface for that is the mount, where the console's
+    // damaged install, and the honest place for that is the mount, where the console's
     // error boundary can say so. An unhandled rejection from a hover would be a crash
     // report for a destination nobody entered.
     const screenRegistry = new ScreenRegistry();
     screenRegistry.register({
-      slot: "workflows",
-      owner: "workflows-family",
+      name: "workflows",
+      owner: "workflows",
       body: () => Promise.reject(new Error("chunk unavailable")),
     });
     expect(() => {
@@ -181,6 +181,6 @@ describe("warmDestination — the surface a press is about to mount", () => {
     for (const destination of RAIL_DESTINATIONS) {
       warmDestination(screenRegistry, destination);
     }
-    expect(screenRegistry.registeredSlots()).toStrictEqual([]);
+    expect(screenRegistry.registeredScreenNames()).toStrictEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 // The run controls as palette rows: which rows each run offers, and what pressing one does.
 //
 // Every operator action is palette-reachable. What the palette lists dispatches the
-// SAME call any other surface does — one dispatcher, one idempotency key, one in-flight
+// SAME call the on-screen control does — one dispatcher, one idempotency key, one in-flight
 // latch — so a control pressed from the palette settles into the same record. A second
 // dispatcher here would mint a second key against one run version, which the wire reads
 // as two distinct mutations rather than replays of one.
@@ -49,7 +49,7 @@ export interface RunControlCommandInput {
   readonly runs: readonly RunControlCommandRun[];
   readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** The one dispatcher and its in-flight latch. */
-  readonly surface: RunControlDispatchState;
+  readonly dispatchState: RunControlDispatchState;
   /** Open the steer form against this run. */
   readonly onRequestSteer: (runId: string) => void;
 }
@@ -108,12 +108,12 @@ export function dispatchRunControlCommand(
     input.onRequestSteer(row.runId);
     return;
   }
-  const { surface } = input;
+  const { dispatchState } = input;
   const target = {
     runId: run.runId,
-    expectedRunVersion: surface.dispatcher.comparandFor(run.runId, run.runVersion),
+    expectedRunVersion: dispatchState.dispatcher.comparandFor(run.runId, run.runVersion),
   };
-  surface.dispatch(run.runId, control, (dispatcher) => {
+  dispatchState.dispatch(run.runId, control, (dispatcher) => {
     switch (control) {
       case "pause":
         return dispatcher.pause(target);

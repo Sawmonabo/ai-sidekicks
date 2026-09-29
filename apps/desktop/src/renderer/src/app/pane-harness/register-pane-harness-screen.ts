@@ -6,7 +6,7 @@ import { type PaneRegistry, type ScreenRegistry } from "@renderer/console/seats/
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 
 /**
- * Claim the harness slot.
+ * Claim the harness screen.
  *
  * Both registries are parameters, so a composition that owns its own boards registers
  * into them and resolves pane bodies from them, never from the production singletons.
@@ -16,7 +16,7 @@ export function registerPaneHarnessScreen(
   paneRegistry: PaneRegistry,
 ): void {
   screenRegistry.register({
-    slot: "pane-harness",
+    name: "pane-harness",
     owner: "pane-harness",
     render: (context) => createElement(PaneHarnessScreen, { context, paneRegistry }),
   });

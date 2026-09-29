@@ -4,15 +4,15 @@ import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import type { PaneRect } from "./pane-geometry.js";
-import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
+import { elementWithRect, RecordingPageHost, rect } from "./geometry-publisher.test-support.js";
 
 // What the publisher DOES with a clipping ancestor, which is the only half of this
-// question that is still this family's.
+// question that is still the preview's.
 //
 // WHICH ancestors clip moved to `lib/clipping-ancestors.ts` and its suite — the
 // vocabulary, the per-member cases, and the closed-union foil are there, beside the
 // declaration they are about. What could not move is this: that the sample the publisher
-// hands its host is narrowed by the ancestor's box rather than being the pane's own.
+// hands its page host is narrowed by the ancestor's box rather than being the pane's own.
 describe("PaneGeometryPublisher — a clipping ancestor narrows the published rect", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -45,10 +45,10 @@ describe("PaneGeometryPublisher — a clipping ancestor narrows the published re
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
     clipper.append(hostElement);
     withComputedOverflow(clipper, overflow);
-    const host = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({
-      host,
+      pageHost,
       clock,
       occlusion: new AirspaceRegistry(),
     });
@@ -56,7 +56,7 @@ describe("PaneGeometryPublisher — a clipping ancestor narrows the published re
     clock.runFrame();
     publisher.dispose();
     clipper.remove();
-    return host.samples[0]?.rect;
+    return pageHost.samples[0]?.rect;
   }
 
   it("subtracts the ancestor's box from what it publishes", () => {

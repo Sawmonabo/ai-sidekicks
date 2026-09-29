@@ -23,11 +23,11 @@ import {
   settleAct,
 } from "@test/helpers/artifact-list-readers.js";
 import {
-  OTHER_HOSTED_ARTIFACT_ID,
-  HOSTED_ARTIFACT_ID,
-  hostSubject,
-  hostTree,
-  renderHost,
+  OTHER_ARTIFACT_ID,
+  OPENED_ARTIFACT_ID,
+  artifactPayloadSubject,
+  artifactPayloadTree,
+  renderArtifactPayloadSection,
 } from "@test/helpers/render-artifact-payload-section.js";
 
 // "diff --git a/one b/one" in RFC 4648 base64.
@@ -44,40 +44,40 @@ afterEach(() => {
 describe("artifact payload — fetching is an act, and every arm is drawn", () => {
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
-    // spend a hundred megabytes of somebody's link on a pane they passed through.
+    // spend a hundred megabytes of somebody's link on a section they passed through.
     const artifactRead = vi.fn(async () => deferredRead("published"));
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
-    renderHost(subject);
+    renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     expect(artifactRead).not.toHaveBeenCalled();
   });
 
   it("asks the read for the bytes, by the member the wire discriminates on", async () => {
     const artifactRead = vi.fn(async () => deferredRead("published"));
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
-    const { getByRole } = renderHost(subject);
+    const { getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
     expect(artifactRead).toHaveBeenCalledWith({
-      artifactId: HOSTED_ARTIFACT_ID,
+      artifactId: OPENED_ARTIFACT_ID,
       includePayload: true,
     });
   });
 
   it("draws a deferred handle as what it is", async () => {
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         readArtifact: async () => deferredRead("published"),
       }),
     );
-    const { container, getByRole } = renderHost(subject);
+    const { container, getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
@@ -88,13 +88,13 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
   });
 
   it("previews inline bytes as text, decoding by the encoding the reply declared", async () => {
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
       }),
     );
-    const { container, getByRole } = renderHost(subject);
+    const { container, getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
@@ -106,13 +106,13 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
 
   it("takes a utf8 payload as it stands, and truncates past the preview cap", async () => {
     const wide = "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 50);
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         readArtifact: async () => inlineRead(wide, "utf8"),
       }),
     );
-    const { container, getByRole } = renderHost(subject);
+    const { container, getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
@@ -126,14 +126,14 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
   });
 
   it("reports bytes that are not text rather than drawing replacement characters", async () => {
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         // Two bytes that are not valid UTF-8.
         readArtifact: async () => inlineRead("//8=", "base64"),
       }),
     );
-    const { container, getByRole } = renderHost(subject);
+    const { container, getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
@@ -150,10 +150,10 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     // the control, so a second press is never offered.
     const readCall = handAnsweredCall<ArtifactReadResponse>();
     const artifactRead = vi.fn(readCall.invoke);
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
-    const { getByRole } = renderHost(subject);
+    const { getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     const control = getByRole("button", { name: "Fetch payload" });
     fireEvent.click(control);
@@ -170,8 +170,10 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
   });
 
   it("negative control: nothing is drawn before the fetch", async () => {
-    const subject = hostSubject(artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }));
-    const { container } = renderHost(subject);
+    const subject = artifactPayloadSubject(
+      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
+    );
+    const { container } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
   });
@@ -182,13 +184,13 @@ describe("artifact payload — the reader is stamped to its subject", () => {
     // Neither the text nor the opaque arm draws an artifact id, so a reader that survived
     // the address change with its payload arm intact would present A's bytes as B's with
     // nothing on screen to say otherwise.
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
       }),
     );
-    const { container, getByRole, rerender } = renderHost(subject);
+    const { container, getByRole, rerender } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
@@ -197,8 +199,8 @@ describe("artifact payload — the reader is stamped to its subject", () => {
     );
 
     // The bridge, the store and the calls are the SAME objects across both renders: the
-    // only thing that moved is the artifact, as when a surface is reused for another artifact.
-    rerender(hostTree(subject, OTHER_HOSTED_ARTIFACT_ID));
+    // only thing that moved is the artifact, as when a section is reused for another artifact.
+    rerender(artifactPayloadTree(subject, OTHER_ARTIFACT_ID));
     await readThrough(subject.clock);
 
     // No payload renders no payload section at all, which is the honest absence for a
@@ -210,20 +212,20 @@ describe("artifact payload — the reader is stamped to its subject", () => {
     // The other half. The control is held by the `fetching` arm, and that arm belongs
     // to an artifact this binding is no longer addressed to — so a user met a
     // disabled Fetch on a subject nothing had ever been asked about.
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         // Never answers: the fetch stays on the wire for the rest of the case.
         readArtifact: () => new Promise<ArtifactReadResponse>(() => undefined),
       }),
     );
-    const { getByRole, rerender } = renderHost(subject);
+    const { getByRole, rerender } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
     expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(true);
 
-    rerender(hostTree(subject, OTHER_HOSTED_ARTIFACT_ID));
+    rerender(artifactPayloadTree(subject, OTHER_ARTIFACT_ID));
     await readThrough(subject.clock);
 
     expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(false);
@@ -231,21 +233,21 @@ describe("artifact payload — the reader is stamped to its subject", () => {
 
   it("negative control: the same subject keeps its reader, its payload, and its reads", async () => {
     // Without this, a memo keyed on the address OBJECT would pass both cases above
-    // and mint a reader — and a read — on every render a surface performs, which
+    // and mint a reader — and a read — on every render a section performs, which
     // is the cost the stamp is deliberately narrow to avoid.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = hostSubject(
+    const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: artifactList,
         readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
       }),
     );
-    const { container, getByRole, rerender } = renderHost(subject);
+    const { container, getByRole, rerender } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
-    rerender(hostTree(subject));
+    rerender(artifactPayloadTree(subject));
     await readThrough(subject.clock);
 
     expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(

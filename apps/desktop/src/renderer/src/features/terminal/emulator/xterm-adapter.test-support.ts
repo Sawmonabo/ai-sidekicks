@@ -9,7 +9,7 @@
 // whichever of them it was written to keep.
 //
 // So every suite has the same two obligations — dispose the emulators it built and
-// take its host boxes out of the document — and an emulator left live is a WebGL
+// take its mount elements out of the document — and an emulator left live is a WebGL
 // context, a data listener, and a scrollback ring surviving into the next case. One
 // registry here rather than a copy per suite: parallel teardown loops drift into
 // several ideas of what "cleaned up" means, and the suite whose loop is weaker leaks
@@ -29,7 +29,7 @@ import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 
 const liveAdapters: XtermTerminalAdapter[] = [];
-const liveHosts: HTMLElement[] = [];
+const liveMountElements: HTMLElement[] = [];
 
 /**
  * The real ledger, with a note of which call each arm of the adapter made.
@@ -66,22 +66,22 @@ export function trackAdapter(adapter: XtermTerminalAdapter): XtermTerminalAdapte
   return adapter;
 }
 
-/** A host box in the live document, cleaned up with the rest after each case. */
-export function attachedHost(): HTMLElement {
-  const host = document.createElement("div");
-  document.body.append(host);
-  liveHosts.push(host);
-  return host;
+/** A mount element in the live document, cleaned up with the rest after each case. */
+export function attachedMountElement(): HTMLElement {
+  const mountElement = document.createElement("div");
+  document.body.append(mountElement);
+  liveMountElements.push(mountElement);
+  return mountElement;
 }
 
-/** Every emulator element inside one host. The library's own root class. */
-export function emulatorElementsIn(host: HTMLElement): NodeListOf<Element> {
-  return host.querySelectorAll(".xterm");
+/** Every emulator element inside one mount element. The library's own root class. */
+export function emulatorElementsIn(mountElement: HTMLElement): NodeListOf<Element> {
+  return mountElement.querySelectorAll(".xterm");
 }
 
 /**
  * An adapter that exists and is attached to nothing, for the cases about what a
- * wrapper reports BEFORE it has a host.
+ * wrapper reports BEFORE it has a mount element.
  */
 export function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAdapter {
   return trackAdapter(
@@ -95,12 +95,12 @@ export function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAd
 
 export function mountedAdapter(options: AdapterOptions = {}): {
   adapter: XtermTerminalAdapter;
-  host: HTMLElement;
+  mountElement: HTMLElement;
 } {
   const adapter = unattachedAdapter(options);
-  const host = attachedHost();
-  adapter.attach(host);
-  return { adapter, host };
+  const mountElement = attachedMountElement();
+  adapter.attach(mountElement);
+  return { adapter, mountElement };
 }
 
 /** Write and wait for the parser to drain, which is the only honest way to read after. */
@@ -124,8 +124,8 @@ export function disposeLiveEmulators(): void {
   for (const adapter of liveAdapters.splice(0)) {
     adapter.dispose();
   }
-  for (const host of liveHosts.splice(0)) {
-    host.remove();
+  for (const mountElement of liveMountElements.splice(0)) {
+    mountElement.remove();
   }
   vi.unstubAllGlobals();
 }

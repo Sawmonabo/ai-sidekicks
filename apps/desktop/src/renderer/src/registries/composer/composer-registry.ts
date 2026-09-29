@@ -1,9 +1,9 @@
-// The composer seat: what the session screen hands the message input.
+// The composer registry: what the session screen hands the message input.
 //
 // The composer is the shell chrome every session view already contains. Two
-// families meet on it: the session screen mounts it under the pane layout, and the composer
-// family fills it. Neither imports the other — the session screen reads
-// `findComposerRenderer()` and renders whatever is there, and an empty seat renders
+// features meet on it: the session screen mounts it under the pane layout, and the
+// composer feature fills it. Neither imports the other — the session screen reads
+// `findComposerRenderer()` and renders whatever is there, and an empty registry renders
 // nothing rather than a placeholder that looks broken.
 //
 // WHY THE PROPS ARE A CONTRACT AND NOT AN ARGUMENT THE MOUNT INVENTS
@@ -30,9 +30,9 @@ export interface ComposerProps {
    * The window store the composer hands a refusal for the whole session screen to.
    *
    * The composer is window chrome and its Send reaches a wire, so it is one of the
-   * surfaces that can learn the session is gone — and rule 9 puts that code across
+   * places that can learn the session is gone — and rule 9 puts that code across
    * the frame rather than under one control. It has no other way to reach the frame:
-   * a pane is handed one on its context, and the composer is mounted by the seat.
+   * a pane is handed one on its context, and the composer is mounted by the session screen.
    *
    * Required and carrying no default, on `sessionStore`'s own reading: a mount that
    * forgot it and a mount that meant no escalation read identically as an optional
@@ -42,7 +42,7 @@ export interface ComposerProps {
   /**
    * Where the unsent message body lives. Drafts are the draft store's and never
    * the persistence chokepoint's: drafts stay out of durable storage, so the
-   * composer is handed this one rather than left to reach for the persistence door
+   * composer is handed this one rather than left to reach for the persistence module
    * and find the wrong chokepoint there.
    */
   readonly draftStore: DraftStore;
@@ -63,29 +63,29 @@ export interface ComposerProps {
 /** The composer body. Returns `React.ReactNode` so the mount can render it directly. */
 export type ComposerRenderer = (props: ComposerProps) => React.ReactNode;
 
-const composerSeat = new SingleEntryRegistry<ComposerRenderer>(
+const composerRegistry = new SingleEntryRegistry<ComposerRenderer>(
   "composer",
   "the session view mounts one composer; a second owner would make which one renders depend on import order",
 );
 
-/** The call the composer family makes to fill the seat. */
+/** The call the composer feature makes to fill the registry. */
 export function registerComposer(owner: string, render: ComposerRenderer): void {
-  composerSeat.register({ owner, render });
+  composerRegistry.register({ owner, render });
 }
 
 /**
- * Release the seat.
+ * Release the registry.
  *
- * Test scaffolding, and named as such: the seat is module-scope, so a case that
- * fills it would leak into the next one. Nothing in the shipped tree unfills a
- * seat — a family that registered and then withdrew would leave the session screen
+ * Test scaffolding, and named as such: the registry is module-scope, so a case that
+ * fills it would leak into the next one. Nothing in the shipped tree unfills the
+ * registry — a feature that registered and then withdrew would leave the session screen
  * rendering nothing with no owner to name.
  */
 export function unregisterComposer(): void {
-  composerSeat.unregister();
+  composerRegistry.unregister();
 }
 
-/** The composer body, or `undefined` while the seat is empty. */
+/** The composer body, or `undefined` while the registry is empty. */
 export function findComposerRenderer(): ComposerRenderer | undefined {
-  return composerSeat.renderer();
+  return composerRegistry.renderer();
 }

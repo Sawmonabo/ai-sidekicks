@@ -1,10 +1,10 @@
-// The console's own shiki theme, and the token families it collapses to.
+// The console's own shiki theme, and the token kinds it collapses to.
 //
 // The highlighter takes own theme JSON built from Meridian tokens, never the preset
 // bundles, and a byte-bounded token cache. THIS MODULE ADDS THE PROPERTY THAT MAKES THAT
-// CACHE WORK: the cache is theme-independent and content-addressed, token families are
+// CACHE WORK: the cache is theme-independent and content-addressed, token kinds are
 // collapsed inside the theme rather than by a pass after it, and a test cross-checks
-// the families against the theme CSS.
+// the kinds against the theme CSS.
 //
 // HOW BOTH ARE TRUE AT ONCE. A shiki theme maps TextMate scopes to a foreground color,
 // and a highlighter returns tokens carrying that color. If the color were a hex value
@@ -12,28 +12,28 @@
 // every entry — a theme-dependent cache wearing a content-addressed name.
 //
 // So this theme's foregrounds are not colors. Each is a CSS custom-property reference
-// naming the token's FAMILY — `var(--meridian-code-keyword)` — so the collapse to
-// families happens inside the theme rather than in a pass after it, a cached token is
+// naming the token's KIND — `var(--meridian-code-keyword)` — so the collapse to
+// kinds happens inside the theme rather than in a pass after it, a cached token is
 // identical in both schemes, and the actual colors live in `tokens/palette.ts` where
 // the rest of the Meridian palette does, emitted into the generated token sheet by
 // `tokens/generate-css.ts` and measured against the code block's own ground by
 // `tokens/contrast.test.ts`. Shiki's own `createCssVariablesTheme` is the same
-// technique, and this is that technique with our own family vocabulary rather than its
+// technique, and this is that technique with our own token-kind vocabulary rather than its
 // variable names.
 //
-// THE FAMILIES ARE A CLOSED SET, and review cross-checks that every
+// THE TOKEN KINDS ARE A CLOSED SET, and review cross-checks that every
 // member has a declaration in that generated sheet. That is the cross-check above: a
-// family added here without a color there renders as the sheet's fallback and reads as
+// kind added here without a color there renders as the sheet's fallback and reads as
 // plain text, which is a silent failure a type cannot catch.
 
 import type { ThemeRegistrationRaw } from "shiki/types";
 
 /**
- * Every family a highlighted token can belong to. Closed.
+ * Every kind a highlighted token can belong to. Closed.
  *
  * Nine, and the grouping is deliberately coarser than a syntax theme's: the transcript is a
  * work log, and a code block inside it competes with the prose around it for a reader's
- * attention. Nine families are enough to make structure legible — what is a name, what
+ * attention. Nine kinds are enough to make structure legible — what is a name, what
  * is a literal, what is an aside — and few enough that the block does not become the
  * loudest thing on the screen, which the console's whole color budget is spent avoiding
  * elsewhere.
@@ -50,27 +50,27 @@ export const CODE_TOKEN_KINDS = [
   "invalid",
 ] as const;
 
-/** One token family. Derived from the enumeration, never restated. */
+/** One token kind. Derived from the enumeration, never restated. */
 export type CodeTokenKind = (typeof CODE_TOKEN_KINDS)[number];
 
-/** The custom property a family's color is declared under, in one place. */
-export function codeTokenVariableName(family: CodeTokenKind): string {
-  return `--meridian-code-${family}`;
+/** The custom property a token kind's color is declared under, in one place. */
+export function codeTokenVariableName(tokenKind: CodeTokenKind): string {
+  return `--meridian-code-${tokenKind}`;
 }
 
-/** The value a theme foreground carries for a family — a reference, never a color. */
-export function codeTokenColorReference(family: CodeTokenKind): string {
-  return `var(${codeTokenVariableName(family)})`;
+/** The value a theme foreground carries for a token kind — a reference, never a color. */
+export function codeTokenColorReference(tokenKind: CodeTokenKind): string {
+  return `var(${codeTokenVariableName(tokenKind)})`;
 }
 
 /**
- * Which TextMate scopes each family claims.
+ * Which TextMate scopes each token kind claims.
  *
- * Total over `CodeTokenFamily` minus `plain`, which is the theme's own foreground and
+ * Total over `CodeTokenKind` minus `plain`, which is the theme's own foreground and
  * therefore claims no scope: a token no rule matched IS plain, and giving it a rule
  * would be a second way to say the same thing.
  */
-const SCOPES_BY_FAMILY: Readonly<Record<Exclude<CodeTokenKind, "plain">, readonly string[]>> = {
+const SCOPES_BY_TOKEN_KIND: Readonly<Record<Exclude<CodeTokenKind, "plain">, readonly string[]>> = {
   keyword: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.control"],
   name: ["entity.name.function", "support.function", "variable.function", "entity.name.tag"],
   string: ["string", "string.quoted", "constant.character.escape", "meta.embedded.string"],
@@ -98,9 +98,9 @@ export function buildCodeTheme(): ThemeRegistrationRaw {
     colors: { "editor.foreground": codeTokenColorReference("plain") },
     fg: codeTokenColorReference("plain"),
     bg: "transparent",
-    settings: Object.entries(SCOPES_BY_FAMILY).map(([family, scopes]) => ({
+    settings: Object.entries(SCOPES_BY_TOKEN_KIND).map(([tokenKind, scopes]) => ({
       scope: [...scopes],
-      settings: { foreground: codeTokenColorReference(family as CodeTokenKind) },
+      settings: { foreground: codeTokenColorReference(tokenKind as CodeTokenKind) },
     })),
   };
 }

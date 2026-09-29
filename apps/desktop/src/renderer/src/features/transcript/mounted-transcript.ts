@@ -6,17 +6,17 @@
 // Something has to join the two, and it cannot be a closure — the command is built
 // once per window and the feed comes and goes with the route.
 //
-// So the feed ADOPTS this seat while it is mounted, and every command resolves its
+// So the feed ADOPTS this holder while it is mounted, and every command resolves its
 // target at press time. Three properties follow, and each is the reason for the
 // shape below:
 //
 //   • **The newest mount is the target.** Two transcript panes in one window are two
 //     feeds; the most recently mounted is the one a chord acts on, rather than a focus
-//     model no surface publishes.
+//     model nothing publishes.
 //   • **Release is by identity.** A pane unmounting drops ITS adoption and not
 //     whichever happens to be last, so a strict-mode double mount and a route
-//     change cannot leave the seat holding a feed that is gone.
-//   • **An empty seat is a refusal, not a silence.** `perform` answers with the
+//     change cannot leave the holder pointing at a feed that is gone.
+//   • **No mounted feed is a refusal, not a silence.** `perform` answers with the
 //     refusal rather than raising it; the caller that contributed the command knows
 //     where its refusals are rendered.
 //
@@ -28,8 +28,8 @@ import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /**
  * The acts a mounted transcript offers, one function per command, named for the act
- * rather than the control that triggers it. Declared beside the seat that holds one, so
- * the commands and the seat do not import each other.
+ * rather than the control that triggers it. Declared beside the holder of the mounted one,
+ * so the commands and the feed do not import each other.
  */
 export interface TranscriptActs {
   readonly openFind: () => void;
@@ -42,7 +42,7 @@ export interface TranscriptActs {
 /** One act, by name. Every member is a niladic call, so the name is the whole request. */
 export type TranscriptActName = keyof TranscriptActs;
 
-/** What asking the seat to perform an act produced. */
+/** What asking the mounted transcript to perform an act produced. */
 export type TranscriptActOutcome =
   | { readonly status: "performed"; readonly act: TranscriptActName }
   | { readonly status: "refused"; readonly refusal: Refusal };
@@ -62,7 +62,7 @@ export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
 export class MountedTranscript {
   readonly #adopted: TranscriptActs[] = [];
 
-  /** Take the seat for a mount's lifetime. The return value releases exactly this one. */
+  /** Become the target for a mount's lifetime. The return value releases exactly this one. */
   public adopt(acts: TranscriptActs): Unsubscribe {
     this.#adopted.push(acts);
     return () => {
@@ -78,7 +78,7 @@ export class MountedTranscript {
     return this.#adopted[this.#adopted.length - 1];
   }
 
-  /** How many mounts hold the seat. Read by tests and by the diagnostics surface. */
+  /** How many mounts are adopted. Read by tests. */
   public get mountedCount(): number {
     return this.#adopted.length;
   }
@@ -94,5 +94,5 @@ export class MountedTranscript {
   }
 }
 
-/** This window's seat. */
+/** This window's mounted transcript. */
 export const mountedTranscript: MountedTranscript = new MountedTranscript();

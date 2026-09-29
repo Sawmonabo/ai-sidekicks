@@ -1,11 +1,11 @@
 // The rows' hole, and the three different nothings it can hold.
 //
-// Its own module for the one-component rule, and the split puts the seat's absence
+// Its own module for the one-component rule, and the split puts the row renderer's absence
 // where a reader looks for it: the pane above decides the chrome and the address, and
-// this decides what stands in the body while the seat, the session, or the rows are
-// not there.
+// this decides what stands in the body while the row renderer, the session, or the rows
+// are not there.
 //
-// NOTHING HERE DRAWS THE BODY BOX. `seats/PaneFrame` renders
+// NOTHING HERE DRAWS THE BODY BOX. `PaneFrame` renders
 // `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
 // a second box inside the first — and the flex chain the feed's scroll container
 // depends on would run through two elements only one of which is sized.
@@ -16,20 +16,20 @@ import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** What the rows' hole needs to choose between its three nothings and the feed. */
-export interface TranscriptRowHostProps {
+export interface TranscriptPaneBodyProps {
   /** The registered row renderer, or `undefined` while none is registered. */
   readonly body: TranscriptRowRenderer | undefined;
   readonly sessionStore: SessionStore | undefined;
-  /** The pane this body fills, for the seat the feed claims under it. */
+  /** The pane this body fills, handed on to the feed. */
   readonly paneId: string;
 }
 
 /**
  * The rows' hole, and the three different nothings it can hold.
  *
- * The three are kept apart because a person's next move differs (rule 8): a seat
- * nobody has filled means the feature has not shipped; a route that names no session
- * means there is nothing to be a log OF; and a filled seat over an open session with
+ * The three are kept apart because a person's next move differs: a row renderer
+ * nobody has registered means the feature has not shipped; a route that names no session
+ * means there is nothing to be a log OF; and a registered renderer over an open session with
  * no rows means this session has not done anything yet. Collapsing any two of them
  * would tell somebody their session was empty when the truth is that the console
  * cannot draw it, or has not been asked to.
@@ -38,7 +38,7 @@ export interface TranscriptRowHostProps {
  * it inside the scroll container, where a row would appear the moment one arrived —
  * so the empty session is not a case here at all.
  */
-export function TranscriptRowHost(props: TranscriptRowHostProps): React.JSX.Element {
+export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.Element {
   const body = props.body;
   if (body === undefined) {
     return (

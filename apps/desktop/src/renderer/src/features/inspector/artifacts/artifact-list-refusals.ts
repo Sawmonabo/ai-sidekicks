@@ -1,50 +1,44 @@
-// Why this pane refuses, and the constructors that say so.
+// Why the inspector's `Artifacts` section refuses, and the constructors that say so.
 //
-// `persistence/refusals.ts`'s arrangement, one family over: the closed refusal
-// vocabulary is declared in a module of its own, below every module that raises one.
-// Three of this pane's modules construct a refusal — the reader on a rejected call,
-// the acts on a second manifest read, the payload fetch on a second fetch. A vocabulary
-// that lived beside any one of those would make a producer import its sibling to name a
-// code.
+// The closed refusal vocabulary is declared in a module of its own, below every module
+// that raises one. Three of the section's modules construct a refusal — the reader on a
+// rejected call, the acts on a second manifest read, the payload fetch on a second
+// fetch. A vocabulary that lived beside any one of those would make a producer import
+// its sibling to name a code.
 //
-// ONE DECLARATION OF THE CLOSED SET, `as const`, with the union derived from it. The
-// prose this replaces said "the three codes this pane mints" with four constants under
-// it: a count in a sentence is not something a fifth code can fail against.
+// ONE DECLARATION OF THE CLOSED SET, `as const`, with the union derived from it: a count
+// in a sentence is not something a further code can fail against.
 
 import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * Which subsystem refused, when the refusal is the pane's own and not the port's.
+ * Which subsystem refused, when the refusal is the section's own and not the port's.
  *
  * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing three
  * layers from where it was raised still name its author. Written once here rather than
  * spelled at each construction site.
  *
- * The suites that assert an `artifact-pane-reader` origin spell the string rather than
+ * The suites that assert an `artifact-list-reader` origin spell the string rather than
  * importing this, which is what an assertion about a value has to do: a test that
  * imported the constant it asserts would pass whatever that constant became.
  */
-export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
+export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-list-reader";
 
 /**
- * The codes this pane mints. The port owns every other refusal the pane renders.
+ * The codes the section mints. The port owns every other refusal the section renders.
  *
  * ONE ARRAY AND NO COUNT IN PROSE, on `persistence/refusals.ts`'s shape: a number in a
  * sentence is not something a further code can fail against.
  *
  * Declared here, beside the reading they are recorded on, rather than in either of the
  * two modules that raise them: a refusal vocabulary split across the reader and the
- * acts would be two closed sets for one pane, and a caller narrowing on a code would
+ * acts would be two closed sets for one section, and a caller narrowing on a code would
  * have to know which half minted it.
  *
- * The one-constant-per-code bindings this replaces were all exported and imported
- * nowhere. `knip`'s `ignoreExportsUsedInFile` makes an export whose only reader is its
- * own file invisible to the dead-code gate, so the four sat on unread surface with no
- * gate able to say so. Each literal is written at the single site that mints it now,
- * `satisfies`-checked against the union below for `palette/keybindings/keybindings.ts`'s stated
- * reason: without the check the closed vocabulary binds nothing, and dropping a member
- * from it would break no code at all.
+ * Each literal is written at the single site that mints it, `satisfies`-checked against
+ * the union below: without the check the closed vocabulary binds nothing, and dropping a
+ * member from it would break no code at all.
  */
 export const ARTIFACT_LIST_REFUSAL_CODES = [
   "read-threw",
@@ -52,14 +46,14 @@ export const ARTIFACT_LIST_REFUSAL_CODES = [
   "manifest-read-in-flight",
 ] as const;
 
-/** One code this pane mints. Derived, so the vocabulary is declared exactly once. */
+/** One code the section mints. Derived, so the vocabulary is declared exactly once. */
 export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[number];
 
 /**
  * The refusal a read that threw becomes.
  *
  * A thrown value is not a refusal until something makes it one, and the alternative —
- * letting it reject inside a timer callback — leaves the pane on the in-flight absence
+ * letting it reject inside a timer callback — leaves the section on the in-flight absence
  * for the rest of its life.
  *
  * A DELEGATION, NOT A NORMALIZER. Flattening everything to one code and one sentence would
@@ -70,7 +64,7 @@ export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[numbe
  * `Error` minted in the preload realm — which is the realm every bridge rejection
  * crosses — so that value would take the not-an-error arm and its message would go with
  * it. `core/wire-rejection.ts` owns all four of those readings and a terminal that never
- * throws, and the two things left here are this pane's own: the origin, and the sentence
+ * throws, and the two things left here are the section's own: the origin, and the sentence
  * for a rejection that said nothing machine-readable.
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
@@ -93,10 +87,10 @@ export function readFailureRefusal(error: unknown): WireRefusal {
 /**
  * The refusal a second payload fetch becomes while the first is still on the wire.
  *
- * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
+ * NAMED RATHER THAN SILENT, and it names the artifact the section is actually waiting
  * on rather than the one that was pressed: a user told "something is in
  * flight" cannot tell what. The control that produced it is held while a fetch is
- * pending, so this is structurally unreachable from the pane — and recorded anyway,
+ * pending, so this is structurally unreachable from the section — and recorded anyway,
  * because a press that produced nothing at all is the silent no-op rule 8 forbids.
  */
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal {
@@ -114,7 +108,7 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal 
  * ROW: two presses on one row are two reads of one manifest whose answers can settle in
  * either order, so the older reply would put the staler row back. The control that
  * produced it is held while that row's read is pending, so this is structurally
- * unreachable from the panel — and recorded anyway, because a press that produced
+ * unreachable from the section — and recorded anyway, because a press that produced
  * nothing at all is the silent no-op rule 8 forbids.
  */
 export function manifestReadInFlightRefusal(artifactId: string): Refusal {

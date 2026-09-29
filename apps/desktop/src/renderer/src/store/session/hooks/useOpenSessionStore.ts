@@ -32,8 +32,7 @@
 // content; that one reports on the read behind the content, and it is the half whose
 // inputs stop being "a store and a selector".
 //
-// WHAT IS DELIBERATELY NOT HERE. The frame store's hooks are `shell/frame-hooks.ts`'s,
-// and the door publishes each hook from the module that declares it.
+// WHAT IS DELIBERATELY NOT HERE. The window store's hooks sit beside the window store.
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
@@ -77,7 +76,7 @@ export function useOpenSessionStore(
  *
  * The console has no session-DIRECTORY read — no `PlatformBridge` member lists the
  * sessions on a node — so this registry is the only session set the renderer can name,
- * and a surface that needs one reads it here rather than inventing a source.
+ * and a view that needs one reads it here rather than inventing a source.
  *
  * Subscribed through the registry's own change emitter, so it costs no timer and no
  * poll, and the read returns the registry's stable array rather than building one.

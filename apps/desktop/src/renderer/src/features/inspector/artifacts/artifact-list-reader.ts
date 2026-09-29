@@ -1,4 +1,5 @@
-// What the artifact pane holds, what it can act on, and who is told when it changes.
+// What the inspector's `Artifacts` section holds, what it can act on, and who is told when
+// it changes.
 //
 // The list read and the two artifact reads its acts make are calls the caller supplies
 // (`ArtifactOperations`); nothing here reaches the wire itself. A rejected call is not
@@ -6,16 +7,17 @@
 //
 // When the read runs is `artifact-read-schedule.ts`'s, and this class extends it: the
 // scheduler, the refresh reasons, the generation register and the list read live there,
-// and what is left here is what a surface renders and who is told when it changes.
+// and what is left here is what the section renders and who is told when it changes.
 //
-// The acts are next door. `readManifest` and `fetchPayload` delegate to
-// `ArtifactRowActions`, which is handed only the operations `ArtifactRowActionHost` names.
-// The methods stay on this class because the reader is the one object a surface holds.
+// The acts are `artifact-row-actions.ts`'s. `readManifest` and `fetchPayload` delegate to
+// `ArtifactRowActions`, which is handed only the operations `ArtifactListReadingPublisher`
+// names. The methods stay on this class because the reader is the one object the section
+// holds.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { ArtifactRowActions } from "./artifact-row-actions.js";
-import { type ArtifactRowActionHost } from "./artifact-row-action-host.js";
+import { type ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import {
   NOTHING_READ_YET,
   type ArtifactListReading,
@@ -29,32 +31,32 @@ import {
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
 
 /** What the reader needs: the schedule's options plus the act call. */
-export interface ArtifactPaneReaderOptions extends ArtifactReadScheduleOptions {
+export interface ArtifactListReaderOptions extends ArtifactReadScheduleOptions {
   /** The call the acts make to read one artifact's manifest or its bytes. */
   readonly readArtifact: ReadArtifact;
 }
 
-/** One pane's reading of a session's artifacts, and the acts a surface can put to the port. */
+/** One section's reading of a session's artifacts, and the acts it can put to the port. */
 export class ArtifactListReader extends ArtifactReadSchedule {
   readonly #clock: Clock;
   readonly #actions: ArtifactRowActions;
-  readonly #changes = new Emitter<ArtifactListReading>("artifact pane reading");
+  readonly #changes = new Emitter<ArtifactListReading>("artifact list reading");
 
   #reading: ArtifactListReading = NOTHING_READ_YET;
 
-  public constructor(options: ArtifactPaneReaderOptions) {
+  public constructor(options: ArtifactListReaderOptions) {
     super(options);
     this.#clock = options.clock;
-    // Stamped at construction, so every reading a surface can reach carries an instant
+    // Stamped at construction, so every reading the section can reach carries an instant
     // somebody took.
     this.#reading = { ...NOTHING_READ_YET, readAtMilliseconds: this.#clock.now() };
     this.#actions = new ArtifactRowActions({
       readArtifact: options.readArtifact,
-      host: this.#actionHost(),
+      publisher: this.#readingPublisher(),
     });
   }
 
-  /** What the pane renders right now. Stable identity between publishes. */
+  /** What the section renders right now. Stable identity between publishes. */
   public get snapshot(): ArtifactListReading {
     return this.#reading;
   }
@@ -80,12 +82,12 @@ export class ArtifactListReader extends ArtifactReadSchedule {
     return this.#actions.readManifest(artifactId);
   }
 
-  /** Ask for one artifact's bytes. One fetch at a time across the pane. */
+  /** Ask for one artifact's bytes. One fetch at a time across the section. */
   public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
     return this.#actions.fetchPayload(artifactId);
   }
 
-  /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */
+  /** Terminal. No later completion, frame, or focus can reach a section that unmounted. */
   public override dispose(): void {
     // The acts are disposed too, so a fetch still in flight settles into nothing.
     this.#actions.dispose();
@@ -111,7 +113,7 @@ export class ArtifactListReader extends ArtifactReadSchedule {
    * An adapter rather than an `implements` clause, because every member reads or writes
    * state this class owns and implementing the port would make all three public.
    */
-  #actionHost(): ArtifactRowActionHost {
+  #readingPublisher(): ArtifactListReadingPublisher {
     return {
       currentReading: () => this.#reading,
       publish: (reading: ArtifactListReading) => {
@@ -122,7 +124,7 @@ export class ArtifactListReader extends ArtifactReadSchedule {
   }
 
   /**
-   * Put one reading on the pane, stamped with the instant it was put there.
+   * Put one reading on the section, stamped with the instant it was put there.
    *
    * Every publish comes through here, so the instant is a property of the publish and not
    * of whichever producer remembered to take one. The parameter omits the stamp because a

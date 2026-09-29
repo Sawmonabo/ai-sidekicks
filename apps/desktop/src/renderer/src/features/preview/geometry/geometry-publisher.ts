@@ -11,7 +11,7 @@
 //   * READ NOW, WRITE NEXT FRAME. Mutating layout from inside resize-observer delivery
 //     drops the remaining notifications on at least one shipped engine.
 //
-// The rectangle goes to the host seam in `view-host.ts`; this module names no method of
+// The rectangle goes to the page host in `page-host.ts`; this module names no method of
 // its own.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
@@ -29,7 +29,7 @@ import {
   type PaneRect,
   roundPaneRect,
 } from "./pane-geometry.js";
-import type { AttachedPaneViewHost } from "./view-host.js";
+import type { PageHost } from "./page-host.js";
 
 /** What the last publish attempt did. Rendered by the pane; never inferred. */
 export type PaneGeometryOutcome =
@@ -38,18 +38,18 @@ export type PaneGeometryOutcome =
   | { readonly status: "suppressed"; readonly refusal: Refusal };
 
 export interface PaneGeometryPublisherOptions {
-  readonly host: AttachedPaneViewHost;
+  readonly pageHost: PageHost;
   readonly clock: Clock;
   readonly occlusion: PaneOverlaySource;
 }
 
 /**
- * Keeps one host element's rectangle published to one view host. A class with private
+ * Keeps one host element's rectangle published to one page host. A class with private
  * fields because its invariants — arm once, dispose once, never re-arm after a
  * rejection — are properties of that state and need a single owner.
  */
 export class PaneGeometryPublisher {
-  readonly #host: AttachedPaneViewHost;
+  readonly #pageHost: PageHost;
   readonly #clock: Clock;
   readonly #occlusion: PaneOverlaySource;
   readonly #outcomeEmitter = new Emitter<void>("pane geometry outcome");
@@ -63,7 +63,7 @@ export class PaneGeometryPublisher {
   #disposed = false;
 
   public constructor(options: PaneGeometryPublisherOptions) {
-    this.#host = options.host;
+    this.#pageHost = options.pageHost;
     this.#clock = options.clock;
     this.#occlusion = options.occlusion;
   }
@@ -133,16 +133,16 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * Fires whenever a new outcome is recorded, so a surface can RENDER one.
+   * Fires whenever a new outcome is recorded, so the pane can RENDER one.
    *
    * Without it `lastOutcome()` is only readable by whoever happens to ask, and the
    * pane asks exactly once — at attach, before the first frame has run, when the
    * answer is still `undefined`. Everything after that, the `pane-gone` rejection
    * most of all, would land in this private field and be seen by nobody, leaving the
-   * pane rendering "no page yet" over a host that has said the pane is destroyed.
+   * pane rendering "no page yet" over a page host that has said the pane is destroyed.
    *
    * A `void` event and a re-read rather than the outcome as a payload, which is the
-   * shape `subscribeToChanges` next door already uses and what `useSyncExternalStore`
+   * shape `PaneOverlaySource.subscribeToChanges` already uses and what `useSyncExternalStore`
    * takes: one snapshot accessor, one notification, and no second copy of the value
    * to fall out of step with the first.
    */
@@ -150,7 +150,7 @@ export class PaneGeometryPublisher {
     return this.#outcomeEmitter.subscribe(sink);
   }
 
-  /** How many samples reached the host. Deduped samples do not count. */
+  /** How many samples reached the page host. Deduped samples do not count. */
   public get publishCount(): number {
     return this.#publishCount;
   }
@@ -163,7 +163,7 @@ export class PaneGeometryPublisher {
   /**
    * Whether this publisher is spent. Read by the owner that has to decide whether to
    * mint a fresh one — a disposal is terminal, and the two ways one happens are an
-   * unmount and the host rejecting a rectangle for a pane that is gone.
+   * unmount and the page host rejecting a rectangle for a pane that is gone.
    */
   public get isDisposed(): boolean {
     return this.#disposed;
@@ -194,7 +194,7 @@ export class PaneGeometryPublisher {
       this.#recordOutcome({ status: "deduped", sample });
       return;
     }
-    const outcome = this.#host.setRect(sample);
+    const outcome = this.#pageHost.setRect(sample);
     if (outcome.status === "rejected") {
       // Retrying would publish a rectangle for a pane that no longer exists, once per
       // frame, forever.
@@ -203,8 +203,8 @@ export class PaneGeometryPublisher {
       // announces, `Emitter` re-raises what a sink threw, and a single throwing
       // observer therefore carried the exception out of this method before the
       // disposal ran — leaving the publisher armed, subscribed, and still writing
-      // rectangles to a pane the host had just declared gone. Disposal costs the
-      // surface nothing here: `dispose` deliberately does NOT clear the sinks, so
+      // rectangles to a pane the page host had just declared gone. Disposal costs the
+      // subscribers nothing here: `dispose` deliberately does NOT clear the sinks, so
       // the notification below still reaches everyone who was subscribed, and it
       // now reaches them over a publisher whose `isDisposed` already agrees with
       // the sentence they are about to render.
@@ -331,7 +331,7 @@ function readElementRect(element: Element): PaneRect {
  *
  * WHICH ancestors clip is `lib/clipping-ancestors.ts`'s answer and not this
  * module's, shared with the session pane layout's `pane-rect-geometry.ts` so the two read
- * one walk. What is left here is the part that is this family's: turning the ancestors
+ * one walk. What is left here is the part that is the preview's: turning the ancestors
  * into the rects the sampler subtracts.
  */
 function readClippingAncestorRects(element: HTMLElement): readonly PaneRect[] {

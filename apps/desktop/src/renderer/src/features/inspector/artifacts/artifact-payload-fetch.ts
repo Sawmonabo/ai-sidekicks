@@ -1,13 +1,13 @@
-// The artifact pane's payload fetch, and the single flight that keeps it to one.
+// The artifact list's payload fetch, and the single flight that keeps it to one.
 //
 // The manifest re-read in `artifact-row-actions.ts` is single-flight per row and superseded by
-// a refresh. This fetch is single-flight across the whole pane and is superseded by
-// nothing but the pane going away.
+// a refresh. This fetch is single-flight across the whole section and is superseded by
+// nothing but the section going away.
 //
 // The reading holds one payload, which is why: two fetches racing put one artifact's bytes
 // under another's name, and their answers can settle in either order, so the older reply
 // could overwrite the newer bytes and the newer manifest it carries. The reading names the
-// pending artifact on its `fetching` arm, which is what holds the pane's control.
+// pending artifact on its `fetching` arm, which is what holds the section's control.
 //
 // A continuation also has to ask whether the pending fetch is its own, because a reply for
 // a round the latch has moved past describes bytes a later act has already superseded.
@@ -17,7 +17,7 @@
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
-import type { ArtifactRowActionHost } from "./artifact-row-action-host.js";
+import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import { withReplacedRow } from "./artifact-list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import {
@@ -26,28 +26,28 @@ import {
 } from "@renderer/store/artifacts/artifact-payload.js";
 
 /**
- * The one key this pane's payload fetch takes.
+ * The one key the section's payload fetch takes.
  *
  * A constant and not the artifact id, because the rule is one fetch across the whole
- * pane: keying by artifact would admit a second press for a second row.
+ * section: keying by artifact would admit a second press for a second row.
  */
 const PAYLOAD_FETCH_KEY = "payload-fetch";
 
 export interface ArtifactPayloadFetchesOptions {
   readonly readArtifact: ReadArtifact;
-  readonly host: ArtifactRowActionHost;
+  readonly publisher: ArtifactListReadingPublisher;
 }
 
-/** The pane's one payload fetch at a time, and what its answer writes. */
+/** The section's one payload fetch at a time, and what its answer writes. */
 export class ArtifactPayloadFetches {
   readonly #readArtifact: ReadArtifact;
-  readonly #host: ArtifactRowActionHost;
+  readonly #publisher: ArtifactListReadingPublisher;
   /** The fetch awaiting its answer. One at a time, and the reading says which. */
   readonly #fetches = new GenerationLatch();
 
   public constructor(options: ArtifactPayloadFetchesOptions) {
     this.#readArtifact = options.readArtifact;
-    this.#host = options.host;
+    this.#publisher = options.publisher;
   }
 
   /**
@@ -68,8 +68,8 @@ export class ArtifactPayloadFetches {
     if (round === undefined) {
       throw new Error(`A payload fetch is already in flight; ${artifactId} was not asked for.`);
     }
-    this.#host.publish({
-      ...this.#host.currentReading(),
+    this.#publisher.publish({
+      ...this.#publisher.currentReading(),
       payload: { status: "fetching", artifactId },
     });
     try {
@@ -91,8 +91,8 @@ export class ArtifactPayloadFetches {
       return { status: "superseded" };
     }
     const payload = artifactPayloadReadingFrom(artifactId, answer);
-    const reading = this.#host.currentReading();
-    this.#host.publish({
+    const reading = this.#publisher.currentReading();
+    this.#publisher.publish({
       ...reading,
       // The reply also carries the manifest, a fresher reading of the row this fetch was
       // about. Dropping it would leave the row stating what an older read said beside
@@ -115,9 +115,9 @@ export class ArtifactPayloadFetches {
     if (!heldByThisRound) {
       return;
     }
-    const reading = this.#host.currentReading();
+    const reading = this.#publisher.currentReading();
     if (reading.payload?.status === "fetching") {
-      this.#host.publish({ ...reading, payload: undefined });
+      this.#publisher.publish({ ...reading, payload: undefined });
     }
   }
 }

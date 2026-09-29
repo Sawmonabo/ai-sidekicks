@@ -228,7 +228,7 @@ describe("registering the transcript row renderer", () => {
     registerTranscriptRows();
     expect(() => {
       registerTranscriptRowRenderer("another owner", () => null);
-    }).toThrow(/transcript row seat/);
+    }).toThrow(/transcript row renderer/);
   });
 
   it("negative control: the same owner may re-register", () => {

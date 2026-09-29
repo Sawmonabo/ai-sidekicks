@@ -162,11 +162,9 @@ export { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer
 export { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
 
 // The latest-committed-value ref every long-lived callback in the tree reads through.
-// On this door because its readers are VIEW families — the approvals pane's palette
-// rows and the runs pane's — which are siblings of one another and may reach nothing
-// in each other, so the lowest family that owns the concern publishes it once. The
-// alternative is what it replaced: each surface writing its own ref in a render body,
-// which is the one place React says a ref must not be written.
+// Its readers are hooks in several features, which may not import one another, so it
+// is published once here. Without it each would write its own ref in a render body,
+// the one place React says a ref must not be written.
 export { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 
 export { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -241,17 +239,16 @@ export { WindowNotices } from "@renderer/features/transcript/components/WindowNo
 
 // No marker: `InlineRefusal` has its consumers — `components/PaneFrame/PaneFrame.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
-// address, and the composer, sidebar, runs, approvals, inspector, settings,
-// channels, sessions, and agents surfaces, which render a row-scoped refusal
-// through it — so a surviving tag would fail the run under
-// `--treat-tag-hints-as-errors`.
+// address, and the composer, transcript, sessions, agents, settings, and workflows
+// features and the command palette, which render a row-scoped refusal through it —
+// so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 export { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 export { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
-// The join between a refusal and the console's own next move for it. On this door
-// because the composer, the runs pane, and the approvals pane all render daemon
-// refusals whose codes the remedy table answers for, and three surfaces looking a
-// code up themselves is three chances to answer one code differently.
+// The join between a refusal and the console's own next move for it. The composer's
+// send button and approval card render daemon refusals whose codes the remedy table
+// answers for, and a caller looking a code up itself is one more chance to answer one
+// code differently.
 export { RefusalWithRemedy } from "@renderer/features/composer/components/RefusalWithRemedy/RefusalWithRemedy.js";
 // The shell every family's own recovery table renders through, and the shape those
 // tables produce. On this door for the same reason `RefusalWithRemedy` is: more than one
@@ -386,14 +383,6 @@ export {
   formatWireString,
 } from "@renderer/lib/wire-figures.js";
 
-// The stamped execution boundary, and the disclosure of what a rewind did to the
-// working tree. Both are in this family for the same reason and it is the layering
-// rule rather than a judgment about where they read best: the runs pane and the
-// approvals pane both render a posture, and the runs pane's intervention history
-// and the repos family's artifact record both render a restore — and in each pair
-// the two homes are VIEW families, which may not import one another. The lowest
-// family that owns their inputs is this one, so this is where they live and this
-// door is how both callers reach them.
 // The absent-posture sentence, for the ONE surface outside this family that says
 // it in its own words: the composer's posture chip renders no facts and so cannot
 // mount the chip above, but a second sentence for one fact is the copy this

@@ -1,21 +1,21 @@
-// How a case moves the fixture's frozen clock, for every surface that schedules a read.
+// How a case moves the fixture's frozen clock, for every view that schedules a read.
 //
-// WHY A CASE HAS TO MOVE ANYTHING AT ALL. Every read a console surface performs is
+// WHY A CASE HAS TO MOVE ANYTHING AT ALL. Every read a console view performs is
 // routed through the console's one `RefreshScheduler`, which arms its debounce on the
 // clock it was handed; the readers take the window's clock, and under the fixture
 // that is the scenario's frozen one. So real time moves none of
-// those surfaces, and a case that polled it — `waitFor` and its five-second budget —
+// those views, and a case that polled it — `waitFor` and its five-second budget —
 // would be polling a still picture until the budget ran out.
 //
 // ONE SHARED HELPER. The clock these two functions move is `ScenarioEngine`'s, and the
-// surfaces that need moving are in every feature: the repo mounts, the artifact pane, the
-// workflow run pane. Parked in one feature it would be a helper no other feature may import,
-// so it lives in `tests/helpers/` beside `fixture-bridge.ts` and `scheduled-read.ts`.
+// views that need moving are in every feature: the repo mounts, the inspector's `Artifacts`
+// section, the workflow run pane. Parked in one feature it would be a helper no other feature may
+// import, so it lives in `tests/helpers/` beside `fixture-bridge.ts` and `scheduled-read.ts`.
 //
 // ONE HOME FOR BOTH HALVES, because the two are one act done wrong in two ways. An
 // advance performed outside `act` lands its state updates untracked, and React reports
 // that as a warning while the case reads whichever half of the transition it reached;
-// an advance with no bound loops forever against a surface that is never going to
+// an advance with no bound loops forever against a view that is never going to
 // answer. The loop's last pass therefore runs the caller's assertion outside the
 // `try`, so a case that never settles fails with the assertion's own message rather
 // than with a timeout that says nothing about what was missing.
@@ -48,9 +48,9 @@ export async function advanceScenarioOneInterval(engine: ScenarioEngine): Promis
 /**
  * Drive scenario time until `assert` holds, or fail with `assert`'s own message.
  *
- * Stops at the FIRST pass that holds, which is what keeps a surface's pinned state
+ * Stops at the FIRST pass that holds, which is what keeps a view's pinned state
  * minimal: every extra advance delivers another scenario beat and moves every deadline
- * the surface renders against, so a helper that spent its whole budget would pin a
+ * the view renders against, so a helper that spent its whole budget would pin a
  * different composition from the one the case is about.
  */
 export async function advanceScenarioUntil(

@@ -40,11 +40,11 @@ const FOCUS_COMPOSER_COMMAND: CommandDefinition = {
 /**
  * Contribute the composer's commands to a window.
  *
- * Takes the surface rather than reaching for the module-scope one, so a test contributes
- * into a surface it owns.
+ * Takes the registry rather than reaching for the module-scope one, so a test contributes
+ * into a registry it owns.
  */
-export function registerComposerCommands(surface: CommandContributionRegistry): void {
-  surface.contribute({
+export function registerComposerCommands(registry: CommandContributionRegistry): void {
+  registry.contribute({
     owner: COMPOSER_COMMAND_OWNER,
     commands: [FOCUS_COMPOSER_COMMAND],
     keyBindings: [],

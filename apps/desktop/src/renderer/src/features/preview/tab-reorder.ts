@@ -3,36 +3,37 @@
 //
 // Tab drag reorder carries the drag payload on a private MIME type and translates the
 // drop index at the boundary: the registry's move index addresses the list WITHOUT the
-// moved tab, so a tab dragged rightward targets `slot - 1`. The translation is stated
+// moved tab, so a tab dragged rightward targets `dropPosition - 1`. The translation is stated
 // once, at the one call site, never rediscovered per handler.
 //
 // So it is stated here, in one function, and `PageTabStrip.tsx` is the only module that
 // calls it. The two facts that make the subtraction necessary
 // are worth writing down, because a reader who has only one of them will delete it:
 //
-//   • A DROP SLOT is a position among the tabs AS DRAWN. There are `n + 1` of them
+//   • A DROP POSITION is a position among the tabs AS DRAWN. There are `n + 1` of them
 //     for `n` tabs — before the first, between each pair, and after the last — and
 //     the dragged tab is still one of the `n` while it is being dragged.
 //   • A MOVE INDEX is a position in the list with the moved page taken OUT of it.
-//     That list has `n - 1` entries, so every slot to the right of the tab's own
-//     position names a place one further along than it looks.
+//     That list has `n - 1` entries, so every drop position to the right of the tab's
+//     own position names a place one further along than it looks.
 //
-// Rightward is therefore `slot - 1` and leftward is `slot` unchanged. Getting it
-// wrong is not a crash: it moves the tab one place short of where the person dropped
+// Rightward is therefore `dropPosition - 1` and leftward is `dropPosition` unchanged.
+// Getting it wrong is not a crash: it moves the tab one place short of where the person dropped
 // it, every time, in one direction only — which is the kind of defect that survives a
 // demo and is reported months later as "reordering feels off".
 //
 // WHY THE PAYLOAD IS A PRIVATE MIME TYPE. A drag carrying `text/plain` is a drag any
 // page, any editor, and any other drop target in the window will happily accept, and
 // a tab dropped into the composer would paste a page id as text. The private type is
-// read by this family and nothing else, so a drag that leaves the strip lands nowhere.
+// read by the preview's tab strip and nothing else, so a drag that leaves the strip
+// lands nowhere.
 
 /**
- * The drag type this family's tab drags carry, and the only one they carry.
+ * The drag type the preview's tab drags carry, and the only one they carry.
  *
  * A vendor-shaped string rather than a registered one: the drag never leaves this
  * window, so there is nothing to register it with, and the prefix is what stops it
- * colliding with a type some other surface invents.
+ * colliding with a type some other feature invents.
  */
 export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-preview-tab";
 
@@ -71,15 +72,15 @@ export function readTabDragPayload(transfer: DataTransfer): string | undefined {
 }
 
 /**
- * Translate a drop slot among the drawn tabs into the registry's move index.
+ * Translate a drop position among the drawn tabs into the registry's move index.
  *
  * The one statement of the rule the header explains. Returns `undefined` where the
- * move is a no-op — a tab dropped in its own slot, or in the slot immediately after
- * itself, both of which name the position it already occupies — so the caller sends
+ * move is a no-op — a tab dropped at its own position, or at the position immediately
+ * after itself, both of which name the position it already occupies — so the caller sends
  * nothing rather than dispatching an act that would answer "moved" for a move that
  * did not happen.
  */
-export function pageMoveIndex(fromIndex: number, dropSlot: number): number | undefined {
-  const moveIndex = dropSlot > fromIndex ? dropSlot - 1 : dropSlot;
+export function pageMoveIndex(fromIndex: number, dropPosition: number): number | undefined {
+  const moveIndex = dropPosition > fromIndex ? dropPosition - 1 : dropPosition;
   return moveIndex === fromIndex ? undefined : moveIndex;
 }

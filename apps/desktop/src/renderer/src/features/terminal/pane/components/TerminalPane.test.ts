@@ -36,6 +36,6 @@ describe("terminal pane — a pane opened without a session", () => {
   });
 
   it("mounts no emulator it has no session to address", () => {
-    expect(renderPane(undefined).querySelector(".meridian-terminal-host")).toBeNull();
+    expect(renderPane(undefined).querySelector(".meridian-terminal-mount-point")).toBeNull();
   });
 });

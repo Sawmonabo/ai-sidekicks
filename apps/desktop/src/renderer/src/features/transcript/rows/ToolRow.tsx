@@ -14,7 +14,7 @@
 // inside it — a collapsed error is still an error, and a reader scanning a log of forty
 // tool calls sees the failures without opening one.
 //
-// WHAT IT DOES NOT DO. It does not read a tool FAMILY out of the tool's name — see
+// WHAT IT DOES NOT DO. It does not read a tool KIND out of the tool's name — see
 // `row-kind.ts` for why that would be the console asserting a fact the wire never
 // sent — so every tool renders through this one card, and the name renders wire-verbatim
 // in mono beside it. The same refusal decides how the BODY is drawn: the wire declares
@@ -24,9 +24,9 @@
 // AND WHAT IT HOLDS INSTEAD OF THAT REFUSAL'S CONSEQUENCE. The design's six tool
 // treatments — command output, file edits, read folds, MCP calls with a server badge and a
 // typed argument summary, web-search result lists, image results — need a home for the
-// wire member. `tool-families/` is that home: the vocabulary as data, one fail-closed
-// reading off this row's own payload, and a renderer the treatments supply. The refusal is
-// unchanged — this card still derives nothing from the tool's name.
+// wire member. The tool kind reader and `ToolKindBadge` are that home: the vocabulary as
+// data, one fail-closed reading off this row's own payload, and a renderer the treatments
+// supply. The refusal is unchanged — this card still derives nothing from the tool's name.
 
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../cards/card-caps.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
@@ -57,7 +57,7 @@ export interface ToolRowProps extends HydratedRowProps {
    */
   readonly onDensityToggle?: (() => void) | undefined;
   /**
-   * The sub-family treatment's renderer, or `undefined` while the built-in badge stands in.
+   * The tool kind treatment's renderer, or `undefined` while the built-in badge stands in.
    *
    * Required and carrying `undefined` rather than optional, so a caller that forgot it is
    * a compile error at the construction site instead of an absent key that reads the same
@@ -80,9 +80,9 @@ const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone
   "body-unavailable": { label: "Body unavailable", tone: "neutral" },
 };
 
-/** A tool-call row: the family's glyph and label around its declared arguments and result. */
+/** A tool-call row: the row kind's glyph and label around its declared arguments and result. */
 export function ToolRow(props: ToolRowProps): React.JSX.Element {
-  const family = describeRowKind("tool-call");
+  const kind = describeRowKind("tool-call");
   const state = toolResultState(props.row.type, props.content);
   const chip = RESULT_STATE_CHIPS[state];
   const payload = projectedPayload(props.row);
@@ -95,12 +95,12 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
       <TranscriptRowLayout
         agentHueStep={hueStepOf(props)}
         occurredAtIso={props.row.timestamp}
-        authorLabel={props.row.actor ?? family.label}
+        authorLabel={props.row.actor ?? kind.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
       >
         <div className="meridian-tool-card__header">
-          <Glyph name={family.glyph} title={family.label} />
+          <Glyph name={kind.glyph} title={kind.label} />
           {/* Wire-verbatim, in mono, through the console's one figure primitive. A tool
               with no name on its payload is named as absent rather than as "unknown",
               which would be a word the daemon never sent. */}
@@ -113,7 +113,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           )}
           {/* BEFORE THE SUMMARY, because the treatment qualifies WHICH tool ran and
               the summary says what it did. Draws nothing at all for a row declaring
-              no sub-family, which is every row this build can receive. */}
+              no tool kind, which is every row this build can receive. */}
           <ToolKindBadge body={props.toolKindRenderer} reading={readDeclaredToolKind(payload)} />
           <span className="meridian-tool-card__summary">{clampSummary(props.row.summary)}</span>
           {durationMs === undefined ? null : (
@@ -123,8 +123,8 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           {props.onDensityToggle === undefined ? null : (
             <button
               type="button"
-              // The second class is the primitives family's reveal slot: the row owns
-              // WHEN a secondary control appears and this family owns what it is, so
+              // The second class is the row layout's reveal class: the row layout owns
+              // WHEN a secondary control appears and this card owns what it is, so
               // neither sheet has to name the other's class.
               className="meridian-tool-card__disclosure meridian-transcript-row-layout__revealed"
               aria-expanded={isOpen}
@@ -142,7 +142,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
             // NO SHAPE IS PASSED, BECAUSE THIS CARD HAS NONE TO GIVE. The tool
             // payload carries a name, a call id, a duration and the body's own
             // descriptors, and no member at all that says what SHAPE the body is — no
-            // sub-family, no content type. A card that answered "ANSI" for every
+            // tool kind, no content type. A card that answered "ANSI" for every
             // result was reading terminal output into an MCP reply, a web-search
             // answer, and every other ordinary textual result; one that answered
             // "prose" for every result put a shell's escape sequences on the page as

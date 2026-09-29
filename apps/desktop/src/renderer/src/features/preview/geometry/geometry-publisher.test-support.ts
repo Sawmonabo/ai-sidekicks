@@ -2,10 +2,10 @@
 //
 // One home rather than a copy per suite, on this package's rule that shared
 // scaffolding lives once: every suite beside this file that publishes geometry needs a
-// host that records what it was handed, a box the test decides, and a way to move that
+// page host that records what it was handed, a box the test decides, and a way to move that
 // box — and a fixture copied per suite is a fixture that drifts, with the copy that
 // drifted being the one whose suite then passes for the wrong reason. The number of
-// suites is deliberately not stated: it moves with every case file the family adds,
+// suites is deliberately not stated: it moves with every case file the preview adds,
 // and a count in prose is a claim nothing checks.
 //
 // A `.test-support.ts` and not a `.fixtures.ts`, which is what the package's own
@@ -19,11 +19,11 @@
 // first. What is shared is the world the publisher is pointed at.
 
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
-import type { AttachedPaneViewHost } from "./view-host.js";
+import type { PageHost } from "./page-host.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 
-/** A host that records what it was handed, and can be told to reject. */
-export class RecordingViewHost implements AttachedPaneViewHost {
+/** A page host that records what it was handed, and can be told to reject. */
+export class RecordingPageHost implements PageHost {
   public readonly transport = "recording";
   public readonly samples: PaneGeometrySample[] = [];
   #rejection: Refusal | undefined;
@@ -32,7 +32,7 @@ export class RecordingViewHost implements AttachedPaneViewHost {
     this.#rejection = refusal;
   }
 
-  public setRect(sample: PaneGeometrySample): ReturnType<AttachedPaneViewHost["setRect"]> {
+  public setRect(sample: PaneGeometrySample): ReturnType<PageHost["setRect"]> {
     this.samples.push(sample);
     return this.#rejection === undefined
       ? { status: "accepted" }
@@ -56,7 +56,7 @@ export function moveElementRect(element: HTMLElement, box: PaneRect): void {
     }) as DOMRect;
 }
 
-/** An element whose box the test decides, standing in for a laid-out host. */
+/** An element whose box the test decides, standing in for a laid-out host element. */
 export function elementWithRect(box: PaneRect): HTMLElement {
   const element = document.createElement("div");
   document.body.append(element);

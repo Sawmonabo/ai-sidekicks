@@ -6,11 +6,11 @@
 // sentence is the thing the session is blocked on, which is the moment the composer
 // matters most.
 //
-// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, and every
-// identifier is the UUID its branded id type declares.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds this file to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict
-// payload layer (`SessionEventSchema`), both in `packages/contracts/src/event.ts`.
-// Three consequences a reader will notice first:
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, and every identifier is the
+// UUID its branded id type declares. `tests/helpers/scenario-contract-check/contract-check.ts`
+// holds this file to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
+// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. Three consequences a reader
+// will notice first:
 //
 //   • **`agent.attached` carries `name`.** `displayName` is not a member of that
 //     payload anywhere. The agent lifecycle registers the full persona, so the
@@ -22,15 +22,13 @@
 //   • **Nothing scripts `session.list`.** No method registry in the corpus carries
 //     that name, so a scripted reply would be an answer to a question nothing asks.
 //
-// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `services/daemon/scripted-reply.fixture.ts`
-// refuses an unscripted call as `reply-unscripted`, which is the fixture's authoring error
-// and a state some surfaces are built to render. So a reply is scripted here exactly
-// when a composer surface issues that call to a real daemon method:
-// `driver.compactContext` from the compaction control, `driver.listProviderCommands` from the command zone's
-// discovery popover for the addressed agent, and `driver.listModels` and
-// `driver.listCapabilities`, the driver catalog. The approval reads are deliberately
-// NOT scripted: this scenario is what makes the approvals pane's refusal arm
-// reachable.
+// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `services/daemon/scripted-reply.fixture.ts` refuses
+// an unscripted call as `reply-unscripted`, which is the fixture's authoring error and a state some
+// views are built to render. So a reply is scripted here exactly when a composer control issues
+// that call to a real daemon method: `driver.compactContext` from the compaction control,
+// `driver.listProviderCommands` from the command zone's discovery popover for the addressed agent,
+// and `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
+// deliberately NOT scripted: this scenario is what makes a refused approval read reachable.
 //
 // ONE REPLY PER CALL NAME, so the refusing-target half of the enumeration is not
 // reachable from here: `replyFor` matches on the method name alone and the fixture
@@ -188,7 +186,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     // The discovery popover's dispatch, agent-addressed within the session. The
     // reply is the GROUP LIST the wire declares and never a flat entry array: the
     // group is what carries the `(driverName, providerAccountId)` the entries were
-    // read under, and the invariant this surface renders is that an entry is
+    // read under, and the invariant this popover renders is that an entry is
     // offered only under the binding it came from.
     //
     // `runId` is the run this scenario plays, which is the one live run on this
@@ -237,7 +235,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     // compaction landed on is renderable.
     call: "driver.compactContext",
     // A scripted latency, so the in-flight half of the control is reachable: a
-    // compaction that settled instantly would let a surface ship without ever
+    // compaction that settled instantly would let a control ship without ever
     // rendering the state a person actually watches.
     afterMs: 200,
     result: { status: "applied", boundaryPosition: 8 },
@@ -321,7 +319,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the three this window is. Stated rather than read off the head of the
   // join order — that entry is whoever opened the session, on whichever machine, and
-  // a surface handed a fabricated identity renders a role gate as though it had been
+  // a view handed a fabricated identity renders a role gate as though it had been
   // checked. The fixture answers `callerUserRead` from this field alone.
   callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",

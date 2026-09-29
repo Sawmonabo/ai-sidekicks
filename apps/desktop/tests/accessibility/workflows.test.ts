@@ -1,28 +1,28 @@
-// The accessibility tier over every surface the workflows family registers.
+// The accessibility tier over every view the workflows feature registers.
 //
-// `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
-// it, and it runs each surface scoped to itself rather than scanning the document,
-// so a violation names the surface that owns it.
+// `frame-axe.test.tsx` runs the frame; this file runs what the feature mounts INTO
+// it, and it runs each view scoped to itself rather than scanning the document,
+// so a violation names the view that owns it.
 //
-// EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowScreens`
+// EVERY REGISTERED VIEW, WHICH IS THE WHOLE CLAIM. `registerWorkflowScreens`
 // claims one rail destination and `registerWorkflowPanes` claims TWO pane kinds, so
-// the table below carries a row for each: a family-wide tier that skipped one could not
+// the table below carries a row for each: a feature-wide tier that skipped one could not
 // fail on a regression unique to it.
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
 // to pass in one and fail in the other.
 //
-// AND THE RUN'S PHASE GRAPH, WHICH NO SURFACE MOUNTS YET. It is audited as a piece, from
+// AND THE RUN'S PHASE GRAPH, WHICH NO VIEW MOUNTS YET. It is audited as a piece, from
 // a hand-built parked run, because its canvas, its focusable nodes and the library's
-// attribution link are drawn by nothing a registered surface reaches until the run read
+// attribution link are drawn by nothing a registered view reaches until the run read
 // is built. It is a lazily-loaded chunk, so every row is settled through the shared
 // readiness helper before axe runs — every row, not the one known to draw a graph,
 // because the helper answers "no graph here" and "the graph has not arrived"
 // differently and a per-row exception would be a second rule to keep true.
 //
-// AND ONE COMPOSITION NO REGISTERED SURFACE CAN REACH. A human phase's form draws a
+// AND ONE COMPOSITION NO REGISTERED VIEW CAN REACH. A human phase's form draws a
 // repeated control per list entry, and an entry exists only after a person adds one. It
-// is audited as a component under one scheme, because it carries no surface of its own.
+// is audited as a component under one scheme, because it carries no view of its own.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,11 +35,11 @@ import {
   mountWorkflowRunPhaseGraph,
   mountWorkflowsDestination,
 } from "../helpers/feature-mounts/workflows.js";
-// The seat mount, which resolves BOTH chunks a form needs and returns only once the
-// verdict has landed. The kit is not on the initial graph — its two composed surfaces
-// and its own sheet arrive together when a form first mounts — so mounting it is also
-// what puts that sheet on the page. The family sheet the entry's controls draw against
-// is already there: `../surfaces/workflows.js` above imports the family door for its
+// The schema form mount, which resolves BOTH chunks a form needs and returns only once
+// the verdict has landed. The kit is not on the initial graph — its two composed
+// components and its own sheet arrive together when a form first mounts — so mounting it
+// is also what puts that sheet on the page. The workflows sheet the entry's controls
+// draw against is already there: the workflows mount above imports the feature's
 // registrars.
 import {
   isSchemaFormSettled,
@@ -56,13 +56,13 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The surfaces this family ships, each named as a reader would name it, and the graph.
+ * The views this feature ships, each named as a reader would name it, and the graph.
  *
- * One row per registered surface, and the count is the family's rather than this
+ * One row per registered view, and the count is the feature's rather than this
  * file's: a pane kind claimed by `registerWorkflowPanes` with no row here is a
- * surface this tier reports clean on without ever having mounted it.
+ * view this tier reports clean on without ever having mounted it.
  */
-const AUDITED_SURFACES: readonly {
+const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<HTMLElement>;
 }[] = [
@@ -87,12 +87,12 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("accessibility — the workflows surfaces", () => {
-  for (const surface of AUDITED_SURFACES) {
+describe("accessibility — the workflows views", () => {
+  for (const view of AUDITED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
-      it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
+      it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
-        const mounted = await surface.mount();
+        const mounted = await view.mount();
         await awaitRunGraphSettled(mounted);
         // The subject, stated before it is read, so the wait above cannot be dropped
         // in silence: the fit has not landed at the mount's return whether the lazy
@@ -144,7 +144,7 @@ describe("accessibility — the workflows surfaces", () => {
     // textarea to attach to — and until this landed it attached to nothing, leaving a
     // reader who never moves focus out of the editor with no indication of the invalid
     // state and no route to the sentences. The mount is a component's for the reason the
-    // list-entry case above is: no registered surface opens this arm.
+    // list-entry case above is: no registered view opens this arm.
     const container = await mountSettledSchemaForm({
       prompt: "Describe the rows this phase should publish.",
       inputSchema: {
@@ -160,7 +160,7 @@ describe("accessibility — the workflows surfaces", () => {
     expect(isSchemaFormSettled(container)).toBe(true);
     const editor = container.querySelector(".meridian-schema-raw__editor");
 
-    // Stated before it is measured: an audit of a valid document is an audit of a surface
+    // Stated before it is measured: an audit of a valid document is an audit of a form
     // carrying neither the invalid state nor the findings this case exists for.
     expect(editor?.getAttribute("aria-invalid")).toBe("true");
 

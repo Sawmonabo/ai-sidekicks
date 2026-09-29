@@ -1,7 +1,7 @@
 // The transcript claims the session screen and keys it on the route's session.
 //
 // The elements are inspected rather than rendered, because the claim is about WIRING
-// — which slot, which owner, and what the screen hands its body — and a React element
+// — which screen, which owner, and what the screen hands its body — and a React element
 // carries all of that before anything renders it.
 
 import { isValidElement, type ReactNode } from "react";
@@ -12,11 +12,11 @@ import { SessionScreenShell } from "../SessionScreenShell.js";
 import { registerTranscriptScreens } from "./screens.js";
 
 /**
- * The members the surface passes through, and nothing else.
+ * The members the session screen passes through, and nothing else.
  *
- * Cast rather than constructed, for the reason the legacy suite gives: a real
- * context carries three stores, one of which opens a database on construction, and
- * building all of that to hand a handful of fields to a function that copies them
+ * Cast rather than constructed: a real context carries three stores, one of which opens
+ * a database on construction, and building all of that to hand a handful of fields to a
+ * function that copies them
  * would make the setup the subject.
  */
 function screenContext(sessionId = "session-7"): ScreenContext {
@@ -35,8 +35,8 @@ function screenContext(sessionId = "session-7"): ScreenContext {
  * The session screen body the composition root names, stood in for by a marker.
  *
  * A component rather than the real `SessionScreen`: what these cases check is the WIRING
- * — which slot, which owner, and what the surface hands the body — and the real
- * session screen opens stores to render. Its identity is asserted below, so a slot that
+ * — which screen, which owner, and what the screen hands the body — and the real
+ * session screen opens stores to render. Its identity is asserted below, so a screen that
  * mounted something else would fail here rather than render a plausible frame.
  */
 function TestSessionScreenBody(): null {
@@ -79,31 +79,31 @@ function sessionScreenBodyIn(shell: { props: Record<string, unknown> }): {
   return renderedElement(mounted[mounted.length - 1] as ReactNode);
 }
 
-describe("the transcript — which slots it holds", () => {
+describe("the transcript — which screens it holds", () => {
   it("claims the session screen under its owner", () => {
     const registry = registeredTranscript();
     const claims = registry
-      .registeredSlots()
-      .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
+      .registeredScreenNames()
+      .map((screenName) => [screenName, registry.descriptorFor(screenName)?.owner]);
     expect(claims).toStrictEqual([["session", "transcript"]]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {
-    // The case above reads `registeredSlots`, and would pass over a registry that
-    // reported slots nobody registered.
-    expect(new ScreenRegistry().registeredSlots()).toStrictEqual([]);
+    // The case above reads `registeredScreenNames`, and would pass over a registry that
+    // reported screens nobody registered.
+    expect(new ScreenRegistry().registeredScreenNames()).toStrictEqual([]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
     const registry = registeredTranscript();
-    const afterFirst = registry.registeredSlots();
+    const afterFirst = registry.registeredScreenNames();
     registerTranscriptScreens(registry, { sessionScreen: TestSessionScreenBody });
-    expect(registry.registeredSlots()).toStrictEqual(afterFirst);
+    expect(registry.registeredScreenNames()).toStrictEqual(afterFirst);
   });
 });
 
 describe("the transcript — what it mounts", () => {
-  it("mounts the session screen — the session header, the pane layout, and the composer's seat", () => {
+  it("mounts the session screen — the session header, the pane layout, and the composer", () => {
     const registry = registeredTranscript();
     const shell = renderedElement(registry.descriptorFor("session")?.render(screenContext()));
     expect(shell.type).toBe(SessionScreenShell);

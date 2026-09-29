@@ -13,9 +13,9 @@
 // absence. The pane is handed the RETAINED session instead, subscribed rather than
 // snapshotted.
 //
-// WHEN THIS SURFACE'S DEFERRED PAGES ARE FETCHED is a fifth claim and is not here: it is
+// WHEN THIS SCREEN'S DEFERRED PAGES ARE FETCHED is a fifth claim and is not here: it is
 // about a board rather than about what the rail and the pane render, and it needs the idle
-// host pinned, which none of the four below wants. `SettingsScreen.page-warm.test.ts`
+// scheduler pinned, which none of the four below wants. `SettingsScreen.page-warm.test.ts`
 // holds it, and the window, the mount, and the keystroke both suites drive are hoisted
 // into `SettingsScreen.test-support.tsx`.
 
@@ -42,18 +42,18 @@ beforeAll(async () => {
 /**
  * One page that renders the retained session id and nothing else.
  *
- * A probe rather than a shipped page, because the claim under test is the SURFACE's:
+ * A probe rather than a shipped page, because the claim under test is the SCREEN's:
  * which session it hands down. Driving it through a real page would make the case
  * fail for that page's own wire instead, and asserting on a recorded callback would
  * let a snapshot read pass — the DOM is what a person sees, so the DOM is asserted.
  */
-const SESSION_ECHO_CLASS = "settings-surface-test__session";
+const SESSION_ECHO_CLASS = "settings-screen-test__session";
 
 function sessionEchoPages(): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
     section: "runtime",
-    owner: "settings-surface-test",
+    owner: "settings-screen-test",
     label: "Runtime",
     keywords: [],
     render: (pageContext) => (
@@ -68,7 +68,7 @@ function echoedSession(container: HTMLElement): string | undefined {
 }
 
 /** What the probe page below renders, and nothing else in this file says. */
-const PROBE_PAGE_MARKER = "settings-surface-test probe page";
+const PROBE_PAGE_MARKER = "settings-screen-test probe page";
 
 /**
  * One page registered for the section the reservation case leaves empty.
@@ -80,7 +80,7 @@ function registeredProbePage(): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
     section: "keyboard",
-    owner: "settings-surface-test",
+    owner: "settings-screen-test",
     label: "Keyboard",
     keywords: [],
     render: () => <p>{PROBE_PAGE_MARKER}</p>,
@@ -88,7 +88,7 @@ function registeredProbePage(): SettingsPageRegistry {
   return pages;
 }
 
-/** The four fields this surface reads, and nothing else. */
+/** The four fields this screen reads, and nothing else. */
 function contextFor(page: string | undefined): ScreenContext {
   return windowAt(page).context;
 }
@@ -173,7 +173,7 @@ describe("settings search — one field above the rail", () => {
   });
 
   it("negative control: clearing the query restores every section", async () => {
-    // Without this, the first case would pass over a surface that filtered the rail
+    // Without this, the first case would pass over a screen that filtered the rail
     // permanently on the first keystroke.
     const { container } = await renderSettingsScreen(contextFor(undefined));
     searchFor(container, "mcp");
@@ -258,7 +258,7 @@ describe("the session a settings page is handed", () => {
     const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSettingsScreen(settingsWindow.context, sessionEchoPages());
     expect(echoedSession(container)).toBe("session-alpha");
-    // The negative control on the projection this surface used to read: it is
+    // The negative control on the frame store's route projection: it is
     // `undefined` on this very address, so a page fed from it could never see a
     // session at all. Asserted here rather than in a case of its own, because the
     // two readings have to be taken of ONE window for the contrast to hold.
@@ -286,7 +286,7 @@ describe("the session a settings page is handed", () => {
   });
 
   it("negative control: an unrelated frame change does not rewrite the session", async () => {
-    // Without this, the case above would pass over a surface that re-read the store
+    // Without this, the case above would pass over a screen that re-read the store
     // on every notification and reported whatever it found — the palette opening is
     // a frame change that says nothing about which session this window is in.
     const settingsWindow = windowAt("runtime", ["session-alpha"]);

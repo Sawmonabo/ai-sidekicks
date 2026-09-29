@@ -5,11 +5,11 @@
 // on every feature and put all of their work behind one file.
 //
 // A feature registers its screens through a registrar that `app/registrations.ts` calls
-// with the window's registry, naming the slot it owns and a renderer. The router
-// resolves the current route to a slot, looks the renderer up, and mounts it inside an
-// error boundary. A slot with no renderer is a composition defect, so the router throws
-// rather than rendering a placeholder that looks like a broken feature; the one
-// exception is the pane harness, which only a fixture launch registers.
+// with the window's registry, naming the screen it owns and a renderer. The router
+// resolves the current route to a screen name, looks the renderer up, and mounts it
+// inside an error boundary. A screen name with no renderer is a composition defect, so
+// the router throws rather than rendering a placeholder that looks like a broken
+// feature; the one exception is the pane harness, which only a fixture launch registers.
 //
 // It lives in `registries/` because every feature registers into it and no feature may
 // import another.
@@ -27,8 +27,8 @@ import { type ScreenContext } from "./screen-context.js";
  *
  * The tuple is the declaration and the union is derived from it. Written the other
  * way round — a union beside a hand-repeated array — the two are two closed sets
- * that agree until someone widens one, and the compiler notices neither: a slot
- * added to the union but not the array is a slot `registeredSlots` can never
+ * that agree until someone widens one, and the compiler notices neither: a name
+ * added to the union but not the array is a name `registeredScreenNames` can never
  * report, and one added to the array but not the union does not compile at the
  * array but does everywhere it is read back.
  */
@@ -38,9 +38,9 @@ export const SCREEN_NAMES = [
   "workflows",
   "settings",
   // Reached only by the fixture-gated `#/pane-harness/…` address, so a release
-  // renderer can name this slot and can never route to it. It is in the tuple
-  // because the tuple is what `registeredSlots` and the composition test walk: a
-  // slot claimed by a registration but absent from the declaration is a slot
+  // renderer can name this screen and can never route to it. It is in the tuple
+  // because the tuple is what `registeredScreenNames` and the composition test walk: a
+  // name claimed by a registration but absent from the declaration is a name
   // neither of them can report on.
   "pane-harness",
 ] as const;
@@ -48,19 +48,19 @@ export const SCREEN_NAMES = [
 export type ScreenName = (typeof SCREEN_NAMES)[number];
 
 export interface ScreenDescriptor {
-  readonly slot: ScreenName;
-  /** The task or family that owns it, so an unrendered slot names someone. */
+  readonly name: ScreenName;
+  /** The feature that owns it, so an unrendered screen names someone. */
   readonly owner: string;
   readonly render: (context: ScreenContext) => React.ReactNode;
 }
 
 /**
- * What a family hands `register`, in one of exactly two forms.
+ * What a feature hands `register`, in one of exactly two forms.
  *
  * The pane board's own union, applied to routes, and decided by the same product fact:
  * a screen that is painted before a person acts belongs in the entry graph, and a
  * screen reached by pressing a rail destination or opening an auxiliary window does
- * not. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
+ * not.
  *
  * The rail's OWN destination is the case that decides itself: whichever screen the
  * console opens on is the flagship first paint and keeps `render`.
@@ -77,12 +77,12 @@ export type ScreenRegistration =
 
 export class ScreenRegistry {
   // `"owner-scoped"`: re-registering under the same owner replaces (a hot reload
-  // re-runs a family's module), and a different owner claiming a taken slot is a
+  // re-runs a feature's module), and a different owner claiming a taken name is a
   // conflict rather than a swap, because which screen mounts would otherwise
   // depend on module import order.
-  readonly #descriptorsBySlot = new KeyedRegistry<ScreenName, ScreenDescriptor>({
+  readonly #descriptorsByName = new KeyedRegistry<ScreenName, ScreenDescriptor>({
     duplicatePolicy: "owner-scoped",
-    describeWhat: "screen slot",
+    describeWhat: "screen",
     ownerOf: (descriptor) => descriptor.owner,
   });
 
@@ -93,20 +93,20 @@ export class ScreenRegistry {
    * the descriptor is what every MOUNT site reads and none of them has business knowing
    * whether the screen it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySlot = new Map<ScreenName, LoaderBackedBody<ScreenContext>>();
+  readonly #loadedBodiesByName = new Map<ScreenName, LoaderBackedBody<ScreenContext>>();
 
-  /** Claim a slot. A second claim by a different owner is an error, not a swap. */
+  /** Claim a screen name. A second claim by a different owner is an error, not a swap. */
   public register(registration: ScreenRegistration): void {
     if (registration.body === undefined) {
       // Registered first and the loader table trimmed after, for the pane board's
       // measured reason: a refused re-registration must not strip the loader off the
-      // descriptor that survives it, or a warmable slot silently stops being one.
-      this.#descriptorsBySlot.register(registration.slot, {
-        slot: registration.slot,
+      // descriptor that survives it, or a warmable screen silently stops being one.
+      this.#descriptorsByName.register(registration.name, {
+        name: registration.name,
         owner: registration.owner,
         render: registration.render,
       });
-      this.#loadedBodiesBySlot.delete(registration.slot);
+      this.#loadedBodiesByName.delete(registration.name);
       return;
     }
     // The fallback is the route's own absence frame, empty. Supplied here rather than by
@@ -116,62 +116,57 @@ export class ScreenRegistry {
       createElement(PendingScreenBody, { context }),
     );
     // Registered BEFORE the loader table is written, so a `register` the keyed registry
-    // refuses — a different owner claiming a taken slot — cannot leave a loader behind
+    // refuses — a different owner claiming a taken name — cannot leave a loader behind
     // for a screen that is not the one mounting. The refusal throws past this line.
-    this.#descriptorsBySlot.register(registration.slot, {
-      slot: registration.slot,
+    this.#descriptorsByName.register(registration.name, {
+      name: registration.name,
       owner: registration.owner,
       render: loadedBody.render,
     });
-    this.#loadedBodiesBySlot.set(registration.slot, loadedBody);
+    this.#loadedBodiesByName.set(registration.name, loadedBody);
   }
 
-  public unregister(slot: ScreenName): void {
-    this.#descriptorsBySlot.unregister(slot);
-    this.#loadedBodiesBySlot.delete(slot);
+  public unregister(name: ScreenName): void {
+    this.#descriptorsByName.unregister(name);
+    this.#loadedBodiesByName.delete(name);
   }
 
   /**
-   * Start this slot's screen loading, without navigating to it.
+   * Start this screen loading, without navigating to it.
    *
    * The pane board's own `preload`, with its reasoning unchanged: idempotent by
-   * construction, and a component-form or unregistered slot settles immediately with
+   * construction, and a component-form or unregistered screen settles immediately with
    * nothing to do, so a caller preloading a destination it has not opened never has to
-   * ask first whether that slot is loader-backed.
+   * ask first whether that screen is loader-backed.
    */
-  public async preload(slot: ScreenName): Promise<void> {
-    await this.#loadedBodiesBySlot.get(slot)?.load();
+  public async preload(name: ScreenName): Promise<void> {
+    await this.#loadedBodiesByName.get(name)?.load();
   }
 
-  /** Which registered slots have a screen still to load, in declaration order. */
+  /** Which registered screens are still to load, in declaration order. */
   public unloadedKeys(): readonly ScreenName[] {
-    return SCREEN_NAMES.filter((slot) => this.#loadedBodiesBySlot.get(slot)?.isResolved === false);
+    return SCREEN_NAMES.filter((name) => this.#loadedBodiesByName.get(name)?.isResolved === false);
   }
 
-  public descriptorFor(slot: ScreenName): ScreenDescriptor | undefined {
-    return this.#descriptorsBySlot.get(slot);
+  public descriptorFor(name: ScreenName): ScreenDescriptor | undefined {
+    return this.#descriptorsByName.get(name);
   }
 
-  public registeredSlots(): readonly ScreenName[] {
-    return SCREEN_NAMES.filter((slot) => this.#descriptorsBySlot.has(slot));
+  public registeredScreenNames(): readonly ScreenName[] {
+    return SCREEN_NAMES.filter((name) => this.#descriptorsByName.has(name));
   }
 }
 
 /** What every registration carries, whichever form it takes. */
 interface ScreenRegistrationBase {
-  readonly slot: ScreenName;
+  readonly name: ScreenName;
   readonly owner: string;
 }
 
 /** The window's registry, which `app/providers.tsx` fills through `app/registrations.ts`. */
 export const screenRegistry: ScreenRegistry = new ScreenRegistry();
 
-/** Claim a slot in the window's registry, in either registration form. */
-export function registerScreen(registration: ScreenRegistration): void {
-  screenRegistry.register(registration);
-}
-
-/** Which slot a route mounts. `undefined` for routes that mount no screen. */
+/** Which screen a route mounts. `undefined` for routes that mount no screen. */
 export function findScreenNameForRoute(route: AppRoute): ScreenName | undefined {
   switch (route.kind) {
     case "sessions":

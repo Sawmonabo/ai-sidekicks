@@ -18,7 +18,7 @@ import "./PreviewPaneContent.css";
 
 import { useCallback, useId } from "react";
 
-import type { AttachedPaneViewHost } from "../geometry/view-host.js";
+import type { PageHost } from "../geometry/page-host.js";
 import {
   addressFieldSubmission,
   addressFieldValue,
@@ -65,14 +65,14 @@ export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
   /** What each control does when pressed. */
   readonly acts: BrowserChromeActs;
   /** Where the pane's rectangle goes. */
-  readonly viewHost: AttachedPaneViewHost;
+  readonly pageHost: PageHost;
 }
 
 /** The pane body: tab strip, address line, and the viewport a native view is placed over. */
 export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.Element {
-  const { bridge, paneId, focusHue, sessionStore, navigation, pages, acts, viewHost } = props;
+  const { bridge, paneId, focusHue, sessionStore, navigation, pages, acts, pageHost } = props;
   const sessionId = sessionStore?.sessionId;
-  const geometry = useGeometryPublisher(bridge, paneId, viewHost);
+  const geometry = useGeometryPublisher(bridge, paneId, pageHost);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
   const paneActs = usePreviewPaneActs(bridge, paneId);
   const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
@@ -173,7 +173,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
             disabled={(reported?.forwardDepth ?? 0) === 0}
             onActivate={acts.goForward}
           />
-          {/* One slot, two acts: the view's reported load state swaps reload for stop. */}
+          {/* One button, two acts: the view's reported load state swaps reload for stop. */}
           <AddressLineButton
             label={isLoading ? "Stop" : "Reload"}
             glyph={isLoading ? "stop" : undefined}

@@ -1,4 +1,4 @@
-// The pure folds over this pane's reads: what each section renders from, and how far
+// The pure folds over the approval reads: what each list renders from, and how far
 // each read got.
 //
 // None of them touches React and none of them performs a read, which is the whole

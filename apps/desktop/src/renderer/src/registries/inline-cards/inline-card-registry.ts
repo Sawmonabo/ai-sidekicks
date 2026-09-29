@@ -1,11 +1,11 @@
-// The three inline cards a transcript row can carry, and the seat each body fills.
+// The three inline cards a transcript row can carry, and the registry each body fills.
 //
 // These live in the transcript: a diff card expands to a height cap and then offers
 // "show all". A diff, an attachment, and a published artifact each render as a card
 // INSIDE a row rather than as a pane, because they belong to the turn that produced
 // them.
 //
-// FOUR FEATURES MEET HERE. The transcript renders the seat (`features/transcript/rows/
+// FOUR FEATURES MEET HERE. The transcript renders the cards (`features/transcript/rows/
 // InlineCards.tsx`); the repos feature registers the diff body, the composer the
 // attachment body, and the inspector the artifact body. The transcript imports no body and
 // the bodies import no transcript.
@@ -26,7 +26,7 @@ import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /** The subsystem an inline-card refusal names as its author. */
-const INLINE_CARD_ORIGIN = "inline-card-seats";
+const INLINE_CARD_ORIGIN = "inline-cards";
 
 /**
  * Every kind of card a transcript row can carry. Closed.
@@ -91,9 +91,9 @@ export interface DiffInlineCardProps {
    * the turn's own record carries — and they are read as a PAIR because half a
    * comparison names nothing: a base with no head does not say what a diff is between.
    *
-   * The seat carries the TYPE and no reading of it. What a body does with a named
-   * comparison is the owning family's question, and this file sits below every view
-   * family precisely so that answering it here would be the wrong place.
+   * The registry carries the TYPE and no reading of it. What a body does with a named
+   * comparison is the owning feature's question, and this file sits below every feature
+   * precisely so that answering it here would be the wrong place.
    */
   readonly baseRef?: string;
   /** The head state of that comparison. Read only with `baseRef`, never alone. */
@@ -157,16 +157,16 @@ export interface InlineCardPropsByKind {
 /** The discriminated union of every card's props. Narrow on `kind`. */
 export type InlineCardProps = InlineCardPropsByKind[InlineCardKind];
 
-/** What a family registers to fill one card kind's body. */
+/** What a feature registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
-  /** The task or family that owns it, so an unfilled card names someone. */
+  /** The feature that owns it, so an unfilled card names someone. */
   readonly owner: string;
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
 export class InlineCardRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload
-  // re-runs the owning family's module and must replace, while two owners on one
+  // re-runs the owning feature's module and must replace, while two owners on one
   // card kind is a conflict rather than a swap decided by import order.
   readonly #bodiesByKind = new KeyedRegistry<InlineCardKind, InlineCardBodyDescriptor>({
     duplicatePolicy: "owner-scoped",
@@ -223,11 +223,11 @@ export class InlineCardRegistry {
   }
 
   /**
-   * Render one card. The door the transcript row uses.
+   * Render one card. The call the transcript row makes.
    *
    * Keyed on the props' OWN discriminant, so the body reached is by construction
    * the one registered for that arm — the reason the guard in `register` is a
-   * backstop for the descriptor door rather than the mechanism this path relies
+   * backstop for `bodyFor` rather than the mechanism this path relies
    * on. An unfilled kind renders nothing here; a caller that needs to TELL an
    * unfilled kind from a body that rendered nothing asks `bodyFor` instead, which
    * is the "reserved, not stubbed" question and has its own answer.
@@ -237,7 +237,7 @@ export class InlineCardRegistry {
   }
 }
 
-/** The process-wide registry the repos family calls at module scope. */
+/** The process-wide registry the repos, composer, and inspector features register into. */
 export const inlineCardRegistry: InlineCardRegistry = new InlineCardRegistry();
 
 /** One card kind's body, or `undefined` while nobody has filled it. */

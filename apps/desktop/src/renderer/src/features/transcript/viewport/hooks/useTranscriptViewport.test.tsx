@@ -63,7 +63,7 @@ function withLaidOutViewport(): void {
 }
 
 /**
- * A mounted binding over a surface a case can scroll, and the controller it minted.
+ * A mounted binding over a scroll container a case can scroll, and the controller it minted.
  *
  * THE CONTROLLER IS RECORDED, NOT REPLACED. `vi.spyOn` leaves the real `attach` in
  * place and remembers only its receiver, so every module in the assertion path is
@@ -78,7 +78,7 @@ function mountBinding(
   initialScrollTopPx = 0,
 ): {
   binding: ReturnType<typeof renderHook<TranscriptViewportBinding, readonly ViewportRow[]>>;
-  surface: HTMLElement;
+  scrollContainer: HTMLElement;
   controller: ViewportController;
 } {
   const attachedControllers = vi.spyOn(ViewportController.prototype, "attach");
@@ -88,23 +88,23 @@ function mountBinding(
       useTranscriptViewport({ clock, rows: currentRows, ...CALM }),
     { initialProps: rows },
   );
-  const surface = document.createElement("div");
-  surface.scrollTop = initialScrollTopPx;
+  const scrollContainer = document.createElement("div");
+  scrollContainer.scrollTop = initialScrollTopPx;
   act(() => {
-    binding.result.current.attachSurface(surface);
+    binding.result.current.attachScrollContainer(scrollContainer);
   });
   const [controller] = attachedControllers.mock.contexts;
   if (!(controller instanceof ViewportController)) {
     throw new Error("the binding attached no viewport controller");
   }
-  return { binding, surface, controller };
+  return { binding, scrollContainer, controller };
 }
 
 /** Move the reader, the way a finger does: the offset, then the event. */
-function scrollTo(surface: HTMLElement, offsetPx: number): void {
+function scrollTo(scrollContainer: HTMLElement, offsetPx: number): void {
   act(() => {
-    surface.scrollTop = offsetPx;
-    surface.dispatchEvent(new Event("scroll"));
+    scrollContainer.scrollTop = offsetPx;
+    scrollContainer.dispatchEvent(new Event("scroll"));
   });
 }
 
@@ -115,9 +115,9 @@ afterEach(() => {
 describe("the transcript viewport binding — a prune the window refused", () => {
   it("is re-asked when the reader returns to the tail, with no new rows", () => {
     withLaidOutViewport();
-    const { binding, surface } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
+    const { binding, scrollContainer } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
     // Above the tail first, so the log that arrives next meets a reading floor.
-    scrollTo(surface, 0);
+    scrollTo(scrollContainer, 0);
     expect(binding.result.current.snapshot.reading.mode).toBe("reading");
 
     act(() => {
@@ -128,7 +128,7 @@ describe("the transcript viewport binding — a prune the window refused", () =>
 
     // THE RETURN, and nothing else. No row arrives, no turn starts, no reveal drains
     // — so the reconcile effect's own dependencies are all untouched.
-    scrollTo(surface, TAIL_OFFSET_PX);
+    scrollTo(scrollContainer, TAIL_OFFSET_PX);
 
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
     expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
@@ -138,8 +138,8 @@ describe("the transcript viewport binding — a prune the window refused", () =>
     // Without this the second effect could be re-asking on every render, which would
     // take rows out from under somebody who is still reading them.
     withLaidOutViewport();
-    const { binding, surface } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
-    scrollTo(surface, 0);
+    const { binding, scrollContainer } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
+    scrollTo(scrollContainer, 0);
     const overCapRows = syntheticRows(OVER_CAP_ROW_COUNT);
     act(() => {
       binding.rerender(overCapRows);

@@ -42,7 +42,7 @@ describe("preview — claiming the pane layout's browser pane", () => {
     expect(() => {
       registry.register({
         kind: "browser",
-        owner: "some-other-family",
+        owner: "another-owner",
         render: () => null,
       });
     }).toThrow();

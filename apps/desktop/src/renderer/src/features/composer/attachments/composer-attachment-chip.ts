@@ -5,12 +5,12 @@
 // entry plus the instant that entry was published at; nothing reads a clock, calls a
 // wire, or holds state.
 //
-// EVERY READING COMES FROM THE FAMILY THAT OWNS THE INGEST. The name an entry goes by,
+// EVERY READING COMES FROM THE MODULES THAT OWN THE INGEST. The name an entry goes by,
 // which media-type readings it has, what canceling does, and what a refusal recommends
-// are all `console/repos/` answers taken through its door — this module composes them
-// into one line and answers none of them itself. The composer and the artifact pane
-// therefore cannot disagree about an upload: one says it as a card and one as a chip,
-// from one set of readings.
+// are all answered by the attachment modules beside this one — this module composes them
+// into one line and answers none of them itself. The composer's chip and the
+// transcript's attachment card therefore cannot disagree about an upload: one says it as
+// a card and one as a chip, from one set of readings.
 //
 // THE TONE IS THE TWO-HUE RULE AND NOT A PALETTE. A refusal is red because something
 // failed; everything else is neutral, including an upload in flight, which needs nobody.

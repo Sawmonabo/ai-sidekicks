@@ -18,7 +18,7 @@ import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-di
  *
  * A different set from `endurance-workload.ts`' `TRANSCRIPT_ROW_SELECTOR`, and the
  * distinction is load-bearing here. `meridian-transcript-row-layout` is
- * `components/TranscriptRowLayout/TranscriptRowLayout.tsx`, a presentation primitive the runs pane uses too and
+ * `components/TranscriptRowLayout/TranscriptRowLayout.tsx`, a presentation primitive
  * that a row body may or may not reach for; `meridian-transcript-viewport__row` is the
  * absolutely-positioned box the virtualizer places, so it is one per mounted virtual
  * item by construction. A windowing claim has to wait on the BOX: waiting on the card

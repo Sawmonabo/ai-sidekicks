@@ -1,12 +1,12 @@
 // The schema form: how a tier mounts one, and how anything reads whether it is ready.
 //
-// Not a test file — no `include` glob reaches it as one. It lives beside the family
+// Not a test file — no `include` glob reaches it as one. It lives beside the feature
 // mounts because that is what it is: a composition two tiers read, mounted once. The
-// form is a SEAT rather than a view family, which is why it has no registrar here and
-// is composed as a component — `composer.tsx` beside it is the same shape.
+// form is a component rather than a registered screen or pane, which is why it has no
+// registrar here and is composed directly — `composer.tsx` beside it is the same shape.
 //
 // TWO CHUNKS ARRIVE BEFORE THIS FORM IS THE FORM A PERSON ANSWERS, and only one of
-// them had a wait. `schemaFormChunk` is the seat's own kit — the two composed surfaces
+// them had a wait. `schemaFormChunk` is the form's own kit — the two composed components
 // and their sheet — and the schema COMPILER is a second chunk the form's own hook
 // fetches when it mounts. A mount that resolved the kit and then settled once audited a
 // form still reading `compiling`: `aria-busy` set, the one act closed, and NO verdict,
@@ -14,7 +14,7 @@
 // different composition from the one either tier says it is looking at.
 //
 // AND THE WAIT IS ON A STATE, NEVER ON A COUNT OF TURNS. `run-graph-settled.ts` states
-// the general reason and this surface supplies a sharper one: the compiler's door is
+// the general reason and this form supplies a sharper one: the compiler's loader is
 // memoized (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
 // memoized promise is still a promise — the hook's own `then` lands on a later microtask
 // and installs the verdict through a state update, so resolving the compiler ahead of the
@@ -32,17 +32,17 @@
 //
 // ONE HOME FOR THAT READING, WHICH IS WHY IT IS HERE AND NOT AT THE TIER ROOT. Two lanes
 // reached the same question from opposite ends — a mount that had to wait for the
-// verdict, and a family mount that had to wait for the compiler — and for a moment
+// verdict, and a feature mount that had to wait for the compiler — and for a moment
 // answered it in two modules. The shared-code rule in `apps/desktop/AGENTS.md` settles which one
 // survives: one implementation per job, hoisted on the second use. It is this file
-// rather than the tier root because the subject is the `seats/schema-form` seat that two
-// tiers and three mounts read, and because the tier root is typechecked WITHOUT the DOM
+// rather than the tier root because the subject is the schema form that two tiers and
+// three mounts read, and because the tier root is typechecked WITHOUT the DOM
 // lib — `tsconfig.test.json` reads its files under Node options and resolves
 // `ParentNode` for nothing there, while `tests/helpers/feature-mounts/**` is in the browser
 // program beside the mounts that drive it.
 //
 // THE DEFECT THE SCOPE REPLACED, since the reading arrived carrying one. The workflows
-// family's parked-run mount waited on `region.querySelector("[aria-busy]")` — unscoped —
+// feature's parked-run mount waited on `region.querySelector("[aria-busy]")` — unscoped —
 // and called a match "the compiler has not arrived yet". React renders an ARIA attribute
 // as a STRING, so any control rendered with `aria-busy={false}` is the literal
 // `aria-busy="false"` in the document and that selector matched it. Nothing in that pane
@@ -53,7 +53,7 @@
 //
 // AND THE BUSY READING MATCHES THE ATTRIBUTE'S PRESENCE RATHER THAN ITS VALUE, once
 // scoped to the form. `SchemaFormAnswer.tsx` renders `aria-busy={isAwaitingVerdict ?
-// true : undefined}`, so on every shape this seat produces the two rules agree: the
+// true : undefined}`, so on every shape this form produces the two rules agree: the
 // attribute reads `"true"` or it is not there at all, which is the pair
 // `use-schema-form.compiler.test.tsx` pins. They disagree on one shape it does not
 // produce — a form carrying `aria-busy="false"` — and the disagreement is not
@@ -66,10 +66,10 @@ import { waitFor } from "@testing-library/react";
 
 import { renderSettled } from "../app-harness.js";
 import { schemaFormChunk } from "@renderer/console/seats/index.js";
-// The seat's own wait for its two chunks, taken from the module that owns them rather
+// The form's own wait for its two chunks, taken from the module that owns them rather
 // than restated: that wait has one home for this job, and the three console-unit supports
 // already take it from there. Re-exported below rather than merely used, so this file
-// stays the one import the tiers reach every seat reading through.
+// stays the one import the tiers reach every schema form reading through.
 import { resolveSchemaFormChunks } from "@renderer/features/workflows/schema-form/hooks/useSchemaForm.test-support.js";
 
 /**
@@ -78,7 +78,7 @@ import { resolveSchemaFormChunks } from "@renderer/features/workflows/schema-for
  * A ceiling on a hang, not a wait anybody expects to spend — the compile lands within a
  * turn or two of the mount on an idle host. It THROWS rather than returning, on
  * `run-graph-settled.ts`'s reasoning: a tier that audited a form which never got its
- * verdict reports clean over the surface it was written to cover.
+ * verdict reports clean over the form it was written to cover.
  */
 export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
 
@@ -86,9 +86,9 @@ export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
 export { resolveSchemaFormChunks };
 
 /**
- * The class the seat puts on its own `<form>`, read here and set there.
+ * The class the schema form puts on its own `<form>`, read here and set there.
  *
- * A LITERAL rather than an import: the seat does not export its class names for a test,
+ * A LITERAL rather than an import: the form does not export its class names for a test,
  * so the alternative is not a shared constant but a production export minted for a wait.
  * What keeps the literal honest is the order a caller asks in — presence first, busy
  * second — so a rename fails a mount by name instead of turning its wait into a
@@ -102,7 +102,7 @@ export interface SchemaFormMounting {
   readonly inputSchema: unknown;
 }
 
-/** Whether this region holds the seat's own answer form at all. */
+/** Whether this region holds a schema answer form at all. */
 export function holdsSchemaForm(region: ParentNode): boolean {
   return region.querySelector(SCHEMA_FORM_SELECTOR) !== null;
 }
@@ -135,7 +135,7 @@ export function isSchemaFormSettled(region: ParentNode): boolean {
 /**
  * Mount one schema form and hand back its container once the verdict has landed.
  *
- * `onSubmit` is a no-op and deliberately not a caller's: no tier reading this surface
+ * `onSubmit` is a no-op and deliberately not a caller's: no tier reading this form
  * asserts on the send, and a mount that took one would invite a case to press the act
  * and then assert on a callback rather than on what the form drew.
  */

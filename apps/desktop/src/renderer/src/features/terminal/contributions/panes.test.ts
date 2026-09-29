@@ -1,4 +1,4 @@
-// The terminal family's registration terms, and the lease transitions its fixture
+// The terminal feature's registration terms, and the lease transitions its fixture
 // plays.
 //
 // The event kind and the reason vocabulary are IMPORTED from the fold rather than
@@ -31,7 +31,7 @@ function leaseTransitionReasons(): readonly unknown[] {
     .map((beat) => beat.event.payload?.["reason"]);
 }
 
-describe("terminal family — claiming the pane layout's terminal pane", () => {
+describe("terminal feature — claiming the pane layout's terminal pane", () => {
   it("claims the terminal kind on terms the pane layout can hold it by", () => {
     const registry = new PaneRegistry();
     registerTerminalPane(registry);
@@ -54,7 +54,7 @@ describe("terminal family — claiming the pane layout's terminal pane", () => {
     expect(() => {
       registry.register({
         kind: "terminal",
-        owner: "some-other-family",
+        owner: "another-owner",
         render: () => null,
       });
     }).toThrow();
@@ -62,7 +62,7 @@ describe("terminal family — claiming the pane layout's terminal pane", () => {
 });
 
 describe("terminal scenario — the take and the two automatic releases", () => {
-  it("is the scenario the seat board names", () => {
+  it("carries the id its module exports", () => {
     expect(TERMINAL_LEASE_SCENARIO.id).toBe(TERMINAL_LEASE_SCENARIO_ID);
     expect(leaseTransitionReasons().length).toBeGreaterThan(0);
   });

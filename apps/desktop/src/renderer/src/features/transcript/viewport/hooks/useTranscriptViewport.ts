@@ -31,7 +31,7 @@ import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snap
 export interface TranscriptViewportBinding {
   readonly snapshot: ViewportSnapshot;
   readonly virtualItems: readonly VirtualItem[];
-  readonly attachSurface: (element: HTMLElement | null) => void;
+  readonly attachScrollContainer: (element: HTMLElement | null) => void;
   /** The size container the virtualizer writes the total height onto. */
   readonly attachSizer: (element: HTMLElement | null) => void;
   /** One row's element, handed to the library's own measurement observer. */
@@ -60,11 +60,11 @@ export interface TranscriptViewportBinding {
    * restarts from the top of the document and the reading position a person was
    * keeping is unreachable from the keyboard.
    *
-   * The binding holds the surface element its own attach callback already receives,
-   * so no component reaches into the DOM and the view that mounts the surface is
+   * The binding holds the scroll container its own attach callback already receives,
+   * so no component reaches into the DOM and the view that mounts the scroll container is
    * untouched.
    */
-  readonly focusSurface: () => void;
+  readonly focusScrollContainer: () => void;
   /**
    * The state a row body parked on this window, live or re-parked after a prune.
    *
@@ -120,7 +120,7 @@ export function useTranscriptViewport(
   // The element the controller is attached to, kept for the one act that needs the
   // node rather than the controller. A ref rather than state: nothing renders from
   // it, so writing it during attach must not schedule a render.
-  const surfaceElementRef = useRef<HTMLElement | null>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
   const [controller, setController] = useState<ViewportController>(
     () => new ViewportController({ clock }),
   );
@@ -253,9 +253,9 @@ export function useTranscriptViewport(
   return {
     snapshot,
     virtualItems,
-    attachSurface: useCallback(
+    attachScrollContainer: useCallback(
       (element: HTMLElement | null) => {
-        surfaceElementRef.current = element;
+        scrollContainerRef.current = element;
         if (element === null) {
           controller.detach();
           return;
@@ -264,8 +264,8 @@ export function useTranscriptViewport(
       },
       [controller],
     ),
-    focusSurface: useCallback(() => {
-      surfaceElementRef.current?.focus();
+    focusScrollContainer: useCallback(() => {
+      scrollContainerRef.current?.focus();
     }, []),
     attachSizer: virtualizer.containerRef,
     attachRow: virtualizer.measureElement,
@@ -299,19 +299,20 @@ export function useTranscriptViewport(
       // library was told the box is, so a reading taken from it could only ever
       // agree with the window — including when both are describing a box that has
       // since collapsed. Read here, a disagreement between the two is visible.
-      const surface = surfaceElementRef.current;
+      const scrollContainer = scrollContainerRef.current;
       return {
         virtualItemCount: virtualItems.length,
-        // Counted under the SURFACE rather than the sizer, so a row the view placed
+        // Counted under the SCROLL CONTAINER rather than the sizer, so a row the view placed
         // outside the sizer is still counted and the figure cannot be flattered by
         // asking only where rows are supposed to be.
-        mountedRowCount: surface?.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`).length ?? 0,
+        mountedRowCount:
+          scrollContainer?.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`).length ?? 0,
         totalRowCount: virtualizer.options.count,
         indexableRowCount: snapshot.rows.length,
         visibleRowCount: range === null ? 0 : range.endIndex - range.startIndex + 1,
         totalContentHeightPx: virtualizer.getTotalSize(),
-        viewportClientHeightPx: surface?.clientHeight ?? 0,
-        viewportScrollHeightPx: surface?.scrollHeight ?? 0,
+        viewportClientHeightPx: scrollContainer?.clientHeight ?? 0,
+        viewportScrollHeightPx: scrollContainer?.scrollHeight ?? 0,
         rangedAgainstClientHeightPx: controller.scroll.geometry?.viewportHeight ?? 0,
       };
     }, [controller, snapshot, virtualizer]),
