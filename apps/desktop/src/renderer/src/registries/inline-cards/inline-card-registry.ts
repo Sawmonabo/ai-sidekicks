@@ -5,9 +5,10 @@
 // INSIDE a row rather than as a pane, because they belong to the turn that produced
 // them.
 //
-// TWO FAMILIES MEET HERE. The workspace family owns the transcript and renders the seat;
-// the repos family owns all three bodies. The transcript imports no body and the bodies
-// import no transcript.
+// FOUR FEATURES MEET HERE. The transcript renders the seat (`features/transcript/rows/
+// InlineCards.tsx`); the repos feature registers the diff body, the composer the
+// attachment body, and the inspector the artifact body. The transcript imports no body and
+// the bodies import no transcript.
 //
 // WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
 //

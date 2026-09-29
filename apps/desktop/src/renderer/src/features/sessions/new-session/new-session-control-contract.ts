@@ -1,18 +1,14 @@
-// The seat the composed new-session draft is mounted through, and what it hands back.
+// The props the composed new-session draft control takes, and what it hands back.
 //
-// TWO VIEW FAMILIES MEET HERE, WHICH IS WHY THE CONTRACT IS NOT IN EITHER OF THEM.
-// The control is the workspace family's — it composes a draft, holds it on the bridge
-// it would send through, and issues the calls a first send coalesces. The place
-// it is mounted is the sessions family's all-sessions destination. Neither may import
-// the other, so this module says what the control's props ARE. Spelled in both
-// families instead, the two spellings drift and the one that goes stale is the one
-// nothing reads.
+// The control composes a draft, holds it on the bridge it would send through, and issues
+// the calls a first send coalesces. The sessions destination that mounts it hands it these
+// props, and `console/seats/index.ts` re-exports them.
 //
 // THE CALLBACK CARRIES A SESSION ID AND NOTHING ELSE, and that is the seam's whole
 // shape. What the console DOES with a session it just started — open its store, stamp
 // the origin only this window can report, declare the node's directory stale, navigate
-// — is `sessions/acts/session-start.ts`, and it is the sessions family's because every
-// one of those four steps names a store or a route the workspace family cannot reach.
+// — is `features/sessions/start/session-start.ts`, because every one of those four steps
+// names a store or a route the draft does not hold.
 // The draft knows the id and stops there; a control that carried the settlement itself
 // would be a second copy of an act that already has one home.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -57,10 +53,9 @@ export interface NewSessionControlProps {
    *
    * The one act a draft can still offer after a create whose reply this build could
    * not read: a session may exist under a name nothing here holds, and the directory
-   * is what would answer. It is the SESSIONS family's act for the same reason the
-   * settlement above is — the read is addressed at the node and its staleness is
-   * declared through a seat this family owns, neither of which the workspace family
-   * may reach.
+   * is what would answer. It is the destination's act for the same reason the settlement
+   * above is: the read is addressed at the node's session directory, which the draft does
+   * not hold.
    *
    * Needs no stable identity, on `onSessionCreated`'s own terms: it is read from a
    * press rather than from a dependency array.

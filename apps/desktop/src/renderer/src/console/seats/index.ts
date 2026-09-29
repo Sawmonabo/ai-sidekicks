@@ -291,13 +291,9 @@ export type {
   SessionDirectoryState,
 } from "@renderer/store/session-directory/session-directory.js";
 
-// The composed new-session draft's seat: the props the control takes.
-//
-// Two view families meet on it. The workspace family declares the control against these
-// props and the sessions family mounts a component that satisfies them, and neither may
-// import the other, so a second spelling in either would be a contract with two homes
-// and one reader. The module beside this line carries no runtime value at all: what a
-// settled start DOES is the sessions family's act, and this seat carries only the id.
+// The composed new-session draft's props, declared in `features/sessions/new-session/`.
+// The module carries no runtime value at all: what a settled start DOES is
+// `features/sessions/start/session-start.ts`'s act, and this seat carries only the id.
 export type {
   FirstTurnQueueCall,
   NewSessionControlProps,
