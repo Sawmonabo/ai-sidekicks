@@ -428,10 +428,8 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 // input length (EVENT_ENVELOPE_VERSION_MAX_LEN), but well within that bound a
 // `Number` parse still collapses two distinct versions above
 // `Number.MAX_SAFE_INTEGER` to one float. The comparator parses with `BigInt`,
-// so the ordering stays EXACT across that range. This matters at the
-// version-floor gate (attach-service.ts): a below-floor client whose version
-// collapsed to the floor's float would be mis-read as at-floor and wrongly
-// granted read-write.
+// so the ordering stays EXACT across that range: two versions that collapsed to
+// one float would otherwise compare as equal.
 describe("compareEventEnvelopeVersion", () => {
   const parseVersion = (raw: string) => EventEnvelopeVersionSchema.parse(raw);
 

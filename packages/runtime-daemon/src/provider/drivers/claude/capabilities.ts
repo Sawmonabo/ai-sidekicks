@@ -199,11 +199,6 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // published for this provider, and an unprobed `true` would route a switch
     // into a replay the target may silently discard.
     transcript_replay: false,
-    // TRUE for Claude (and false for Codex): `--max-budget-usd` realizes a hard
-    // cost cap at spawn. The native-cap unpriced-family budget escape reserves
-    // only against legs whose driver declares this flag, so a wrong `true` here
-    // admits unpriced work with no cap behind it.
-    cost_cap: true,
     // TRUE, and EMULATED: the provider publishes no compaction method, so this
     // driver dispatches the provider's OWN compaction command as a
     // `driver_command` frame — the one tripwire-exempt origin, admitted only

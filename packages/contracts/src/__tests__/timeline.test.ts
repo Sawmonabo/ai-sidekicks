@@ -13,10 +13,6 @@
 //     F4   run arm, whole triple missing ............. run arm fails, NO fallthrough
 //     F5   general arm carrying the triple ........... strict refuses
 //     F6   general arm carrying `superseded` ......... strict refuses
-//     F7   legacy_stub carrying `position` ........... strict refuses
-//     F8   legacy_stub carrying `epoch` .............. strict refuses
-//     F9   legacy_stub carrying `superseded` ......... strict refuses
-//     F10  legacy_stub missing `runId` ............... refuses
 //     F11  boundary runId != payload.runId ........... refinement refuses
 //     F12  boundary sessionId != payload.sessionId ... refinement refuses
 //     F13  boundary position != payload.targetPosition refinement refuses
@@ -95,7 +91,6 @@
 //     P3   run row + `superseded { targetPosition }`
 //     P4   new-epoch row reusing a superseded ordinal, unmarked
 //     P5   attributed compacted stub on the run arm
-//     P6   vacuous-era legacy stub: runId kept, position/epoch absent
 //     P7   rollback boundary whose outer triple agrees with its payload
 //     P8   a boundary row itself superseded by a later, lower cut
 //     P9   position 0 / epoch 0
@@ -192,14 +187,6 @@ const runScopedRow = {
   runId: RUN_ID,
   position: 7,
   epoch: 0,
-} as const;
-
-const legacyStubRow = {
-  ...rowCommon,
-  kind: "legacy_stub",
-  type: "event.compacted",
-  summary: "Compacted range",
-  runId: RUN_ID,
 } as const;
 
 /**
@@ -308,14 +295,6 @@ describe("TimelineRow arm selection", () => {
     expectRoundTrip(TimelineRowSchema, attributedStub);
   });
 
-  it("P6 — a vacuous-era stub takes `legacy_stub` with position/epoch absent", () => {
-    const parsed = TimelineRowSchema.parse(legacyStubRow);
-    expect(parsed.kind).toBe("legacy_stub");
-    expect(parsed).toStrictEqual(legacyStubRow);
-    expect("position" in parsed).toBe(false);
-    expect("epoch" in parsed).toBe(false);
-  });
-
   it("P10 — `childRunSummary` rides a general row and a run row alike", () => {
     expectRoundTrip(TimelineRowSchema, { ...generalRow, childRunSummary });
     expectRoundTrip(TimelineRowSchema, { ...runScopedRow, childRunSummary });
@@ -323,7 +302,7 @@ describe("TimelineRow arm selection", () => {
 
   // F1–F4. The load-bearing half of each assertion is the SECOND one: the row
   // must fail its `kind`-selected arm and must not be re-offered to the
-  // general or legacy_stub arm, which is what would silently strip the
+  // general arm, which is what would silently strip the
   // attribution a rollback rule keys on.
   const partialAttributionRows = [
     ["F1 — epoch missing", { ...runScopedRow, epoch: undefined }],
@@ -351,8 +330,8 @@ describe("TimelineRow arm selection", () => {
       // shapes are what a fallthrough would look like and neither may appear:
       //   * `invalid_union` at `kind` — no arm accepted the row at all, which
       //     would mean `kind` stopped selecting the arm.
-      //   * `unrecognized_keys` — the row reached the general or legacy_stub
-      //     arm, where the surviving attribution members are unknown keys.
+      //   * `unrecognized_keys` — the row reached the general arm, where the
+      //     surviving attribution members are unknown keys.
       const attributionMembers = new Set(["runId", "position", "epoch"]);
       expect(result.error.issues.length).toBeGreaterThan(0);
       for (const issue of result.error.issues) {
@@ -391,22 +370,6 @@ describe("TimelineRow arm selection", () => {
     ).toBe(false);
   });
 
-  it("F7/F8 — a legacy stub refuses position or epoch (unknowable, not omitted)", () => {
-    expect(TimelineRowSchema.safeParse({ ...legacyStubRow, position: 7 }).success).toBe(false);
-    expect(TimelineRowSchema.safeParse({ ...legacyStubRow, epoch: 0 }).success).toBe(false);
-  });
-
-  it("F9 — a legacy stub refuses a superseded marker (exempt by construction)", () => {
-    expect(
-      TimelineRowSchema.safeParse({ ...legacyStubRow, superseded: { targetPosition: 5 } }).success,
-    ).toBe(false);
-  });
-
-  it("F10 — a legacy stub without `runId` is refused (every run-scoped stub preserves it)", () => {
-    const { runId: _dropped, ...withoutRunId } = legacyStubRow;
-    expect(TimelineRowSchema.safeParse(withoutRunId).success).toBe(false);
-  });
-
   it("F16/F17 — an unknown or absent `kind` is refused", () => {
     expect(TimelineRowSchema.safeParse({ ...rowCommon, kind: "child_run" }).success).toBe(false);
     expect(TimelineRowSchema.safeParse({ ...rowCommon }).success).toBe(false);
@@ -431,7 +394,6 @@ describe("TimelineRow arm selection", () => {
   it("F20 — an unknown extra key is refused on every arm", () => {
     expect(TimelineRowSchema.safeParse({ ...runScopedRow, extra: 1 }).success).toBe(false);
     expect(TimelineRowSchema.safeParse({ ...generalRow, extra: 1 }).success).toBe(false);
-    expect(TimelineRowSchema.safeParse({ ...legacyStubRow, extra: 1 }).success).toBe(false);
     expect(TimelineRowSchema.safeParse({ ...rollbackBoundaryRow, extra: 1 }).success).toBe(false);
   });
 
@@ -456,7 +418,6 @@ describe("TimelineRow arm selection", () => {
     // delivery forbids, reached by the back door.
     const armFixtures: readonly [string, Record<string, unknown>][] = [
       ["run", runScopedRow],
-      ["legacy_stub", legacyStubRow],
       ["general", generalRow],
     ];
     for (const [armName, fixture] of armFixtures) {
@@ -494,12 +455,7 @@ describe("TimelineRow arm selection", () => {
   });
 
   it("the exported `kind` census names exactly the union's arms", () => {
-    expect([...TIMELINE_ROW_KINDS]).toStrictEqual([
-      "rollback_boundary",
-      "run",
-      "legacy_stub",
-      "general",
-    ]);
+    expect([...TIMELINE_ROW_KINDS]).toStrictEqual(["rollback_boundary", "run", "general"]);
     // A `kind` that selects no arm reports `invalid_union` AT `kind` (probed
     // against zod 4.3.6). Every census member must select an arm; the negative
     // control below proves the discriminator fires on one that does not, so a
@@ -1007,7 +963,7 @@ describe("timeline read window and live stream", () => {
       limit: TIMELINE_READ_LIMIT_MAX,
     });
     expectRoundTrip(TimelineReadResponseSchema, {
-      entries: [generalRow, runScopedRow, legacyStubRow, rollbackBoundaryRow],
+      entries: [generalRow, runScopedRow, rollbackBoundaryRow],
       nextCursor: cursor,
       hasMore: true,
     });
@@ -1252,10 +1208,9 @@ describe("row category is pinned where the event is", () => {
     if (!result.success) {
       expect(result.error.issues.some((issue) => issue.path.join(".") === "category")).toBe(true);
     }
-    // Positive controls. The same category on the arms that SHOULD carry it
+    // Positive control. The same category on the arm that SHOULD carry it
     // parses, so the refusal is the arm and not the category.
     expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
-    expect(TimelineRowSchema.safeParse(legacyStubRow).success).toBe(true);
     expect(runScopedRow.category).toBe(TIMELINE_RUN_LIFECYCLE_CATEGORY);
     // …and the general arm's own category still parses, so the fixture is not
     // failing for an unrelated reason.
@@ -1439,35 +1394,6 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // to nothing and requires no particular payload content.
     expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
   });
-
-  it("F64 — the legacy-stub arm REFUSES the same contradiction, under either key", () => {
-    // A stub preserves its `runId` and loses only its ordinals, so a stub whose
-    // payload names a different run splits its identity exactly as a run row
-    // does. The arm carries no epoch or position, so the run-identity half of
-    // the check is the whole of it here.
-    const otherRunId = "99999999-8888-4777-8666-555555555555";
-    for (const payloadKey of ["runId", "targetRunId"] as const) {
-      const contradicted = {
-        ...legacyStubRow,
-        payload: { detail: "opaque", [payloadKey]: otherRunId },
-      };
-      const result = TimelineRowSchema.safeParse(contradicted);
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(
-          result.error.issues.some((issue) => issue.path.join(".") === `payload.${payloadKey}`),
-        ).toBe(true);
-      }
-    }
-    // POSITIVE CONTROLS: agreement parses, and so does absence.
-    expect(
-      TimelineRowSchema.safeParse({
-        ...legacyStubRow,
-        payload: { detail: "opaque", targetRunId: legacyStubRow.runId },
-      }).success,
-    ).toBe(true);
-    expect(TimelineRowSchema.safeParse(legacyStubRow).success).toBe(true);
-  });
 });
 
 describe("child-run lineage is acyclic", () => {
@@ -1619,7 +1545,6 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
     }
     // Every run-bearing kind is checked, not just the run arm.
     for (const foreign of [
-      { ...legacyStubRow, runId: OTHER_RUN_ID },
       {
         ...rollbackBoundaryRow,
         runId: OTHER_RUN_ID,

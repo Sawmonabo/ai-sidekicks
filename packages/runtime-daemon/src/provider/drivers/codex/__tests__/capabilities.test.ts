@@ -33,7 +33,6 @@ import {
 } from "../../../capability-refresh.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
-import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
   assertValidCliVersionReport,
@@ -72,7 +71,6 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   callback_tools: true,
   subagents: true,
   transcript_replay: true,
-  cost_cap: false,
   // `context_compaction` and `provider_commands` are NATIVE on this provider
   // (`thread/compact/start` + `thread/compacted`, and `skills/list`), while
   // `output_speed` is `false` because this CLI declares neither conjunct that
@@ -177,12 +175,10 @@ describe("Codex capability declaration", () => {
     expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(true);
   });
 
-  it("declares reasoning_stream and cost_cap FALSE (the two fail-closed rows)", () => {
-    // Called out separately from the matrix compare because both `false` rows
-    // are load-bearing downstream: the reasoning surface renders unavailable,
-    // and the native-cap escape refuses reservation on a capless leg.
+  it("declares reasoning_stream FALSE (the fail-closed row)", () => {
+    // Called out separately from the matrix compare because the `false` row is
+    // load-bearing downstream: the reasoning surface renders unavailable.
     expect(CODEX_CAPABILITY_FLAGS.reasoning_stream).toBe(false);
-    expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
   });
 });
 
@@ -260,12 +256,12 @@ describe("Codex getCapabilities() wrapper", () => {
     expect(first.capabilities.flags).not.toBe(second.capabilities.flags);
     expect(first.tools).not.toBe(second.tools);
 
-    first.capabilities.flags.cost_cap = true;
+    first.capabilities.flags.reasoning_stream = true;
     first.tools.pop();
     const third = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
-    expect(third.capabilities.flags.cost_cap).toBe(false);
+    expect(third.capabilities.flags.reasoning_stream).toBe(false);
     expect(third.tools).toEqual([...CODEX_TOOL_METADATA]);
-    expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
+    expect(CODEX_CAPABILITY_FLAGS.reasoning_stream).toBe(false);
   });
 });
 
@@ -370,40 +366,6 @@ describe("Codex CLI-version floor", () => {
     ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
     // Fail-closed means the writer never saw the below-floor declaration.
     expect(sink.calls).toHaveLength(0);
-  });
-});
-
-describe("Codex cost_cap static refusal", () => {
-  it("refuses a cost_cap-gated admission against Codex statically at the registry gate", async () => {
-    const registry = new ProviderRegistry();
-    // `register` calls exactly one driver operation (`getCapabilities`), and
-    // this test feeds it the REAL Codex declaration — so the refusal below is
-    // decided by the driver's own declared matrix, statically, with no
-    // provider round trip. The cast narrows a one-method object to the
-    // contract; any other operation the registry hypothetically called would
-    // fail loudly as undefined.
-    const declarationOnlyDriver = {
-      getCapabilities: () =>
-        Promise.resolve(getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION)),
-    } as unknown as Parameters<ProviderRegistry["register"]>[1];
-    await registry.register(CODEX_DRIVER_NAME, declarationOnlyDriver);
-
-    let thrown: unknown;
-    try {
-      registry.checkCapability(CODEX_DRIVER_NAME, "cost_cap");
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCapabilityUnsupportedError);
-    const error = thrown as DriverCapabilityUnsupportedError;
-    expect(error.code).toBe("driver.capability_unsupported");
-    expect(error.fields).toStrictEqual({ driverId: "codex", flag: "cost_cap" });
-
-    // Sanity inversion: a flag Codex DOES declare passes the same gate, so the
-    // refusal above is the declaration's doing, not the registry's default.
-    expect(() => {
-      registry.checkCapability(CODEX_DRIVER_NAME, "steer");
-    }).not.toThrow();
   });
 });
 

@@ -252,9 +252,8 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
-                      'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay', 'context_compaction',
-                      'provider_commands', 'output_speed'
+                      'callback_tools', 'subagents', 'transcript_replay',
+                      'context_compaction', 'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- 0 or 1
   refreshed_at      TEXT NOT NULL,

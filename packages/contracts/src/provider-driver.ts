@@ -486,10 +486,10 @@ export interface ProviderMode {
 // here — it is a provider-output value bounded (semver + length) Phase-2 write
 // seam (persisted to `driver_contract_meta.contract_version`), not here.
 
-// `pause` is intentionally EXCLUDED: pause is modeled as an
-// `InterventionType`, not a static capability flag, so a driver cannot
-// advertise a `pause` capability at all — the type system makes the
-// mis-modeling unrepresentable.
+// `pause` is intentionally EXCLUDED: pause is an orchestration-layer request
+// (`RunPauseRequest` in `runControl.ts`), not a static capability flag, so a
+// driver cannot advertise a `pause` capability at all — the type system makes
+// the mis-modeling unrepresentable.
 //
 // This array's order IS the canonical enum order: the schema's CHECK list on
 // `driver_capabilities.capability_flag`, the driver declarations and the writer
@@ -512,7 +512,6 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "callback_tools",
   "subagents",
   "transcript_replay",
-  "cost_cap",
   // User-triggered compaction of the bound session's own provider-side
   // context via `compactContext`. Native on Codex, emulated on Claude through
   // the one tripwire-exempt `driver_command` frame V1 produces.

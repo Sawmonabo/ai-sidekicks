@@ -132,6 +132,20 @@ export interface MessageBoxResult {}
 export interface NotificationOptions {}
 
 /**
+ * Whether this machine will show an OS notification for this application.
+ *
+ * `not-determined` is the state before the person has been asked, the one a fresh
+ * install is in; folding it onto `denied` would tell the person the notification
+ * center is their only surface on a machine that would show the first notification
+ * it is sent. `unsupported` is a platform main cannot read the permission on. Each
+ * state is drawn differently, and only `denied` says the notification center is the
+ * only surface.
+ */
+export interface NotificationPermission {
+  readonly state: "granted" | "denied" | "not-determined" | "unsupported";
+}
+
+/**
  * Opaque branded reference to a file path. The renderer never sees the raw
  * path string — every operation that returns a path returns this token, and
  * every operation that consumes a path takes this token, with the main process
@@ -242,6 +256,7 @@ export interface DesktopBridge {
     showSaveDialog(options: SaveDialogOptions): Promise<SaveDialogResult>;
     showMessageBox(options: MessageBoxOptions): Promise<MessageBoxResult>;
     showNotification(options: NotificationOptions): void;
+    getNotificationPermission(): Promise<NotificationPermission>;
     openExternal(url: string): Promise<void>;
     copyToClipboard(text: string): Promise<void>;
     revealInFileExplorer(path: FilePathRef): Promise<void>;
@@ -307,6 +322,7 @@ export function createStubBridge(): DesktopBridge {
       showSaveDialog: () => stubThrow("native.showSaveDialog"),
       showMessageBox: () => stubThrow("native.showMessageBox"),
       showNotification: () => stubThrow("native.showNotification"),
+      getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       openExternal: () => stubThrow("native.openExternal"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),

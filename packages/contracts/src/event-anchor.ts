@@ -69,6 +69,7 @@
 import { z } from "zod";
 
 import { EVENT_ENVELOPE_SEQUENCE_MAX } from "./event.js";
+import { decodedByteLength } from "./internal/base64.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 
@@ -77,28 +78,6 @@ export const MERKLE_ROOT_BYTE_LENGTH = 32;
 
 /** Decoded width of an Ed25519 signature (RFC 8032 section 5.1.6), in bytes. */
 export const ROOT_SIGNATURE_BYTE_LENGTH = 64;
-
-// Decoded byte count of a standard-alphabet base64 string, or -1 if the value
-// does not decode at all.
-//
-// `atob` (not `Buffer`) because this package is consumed by the Worker-hosted
-// control plane as well as the daemon, and `Buffer` is not a Worker global.
-//
-// The try/catch is NOT defensive padding: zod evaluates every check on a
-// schema and aggregates the issues rather than short-circuiting at the first
-// failure, so this refinement runs even when the `z.base64()` charset check
-// has already rejected the input — and `atob` THROWS `InvalidCharacterError`
-// on a non-base64 string. Without the catch, a garbage `merkleRoot` escapes as
-// a raw DOMException out of `safeParse`, which is exactly the call that
-// promised never to throw. Returning -1 keeps the failure inside the ZodError,
-// where the caller is looking for it.
-function decodedByteLength(base64Value: string): number {
-  try {
-    return atob(base64Value).length;
-  } catch {
-    return -1;
-  }
-}
 
 function base64OfExactly(byteLength: number, fieldLabel: string): z.ZodType<string, string> {
   return z.base64().refine((value) => decodedByteLength(value) === byteLength, {

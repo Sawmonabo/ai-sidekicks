@@ -181,7 +181,7 @@ export const AUDIT_STUB_RETENTION_CLASS = "audit_stub" as const;
  * compaction passes), so compacting them would let a compactor erase its own
  * audit trail.
  */
-export const NON_COMPACTABLE_EVENT_CATEGORIES: readonly EventCategory[] = [
+const NON_COMPACTABLE_EVENT_CATEGORIES: readonly EventCategory[] = [
   "audit_integrity",
   "event_maintenance",
 ];

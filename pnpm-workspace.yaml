@@ -54,13 +54,13 @@ allowBuilds:
   # `build/Release/` cannot hold a `.node` if no build ever runs.
   better-sqlite3: false
   lefthook: true
-  # Cloudflare Workers tooling (BL-104 — wrangler@^4.86.0):
+  # Cloudflare Workers tooling (wrangler@^4.86.0):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
   # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
   # - sharp: Cloudflare Images binding emulation pulled in via miniflare.
-  #   The control-plane substrate does not use the Images binding (tRPC + SSE substrate
+  #   The control-plane substrate does not use the Images binding (tRPC substrate
   #   only); deny postinstall to keep the build-script footprint minimal.
-  #   Flip to `true` if/when a future plan exercises Images locally.
+  #   Flip to `true` if the control plane ever uses Images locally.
   workerd: true
   esbuild: true
   sharp: false

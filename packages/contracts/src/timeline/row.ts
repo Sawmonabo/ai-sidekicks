@@ -13,10 +13,10 @@
 // `string` and not the `SessionEventType` census union, because a row projected
 // from a higher-MINOR producer's event must still parse (#5, #8, #9, the same
 // tolerance `EventEnvelope.type` carries). A consumer that discriminated on it
-// would be probing an open vocabulary and would have to guess which of the four
+// would be probing an open vocabulary and would have to guess which of the three
 // attribution shapes it was holding.
 //
-// `kind` is the closed four-value literal the projector stamps from the event
+// `kind` is the closed three-value literal the projector stamps from the event
 // family, so `row.kind === "run"` narrows STRUCTURALLY to a row that carries
 // the full attribution triple.
 //
@@ -212,8 +212,8 @@ export const SupersededMarkerSchema: z.ZodType<SupersededMarker> = z
 /**
  * The members every timeline row carries, whatever its `kind`.
  *
- * `payload` is `Record<string, unknown>` on three of the four arms and the
- * typed `RunRolledBackEvent` on the fourth — see {@link TimelineRollbackBoundary}.
+ * `payload` is `Record<string, unknown>` on two of the three arms and the
+ * typed `RunRolledBackEvent` on the third — see {@link TimelineRollbackBoundary}.
  */
 export interface TimelineRowBase {
   /** Opaque on the wire — the canonical event id this row projects from. */
@@ -239,7 +239,7 @@ export interface TimelineRowBase {
 
 /**
  * Single-sourced base shape. Every arm spreads this, so a member added to the
- * base reaches all four arms and the arms cannot drift on shared-field
+ * base reaches all three arms and the arms cannot drift on shared-field
  * validation — the `buildCommonShape()` idiom `event.ts` uses for the same
  * reason. A function rather than a shared object literal so each arm gets its
  * own schema instances and no arm can mutate a sibling's.
@@ -257,7 +257,7 @@ const buildTimelineRowCommonShape = () => ({
 });
 
 /**
- * The open projected payload the three non-boundary arms carry.
+ * The open projected payload the two non-boundary arms carry.
  *
  * Deliberately WITHOUT the `__proto__` pre-guard `EventEnvelopeSchema` applies
  * to its own payload. That guard exists because the envelope's parse output is
@@ -286,7 +286,7 @@ export interface TimelineEntry extends TimelineRowBase {
  * `runId` + `position` + `epoch` are all-or-none by construction: they are
  * three required members of one arm, and the arm is selected by `kind` before
  * they are read, so a partial row fails HERE and is never re-offered to
- * `general` or `legacy_stub`.
+ * `general`.
  *
  * `position` is the projection-resolved originating run position (the uniform
  * row-to-turn assignment) — the comparand the `run.rolled_back` live rule ranks
@@ -303,30 +303,11 @@ export interface RunScopedTimelineEntry extends TimelineRowBase {
 }
 
 /**
- * `kind: "legacy_stub"` — a run-scoped audit stub compacted in the
- * vacuous-attribution era.
- *
- * `runId` is PRESERVED (every run-scoped stub preserves it) while `position`
- * and `epoch` are structurally ABSENT because they are unknowable, not because
- * they were omitted. `.strict()` makes that structural: offering either one
- * fails parse rather than being accepted as an invented ordinal.
- *
- * The arm carries no `superseded` marker and cannot: such a row can never be
- * ranked, and the span check treats a run holding one as the standing-refusal
- * class, so that run can never admit a rollback while the stub exists. The row
- * renders the compaction placeholder alone.
- */
-export interface LegacyStubTimelineEntry extends TimelineRowBase {
-  kind: "legacy_stub";
-  runId: RunId;
-}
-
-/**
  * `kind: "rollback_boundary"` — the typed `run.rolled_back` boundary
  * entry.
  *
  * `payload` is the TYPED {@link RunRolledBackEvent}, not the open projected
- * record the other three arms carry: the live client rule reads
+ * record the other two arms carry: the live client rule reads
  * `payload.targetPosition` and must never reach it through a cast. A payload
  * that fails that validation is a projection defect surfaced at emission, never
  * delivered untyped.
@@ -488,8 +469,8 @@ const requireMarkerToOutrankRow = (
  * (leg 2 catches it), while a type outside the census may still carry one
  * (leg 3 catches it).
  *
- * Scoped to `general` alone: `run` and `legacy_stub` are the arms that SHOULD
- * carry run attribution, and the boundary arm pins its own.
+ * Scoped to `general` alone: `run` is the arm that SHOULD carry run
+ * attribution, and the boundary arm pins its own.
  */
 const refuseRunScopedRowOnGeneralArm = (
   row: { category: EventCategory; type: string; payload: Record<string, unknown> },
@@ -536,8 +517,8 @@ const refuseRunScopedRowOnGeneralArm = (
 };
 
 /**
- * Every arm carrying an outer `runId` refuses a payload that names a different
- * run under EITHER registered spelling.
+ * The run arm refuses a payload that names a different run under EITHER
+ * registered spelling.
  *
  * The spellings are {@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS} — `runId`
  * and the intervention family's `targetRunId` — and they are iterated rather
@@ -555,11 +536,6 @@ const refuseRunScopedRowOnGeneralArm = (
  * that is the same premise {@link refuseRunScopedRowOnGeneralArm} already
  * acts on when it treats a payload `targetRunId` as making a row
  * run-attributed.
- *
- * Applied to the `legacy_stub` arm as well as `run`. A stub preserves its
- * `runId` and loses only its ordinals, so a stub whose payload names another
- * run splits its identity exactly as a run row does, and the check needs
- * nothing the stub arm lacks.
  */
 const requirePayloadRunIdentityToAgree = (
   row: { runId: RunId; payload: Record<string, unknown> },
@@ -668,26 +644,13 @@ const runScopedTimelineArmSchema = z
     requirePayloadAttributionToAgree(runRow, issueContext);
   });
 
-const legacyStubTimelineArmSchema = z
-  .object({
-    ...buildTimelineRowCommonShape(),
-    kind: z.literal("legacy_stub"),
-    runId: RunIdSchema,
-    payload: projectedPayloadSchema,
-  })
-  .strict()
-  .superRefine((legacyStubRow, issueContext) => {
-    refuseBoundaryTypeOnNonBoundaryArm(legacyStubRow, issueContext);
-    requirePayloadRunIdentityToAgree(legacyStubRow, issueContext);
-  });
-
 const timelineRollbackBoundaryArmSchema = z
   .object({
     // `category` and `type` below REPLACE the base shape's parsers by spread
     // order: this is the one arm where both the category and the event-type
     // string are closed, because it exists to carry exactly one registered
     // event. The base carries no `payload` member at all — each arm declares
-    // its own, because this one's is the typed event and the other three's is
+    // its own, because this one's is the typed event and the other two's is
     // the open record.
     ...buildTimelineRowCommonShape(),
     kind: z.literal("rollback_boundary"),
@@ -757,11 +720,7 @@ const timelineRollbackBoundaryArmSchema = z
  * `TimelineRow`. Genuinely discriminated on the literal `kind`: consumers narrow
  * structurally, never by probing the free-form `type` and never by casting.
  */
-export type TimelineRow =
-  | TimelineRollbackBoundary
-  | RunScopedTimelineEntry
-  | LegacyStubTimelineEntry
-  | TimelineEntry;
+export type TimelineRow = TimelineRollbackBoundary | RunScopedTimelineEntry | TimelineEntry;
 
 /**
  * Runtime validator for {@link TimelineRow}. Arm selection is by `kind`, so an
@@ -771,7 +730,6 @@ export type TimelineRow =
 export const TimelineRowSchema: z.ZodType<TimelineRow> = z.discriminatedUnion("kind", [
   timelineRollbackBoundaryArmSchema,
   runScopedTimelineArmSchema,
-  legacyStubTimelineArmSchema,
   timelineGeneralArmSchema,
 ]);
 
@@ -783,6 +741,5 @@ export const TimelineRowSchema: z.ZodType<TimelineRow> = z.discriminatedUnion("k
 export const TIMELINE_ROW_KINDS: readonly TimelineRow["kind"][] = Object.freeze([
   "rollback_boundary",
   "run",
-  "legacy_stub",
   "general",
 ] as const);

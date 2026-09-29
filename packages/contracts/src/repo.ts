@@ -59,8 +59,7 @@ export const WorkspaceIdSchema: z.ZodType<WorkspaceId, WorkspaceId> =
 // --------------------------------------------------------------------------
 //
 // Membership of each set is the contract, not declaration order — RFC 8785
-// JCS serializes the literal wire string, so order is not load-bearing, but
-// additions are MINOR and removals MAJOR.
+// JCS serializes the literal wire string, so order is not load-bearing.
 
 /**
  * How a workspace uses its mount: `bound-root` works in the root already bound
@@ -203,11 +202,11 @@ const REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN = 256;
 
 /**
  * Payload of every event — see the family-shared note above — PARAMETERIZED by the
- * state vocabulary its emitting plan owns.
+ * state vocabulary its emitting module owns.
  *
- * The parameter exists so that no consuming plan has to edit this file. Every
+ * The parameter exists so that no emitter has to edit this file. Every
  * field but `state` is identical across all eleven types; `state` is the one
- * axis that differs, and it differs per OWNING PLAN rather than per event. See
+ * axis that differs, and it differs per EMITTING MODULE rather than per event. See
  * `buildRepoWorkspaceLifecyclePayloadSchema` for why parameterizing beats the
  * third-union-arm alternative.
  *
@@ -234,7 +233,7 @@ export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
 };
 
 /**
- * Instantiation — the two vocabularies THIS plan emits. Named separately
+ * Instantiation — the two vocabularies THIS file emits. Named separately
  * because it is the shape event.ts's six variant interfaces narrow against,
  * and because `RepoWorkspaceLifecyclePayload` is the name every existing
  * consumer already imports.
@@ -243,40 +242,33 @@ export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<
   RepoMountState | WorkspaceState
 >;
 /**
- * Build the family payload schema over ONE plan's state vocabulary.
+ * Build the family payload schema over ONE emitter's state vocabulary.
  *
- * Exported because needs it: registers five `worktree.*` types against this
- * family, and gives them a vocabulary (`creating` / `dirty` / `merged` /
- * `retired`) that overlaps the two below at `ready` alone. calls this factory
- * with its own `WorktreeStateSchema` from `worktree.ts` and registers the
- * result — payload schemas stay in the EMITTER's domain file, which is exactly
- * what the additive `SessionEventSchema` union-registration seam says each
- * event-emitting plan does.
+ * Exported because `worktree.ts` needs it: it registers five `worktree.*` types
+ * against this family, and gives them a vocabulary (`creating` / `dirty` /
+ * `merged` / `retired`) that overlaps the two below at `ready` alone. It calls
+ * this factory with its own `WorktreeStateSchema` and registers the result —
+ * payload schemas stay in the EMITTER's domain file, which is how every
+ * emitter registers into the additive `SessionEventSchema` union.
  *
  * NO THIRD UNION ARM, not now and not later — the alternative this factory
  * exists to refuse, and it fails on three independent grounds:
  *
  *   • Adding `WorktreeStateSchema` to the `state` union here means repo.ts
- *     importing from worktree.ts, while makes worktree.ts import FROM
+ *     importing from worktree.ts, while this factory makes worktree.ts import FROM
  *     repo.ts. That is the eager module-scope Zod cycle this file's header
  *     describes — the one the `node-id.js` relocation was cut to break —
  *     and `tsc` does not flag it.
  *   • ACCEPT SET. One shared union widens ALL eleven types at once: a
  *     `workspace.archived` payload could then claim `state: "merged"`, and a
  *     `worktree.retired` could claim `"provisioning"`. Parameterizing keeps
- *     each plan's accept set exactly its own vocabulary — strictly tighter
- *     than today for the worktree half, and unchanged for this one.
- *   • The dependency map's registered seam classes do not sanction editing
- *     repo.ts, and its own entry says it "never redefines" the symbols. A
- *     third arm would need precisely that edit.
- *
- * Adding this export is additive-MINOR no field reshaped, and
- * `RepoWorkspaceLifecyclePayloadSchema` below is byte-for-byte the same
- * accept set it was before the refactor.
+ *     each family's accept set exactly its own vocabulary.
+ *   • A third arm makes every new emitter edit repo.ts, which is the edit
+ *     the parameter exists to spare it.
  *
  * The return type is the erased `z.ZodType<…>`, not a `ZodObject`, and that is
  * sufficient: consumers `.parse()` the result and register it into the event
- * union. Nothing extends it — a plan that needs different FIELDS has a
+ * union. Nothing extends it — an emitter that needs different FIELDS has a
  * different payload family, not a widened one.
  */
 export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
@@ -295,13 +287,11 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
       // `uuidTextFormSchema` and `brandedUuidIdSchema` are two exports over one
       // `RFC_9562_TEXT_FORM` — so the RUNTIME accept-set is identical by
       // construction and not by coincidence: only the compile-time brand is
-      // absent, and can narrow at its own consumption site without a wire
-      // change or a value whose parse result moves. Representable NOW so the
-      // registration is purely additive.
+      // absent, and a consumer narrows to it at its own parse site.
       worktreeId: uuidTextFormSchema.optional(),
       // The subject's post-transition state — THE PARAMETER, and the only
       // field that varies across the family. Each caller supplies the
-      // vocabulary its own plan owns; see this function's note on why that is
+      // vocabulary its own module owns; see this function's note on why that is
       // a parameter rather than an ever-widening union.
       state: stateSchema,
       // The EventEnvelope free-form actor (`user_id | agent_id | null`),
@@ -476,9 +466,7 @@ export interface RepoAttachResponse {
 export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
   .object({
     repoMountId: RepoMountIdSchema,
-    // The mount's post-attach lifecycle position. It would also re-type the
-    // field on any later attach path that returns a non-`attached` row, which
-    // is a wire break rather than the additive change.
+    // The mount's post-attach lifecycle position.
     state: RepoMountStateSchema,
     // The version-control system fixed at resolution time; the capability
     // projection keys off it downstream.
@@ -920,7 +908,7 @@ export interface WorkspaceListResponse {
 // anonymous `Array<{…}>` spelling. Nothing else consumes this shape, so
 // exporting a
 // `WorkspaceSummary` would pre-commit every downstream importer to a symbol
-// neither the plan nor the spec asked for. Consumers that need the element type
+// no consumer asked for. Consumers that need the element type
 // spell `WorkspaceListResponse["workspaces"][number]`. The in-file precedent
 // for an inline nested object type is `SessionReadResponse.timelineCursors`.
 //

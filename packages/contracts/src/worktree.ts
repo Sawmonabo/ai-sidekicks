@@ -174,10 +174,9 @@ export const WorktreeStateSchema: z.ZodType<WorktreeState> = z.enum([
 // `-> failed` transition emits no worktree event at all. Representability is
 // deliberate — the state enum is the ROW vocabulary (lockstep), and the
 // closed EVENT registry, not a narrowed payload arm, is what pins the
-// no-failed-event decision. Only ONE of its two pins ships today: the
-// union-rejection pin in `__tests__/worktree.test.ts`. The `-> failed`
-// emits-nothing regression test belongs to Phase 2 and lands with
-// `worktree-event-emitter.ts`.
+// no-failed-event decision. Two tests pin it: the union rejection in
+// `__tests__/worktree.test.ts`, and the daemon emitter's test that no
+// emission carries `failed`.
 //
 // Declared as a TYPE ALIAS, never an `interface` — event.ts's five variant
 // interfaces narrow `EventEnvelope.payload` (`Record<string, unknown>`), and

@@ -14,10 +14,10 @@
 //   • A mock fully implementing `ProviderDriver` (all 16 ops, correctly-typed params + returns)
 //     compiles with no session-domain change. The compile is the assertion; a runtime smoke
 //     confirms the mock is constructable and a method returns the expected shape.
-//   • A capability flag outside the 17-flag `DriverCapabilityFlag` union is a TS
+//   • A capability flag outside the 16-flag `DriverCapabilityFlag` union is a TS
 //     error (`@ts-expect-error`, self- verifying via TS2578 if the invalid flag
 //     ever became valid).
-//   • Flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the seventeen
+//   • Flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the sixteen
 //     canonical flags in canonical `transcript_replay` INSERTED at its canonical
 //     position rather than appended, and DELIBERATELY excludes `pause`, whose
 //     exclusion is permanent.
@@ -288,7 +288,6 @@ class MockProviderDriver implements ProviderDriver {
         callback_tools: false,
         subagents: false,
         transcript_replay: false,
-        cost_cap: false,
         context_compaction: true,
         provider_commands: true,
         output_speed: false,
@@ -438,9 +437,9 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     });
   });
 
-  it("getCapabilities answers every one of the 17 flags and returns ingress tools", async () => {
+  it("getCapabilities answers every one of the 16 flags and returns ingress tools", async () => {
     const result = await driver.getCapabilities();
-    // The canonical 17-flag `DriverCapabilityFlag` set, written alphabetically
+    // The canonical 16-flag `DriverCapabilityFlag` set, written alphabetically
     // and SPELLED OUT rather than derived from `DRIVER_CAPABILITY_FLAGS`: a
     // derived literal would agree with the const by construction and could never
     // catch a flag silently added or removed there. Keeping it hand-written is
@@ -448,7 +447,6 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     const canonicalCapabilityFlags = [
       "callback_tools",
       "context_compaction",
-      "cost_cap",
       "interactive_requests",
       "mcp",
       "model_mutation",
@@ -464,7 +462,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
       "tool_calls",
       "transcript_replay",
     ];
-    // Structural check: the flag record is total — exactly the 17
+    // Structural check: the flag record is total — exactly the 16
     // canonical flags, every one answered with a boolean.
     expect(Object.keys(result.capabilities.flags).sort()).toEqual(canonicalCapabilityFlags);
     expect(result.tools).toHaveLength(2);
@@ -599,7 +597,6 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
       callback_tools: false,
       subagents: false,
       transcript_replay: false,
-      cost_cap: false,
       // `pause` is intentionally NOT in the union (models pause as an orchestration-layer construct
       // — interrupt run, persist state, queue resume — not a driver capability and not an
       // `InterventionType` value (`InterventionType = "steer" | "interrupt" | "cancel" |
@@ -614,11 +611,11 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
   });
 
   it("rejects an incomplete flag record that omits a required capability (totality)", () => {
-    // `Record<DriverCapabilityFlag, boolean>` is total: omitting `cost_cap` is a type error, so
-    // a driver cannot silently leave a capability unanswered (capabilities are explicit, never
-    // inferred from absence). Omitting one of ADDITIONS (rather than an original seven flag) is
-    // the load-bearing choice here: it proves the totality requirement actually extended to the
-    // widened union rather than lagging behind it.
+    // `Record<DriverCapabilityFlag, boolean>` is total: omitting the three console-parity flags
+    // is a type error, so a driver cannot silently leave a capability unanswered (capabilities
+    // are explicit, never inferred from absence). Omitting ADDITIONS (rather than an original
+    // seven flag) is the load-bearing choice here: it proves the totality requirement actually
+    // extended to the widened union rather than lagging behind it.
     // @ts-expect-error the flag record is total and must answer every flag
     const incompleteFlags: DriverCapabilities["flags"] = {
       resume: true,
@@ -1376,7 +1373,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
 });
 
 // ===========================================================================
-// Capability-flag currency: seventeen flags, canonical order, one
+// Capability-flag currency: sixteen flags, canonical order, one
 //        permanent exclusion.
 // ===========================================================================
 //
@@ -1386,8 +1383,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
 // HAND-SPELLED expectations rather than against the const itself: a check
 // derived from the thing it checks is vacuous.
 
-describe("DRIVER_CAPABILITY_FLAGS — seventeen-flag currency", () => {
-  it("carries exactly seventeen flags, in canonical", () => {
+describe("DRIVER_CAPABILITY_FLAGS — sixteen-flag currency", () => {
+  it("carries exactly sixteen flags, in canonical", () => {
     expect([...DRIVER_CAPABILITY_FLAGS]).toEqual([
       "resume",
       "steer",
@@ -1402,12 +1399,11 @@ describe("DRIVER_CAPABILITY_FLAGS — seventeen-flag currency", () => {
       "callback_tools",
       "subagents",
       "transcript_replay",
-      "cost_cap",
       "context_compaction",
       "provider_commands",
       "output_speed",
     ]);
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(17);
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
   });
 
   it("declares no duplicate flag (the cardinality guard compares key COUNT, so a duplicate would mask an omission)", () => {
@@ -1422,15 +1418,15 @@ describe("DRIVER_CAPABILITY_FLAGS — seventeen-flag currency", () => {
     expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("output_speed");
   });
 
-  it("APPENDS the three console-parity flags after `cost_cap`, where the canonical order puts them", () => {
+  it("APPENDS the three console-parity flags last, where the canonical order puts them", () => {
     // The counterpart to the insertion above, and the reason the two rules
     // coexist rather than contradict: position is canonical, and canonical
     // position for these three IS the end. Asserted by INDEX for the same reason
     // — a re-ordering that kept membership would pass a `toContain` and break
     // every surface that reads position.
-    expect(DRIVER_CAPABILITY_FLAGS.indexOf("context_compaction")).toBe(14);
-    expect(DRIVER_CAPABILITY_FLAGS.indexOf("provider_commands")).toBe(15);
-    expect(DRIVER_CAPABILITY_FLAGS.indexOf("output_speed")).toBe(16);
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("context_compaction")).toBe(13);
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("provider_commands")).toBe(14);
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("output_speed")).toBe(15);
   });
 
   it("EXCLUDES `pause` — a permanent exclusion, not a pending one", () => {
@@ -1451,7 +1447,7 @@ describe("DRIVER_CAPABILITY_FLAGS — seventeen-flag currency", () => {
     // assertion this test makes is the compile above, so the executing
     // expectation restates the cardinality the union is derived from rather
     // than `toBe`-ing the const against itself, which would hold for any value.
-    expect(flags).toHaveLength(17);
+    expect(flags).toHaveLength(16);
   });
 });
 
@@ -2218,7 +2214,6 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
     callback_tools: false,
     subagents: false,
     transcript_replay: false,
-    cost_cap: false,
     context_compaction: false,
     provider_commands: false,
     output_speed: false,
@@ -2268,7 +2263,6 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
         callback_tools: "static",
         subagents: "static",
         transcript_replay: "static",
-        cost_cap: "static",
         // The three console-parity flags. `output_speed` is `static` on BOTH
         // shipped drivers and the other two split, so a fixture that made them
         // uniform would stop exercising the mixed-provenance shape this member
@@ -3527,7 +3521,7 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
     // Adds NO capability flag, on the `probeAuth` precedent: a flag would let a
     // driver declare the obligation away, and a run refused for spend would
     // then sit in the generic failure path with nothing saying why.
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(17);
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       expect(flag).not.toMatch(/usage|limit|rate/);
     }

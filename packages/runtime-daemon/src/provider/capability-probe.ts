@@ -308,12 +308,6 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
     rationale:
       "An item-injection method being accepted does not establish that a seeded history is faithfully adopted — which is what the flag's consumers depend on, and what the post-replay assertion is the only admissible evidence of.",
   },
-  cost_cap: {
-    detectionSource: "static",
-    failingConjuncts: ["decisive-at-consumption-granularity"],
-    rationale:
-      "A spawn-time budget property. No client-request method names it, so the one zero-turn channel cannot decide it; the `false` is a complete declaration and the unpriced-family escape consumes it fail-closed.",
-  },
   context_compaction: {
     detectionSource: "probed",
     probe: {
@@ -446,12 +440,6 @@ export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
       "No stable prior-turn seeding contract is published for this provider, so no control-request answer establishes that a seeded history is adopted. The matrix cell records this as an open probe; supplying it is future work, together with the post-replay assertion that is the only admissible evidence a replay worked.",
-  },
-  cost_cap: {
-    detectionSource: "static",
-    failingConjuncts: ["decisive-at-consumption-granularity"],
-    rationale:
-      "Delivered by the launch-time `--max-budget-usd` flag, which the control-request channel cannot interrogate.",
   },
   context_compaction: {
     detectionSource: "static",

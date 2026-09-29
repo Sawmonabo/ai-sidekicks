@@ -1,7 +1,8 @@
-// Error contracts — V1 subset of the canonical ErrorResponse envelope.
+// Error contracts — the wire error envelopes and their codes.
 //
-// This module ships the single error shape the acceptance criteria need:
-//   • resource.limit_exceeded — fired on every.
+// The resource-limit shape:
+//   • resource.limit_exceeded — fired when a request would take a counted
+//     resource past its configured limit.
 //
 //   {code: "resource.limit_exceeded",
 //    message: "...",
@@ -14,7 +15,7 @@
 // SDK's retry/backoff logic relies on `current >= limit` invariants
 // (validated downstream).
 //
-// Adds the second wire-payload shape:
+// The PTY backend shape:
 //   • PtyBackendUnavailable — fired by the daemon's `PtyHostSelector` when
 //     the requested PTY backend cannot be constructed (sidecar binary
 //     missing AND `node-pty` fallback also unavailable, env-var coerces
@@ -28,21 +29,8 @@
 //     (errno object, missing-binary path string, JSON-RPC error envelope —
 //     intentionally `unknown` because the producers are heterogeneous).
 //
-// Also ships the version-bound exception envelope:
-//   • VersionFloorExceededError — fired when an attempted version is below
-//     a remote peer's accepted floor. Wire code literal
-//     `version.floor_exceeded` is single-sourced from
-//     `jsonrpc-negotiation.ts` where it ALSO surfaces as the
-//     `DaemonHelloAck.reason` discriminator string — the two surfaces
-//     share the same canonical code closure (error-contracts).
-//
-// Its `VersionBoundExceededDetails` payload carries `attemptedVersion` +
-// `acceptedRange` + optional `upgradePath` guidance. No emitter wiring lands
-// here; the emit sites own the version-floor checks.
-//
 import { z } from "zod";
 
-import { NEGOTIATION_REASON_FLOOR_EXCEEDED } from "./jsonrpc-negotiation.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -63,13 +51,6 @@ export const RESOURCE_LIMIT_EXCEEDED_CODE: ResourceLimitExceededCode = "resource
 // not depend on this one.
 export type PtyBackendUnavailableCode = "PtyBackendUnavailable";
 export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBackendUnavailable";
-
-// Version-floor code — single-sourced from `jsonrpc-negotiation.ts`, where
-// the same string ALSO surfaces as a `DaemonHelloAck.reason` discriminator.
-// Re-exporting via an alias here keeps the wire literal in one place.
-export type VersionFloorExceededCode = typeof NEGOTIATION_REASON_FLOOR_EXCEEDED;
-export const VERSION_FLOOR_EXCEEDED_CODE: VersionFloorExceededCode =
-  NEGOTIATION_REASON_FLOOR_EXCEEDED;
 
 // Daemon append-path refusal codes. All are raised by
 // `EventLogService.append` and all carry TYPED details: each detail member is a
@@ -136,15 +117,6 @@ export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
 
 export const RESOURCE_LABEL_MAX_LEN = 128;
 export const ERROR_MESSAGE_MAX_LEN = 8192;
-
-// SemVer-shaped strings comfortably fit in 64 chars (longest realistic:
-// "9999.9999.9999-rc.999+build.YYYYMMDDHHMMSS" is ~42 chars); 64 leaves
-// head-room for pre-release labels without giving a malicious producer
-// infinite-length space. `upgradePath` is the human-readable guidance
-// string — 512 caps a one-line URL plus a short imperative phrase
-// without truncating canonical CDN links.
-export const VERSION_STRING_MAX_LEN = 64;
-export const VERSION_UPGRADE_PATH_MAX_LEN = 512;
 
 // `daemon.pii_split_bypass` `details.fieldPath` cap. The value is a payload
 // KEY PATH (e.g. `payload.pii_user_id`), never a payload VALUE — the
@@ -264,75 +236,6 @@ export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
     // callers (daemon-internal IPC, structured logs).
     message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "PtyBackendUnavailable.message"),
     details: PtyBackendUnavailableDetailsSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// `VersionFloorExceededError` carries this payload. The fields encode the negotiation context
-// the receiver needs to either present a useful UX message or attempt
-// a graceful retry against a different version.
-//
-//   * `attemptedVersion` — the version string the source side tried to
-//     negotiate. Wire-string, opaque to this layer (the negotiation
-//     surface owns format validation "MAJOR.MINOR" semver).
-//   * `acceptedRange.{min,max}` — the inclusive range the receiver
-//     publishes; `min > attemptedVersion` on a floor refusal. Both endpoints
-//     are wire-format strings (same opacity rationale).
-//   * `upgradePath` — optional human-readable guidance. Producers
-//     SHOULD omit when no actionable upgrade path exists (e.g. a
-//     pre-release relay refusing a stable build); presence is not
-//     wire-required.
-//
-// Implementation note: the `.object().strict()` shape rejects unknown
-// extra keys — a future plan that wants to extend the payload MUST
-// declare a new code literal (and thus a new envelope) rather than
-// silently widening this shape. This preserves the wire contract's
-// closed-set guarantee for consumers branching on the code.
-
-export interface VersionBoundExceededDetails {
-  attemptedVersion: string;
-  acceptedRange: { min: string; max: string };
-  // `upgradePath?: string | undefined` — explicit `| undefined` is
-  // required by `exactOptionalPropertyTypes: true` (tsconfig.base.json).
-  // Without the union, zod's `ZodOptional` widening surfaces a TS2375
-  // assignment mismatch against the `VersionBoundExceededDetailsSchema`
-  // shape. The KEY remains omittable on the wire; the value's runtime
-  // contract is identical.
-  upgradePath?: string | undefined;
-}
-export const VersionBoundExceededDetailsSchema: z.ZodType<VersionBoundExceededDetails> = z
-  .object({
-    attemptedVersion: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.attemptedVersion"),
-    acceptedRange: z
-      .object({
-        min: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.acceptedRange.min"),
-        max: wireFreeFormString(VERSION_STRING_MAX_LEN, "details.acceptedRange.max"),
-      })
-      .strict(),
-    upgradePath: wireFreeFormString(VERSION_UPGRADE_PATH_MAX_LEN, "details.upgradePath").optional(),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// Fired by the receiver when the source's `attemptedVersion` is below
-// the receiver's accepted floor (`details.acceptedRange.min`). The
-// canonical emit site is the control-plane surface that validates a
-// peer's declared client floor.
-
-export interface VersionFloorExceededError {
-  code: VersionFloorExceededCode;
-  message: string;
-  details: VersionBoundExceededDetails;
-}
-export const VersionFloorExceededErrorSchema: z.ZodType<VersionFloorExceededError> = z
-  .object({
-    code: z.literal(VERSION_FLOOR_EXCEEDED_CODE),
-    message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionFloorExceededError.message"),
-    details: VersionBoundExceededDetailsSchema,
   })
   .strict();
 

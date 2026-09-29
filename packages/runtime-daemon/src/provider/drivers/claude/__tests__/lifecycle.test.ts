@@ -14,13 +14,9 @@
 //     classification a typed credential failure must produce. The enforcement
 //     check — no `createSession()` call is issued, watched by a spy on the
 //     driver's own method — runs against every one of those four mechanisms.
-//   * Positive controls for the spawn-bound realization gate: an agreeing cap,
-//     posture, and output schema each START a run, so a guard that refused too
+//   * Positive controls for the spawn-bound realization gate: an agreeing
+//     posture and output schema each START a run, so a guard that refused too
 //     much could not hide behind the mismatch tests.
-//   * The cost-cap rule is ONE-DIRECTIONAL. A cap-declaring run is refused
-//     against both an uncapped and a differently-capped process; a run declaring
-//     no cap is admitted into a capped session, because the native cap sits
-//     beneath the daemon accountant rather than being it.
 //   * The zero-turn auth probe classifies the transport's reading onto the
 //     contract's three values, is TOTAL over every throw, and keeps
 //     `unauthenticated` distinguishable from `indeterminate` through a typed
@@ -564,65 +560,6 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
 
-  // The cost-cap rule names both refusal shapes for a cap-declaring run: an
-  // existing uncapped or differently-capped process forces a capped relaunch,
-  // and never a start inside an uncapped process. Both are asserted, because a
-  // guard could refuse the uncapped case while missing the other.
-  it("never starts a cap-admitted run inside a session spawned with NO cap", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
-      sessionId: TEST_SESSION_ID,
-      openingText: "review the diff",
-    });
-
-    await expect(
-      harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
-    ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
-  });
-
-  it("never starts a cap-admitted run inside a session spawned with a DIFFERENT cap", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession({
-      ...buildCreateSessionParams(),
-      admittedCostCapCents: 250,
-    });
-    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
-      sessionId: TEST_SESSION_ID,
-      openingText: "review the diff",
-    });
-
-    await expect(
-      harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
-    ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
-  });
-
-  it("starts a run declaring NO cap inside a capped session: the rule is one-directional", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession({
-      ...buildCreateSessionParams(),
-      admittedCostCapCents: 250,
-    });
-    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
-      sessionId: TEST_SESSION_ID,
-      openingText: "review the diff",
-    });
-
-    // The spec constrains a native-cap RUN; it does not prohibit the converse.
-    // The native cap is "defense-in-depth beneath this accountant, never as the
-    // accountant" (same section), so the daemon accountant enforces and a
-    // provider-side early stop surfaces as an ordinary visible provider stop.
-    // Refusing here would strand every capless run in a capped session behind a
-    // relaunch no spec sentence orders.
-    await harness.lifecycle.startRun(buildStartRunParams());
-
-    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
-  });
-
   it("never starts a run whose posture disagrees with the spawned sandbox", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession({
@@ -657,8 +594,8 @@ describe("ClaudeSessionLifecycle.startRun", () => {
 
 // Positive controls for `#assertSpawnBoundRealization`. Without these, a guard
 // that refuses too much would be invisible: every mismatch test above would still
-// refuse — correctly, but by accident — and the happy-path test declares none of
-// the three axes, so all three checks pass there on `undefined` alone.
+// refuse — correctly, but by accident — and the happy-path test declares neither
+// axis, so both checks pass there on `undefined` alone.
 describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs start)", () => {
   function arrangeDispatch(harness: LifecycleHarness): void {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -666,19 +603,6 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
       openingText: "review the diff",
     });
   }
-
-  it("starts a run whose admitted cap equals the cap its session was spawned with", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession({
-      ...buildCreateSessionParams(),
-      admittedCostCapCents: 500,
-    });
-    arrangeDispatch(harness);
-
-    await harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 });
-
-    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
-  });
 
   it("starts a run whose posture agrees with the spawned sandbox by value, not by reference", async () => {
     const harness = buildHarness();

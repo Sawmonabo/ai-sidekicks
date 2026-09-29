@@ -160,7 +160,7 @@ export const WORKTREE_ERROR_CODES: readonly WorktreeErrorCode[] = [
  * The three rows INTRODUCES.
  *
  * A strict SUBSET of that section, and the exclusions are the contract rather
- * than an omission. `workspace.not_found`, `workspace.provisioning_failed`,
+ * than an omission. `workspace.not_found`, `workspace.preparation_failed`,
  * `workspace.mode_unsupported`, `workspace.stale` and `workspace.busy` are the
  * rows with carriers (`../workspace/workspace-service.js`); naming any of them
  * here would either fork a live class or advertise a code no module raises. This union is

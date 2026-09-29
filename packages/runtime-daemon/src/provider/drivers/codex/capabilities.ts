@@ -110,23 +110,11 @@ import { getCodexToolMetadata } from "./tools.js";
 export const CODEX_DRIVER_NAME = "codex" as const;
 
 /**
- * The driver's advertised capability-contract version.
- *
- * This is a CHANGE-DETECTION token, not a negotiated version: nothing
- * branches on its value. It moves when the shape of what this driver
- * advertises changes, which is what makes a cached snapshot recognizably
- * stale.
- *
- * `1.1.0`: additive growth, hence a MINOR move. The declared flag set grew
- * from fourteen to seventeen (`context_compaction`, `provider_commands`,
- * `output_speed`). Nothing previously declared changed meaning, which is what
- * keeps this off a major — and the `output_speed: false` this driver declares
- * is a complete answer rather than a withdrawal.
- *
- * `2.0.0`: a MAJOR move, and the first one. It is also the move that has to be
- * seen: a node holding a cached `supported = 0` row for `transcript_replay` would
- * keep serving `false` — routing every reconstitution to the memo floor on a
- * driver that replays natively — until the token it compares moves.
+ * The driver's advertised capability-contract version: a canonical semver the
+ * capability writer compares to detect change, and nothing branches on its value.
+ * It moves whenever the shape of what this driver advertises changes, so a node
+ * holding a cached row, such as a `false` for `transcript_replay`, re-reads it
+ * rather than serving the stale answer.
  */
 export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
@@ -182,11 +170,6 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // is not a reason to withhold the flag, because a `false` here would route
     // every reconstitution to the memo floor on a provider that can do better.
     transcript_replay: true,
-    // FALSE: no native spawn-time hard budget cap. Consumed fail-closed by
-    // the native-cap unpriced-family escape, which refuses reservation on a
-    // capless leg rather than admitting an unbounded run
-    // (`orchestration.budget_exhausted`, `reason: 'driver_capless'`).
-    cost_cap: false,
     // User-triggered compaction is a first-class client-request method
     // (`thread/compact/start`), and the compaction it performs announces itself
     // with the same typed frame an unsolicited compaction does — which is the

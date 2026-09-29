@@ -127,7 +127,6 @@ describe("Claude capability declaration — explicit and total", () => {
       callback_tools: true,
       subagents: true,
       transcript_replay: false,
-      cost_cap: true,
       context_compaction: true,
       provider_commands: true,
       output_speed: true,
@@ -148,10 +147,9 @@ describe("Claude capability declaration — explicit and total", () => {
     expect(CLAUDE_OUTPUT_SPEED_LEVELS).not.toContain("cooldown");
   });
 
-  it("pins the three cells whose value is easy to get backwards", () => {
+  it("pins the two cells whose value is easy to get backwards", () => {
     expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
     expect(CLAUDE_CAPABILITY_FLAGS.reasoning_stream).toBe(true);
-    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
   });
 
   it("covers every canonical flag, with a boolean for each", () => {
@@ -273,16 +271,16 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     const reporter = makeReporter();
     const first = await reporter.getCapabilities();
 
-    first.capabilities.flags.cost_cap = false;
+    first.capabilities.flags.reasoning_stream = false;
     first.capabilities.flags.steer = true;
     first.tools.length = 0;
 
-    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
+    expect(CLAUDE_CAPABILITY_FLAGS.reasoning_stream).toBe(true);
     expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
     expect(CLAUDE_TOOL_CATALOG.length).toBeGreaterThan(0);
 
     const second = await reporter.getCapabilities();
-    expect(second.capabilities.flags.cost_cap).toBe(true);
+    expect(second.capabilities.flags.reasoning_stream).toBe(true);
     expect(second.capabilities.flags.steer).toBe(false);
     expect(second.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(Object.is(second.capabilities.flags, first.capabilities.flags)).toBe(false);

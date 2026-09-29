@@ -55,10 +55,9 @@ export type EventEnvelopeVersion = string & {
 /**
  * Runtime validator for the branded {@link EventEnvelopeVersion} — the
  * producer-set `"MAJOR.MINOR"` protocol version whose bump/stub/read rules
- * live. An out-of-range version is rejected at the version-floor gate
- * (never by this format-and-length-only validator) as the typed error
- * contract `VersionFloorExceededErrorSchema` (error.ts): below-floor writes
- * return `VERSION_FLOOR_EXCEEDED`.
+ * live. An out-of-range version is refused at the protocol handshake (never
+ * by this format-and-length-only validator), whose reply carries the
+ * `version.floor_exceeded` or `version.ceiling_exceeded` reason.
  *
  * Its total ordering is `compareEventEnvelopeVersion` (event.ts), which stays
  * beside the envelope it gates rather than riding this leaf: it is a pure

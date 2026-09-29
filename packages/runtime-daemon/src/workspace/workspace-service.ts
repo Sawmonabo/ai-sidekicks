@@ -162,7 +162,7 @@ import {
 /**
  * The workspace-scoped codes this module may raise, quoted.
  *
- * A SUBSET of that section, deliberately: `workspace.provisioning_failed`,
+ * A SUBSET of that section, deliberately: `workspace.preparation_failed`,
  * `workspace.branch_mismatch`, `workspace.execution_root_unresolved` and
  * `workspace.branch_name_required` are the provisioner surfaces, and
  * listing codes this module cannot raise would make the union useless as a

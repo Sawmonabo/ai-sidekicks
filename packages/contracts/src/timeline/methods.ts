@@ -21,18 +21,17 @@
 // method string, its procedure type, its mutating flag, and its schema pair are
 // stated together, and the daemon's binder
 // (`packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts`) takes a
-// descriptor rather than four loose arguments, so a Phase-2/3 handler CANNOT
-// bind a name to the wrong schemas.
+// descriptor rather than four loose arguments, so no handler can bind a name to
+// the wrong schemas.
 //
 // ----------------------------------------------------------------------------
 // Nothing here registers a handler
 // ----------------------------------------------------------------------------
 //
-// Phase 1 ships contracts. The daemon services these methods dispatch to are
-// Phase 2 (`timeline-projector.ts`) and Phase 3 (`reasoning-surface-service.ts`,
-// `child-run-summary-service.ts`), so no handler exists yet and none is
-// fabricated here — a placeholder handler would put a method on the wire that
-// answers nothing, which is worse than a method that is not on the wire.
+// This file holds contracts only. A method is registered by the daemon service
+// that answers it, and none is registered without one: a placeholder handler
+// would put a method on the wire that answers nothing, which is worse than a
+// method that is not on the wire.
 import type { ZodType } from "zod";
 
 import {

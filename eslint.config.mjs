@@ -87,57 +87,6 @@ export default tseslint.config(
       },
     },
   },
-  // The tRPC session router + SSE
-  // subscription factories must NEVER reach a database driver directly. They
-  // route 100% through `SessionDirectoryService` (the wrapper Plan-001 owns).
-  // These rules are the whole enforcement. `no-restricted-imports` covers the
-  // static `import` / `export … from` forms; it does NOT see a dynamic
-  // `import("pg")` (measured 2026-09-09 against ESLint 10.2.1 by planting all
-  // three forms — only the two static ones were reported), so the
-  // `ImportExpression` selector beside it closes the lazy-import escape hatch.
-  // `no-restricted-syntax` is safe to configure here because no other config
-  // object in this file sets that rule for `packages/control-plane/**` — flat
-  // config REPLACES a rule's options at the last matching object, so a second
-  // invocation for an overlapping scope would silently drop the first.
-  // `session-directory-service.ts` is deliberately outside the `files` glob —
-  // importing `pg` is that module's job.
-  {
-    files: [
-      "packages/control-plane/src/sessions/session-router.ts",
-      "packages/control-plane/src/sessions/session-router.factory.ts",
-      "packages/control-plane/src/sessions/session-subscribe-sse.ts",
-      "packages/control-plane/src/sessions/session-subscribe-sse.factory.ts",
-    ],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "pg",
-              message:
-                "Session router and SSE factories must reach the database through SessionDirectoryService — importing `pg` here is forbidden.",
-            },
-          ],
-          patterns: [
-            {
-              group: ["pg/*"],
-              message:
-                "Session router and SSE factories must reach the database through SessionDirectoryService — `pg/*` subpaths are forbidden here.",
-            },
-          ],
-        },
-      ],
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "ImportExpression[source.value=/^pg(\\/.*)?$/]",
-          message:
-            'Session router and SSE factories must reach the database through SessionDirectoryService — a dynamic `import("pg")` is forbidden here just as the static form is.',
-        },
-      ],
-    },
-  },
   // `@ai-sidekicks/contracts` isomorphism guard. Contracts
   // ships to Node, Cloudflare Workers, AND the browser (it is the shared wire
   // surface), so it must stay free of Node-only builtins: a `node:` import or

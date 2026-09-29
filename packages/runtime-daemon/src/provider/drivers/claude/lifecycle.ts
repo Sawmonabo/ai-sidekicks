@@ -1060,7 +1060,6 @@ export type ClaudeSessionUnavailableReason =
   | "run_already_dispatched"
   | "session_turn_in_flight"
   | "run_dispatch_unresolved"
-  | "cost_cap_mismatch"
   | "execution_posture_mismatch"
   | "output_schema_unbound"
   | "output_schema_mismatch"
@@ -1079,10 +1078,6 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
   session_turn_in_flight:
     "Another run's frame is still pending on this Claude session; its turn has not settled.",
   run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
-  cost_cap_mismatch:
-    "The run's admitted cost cap does not match the cap the Claude session was spawned with.",
-  // (A run declaring no cap is admitted into any session — see
-  // `#assertSpawnBoundRealization`.)
   execution_posture_mismatch:
     "The run's execution posture does not match the posture the Claude session was spawned with.",
   output_schema_mismatch:
@@ -1576,13 +1571,13 @@ const CLAUDE_BOUNDARY_MEDIATABLE_PERMISSION_MODES: ReadonlySet<string> = new Set
 ]);
 
 /** Why one subagent definition was withheld from the spawn. */
-export interface ClaudeWithheldSubagentDefinition {
+interface ClaudeWithheldSubagentDefinition {
   readonly name: string;
   readonly reason: string;
 }
 
 /** A subagent policy split into what this driver will spawn and what it refused. */
-export interface ClaudeSubagentPolicyRealization {
+interface ClaudeSubagentPolicyRealization {
   readonly policy: SubagentPolicy;
   readonly withheld: readonly ClaudeWithheldSubagentDefinition[];
 }
@@ -4700,37 +4695,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     };
   }
 
-  // Claude binds the cap, the posture, and the output schema AT SPAWN. A run
-  // admitted against a different realization must force a session-boundary
-  // relaunch — which is the daemon's decision — so the driver's job is to refuse
-  // rather than to start the run under whatever the process happens to carry.
-  // Never a start-in-uncapped, never a silent partial posture application.
+  // Claude binds the posture and the output schema AT SPAWN. A run admitted
+  // against a different realization must force a session-boundary relaunch —
+  // which is the daemon's decision — so the driver's job is to refuse rather
+  // than to start the run under whatever the process happens to carry. Never a
+  // silent partial posture application.
   //
   // Each check is ONE-DIRECTIONAL, keyed on what the RUN declares. A run that
   // declares nothing on an axis is not constrained on it.
   #assertSpawnBoundRealization(params: StartRunParams, live: LiveClaudeSession): void {
-    // The cost-cap rule runs in exactly one direction: a native-cap run starts
-    // only inside a provider session spawned with the matching cap, so an
-    // existing uncapped (or differently-capped) process forces a capped
-    // relaunch and never a start inside an uncapped process. The converse — a
-    // run carrying NO cap inside a capped session — is deliberately not
-    // prohibited: the native cap is defense-in-depth beneath the daemon
-    // accountant and never the accountant itself, so the accountant is the
-    // enforcement, and a provider stop on such a run surfaces as an ordinary
-    // visible provider stop. Refusing it here would permanently strand every
-    // capless run in a capped session, forcing relaunches nothing asks for.
-    const runCostCapCents = params.admittedCostCapCents;
-    if (
-      runCostCapCents !== undefined &&
-      runCostCapCents !== live.spawnBinding.admittedCostCapCents
-    ) {
-      throw new ClaudeSessionUnavailableError("cost_cap_mismatch", {
-        sessionId: live.sessionId,
-        runId: params.runId,
-        detail: `Run cap ${String(runCostCapCents)}, session cap ${String(live.spawnBinding.admittedCostCapCents)}.`,
-      });
-    }
-
     const runPosture = params.executionPosture;
     if (runPosture !== undefined) {
       const spawnPosture = live.spawnBinding.executionPosture;

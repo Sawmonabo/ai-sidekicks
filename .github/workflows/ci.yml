@@ -584,7 +584,7 @@ jobs:
         # check, which run at the default concurrency. The dead-code check
         # covers every workspace, so it runs in the `structure` job below.
         include:
-          - tier: "test:renderer test:main-unit test:console-unit test:console-assets"
+          - tier: "test:main-unit test:console-unit test:console-assets"
           - tier: "test:console-browser test:console-accessibility"
             serial: true
           - tier: "test:console-bundle"
@@ -1072,8 +1072,8 @@ jobs:
           cache: "pnpm"
 
       # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron:
-      # the desktop package's `test:coverage` is `vitest run --project=renderer`,
-      # a jsdom project, and the `main` (smoke) project — the only one that
+      # the desktop package's `test:coverage` is `vitest run --project=console-unit`,
+      # a happy-dom project, and the `main` (smoke) project — the only one that
       # spawns the binary — is not in the coverage set. Without this the
       # `apps/desktop` postinstall would pull the 120-160 MB platform archive
       # this job cannot use.

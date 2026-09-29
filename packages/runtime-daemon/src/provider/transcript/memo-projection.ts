@@ -1239,11 +1239,7 @@ export interface MemoDeliveryRequest {
  * retry — under this key or a grown projection's — from sending into a provider
  * still applying the first send.
  */
-export type MemoDeliveryDisposition =
-  | "delivered"
-  | "already-delivered"
-  | "withheld"
-  | "unconfirmed";
+type MemoDeliveryDisposition = "delivered" | "already-delivered" | "withheld" | "unconfirmed";
 
 /**
  * Why nothing reached the target, on the arm where that is known.
@@ -1254,7 +1250,7 @@ export type MemoDeliveryDisposition =
  * the one reading that can distinguish a refused send from a slow one — and so
  * it is never the settlement of the call that attempted the send.
  */
-export type MemoWithheldReason = "target-unreadable" | "send-refused";
+type MemoWithheldReason = "target-unreadable" | "send-refused";
 
 /**
  * Which memo the settlement's declared-loss list describes.
@@ -1271,7 +1267,7 @@ export type MemoWithheldReason = "target-unreadable" | "send-refused";
  * bound stated AS an upper bound, never a fresh render passed off as the
  * delivered one.
  */
-export type MemoDeclaredLossSource = "this-delivery" | "delivered-memo" | "unknown";
+type MemoDeclaredLossSource = "this-delivery" | "delivered-memo" | "unknown";
 
 export interface MemoDeliverySettlement {
   /**

@@ -12,16 +12,13 @@
 // forgets ships an `undefined` into the rollback comparison. This file pins
 // the type side.
 //
-// Four claims, each a compile-time constraint rather than a runtime assertion:
+// Three claims, each a compile-time constraint rather than a runtime assertion:
 //   1. Narrowing on `kind === "run"` yields a type whose `runId` / `position` /
 //      `epoch` are REQUIRED, and whose `superseded` is optional.
-//   2. Narrowing on `kind === "legacy_stub"` yields a type that has NO
-//      `position` / `epoch` / `superseded` keys at all — structurally absent,
-//      not optional-and-usually-missing.
-//   3. Narrowing on `kind === "rollback_boundary"` yields a typed
+//   2. Narrowing on `kind === "rollback_boundary"` yields a typed
 //      `RunRolledBackEvent` payload, so `payload.targetPosition` is a `number`
 //      reachable without a cast.
-//   4. Narrowing on `kind === "general"` yields a type carrying NO attribution
+//   3. Narrowing on `kind === "general"` yields a type carrying NO attribution
 //      member, so a consumer cannot read a run identity off the non-run arm.
 //
 // Negative-test verification (run during the implementing task):
@@ -29,7 +26,7 @@
 //   • run `pnpm --filter @ai-sidekicks/contracts typecheck`
 //   • expect TS2344 at the `RunArmAttributionIsRequired` line below
 //   • restore + re-run to confirm typecheck passes
-// The same dance was run for claims 2, 3, and 4. Subsequent edits to the row
+// The same dance was run for claims 2 and 3. Subsequent edits to the row
 // union re-trigger every check in CI typecheck.
 
 import type { EventCursor } from "./session.js";
@@ -62,12 +59,11 @@ type RequiredKeys<T> = {
   [Key in keyof T]-?: object extends Pick<T, Key> ? never : Key;
 }[keyof T];
 
-// The four narrowed arms, obtained the way a consumer obtains them: by
+// The three narrowed arms, obtained the way a consumer obtains them: by
 // discriminating the union on `kind`, never by importing the arm interface.
 // Importing the arm would prove the arm's own shape and prove nothing about
 // whether `kind` selects it.
 type RunArm = Extract<TimelineRow, { kind: "run" }>;
-type LegacyStubArm = Extract<TimelineRow, { kind: "legacy_stub" }>;
 type RollbackBoundaryArm = Extract<TimelineRow, { kind: "rollback_boundary" }>;
 type GeneralArm = Extract<TimelineRow, { kind: "general" }>;
 
@@ -94,18 +90,7 @@ type _SupersededMarkerIsSingleField = AssertExtends<
 >;
 
 // ---------------------------------------------------------------------------
-// Claim 2 — the legacy stub has no position/epoch KEYS (structurally absent)
-// ---------------------------------------------------------------------------
-
-type _LegacyStubHasNoOrdinals = AssertNever<
-  Extract<keyof LegacyStubArm, "position" | "epoch" | "superseded">
->;
-
-/** It does keep `runId` — every run-scoped stub preserves it. */
-type _LegacyStubKeepsRunId = AssertExtends<RequiredKeys<LegacyStubArm>, "runId">;
-
-// ---------------------------------------------------------------------------
-// Claim 3 — the boundary arm's payload is the typed event, reachable uncast
+// Claim 2 — the boundary arm's payload is the typed event, reachable uncast
 // ---------------------------------------------------------------------------
 
 type _BoundaryPayloadIsTyped = AssertExtends<RunRolledBackEvent, RollbackBoundaryArm["payload"]>;
@@ -124,7 +109,7 @@ type _BoundaryCutoffIsNumber = AssertExtends<
 type _BoundaryTypeIsPinned = AssertExtends<"run.rolled_back", RollbackBoundaryArm["type"]>;
 
 /**
- * …and so is its `category`. On the other three arms this is the open
+ * …and so is its `category`. On the other two arms this is the open
  * `EventCategory` enum; here it is the one literal `run.rolled_back` is
  * registered under, so a consumer that groups rows by category cannot be
  * handed a boundary filed anywhere else.
@@ -132,7 +117,7 @@ type _BoundaryTypeIsPinned = AssertExtends<"run.rolled_back", RollbackBoundaryAr
 type _BoundaryCategoryIsPinned = AssertExtends<"run_lifecycle", RollbackBoundaryArm["category"]>;
 
 // ---------------------------------------------------------------------------
-// Claim 4 — the general arm carries no attribution member
+// Claim 3 — the general arm carries no attribution member
 // ---------------------------------------------------------------------------
 
 type _GeneralArmHasNoAttribution = AssertNever<
@@ -282,13 +267,10 @@ export function isSupersededAgainstCutoff(row: TimelineRow, rewindCutoff: number
     case "rollback_boundary":
       // Reached through the narrowed payload, never through a cast.
       return row.position > row.payload.targetPosition;
-    case "legacy_stub":
-      // Exempt by construction: the row has no ordinal to rank.
-      return false;
     case "general":
       return false;
     default: {
-      // Exhaustiveness: a fifth arm added without a case here fails to compile.
+      // Exhaustiveness: a fourth arm added without a case here fails to compile.
       const unreachable: never = row;
       return unreachable;
     }

@@ -13,7 +13,7 @@
 //   * Vitest's TypeScript loader IS active when running tests, but
 //     `worker_threads.Worker` children do NOT inherit vitest's loader
 //     hooks — they get a vanilla Node interpreter.
-//   * Vanilla Node 22.21+ DOES strip TypeScript types from `.ts` files
+//   * Vanilla Node DOES strip TypeScript types from `.ts` files
 //     it executes, but it does NOT rewrite `.js` import specifiers to
 //     find sibling `.ts` files. That step is missing.
 //

@@ -22,21 +22,22 @@
   // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which
   // is used here: exempting a file would exempt every export it ever grows.
   //
-  // MEASURED, NOT ASSUMED — the tag must sit on the re-export specifier knip reports,
-  // which for a barrelled symbol is the barrel's own specifier and not the defining
-  // declaration. knip reads per-specifier tags on an `export { … } from` (its
-  // `handleExportNamed`), and a tag on the declaration a barrel re-exports suppresses
-  // nothing there while raising an "unused tag" hint, because that declaration IS
-  // referenced — by the barrel. `--treat-tag-hints-as-errors` turns that hint into a
-  // gate failure, so a marker that outlived its consumer fails the run instead of
-  // rotting: the PR that imports the symbol deletes the tag in the same diff.
+  // MEASURED, NOT ASSUMED — the tag sits on every place knip reports. For a barrelled
+  // symbol that is the barrel's own re-export specifier: knip reads per-specifier tags on
+  // an `export { … } from` (its `handleExportNamed`). When the barrel is the defining
+  // file's ONLY importer, knip reports the defining declaration as well, so that
+  // declaration carries the tag too. A tag anywhere knip does not report suppresses
+  // nothing and raises an "unused tag" hint, and `--treat-tag-hints-as-errors` turns that
+  // hint into a gate failure, so a marker that outlived its consumer fails the run
+  // instead of rotting: the PR that imports the symbol deletes the tag in the same diff.
   "tags": ["-consumedBy"],
 
   "workspaces": {
     ".": {
       "entry": [],
       "project": [],
-      // `semver` is required by the CI workflow's inline `node -e` scripts, which knip does not read.
+      // `semver` is required by the CI workflow's inline `node -e` scripts, which knip does not
+      // read.
       "ignoreDependencies": ["semver"]
     },
 
@@ -131,8 +132,10 @@
     "packages/client-sdk": {},
     "packages/control-plane": {
       // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
-      // `wrangler deploy` by hand, so no package script names it.
-      "ignoreDependencies": ["wrangler"]
+      // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
+      // Postgres client the control plane's stores are built on, not imported until those
+      // stores land.
+      "ignoreDependencies": ["wrangler", "pg", "@types/pg"]
     },
     "packages/runtime-daemon": {
       // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
