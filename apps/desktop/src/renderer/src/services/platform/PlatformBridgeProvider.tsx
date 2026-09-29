@@ -28,7 +28,7 @@ import { DEFAULT_SCENARIO_ID } from "@renderer/console/bridge/scenario/selection
 import { ScenarioFixtureControl } from "../daemon/selection.fixture.js";
 
 /** The bridge provider's props. */
-export interface DesktopBridgeProviderProps {
+export interface PlatformBridgeProviderProps {
   readonly children: ReactNode;
   /**
    * Override the resolved bridge. Tests pass a fixture directly; the app passes nothing and
@@ -52,7 +52,7 @@ export interface DesktopBridgeProviderProps {
  * from change or its own engine has been torn down — see the module header for why
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
-export function DesktopBridgeProvider(props: DesktopBridgeProviderProps): React.JSX.Element {
+export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
   const { children, bridge, scenarioId, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
     () => new ResolvedConsoleBridge(bridge, scenarioId),

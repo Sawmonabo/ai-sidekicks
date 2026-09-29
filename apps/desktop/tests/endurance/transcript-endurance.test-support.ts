@@ -39,8 +39,6 @@ import {
 } from "../../fixtures/data/script-entries.js";
 import type { ConsoleScenario } from "../../fixtures/scenario.js";
 
-const TRANSCRIPT_ENDURANCE_SCENARIO_ID = "transcript-endurance";
-
 /** The UUID v7 time prefix every generated identifier shares. */
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";
 
@@ -212,7 +210,7 @@ export function createTranscriptEnduranceFixture(
   }
 
   return {
-    id: TRANSCRIPT_ENDURANCE_SCENARIO_ID,
+    id: "transcript-endurance",
     label: "Endurance",
     purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run chapters, for the tiers that measure the transcript at scale.`,
     sessionId: SESSION_ID,

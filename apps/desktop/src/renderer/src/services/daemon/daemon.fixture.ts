@@ -13,7 +13,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type {
-  AttentionPlaneSubscribe,
+  AttentionSubscribe,
   DesktopBridge,
 } from "@renderer/services/platform/platform-bridge.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
@@ -55,7 +55,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DesktopBrid
  */
 export function createFixtureAttentionSubscribe(
   scenarioEngine: ScenarioEngine,
-): AttentionPlaneSubscribe {
+): AttentionSubscribe {
   return (onAttentionChange) =>
     scenarioEngine.subscribe(() => {
       onAttentionChange();
