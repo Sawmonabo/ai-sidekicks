@@ -90,7 +90,7 @@ const CONTEXT_COMPACTED_TYPE = "usage.context_compacted";
  * A pure fold, so the same log answers with the same summaries however many times it
  * is projected — the property the caller's memo depends on.
  */
-export function deriveShellChildRunSummaries(
+export function deriveChildRunSummaries(
   events: readonly ConsoleSessionEvent[],
 ): ReadonlyMap<string, ChildRunSummary> {
   const readingsByRunId = new Map<string, ChildRunReading>();

@@ -31,7 +31,7 @@ describe("the snapshot never regresses a newer tail row", () => {
     // The finding's own example: a tail update for B, then a snapshot of [A, B].
     const order = new QueueOrder();
     order.merge(parsedRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
-    order.seat([
+    order.replaceWithSnapshot([
       parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
       parsedRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
     ]);
@@ -42,7 +42,7 @@ describe("the snapshot never regresses a newer tail row", () => {
   it("keeps an admitted tail row against a queued snapshot row", () => {
     const order = new QueueOrder();
     order.merge(parsedRow(QUEUE_ITEM_A, "admitted", "2026-09-02T09:00:05.000Z"));
-    order.seat([parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:04.000Z")]);
+    order.replaceWithSnapshot([parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:04.000Z")]);
     expect(order.items()[0]?.state).toBe("admitted");
   });
 
@@ -51,14 +51,14 @@ describe("the snapshot never regresses a newer tail row", () => {
     // the emission is the later reading and is what the list shows.
     const order = new QueueOrder();
     order.merge(parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:04.000Z"));
-    order.seat([parsedRow(QUEUE_ITEM_A, "canceled", "2026-09-02T09:00:06.000Z")]);
+    order.replaceWithSnapshot([parsedRow(QUEUE_ITEM_A, "canceled", "2026-09-02T09:00:06.000Z")]);
     expect(order.items()[0]?.state).toBe("canceled");
   });
 
   it("appends tail-only ids after the snapshot's own order", () => {
     const order = new QueueOrder();
     order.merge(parsedRow(QUEUE_ITEM_C, "queued", "2026-09-02T09:00:02.000Z"));
-    order.seat([
+    order.replaceWithSnapshot([
       parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
       parsedRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
     ]);

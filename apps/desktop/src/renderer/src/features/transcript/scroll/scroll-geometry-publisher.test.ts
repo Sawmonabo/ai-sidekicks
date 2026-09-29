@@ -13,21 +13,21 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import {
-  LEDGER_GEOMETRY_EPSILON_PX,
-  LEDGER_TAIL_TOLERANCE_PX,
+  TRANSCRIPT_GEOMETRY_EPSILON_PX,
+  TRANSCRIPT_TAIL_TOLERANCE_PX,
 } from "../viewport/viewport-constants.js";
 import {
-  LedgerGeometryPublisher,
-  type LedgerGeometryReading,
+  ScrollGeometryPublisher,
+  type ScrollGeometryReading,
 } from "./scroll-geometry-publisher.js";
-import type { LedgerGeometry } from "./geometry-sample.js";
+import type { ScrollGeometry } from "./geometry-sample.js";
 
 let clock: ManualClock;
-let publisher: LedgerGeometryPublisher;
+let publisher: ScrollGeometryPublisher;
 
 beforeEach(() => {
   clock = new ManualClock();
-  publisher = new LedgerGeometryPublisher({ clock });
+  publisher = new ScrollGeometryPublisher({ clock });
 });
 
 /** A viewport-sized box in a taller log, at the offset a case names. */
@@ -35,7 +35,7 @@ function readingAt(
   scrollTop: number,
   viewportHeight = 500,
   contentHeight = 5000,
-): LedgerGeometryReading {
+): ScrollGeometryReading {
   return { scrollTop, viewportHeight, contentHeight };
 }
 
@@ -49,16 +49,19 @@ describe("the ledger geometry publisher — the tail", () => {
   });
 
   it("counts the tolerance from the bottom rather than from the offset", () => {
-    const withinTolerance = publisher.publish(readingAt(4500 - LEDGER_TAIL_TOLERANCE_PX), "scroll");
-    expect(withinTolerance.distanceFromTailPx).toBe(LEDGER_TAIL_TOLERANCE_PX);
+    const withinTolerance = publisher.publish(
+      readingAt(4500 - TRANSCRIPT_TAIL_TOLERANCE_PX),
+      "scroll",
+    );
+    expect(withinTolerance.distanceFromTailPx).toBe(TRANSCRIPT_TAIL_TOLERANCE_PX);
     expect(withinTolerance.isAtTail).toBe(true);
   });
 
   it("negative control: a reader one pixel past the tolerance is not following", () => {
     // Without this the two cases above would pass over a publisher that answered
     // `isAtTail` for every offset in the log.
-    const outside = publisher.publish(readingAt(4500 - LEDGER_TAIL_TOLERANCE_PX - 1), "scroll");
-    expect(outside.distanceFromTailPx).toBe(LEDGER_TAIL_TOLERANCE_PX + 1);
+    const outside = publisher.publish(readingAt(4500 - TRANSCRIPT_TAIL_TOLERANCE_PX - 1), "scroll");
+    expect(outside.distanceFromTailPx).toBe(TRANSCRIPT_TAIL_TOLERANCE_PX + 1);
     expect(outside.isAtTail).toBe(false);
   });
 
@@ -72,7 +75,7 @@ describe("the ledger geometry publisher — the tail", () => {
 describe("the ledger geometry publisher — who is woken", () => {
   it("replays the last sample to a subscriber that arrives after it", () => {
     publisher.publish(readingAt(0), "scroll");
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     expect(received).toHaveLength(1);
     expect(received[0]?.contentHeight).toBe(5000);
@@ -81,7 +84,7 @@ describe("the ledger geometry publisher — who is woken", () => {
   it("negative control: a publisher that published nothing replays nothing", () => {
     // Without this the case above would pass over a subscription that replayed a
     // fabricated zero sample rather than the one that was published.
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     expect(received).toStrictEqual([]);
     expect(publisher.lastGeometry).toBeUndefined();
@@ -89,17 +92,17 @@ describe("the ledger geometry publisher — who is woken", () => {
 
   it("wakes nobody for a sample identical to the one they already hold", () => {
     publisher.publish(readingAt(120), "scroll");
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     received.length = 0;
-    publisher.publish(readingAt(120 + LEDGER_GEOMETRY_EPSILON_PX / 2), "scroll");
+    publisher.publish(readingAt(120 + TRANSCRIPT_GEOMETRY_EPSILON_PX / 2), "scroll");
     expect(received).toStrictEqual([]);
   });
 
   it("negative control: a move past the epsilon does wake them", () => {
     // Which is what makes the suppression above a comparison rather than a mute.
     publisher.publish(readingAt(120), "scroll");
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     received.length = 0;
     publisher.publish(readingAt(121), "scroll");
@@ -118,7 +121,7 @@ describe("the ledger geometry publisher — who is woken", () => {
 
   it("treats provenance as provenance: a new cause and time decide nothing", () => {
     publisher.publish(readingAt(120), "scroll");
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     received.length = 0;
     clock.advance(1_000);
@@ -133,7 +136,7 @@ describe("the ledger geometry publisher — who is woken", () => {
 
   it("drops every subscriber on clear, and keeps the sample it holds", () => {
     publisher.publish(readingAt(0), "scroll");
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     received.length = 0;
     publisher.clear();

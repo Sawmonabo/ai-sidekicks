@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
-import { LedgerRowLeaseProvider } from "../viewport/components/RetainedRowStateProvider.js";
-import { type LedgerRowLease } from "../viewport/retained-row-state-table.js";
+import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
+import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
@@ -56,12 +56,12 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 function MountedInAList(props: {
   readonly row: TimelineRowSlotProps["row"];
   readonly listDensity: TimelineRowSlotProps["density"];
-  readonly onLeaseWritten?: (rowKey: string, lease: LedgerRowLease) => void;
+  readonly onLeaseWritten?: (rowKey: string, lease: RetainedRowState) => void;
 }): React.JSX.Element {
-  const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
+  const [leased, setLeased] = useState<RetainedRowState | undefined>(undefined);
   return (
     <InBridge>
-      <LedgerRowLeaseProvider
+      <RetainedRowStateProvider
         channel={{
           setLease: (rowKey, lease) => {
             props.onLeaseWritten?.(rowKey, lease);
@@ -70,7 +70,7 @@ function MountedInAList(props: {
         }}
       >
         <TranscriptRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
-      </LedgerRowLeaseProvider>
+      </RetainedRowStateProvider>
     </InBridge>
   );
 }
@@ -121,7 +121,7 @@ describe("standing in for the list's density decision", () => {
     // virtualizer scrolled the row out of the mounted range, so the choice had to
     // leave the component — and this asserts on the value that leaves it, keyed by
     // the row, which is what the window parks and re-parks across a prune.
-    const written: Array<{ readonly rowKey: string; readonly lease: LedgerRowLease }> = [];
+    const written: Array<{ readonly rowKey: string; readonly lease: RetainedRowState }> = [];
     const row = sampleRunRow({ type: "tool.invoked" });
     const { container } = render(
       <MountedInAList

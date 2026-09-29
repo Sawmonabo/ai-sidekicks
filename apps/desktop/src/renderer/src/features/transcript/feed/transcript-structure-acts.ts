@@ -13,12 +13,12 @@
 // act folds exactly the ones a person opened.
 
 import { type FindStepDirection } from "../find/find-model.js";
-import { type LedgerFindState } from "../find/hooks/useTranscriptFind.js";
-import { type LedgerStructureActs } from "../mounted-transcript.js";
+import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
+import { type TranscriptActs } from "../mounted-transcript.js";
 
 /** The state one window's acts are built over. */
-export interface LedgerFeedActInputs {
-  readonly find: LedgerFindState;
+export interface TranscriptStructureActInputs {
+  readonly find: TranscriptFindState;
   /** The transcript's one scroll writer, for the walk's jumps. */
   readonly jumpToRow: (rowId: string) => void;
   readonly jumpToTail: () => void;
@@ -30,10 +30,10 @@ export interface LedgerFeedActInputs {
  * Build the acts a contributed transcript command runs.
  *
  * Written out member by member rather than assembled from a name list, so an act added to
- * `LedgerStructureActs` fails to compile here instead of reaching a mounted transcript
+ * `TranscriptActs` fails to compile here instead of reaching a mounted transcript
  * through nothing.
  */
-export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStructureActs {
+export function buildTranscriptStructureActs(inputs: TranscriptStructureActInputs): TranscriptActs {
   const stepAndJump = (direction: FindStepDirection): void => {
     const walked = inputs.find.step(direction);
     if (walked !== undefined) {
@@ -48,7 +48,7 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
     stepFindPrevious: () => {
       stepAndJump("previous");
     },
-    scrollToTail: inputs.jumpToTail,
-    collapseAllTerminalChapters: inputs.collapseAllTerminalChapters,
+    jumpToLatest: inputs.jumpToTail,
+    foldEveryRun: inputs.collapseAllTerminalChapters,
   };
 }

@@ -1,7 +1,7 @@
 // The React side of the backward walk: one reader per session, and the act a control
 // presses.
 //
-// `earlier-window-reader.ts` holds the policy — where the next page starts, whether
+// `earlier-history-reader.ts` holds the policy — where the next page starts, whether
 // one is in flight, whether the producer said any remain — and this module holds the
 // three things React has to supply for it: a holder whose lifetime is the session's, a
 // reason to re-render when the answer moves, and a callback that does not change
@@ -34,13 +34,10 @@ import {
   type SubjectScopedDisposal,
 } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import {
-  LedgerEarlierWindowReader,
-  type LedgerEarlierWindowState,
-} from "../earlier-history-reader.js";
+import { EarlierHistoryReader, type EarlierHistoryState } from "../earlier-history-reader.js";
 
 /** What the head control renders, and the one act it performs. */
-export interface LedgerEarlierPaging extends LedgerEarlierWindowState {
+export interface EarlierHistoryPaging extends EarlierHistoryState {
   /**
    * Ask for one page of rows before this window's head.
    *
@@ -63,11 +60,11 @@ export interface LedgerEarlierPaging extends LedgerEarlierWindowState {
  * fresh one minted, rather than the pane spending its life pressing a control on a
  * line that can never open a live round again.
  */
-const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<LedgerEarlierWindowReader> = {
-  dispose: (reader: LedgerEarlierWindowReader): void => {
+const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<EarlierHistoryReader> = {
+  dispose: (reader: EarlierHistoryReader): void => {
     reader.abandonReads();
   },
-  isClosed: (reader: LedgerEarlierWindowReader): boolean => reader.isAbandoned,
+  isClosed: (reader: EarlierHistoryReader): boolean => reader.isAbandoned,
 };
 
 /**
@@ -77,12 +74,12 @@ const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<LedgerEarlierWindowR
  * is the store's window head and its rows land in the store's own log — a hook that
  * took a store per call could be handed two.
  */
-export function useLedgerEarlierPaging(sessionStore: SessionStore): LedgerEarlierPaging {
+export function useEarlierHistory(sessionStore: SessionStore): EarlierHistoryPaging {
   const bridge = useConsoleBridge();
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
-    () => new LedgerEarlierWindowReader(),
+    () => new EarlierHistoryReader(),
     EARLIER_WINDOW_READER_DISPOSAL,
   );
   const reader = held.value;

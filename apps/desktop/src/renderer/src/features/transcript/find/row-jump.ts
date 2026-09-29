@@ -16,7 +16,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
  *
  * Order is preserved throughout: this narrows, it never sorts.
  */
-export function narrowLedgerRows(
+export function narrowRows(
   rows: readonly TimelineRow[],
   admits: (row: TimelineRow) => boolean,
 ): readonly TimelineRow[] {
@@ -53,10 +53,10 @@ export function narrowLedgerRows(
  * must have words for are therefore the same set, derived from this line rather
  * than restated beside it.
  */
-export const LEDGER_JUMP_ABSENCES = ["folded-into-chapter", "outside-window"] as const;
+export const ROW_JUMP_ABSENCES = ["folded-into-chapter", "outside-window"] as const;
 
 /** Which narrowing took a row out of the viewport. */
-export type LedgerJumpAbsence = (typeof LEDGER_JUMP_ABSENCES)[number];
+export type RowJumpAbsence = (typeof ROW_JUMP_ABSENCES)[number];
 
 /**
  * What one stage kept, asked by row id.
@@ -65,7 +65,7 @@ export type LedgerJumpAbsence = (typeof LEDGER_JUMP_ABSENCES)[number];
  * lookup it already holds — the projection's `rowsByKey` map, the viewport's key
  * set — instead of copying one into the other shape on every keystroke.
  */
-export interface LedgerRowIdMembership {
+export interface RowIdMembership {
   readonly has: (rowId: string) => boolean;
 }
 
@@ -73,11 +73,11 @@ export interface LedgerRowIdMembership {
  * What each stage admitted, for one classification.
  *
  * Total over the absence tuple by construction: a narrowing added to
- * `LEDGER_JUMP_ABSENCES` fails to compile at every caller until that caller says
+ * `ROW_JUMP_ABSENCES` fails to compile at every caller until that caller says
  * what the new stage kept, which is the whole reason the stages arrive as a record
  * rather than as an array a caller could pass short or out of order.
  */
-export type LedgerJumpStages = Readonly<Record<LedgerJumpAbsence, LedgerRowIdMembership>>;
+export type RowJumpStages = Readonly<Record<RowJumpAbsence, RowIdMembership>>;
 
 /**
  * Where a jump lands, or why it did not.
@@ -89,9 +89,9 @@ export type LedgerJumpStages = Readonly<Record<LedgerJumpAbsence, LedgerRowIdMem
  * `not-in-loaded-log` is the one absence that is not a stage of the pipeline: no
  * narrowing dropped the row, because this window never held it.
  */
-export type LedgerJumpOutcome =
+export type RowJumpOutcome =
   | { readonly status: "found"; readonly row: TimelineRow }
-  | { readonly status: LedgerJumpAbsence; readonly row: TimelineRow }
+  | { readonly status: RowJumpAbsence; readonly row: TimelineRow }
   | { readonly status: "not-in-loaded-log" };
 
 /**
@@ -104,14 +104,14 @@ export type LedgerJumpOutcome =
  */
 export function jumpToEventId(
   loadedRows: readonly TimelineRow[],
-  stages: LedgerJumpStages,
+  stages: RowJumpStages,
   eventId: string,
-): LedgerJumpOutcome {
+): RowJumpOutcome {
   const row = loadedRows.find((candidate) => candidate.id === eventId);
   if (row === undefined) {
     return { status: "not-in-loaded-log" };
   }
-  for (const absence of LEDGER_JUMP_ABSENCES) {
+  for (const absence of ROW_JUMP_ABSENCES) {
     if (!stages[absence].has(eventId)) {
       return { status: absence, row };
     }

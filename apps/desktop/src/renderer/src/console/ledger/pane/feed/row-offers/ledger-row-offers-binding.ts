@@ -6,7 +6,7 @@
 // lease table, the ledger's one scroll writer, and the host's clipboard and file
 // reveal. A test of the first needs a few lambdas; a test of this needs a bridge.
 //
-// EVERY ACT IS RESOLVED AT PRESS TIME, `ledger-feed-acts.ts`' rule and for a sharper
+// EVERY ACT IS RESOLVED AT PRESS TIME, `transcript-structure-acts.ts`' rule and for a sharper
 // version of its reason. The binding is handed to `LedgerFeedRow`, whose memo
 // compares it: a binding rebuilt when the window moved would move on every admitted
 // event and take every mounted row's card down with it. So the identity is minted
@@ -41,7 +41,7 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { raiseConsoleActRefusal } from "../../../../palette/index.js";
 import { type TimelineRowDensity } from "../../../../seats/index.js";
-import { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
+import { type RetainedRowState } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
 import { buildLedgerRowOffers, type LedgerRowOffer } from "./ledger-row-offers.js";
 
 /**
@@ -82,8 +82,8 @@ export const LEDGER_FILE_NOT_REVEALED_REFUSAL: ConsoleRefusal = refuse(
 /** The live surfaces one window's row offers act on. Read at press time. */
 export interface LedgerRowOfferSurface {
   /** This row's leased body state, so a disclosure press keeps its inner offset. */
-  readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
-  readonly setRowLease: (rowKey: string, lease: LedgerRowLease) => void;
+  readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
+  readonly setRowLease: (rowKey: string, lease: RetainedRowState) => void;
   /** The ledger's one scroll writer. A chapter header is keyed by its run id. */
   readonly jumpToRow: (rowKey: string) => void;
   readonly bridge: ConsoleBridge;

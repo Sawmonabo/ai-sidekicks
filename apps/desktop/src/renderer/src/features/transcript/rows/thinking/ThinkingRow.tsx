@@ -1,6 +1,6 @@
 // The reasoning row's body: the four arms, the streaming tail, and the one control.
 //
-// A mount may supply `body` to replace it. `reasoning-surface.ts` carries the reading this
+// A mount may supply `body` to replace it. `reasoning-reading.ts` carries the reading this
 // component renders.
 //
 // WHAT IT RENDERS, and why it is a real surface rather than a placeholder. Three of the
@@ -33,21 +33,21 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { WireFigure } from "@renderer/console/primitives/index.js";
 import type { ReasoningEntry, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import {
-  REASONING_ARM_COPY,
+  REASONING_AVAILABILITY_COPY,
   reasoningTailOf,
-  type ReasoningSurfaceReading,
+  type ReasoningReading,
 } from "./reasoning-reading.js";
 
 import "./thinking.css";
 
 /** What the row hands a supplied body. */
-export interface ReasoningSurfaceBodyProps {
+export interface ThinkingRowBodyProps {
   readonly runId: RunId;
-  readonly reading: ReasoningSurfaceReading;
+  readonly reading: ReasoningReading;
 }
 
 /** What a mount hands the reasoning surface. */
-export interface ReasoningSurfaceProps {
+export interface ThinkingRowProps {
   /**
    * A body that replaces the built-in surface, or `undefined` while the surface draws itself.
    *
@@ -55,18 +55,18 @@ export interface ReasoningSurfaceProps {
    * compile error at the construction site rather than an absent key that renders
    * identically to a deliberate "none".
    */
-  readonly body: ((props: ReasoningSurfaceBodyProps) => React.ReactNode) | undefined;
+  readonly body: ((props: ThinkingRowBodyProps) => React.ReactNode) | undefined;
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
   readonly liveText: string | undefined;
-  readonly reading: ReasoningSurfaceReading;
+  readonly reading: ReasoningReading;
   /** Ask the daemon for this run's reasoning surface. */
   readonly onExpand: () => void;
 }
 
 /** The reasoning body: the built-in surface, or the supplied `body` when the run is known. */
-export function ReasoningSurface(props: ReasoningSurfaceProps): React.JSX.Element {
+export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
   if (props.body !== undefined && props.runId !== undefined) {
     return (
       <div className="meridian-reasoning-surface">
@@ -116,7 +116,7 @@ function renderReasoningTail(liveText: string | undefined): React.ReactNode {
 }
 
 /** Whatever the read has said so far, in the shape that fact takes. */
-function renderReasoningReading(reading: ReasoningSurfaceReading): React.ReactNode {
+function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
   switch (reading.status) {
     case "not-asked":
       return null;
@@ -155,7 +155,7 @@ function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.Re
       </>
     );
   }
-  const copy = REASONING_ARM_COPY[response.availability];
+  const copy = REASONING_AVAILABILITY_COPY[response.availability];
   return (
     <Nothing
       kind="empty"
@@ -203,7 +203,7 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
  */
 function renderExpandControl(
   runId: RunId | undefined,
-  reading: ReasoningSurfaceReading,
+  reading: ReasoningReading,
   onExpand: () => void,
 ): React.ReactNode {
   if (runId === undefined || reading.status === "reading" || reading.status === "read") {

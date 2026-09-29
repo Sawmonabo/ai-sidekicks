@@ -10,7 +10,7 @@
 // WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS. `@tanstack/react-virtual` is adopted
 // under our own scroll controller. The library owns the measurements, the offsets, the
 // total
-// size, and which indexes are inside the fold; `virtualizer-seams.ts` owns every way
+// size, and which indexes are inside the fold; `virtualizer-options.ts` owns every way
 // it reaches the outside world; this class owns when the four objects below are
 // asked anything, and what the tree is told afterwards.
 //
@@ -27,7 +27,7 @@
 // whether a rebuild is worth a notification are `viewport-publication.ts`'; which
 // position work waits for the committed height, and what it does when it runs, are
 // `viewport-deferred-hold.ts`'; whether a set grew at the FRONT of the window is
-// `viewport-head-growth.ts`'; and reading WHICH row the reader is on out of the
+// `viewport-head-insertion.ts`'; and reading WHICH row the reader is on out of the
 // library's measurements — the paragraph above, the two methods that perform it and
 // the glide-in-flight refusal that guards them — is `viewport-anchor-capture.ts`'.
 // This file holds the objects and the order they are asked in.
@@ -35,83 +35,83 @@
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
-import { RowMeasurementLedger } from "./row-measurement-table.js";
-import { LedgerScrollController, type LedgerScrollSurface } from "../scroll/scroll-chokepoint.js";
-import { LedgerAnchorCapture } from "./viewport-anchor-capture.js";
-import { LedgerDeferredHold } from "./viewport-deferred-hold.js";
-import { LedgerHeadGrowth } from "./viewport-head-insertion.js";
-import { LedgerPruneCycle } from "./viewport-prune-cycle.js";
-import { LedgerViewportPublication } from "./viewport-publication.js";
+import { RowMeasurementTable } from "./row-measurement-table.js";
+import { LedgerScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
+import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
+import { HeadInsertion } from "./viewport-head-insertion.js";
+import { ViewportPruneCycle } from "./viewport-prune-cycle.js";
+import { ViewportPublication } from "./viewport-publication.js";
 import {
-  compensatesForGrowth,
+  shouldCompensateForInsertion,
   countAppendedAfter,
-  type LedgerViewportConditions,
-  type LedgerViewportRow,
-  type LedgerViewportSnapshot,
+  type ViewportConditions,
+  type ViewportRow,
+  type ViewportSnapshot,
 } from "./viewport-snapshot.js";
-import { LedgerVirtualizerSeams, type LedgerRowVirtualizer } from "./virtualizer-options.js";
-import { LedgerWindow } from "./window-cap.js";
+import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
+import { TranscriptWindow } from "./window-cap.js";
 
-export interface LedgerViewportControllerOptions {
+export interface ViewportControllerOptions {
   readonly clock: ConsoleClock;
 }
 
-export class LedgerViewportController {
+export class ViewportController {
   readonly scroll: LedgerScrollController;
   readonly anchor: ReadingAnchor;
-  readonly measurements: RowMeasurementLedger;
-  readonly window: LedgerWindow;
+  readonly measurements: RowMeasurementTable;
+  readonly window: TranscriptWindow;
   /** The option object the virtualizer is constructed with. */
-  readonly seams: LedgerVirtualizerSeams;
+  readonly seams: VirtualizerOptions;
 
   /** The cap, and the re-ask a refusal owes. Constructed over the four above. */
-  readonly #pruneCycle: LedgerPruneCycle;
+  readonly #pruneCycle: ViewportPruneCycle;
   /** The one place this frame tells a render that something changed. */
-  readonly #publication: LedgerViewportPublication;
+  readonly #publication: ViewportPublication;
   /** Which row the reader is on, read without touching an element. */
-  readonly #anchorCapture: LedgerAnchorCapture;
+  readonly #anchorCapture: ViewportAnchorCapture;
 
   /** The position work a reconcile arms and the binding's layout effect performs. */
-  readonly #deferredHold: LedgerDeferredHold;
+  readonly #deferredHold: ViewportDeferredHold;
   /** Whether each incoming set grew at the front, and where it would be cut. */
-  readonly #headGrowth = new LedgerHeadGrowth();
+  readonly #headGrowth = new HeadInsertion();
   readonly #teardown: Unsubscribe[] = [];
 
-  #virtualizer: LedgerRowVirtualizer | undefined;
+  #virtualizer: TranscriptRowVirtualizer | undefined;
   #virtualKeys: readonly string[] = [];
-  #rows: readonly LedgerViewportRow[] = [];
+  #rows: readonly ViewportRow[] = [];
   #rowKeys: readonly string[] = [];
   #disposed = false;
 
-  public constructor(options: LedgerViewportControllerOptions) {
+  public constructor(options: ViewportControllerOptions) {
     this.scroll = new LedgerScrollController({ clock: options.clock });
     this.anchor = new ReadingAnchor();
-    this.measurements = new RowMeasurementLedger();
-    this.window = new LedgerWindow();
-    this.seams = new LedgerVirtualizerSeams({
+    this.measurements = new RowMeasurementTable();
+    this.window = new TranscriptWindow();
+    this.seams = new VirtualizerOptions({
       scroll: this.scroll,
       measurements: this.measurements,
       virtualKeyAt: (index) => this.#virtualKeys[index],
     });
-    this.#pruneCycle = new LedgerPruneCycle({
+    this.#pruneCycle = new ViewportPruneCycle({
       window: this.window,
       measurements: this.measurements,
       anchor: this.anchor,
       scroll: this.scroll,
       clock: options.clock,
     });
-    this.#anchorCapture = new LedgerAnchorCapture({
+    this.#anchorCapture = new ViewportAnchorCapture({
       anchor: this.anchor,
       scroll: this.scroll,
       measurements: this.measurements,
       rowKeys: () => this.#rowKeys,
       virtualizer: () => this.#virtualizer,
     });
-    this.#publication = new LedgerViewportPublication({
+    this.#publication = new ViewportPublication({
       clock: options.clock,
       build: () => this.#buildSnapshot(),
     });
-    this.#deferredHold = new LedgerDeferredHold({
+    this.#deferredHold = new ViewportDeferredHold({
       anchor: this.anchor,
       scroll: this.scroll,
       rowKeys: () => this.#rowKeys,
@@ -147,7 +147,7 @@ export class LedgerViewportController {
   }
 
   /** The stable value a render reads. Same reference until something changes. */
-  public snapshot(): LedgerViewportSnapshot {
+  public snapshot(): ViewportSnapshot {
     return this.#publication.current;
   }
 
@@ -155,7 +155,7 @@ export class LedgerViewportController {
     return this.#publication.subscribe(sink);
   }
 
-  public attach(surface: LedgerScrollSurface): void {
+  public attach(surface: ScrollContainer): void {
     this.scroll.attach(surface);
     this.seams.bindSurface(surface);
   }
@@ -173,10 +173,10 @@ export class LedgerViewportController {
    * POLICY those options run under is this class's, which is why every option body
    * below is a method here rather than a closure in the component.
    */
-  public bindVirtualizer(virtualizer: LedgerRowVirtualizer): void {
+  public bindVirtualizer(virtualizer: TranscriptRowVirtualizer): void {
     this.#virtualizer = virtualizer;
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-      compensatesForGrowth(this.anchor.state.mode, item.end, instance.scrollOffset ?? 0);
+      shouldCompensateForInsertion(this.anchor.state.mode, item.end, instance.scrollOffset ?? 0);
   }
 
   /**
@@ -193,7 +193,7 @@ export class LedgerViewportController {
    * sample taken while this frame still held the pre-prune key list would reach the
    * anchor capture against keys the window no longer has.
    */
-  public reconcile(conditions: LedgerViewportConditions): void {
+  public reconcile(conditions: ViewportConditions): void {
     const previousHeadKey = this.#rowKeys[0];
     const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
     const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
@@ -350,7 +350,7 @@ export class LedgerViewportController {
     this.#publication.scheduleFrame();
   }
 
-  #buildSnapshot(): LedgerViewportSnapshot {
+  #buildSnapshot(): ViewportSnapshot {
     const { mode, newRowCount, pinnedRootCursor } = this.anchor.state;
     return {
       rows: this.#rows,

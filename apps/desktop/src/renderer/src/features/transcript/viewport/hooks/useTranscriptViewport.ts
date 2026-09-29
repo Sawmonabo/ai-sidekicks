@@ -23,16 +23,13 @@ import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "../viewport-constants.js";
-import { LedgerViewportController } from "../viewport-controller.js";
-import { type LedgerRowLease } from "../retained-row-state-table.js";
-import {
-  type LedgerViewportConditions,
-  type LedgerViewportSnapshot,
-} from "../viewport-snapshot.js";
+import { ViewportController } from "../viewport-controller.js";
+import { type RetainedRowState } from "../retained-row-state-table.js";
+import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
-export interface LedgerViewportBinding {
-  readonly snapshot: LedgerViewportSnapshot;
+export interface TranscriptViewportBinding {
+  readonly snapshot: ViewportSnapshot;
   readonly virtualItems: readonly VirtualItem[];
   /** Rows this window holds and cannot draw, because it ran out of height. */
   readonly rowsPastElementCeiling: number;
@@ -78,9 +75,9 @@ export interface LedgerViewportBinding {
    * which the virtualizer discards the moment the row leaves the mounted range. The
    * lease survives both an unmount and a prune, under the parked-lease cap.
    */
-  readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
+  readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** Park one row body's state on the window. */
-  readonly setRowLease: (rowKey: string, lease: LedgerRowLease) => void;
+  readonly setRowLease: (rowKey: string, lease: RetainedRowState) => void;
   /**
    * What this window is showing, read at the instant it is asked.
    *
@@ -95,7 +92,7 @@ export interface LedgerViewportBinding {
   readonly readWindowDiagnostics: () => LedgerWindowReading;
 }
 
-export interface UseLedgerViewportOptions extends LedgerViewportConditions {
+export interface UseTranscriptViewportOptions extends ViewportConditions {
   /**
    * The clock every timer in this frame is minted through. Fixed for the mount:
    * a viewport that swapped clocks mid-life would have work armed on one and
@@ -118,19 +115,21 @@ export interface UseLedgerViewportOptions extends LedgerViewportConditions {
  * does it today — has already run the cleanup, and a disposed controller attaches
  * nothing, so the second mount takes a fresh one rather than a corpse.
  */
-export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerViewportBinding {
+export function useTranscriptViewport(
+  options: UseTranscriptViewportOptions,
+): TranscriptViewportBinding {
   const { clock, rows, hasActiveTurn, isRevealDraining } = options;
   // The element the controller is attached to, kept for the one act that needs the
   // node rather than the controller. A ref rather than state: nothing renders from
   // it, so writing it during attach must not schedule a render.
   const surfaceElementRef = useRef<HTMLElement | null>(null);
-  const [controller, setController] = useState<LedgerViewportController>(
-    () => new LedgerViewportController({ clock }),
+  const [controller, setController] = useState<ViewportController>(
+    () => new ViewportController({ clock }),
   );
 
   useEffect(() => {
     if (controller.isDisposed) {
-      setController(new LedgerViewportController({ clock }));
+      setController(new ViewportController({ clock }));
       return;
     }
     return () => {
@@ -290,7 +289,7 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
       [controller, leaseRevision],
     ),
     setRowLease: useCallback(
-      (rowKey: string, lease: LedgerRowLease) => {
+      (rowKey: string, lease: RetainedRowState) => {
         controller.window.setLease(rowKey, lease);
         setLeaseRevision((current) => current + 1);
       },

@@ -2,14 +2,14 @@ import { useCallback, useMemo } from "react";
 
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
-import { ChapterCollapseState } from "../../run-groups/run-group-fold-state.js";
-import { type LedgerChapter } from "../../run-groups/run-groups.js";
-import { type LedgerChapterDisclosure } from "../run-group-fold.js";
+import { RunGroupFoldState } from "../../run-groups/run-group-fold-state.js";
+import { type RunGroup } from "../../run-groups/run-groups.js";
+import { type RunGroupDisclosure } from "../run-group-fold.js";
 
 /**
  * Hold one session's chapter disclosure.
  *
- * `ChapterCollapseState` is the single owner of the rule — a live chapter answers
+ * `RunGroupFoldState` is the single owner of the rule — a live chapter answers
  * open before any stored state is read — so this hook does not restate it; it
  * publishes the instance's opened set so a toggle repaints. The set is derived from
  * the instance and written nowhere else, which is what keeps it one source of truth
@@ -21,9 +21,9 @@ import { type LedgerChapterDisclosure } from "../run-group-fold.js";
  * into the other. Both halves are held per session, because the instance and its
  * published mirror are one fact.
  */
-export function useChapterDisclosure(sessionId: string): LedgerChapterDisclosure {
+export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
   const bridge = useConsoleBridge();
-  const collapse = useSessionScopedState(bridge, sessionId, () => new ChapterCollapseState());
+  const collapse = useSessionScopedState(bridge, sessionId, () => new RunGroupFoldState());
   const opened = useSessionScopedState<ReadonlySet<string>>(
     bridge,
     sessionId,
@@ -35,7 +35,7 @@ export function useChapterDisclosure(sessionId: string): LedgerChapterDisclosure
     publishOpened(new Set(collapseState.openedTerminalRunIds));
   }, [collapseState, publishOpened]);
   const toggle = useCallback(
-    (chapter: LedgerChapter) => {
+    (chapter: RunGroup) => {
       if (collapseState.isOpen(chapter)) {
         collapseState.close(chapter);
       } else {
@@ -46,7 +46,7 @@ export function useChapterDisclosure(sessionId: string): LedgerChapterDisclosure
     [collapseState, publish],
   );
   const collapseAllTerminal = useCallback(
-    (chapters: readonly LedgerChapter[]) => {
+    (chapters: readonly RunGroup[]) => {
       collapseState.collapseAllTerminal(chapters);
       publish();
     },

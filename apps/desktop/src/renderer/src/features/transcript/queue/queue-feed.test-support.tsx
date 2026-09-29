@@ -146,7 +146,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
 // reaching two: a hook that opened nothing would otherwise pass the first case.
 
 /** Two surfaces on one bridge, each asking the hook its own question. */
-export function TwoQueueSurfaces(props: {
+export function TwoQueueReaders(props: {
   readonly bridge: ConsoleBridge;
   readonly queueCalls: QueueCalls;
   readonly firstSessionId: string;

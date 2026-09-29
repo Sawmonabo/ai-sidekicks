@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
-import { type LedgerGeometry } from "./geometry-sample.js";
-import { type LedgerScrollCaller } from "./scroll-callers.js";
-import { LedgerScrollFrameWrites } from "./scroll-frame-writes.js";
+import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { type ScrollGeometry } from "./geometry-sample.js";
+import { type ScrollCaller } from "./scroll-callers.js";
+import { ScrollFrameWrites } from "./scroll-frame-writes.js";
 
-const geometryAt = (scrollTop: number): LedgerGeometry => ({
+const geometryAt = (scrollTop: number): ScrollGeometry => ({
   scrollTop,
   viewportHeight: 400,
   contentHeight: 2000,
@@ -17,23 +17,23 @@ const geometryAt = (scrollTop: number): LedgerGeometry => ({
 });
 
 interface RecordedWrite {
-  readonly caller: LedgerScrollCaller;
+  readonly caller: ScrollCaller;
   readonly targetScrollTop: number;
 }
 
 const constructQueue = (): {
   clock: ManualClock;
-  coordinator: LedgerFrameCoordinator;
-  frameWrites: LedgerScrollFrameWrites;
+  coordinator: AnimationFrameCoordinator;
+  frameWrites: ScrollFrameWrites;
   writes: RecordedWrite[];
-  setGeometry: (geometry: LedgerGeometry | undefined) => void;
+  setGeometry: (geometry: ScrollGeometry | undefined) => void;
 } => {
   const clock = new ManualClock();
-  const coordinator = new LedgerFrameCoordinator({ clock });
+  const coordinator = new AnimationFrameCoordinator({ clock });
   const writes: RecordedWrite[] = [];
-  let lastGeometry: LedgerGeometry | undefined = geometryAt(100);
-  const frameWrites = new LedgerScrollFrameWrites({
-    get lastGeometry(): LedgerGeometry | undefined {
+  let lastGeometry: ScrollGeometry | undefined = geometryAt(100);
+  const frameWrites = new ScrollFrameWrites({
+    get lastGeometry(): ScrollGeometry | undefined {
       return lastGeometry;
     },
     glide: (caller, targetScrollTop) => {
@@ -51,7 +51,7 @@ const constructQueue = (): {
   };
 };
 
-describe("LedgerScrollFrameWrites", () => {
+describe("ScrollFrameWrites", () => {
   test("refuses a request until a frame has been adopted", () => {
     const { clock, frameWrites, writes } = constructQueue();
 
@@ -155,7 +155,7 @@ describe("LedgerScrollFrameWrites", () => {
       frameWrites.adopt(coordinator);
     }).not.toThrow();
     expect(() => {
-      frameWrites.adopt(new LedgerFrameCoordinator({ clock }));
+      frameWrites.adopt(new AnimationFrameCoordinator({ clock }));
     }).toThrow(/one controller writes inside one frame/);
   });
 

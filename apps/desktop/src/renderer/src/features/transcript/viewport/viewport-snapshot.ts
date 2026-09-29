@@ -17,7 +17,7 @@
 
 import { type ReadingAnchorState } from "../scroll/reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
-import { type LedgerWindowRow, type PruneOutcome } from "./window-cap.js";
+import { type WindowRow, type PruneOutcome } from "./window-cap.js";
 
 /**
  * One row, as the viewport addresses it.
@@ -26,7 +26,7 @@ import { type LedgerWindowRow, type PruneOutcome } from "./window-cap.js";
  * than a second declaration, because the viewport and the window must agree about
  * what a row IS or the cap applies to a different set than the list renders.
  */
-export type LedgerViewportRow = LedgerWindowRow;
+export type ViewportRow = WindowRow;
 
 /**
  * The reading state a render draws, which is deliberately not all of it.
@@ -37,21 +37,21 @@ export type LedgerViewportRow = LedgerWindowRow;
  * second while somebody was simply scrolling, which is the render this frame's
  * budget and the library's `directDomUpdates` both exist to avoid.
  */
-export type LedgerReadingState = Omit<ReadingAnchorState, "anchorPoint">;
+export type ReadingState = Omit<ReadingAnchorState, "anchorPoint">;
 
 /** Everything a render of the viewport needs, in one stable value. */
-export interface LedgerViewportSnapshot {
-  readonly rows: readonly LedgerViewportRow[];
+export interface ViewportSnapshot {
+  readonly rows: readonly ViewportRow[];
   readonly rowKeys: readonly string[];
   /** One distinct key per row, and the repeats projecting them cost. */
   readonly keyProjection: RowKeyProjection;
-  readonly reading: LedgerReadingState;
+  readonly reading: ReadingState;
   readonly lastPrune: PruneOutcome | undefined;
 }
 
 /** What the surrounding surface tells the frame each render. */
-export interface LedgerViewportConditions {
-  readonly rows: readonly LedgerViewportRow[];
+export interface ViewportConditions {
+  readonly rows: readonly ViewportRow[];
   /** A turn is mid-flight, so prune waits rather than moving rows under a stream. */
   readonly hasActiveTurn: boolean;
   /** The reveal engine still has characters queued for this frame. */
@@ -68,7 +68,7 @@ export interface LedgerViewportConditions {
  * named was pruned, so the arithmetic that would follow it has no origin.
  */
 export function countAppendedAfter(
-  rows: readonly LedgerViewportRow[],
+  rows: readonly ViewportRow[],
   previousTailKey: string | undefined,
 ): number {
   if (previousTailKey === undefined) {
@@ -93,7 +93,7 @@ export function countAppendedAfter(
  * would follow it has no origin and no shift to describe.
  */
 export function countInsertedBefore(
-  rows: readonly LedgerViewportRow[],
+  rows: readonly ViewportRow[],
   previousHeadKey: string | undefined,
 ): number {
   if (previousHeadKey === undefined) {
@@ -119,8 +119,8 @@ export function countInsertedBefore(
  *     never settle. Dropping this conjunct is measurable as an unbounded render
  *     loop rather than as a subtle drift.
  */
-export function compensatesForGrowth(
-  readingMode: LedgerReadingState["mode"],
+export function shouldCompensateForInsertion(
+  readingMode: ReadingState["mode"],
   rowEndOffsetPx: number,
   scrollOffsetPx: number,
 ): boolean {

@@ -195,7 +195,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
     const items = await this.#calls.list(this.#sessionId);
     // A superseded round and an abandoned line each seat nothing.
     round.settle(() => {
-      this.#order.seat(items);
+      this.#order.replaceWithSnapshot(items);
       this.#items = this.#order.items();
       this.#phase = "read";
       this.#publish();

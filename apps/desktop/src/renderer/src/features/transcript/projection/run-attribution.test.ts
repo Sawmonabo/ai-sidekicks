@@ -4,9 +4,9 @@ import { TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts";
 
 import {
   attributedRunIdOf,
-  RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER,
+  RUN_ATTRIBUTION_BY_PAYLOAD_KEY,
   type RunAttributionRole,
-  type RunNamingPayloadMember,
+  type RunNamingPayloadKey,
 } from "./run-attribution.js";
 
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -23,14 +23,13 @@ const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
  * cannot rot quietly in either direction.
  */
 // @ts-expect-error — deliberately missing `parentRunId`; totality is the property.
-const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RunNamingPayloadMember, RunAttributionRole>> = {
+const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RunNamingPayloadKey, RunAttributionRole>> = {
   runId: "this-run",
   targetRunId: "this-run",
 };
 
 /** The decisions, read by a member the contract spells as a free-form string. */
-const ROLE_BY_MEMBER: Readonly<Record<string, RunAttributionRole>> =
-  RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER;
+const ROLE_BY_MEMBER: Readonly<Record<string, RunAttributionRole>> = RUN_ATTRIBUTION_BY_PAYLOAD_KEY;
 
 describe("the run-attribution table — a compile gate, and a dormant runtime arm", () => {
   it("decides every key the contract lists, so the runtime filter removes nothing", () => {
@@ -41,7 +40,7 @@ describe("the run-attribution table — a compile gate, and a dormant runtime ar
     for (const attributingKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
       expect(ROLE_BY_MEMBER[attributingKey], attributingKey).toBe("this-run");
     }
-    const decidedElsewhere = Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER)
+    const decidedElsewhere = Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_KEY)
       .filter(([, role]) => role === "another-run")
       .map(([member]) => member);
     expect(decidedElsewhere).toStrictEqual(["parentRunId"]);

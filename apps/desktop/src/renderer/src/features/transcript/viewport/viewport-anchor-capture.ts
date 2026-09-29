@@ -16,30 +16,30 @@
 // whether a glide is in flight (`scroll-chokepoint.ts` answers that and this obeys it),
 // and not what the tree is told afterwards — the controller publishes.
 
-import { type LedgerGeometry } from "../scroll/geometry-sample.js";
+import { type ScrollGeometry } from "../scroll/geometry-sample.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
-import { type RowMeasurementLedger } from "./row-measurement-table.js";
+import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
-import { type LedgerRowVirtualizer } from "./virtualizer-options.js";
+import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
-export interface LedgerAnchorCaptureOptions {
+export interface ViewportAnchorCaptureOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
-  readonly measurements: RowMeasurementLedger;
+  readonly measurements: RowMeasurementTable;
   /** The window's current keys, in order. Read per call — they move every reconcile. */
   readonly rowKeys: () => readonly string[];
   /** The bound virtualizer, or `undefined` before one is bound. */
-  readonly virtualizer: () => LedgerRowVirtualizer | undefined;
+  readonly virtualizer: () => TranscriptRowVirtualizer | undefined;
 }
 
-export class LedgerAnchorCapture {
+export class ViewportAnchorCapture {
   readonly #anchor: ReadingAnchor;
   readonly #scroll: LedgerScrollController;
-  readonly #measurements: RowMeasurementLedger;
+  readonly #measurements: RowMeasurementTable;
   readonly #rowKeys: () => readonly string[];
-  readonly #virtualizer: () => LedgerRowVirtualizer | undefined;
+  readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
 
-  public constructor(options: LedgerAnchorCaptureOptions) {
+  public constructor(options: ViewportAnchorCaptureOptions) {
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
     this.#measurements = options.measurements;
@@ -74,7 +74,7 @@ export class LedgerAnchorCapture {
    * Read from the library's measurements rather than from the DOM: no element is
    * touched, so this is affordable on the scroll path.
    */
-  public captureFrom(geometry: LedgerGeometry): void {
+  public captureFrom(geometry: ScrollGeometry): void {
     const rowKeys = this.#rowKeys();
     if (geometry.isAtTail || rowKeys.length === 0) {
       return;

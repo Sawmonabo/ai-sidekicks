@@ -13,20 +13,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "./row-jump.js";
+import { type RowJumpAbsence, type RowJumpOutcome } from "./row-jump.js";
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
 // suite's totality case, so a door line for it would be a door widened for testing.
-import { LEDGER_JUMP_ABSENCES } from "./row-jump.js";
-import { foldChapterHeaders } from "../feed/run-group-fold.js";
+import { ROW_JUMP_ABSENCES } from "./row-jump.js";
+import { foldRunGroupHeaders } from "../feed/run-group-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../transcript-logs.test-support.js";
-import { foldedMessageChapterLog } from "../run-group-logs.test-support.js";
+import { foldedMessageRunGroupLog } from "../run-group-logs.test-support.js";
 import { jumpOutcomeRowId } from "./event-jump.js";
 import { useDeferredRowJump } from "./hooks/useDeferredRowJump.js";
-import { useLedgerJumpReach } from "./hooks/useTranscriptJumpReach.js";
-import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
+import { useTranscriptJumpReach } from "./hooks/useTranscriptJumpReach.js";
+import { deriveLedgerWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 /** The loaded projection of a finished chapter beside a live run. */
-const LOADED_WINDOW: LedgerWindowModel = deriveLedgerWindow(foldedMessageChapterLog(), false);
+const LOADED_WINDOW: TranscriptWindowModel = deriveLedgerWindow(foldedMessageRunGroupLog(), false);
 
 /** A message row of the finished run, which the shut fold keeps off screen. */
 const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(1));
@@ -55,14 +55,14 @@ function recordingActs(): {
 
 /** The reach for one outcome over a window whose chapters are shut unless named. */
 function reachFor(
-  outcome: LedgerJumpOutcome | undefined,
+  outcome: RowJumpOutcome | undefined,
   acts: ReturnType<typeof recordingActs>,
   openedTerminalRunIds: ReadonlySet<string> = new Set<string>(),
-): ReturnType<typeof useLedgerJumpReach> {
+): ReturnType<typeof useTranscriptJumpReach> {
   const { result } = renderHook(() =>
-    useLedgerJumpReach({
+    useTranscriptJumpReach({
       outcome,
-      foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
+      foldedWindow: foldRunGroupHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
       openedTerminalRunIds,
       openFoldsHoldingRow: acts.openFoldsHoldingRow,
       requestJump: acts.requestJump,
@@ -76,7 +76,7 @@ describe("the act an absence offers", () => {
     // Totality, driven from the tuple the classifier walks: a narrowing that fell
     // through to "Open that chapter and go to it" would offer an act that cannot reach
     // the row.
-    for (const absence of LEDGER_JUMP_ABSENCES) {
+    for (const absence of ROW_JUMP_ABSENCES) {
       const acts = recordingActs();
       const reach = reachFor({ status: absence, row: FOLDED_ROW }, acts);
       // Decided means answered, not answered YES: one arm is honestly actless.
@@ -129,9 +129,9 @@ describe("the act an absence offers", () => {
     // The compile-time half of the same claim: the act table is keyed by the tuple,
     // so a caller cannot invent a status and reach an arm nothing decided.
     // @ts-expect-error — not a member of `LEDGER_JUMP_ABSENCES`.
-    const inventedAbsence: LedgerJumpAbsence = "withheld-by-a-fourth-narrowing";
+    const inventedAbsence: RowJumpAbsence = "withheld-by-a-fourth-narrowing";
 
-    expect(LEDGER_JUMP_ABSENCES).not.toContain(inventedAbsence);
+    expect(ROW_JUMP_ABSENCES).not.toContain(inventedAbsence);
   });
 });
 
@@ -245,7 +245,7 @@ describe("the deferred jump", () => {
 describe("the row a question names", () => {
   it("is the outcome's row for every arm that carries one", () => {
     expect(jumpOutcomeRowId({ status: "found", row: FOLDED_ROW })).toBe(FOLDED_ROW.id);
-    for (const absence of LEDGER_JUMP_ABSENCES) {
+    for (const absence of ROW_JUMP_ABSENCES) {
       expect(jumpOutcomeRowId({ status: absence, row: FOLDED_ROW })).toBe(FOLDED_ROW.id);
     }
   });

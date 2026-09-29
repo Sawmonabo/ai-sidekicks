@@ -1,8 +1,8 @@
 // The React binding for the frame coordinator: one coordinator per feed, and the
 // hook a composition mints it through.
 //
-// `frame-coordinator.ts` holds the mechanism — the phases, the coalescing, the
-// deferral rule. This module holds the React side of it, on `reveal-binding.ts`' split
+// `animation-frame-coordinator.ts` holds the mechanism — the phases, the coalescing, the
+// deferral rule. This module holds the React side of it, on `useReveal.ts`' split
 // and for the same reason: the coordinator arms work through the clock seam and knows
 // nothing about renders.
 //
@@ -20,12 +20,12 @@
 import { useEffect, useState } from "react";
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 
 /** Mint one frame coordinator for a feed, and dispose it with the mount. */
-export function useLedgerFrameCoordinator(clock: ConsoleClock): LedgerFrameCoordinator {
-  const [frameCoordinator, setFrameCoordinator] = useState<LedgerFrameCoordinator>(
-    () => new LedgerFrameCoordinator({ clock }),
+export function useLedgerFrameCoordinator(clock: ConsoleClock): AnimationFrameCoordinator {
+  const [frameCoordinator, setFrameCoordinator] = useState<AnimationFrameCoordinator>(
+    () => new AnimationFrameCoordinator({ clock }),
   );
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export function useLedgerFrameCoordinator(clock: ConsoleClock): LedgerFrameCoord
       // A remount of the same component instance has already run the cleanup, and a
       // disposed coordinator accepts nothing — so the second mount takes a fresh one
       // rather than a corpse whose frames never run.
-      setFrameCoordinator(new LedgerFrameCoordinator({ clock }));
+      setFrameCoordinator(new AnimationFrameCoordinator({ clock }));
       return;
     }
     return () => {

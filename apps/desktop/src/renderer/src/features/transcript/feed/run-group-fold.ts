@@ -11,7 +11,7 @@
 //
 //   • Which rows a chapter contributes — its receipt while shut, the cap's own
 //     window while open.
-//   • Where a chapter clips, which is `chapterRowIdsWithinCap` and is read by the
+//   • Where a chapter clips, which is `selectRunGroupRowIdsWithinCap` and is read by the
 //     fold AND by the narrowing that re-seals a chapter's figures, so one rule
 //     decides both.
 //   • Which chapters a person has opened, which is this mount's and not the log's.
@@ -19,25 +19,25 @@
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
-import { type LedgerChapter } from "../run-groups/run-groups.js";
+import { type RunGroup } from "../run-groups/run-groups.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
-import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
-import { LedgerRowRetention } from "../window/row-retention.js";
+import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+import { TranscriptRowRetention } from "../window/row-retention.js";
 import {
   NO_ROWS_REMOVED,
-  chapterKeyFor,
-  type LedgerPipelineStage,
-  type LedgerWindowModel,
+  readRunGroupKey,
+  type TranscriptPipelineStage,
+  type TranscriptWindowModel,
 } from "../window/transcript-window.js";
 
 /** What one mount remembers about which finished chapters a person opened. */
-export interface LedgerChapterDisclosure {
+export interface RunGroupDisclosure {
   /** The terminal chapters that are open. Every other one is folded. */
   readonly openedTerminalRunIds: ReadonlySet<string>;
   /** Open a folded chapter, or fold an opened one. */
-  readonly toggle: (chapter: LedgerChapter) => void;
+  readonly toggle: (chapter: RunGroup) => void;
   /** Fold every terminal chapter — what the palette's collapse row runs. */
-  readonly collapseAllTerminal: (chapters: readonly LedgerChapter[]) => void;
+  readonly collapseAllTerminal: (chapters: readonly RunGroup[]) => void;
 }
 
 /**
@@ -49,7 +49,7 @@ export interface LedgerChapterDisclosure {
  * re-project ten thousand rows on every toggle.
  *
  * WHAT A HEADER ROW IS. One viewport row keyed by the run id — which is exactly the
- * key `chapterKeyFor` already hands every one of that chapter's rows as their
+ * key `readRunGroupKey` already hands every one of that chapter's rows as their
  * `parentKey`. So emitting it does two things in one act: it gives the chapter
  * something to draw, and it makes the chapter's rows CHILDREN of a row the window
  * holds, which is what the cap's top-level rule was written for: a chapter counts once
@@ -64,7 +64,7 @@ export interface LedgerChapterDisclosure {
  * AND AN OPENED CHAPTER KEEPS ONLY WHAT THE CHAPTER CAP ADMITS, so one very long run
  * cannot open into a virtual window the chapter ceiling does not bound, and the
  * header's `clipped` figure names only rows that are not on screen. The permitted
- * subset is selected HERE, by `chapterRowIdsWithinCap`, so the rows
+ * subset is selected HERE, by `selectRunGroupRowIdsWithinCap`, so the rows
  * outside it never reach the viewport and the header's `clipped` count is exactly
  * what is not rendered. The receipt is admitted whatever the cap says: a chapter
  * whose terminal fell outside the window would report how it ended in a header that
@@ -75,11 +75,11 @@ export interface LedgerChapterDisclosure {
  * find field's four counts on any session that has finished a run, and the pass below
  * is the one that already separates those rows.
  */
-export function foldChapterHeaders(
-  model: LedgerWindowModel,
+export function foldRunGroupHeaders(
+  model: TranscriptWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
-  retention: LedgerRowRetention = new LedgerRowRetention(),
-): LedgerPipelineStage {
+  retention: TranscriptRowRetention = new TranscriptRowRetention(),
+): TranscriptPipelineStage {
   if (model.chapterByHeaderKey.size === 0) {
     return { window: model, removedRows: NO_ROWS_REMOVED };
   }
@@ -89,7 +89,7 @@ export function foldChapterHeaders(
   // thrash on every pass. The early return above leaves the table untouched, which is
   // correct — a chapterless window publishes the projection's own rows unchanged.
   retention.beginPass();
-  const viewportRows: LedgerViewportRow[] = [];
+  const viewportRows: ViewportRow[] = [];
   const rows: TimelineRow[] = [];
   const removedRows: TimelineRow[] = [];
   const rowsByKey = new Map<string, TimelineRow>();
@@ -100,11 +100,11 @@ export function foldChapterHeaders(
   const cappedRowIdsByRunId = new Map<string, ReadonlySet<string>>();
   for (const [runId, chapter] of model.chapterByHeaderKey) {
     if (openedTerminalRunIds.has(runId) && chapter.clippedRowCount > 0) {
-      cappedRowIdsByRunId.set(runId, new Set(chapterRowIdsWithinCap(chapter.rowIds)));
+      cappedRowIdsByRunId.set(runId, new Set(selectRunGroupRowIdsWithinCap(chapter.rowIds)));
     }
   }
   for (const row of model.rows) {
-    const runId = chapterKeyFor(row);
+    const runId = readRunGroupKey(row);
     const chapter = runId === undefined ? undefined : model.chapterByHeaderKey.get(runId);
     if (chapter === undefined || runId === undefined) {
       viewportRows.push(retention.retainRowIdentity(row, undefined));
@@ -145,7 +145,7 @@ export function foldChapterHeaders(
 /**
  * The chapter rows the cap admits — the NEWEST `CHAPTER_VISIBLE_ROW_CAP` of them.
  *
- * Newest and not oldest because `chapters.ts` says where the clip is drawn: the
+ * Newest and not oldest because `run-groups.ts` says where the clip is drawn: the
  * body "clips behind a top-edge fade", so the rows the cap keeps are the ones at
  * the bottom of the chapter and the remainder is the run's older head. Reading it
  * the other way round would fade the newest work of a long run out of view and
@@ -154,7 +154,7 @@ export function foldChapterHeaders(
  * The array is returned BY IDENTITY when the chapter is under the cap, so a
  * chapter nothing was taken from allocates nothing.
  */
-export function chapterRowIdsWithinCap(rowIds: readonly string[]): readonly string[] {
+export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readonly string[] {
   return rowIds.length <= CHAPTER_VISIBLE_ROW_CAP ? rowIds : rowIds.slice(-CHAPTER_VISIBLE_ROW_CAP);
 }
 
@@ -173,10 +173,10 @@ export function chapterRowIdsWithinCap(rowIds: readonly string[]): readonly stri
  * The clipped figure is re-derived from the cap's own selector rather than from a
  * second subtraction, so there is one expression of where a chapter clips.
  */
-export function narrowChapterToAdmittedRows(
-  chapter: LedgerChapter,
+export function narrowRunGroupToAdmittedRows(
+  chapter: RunGroup,
   admittedRowIds: ReadonlySet<string>,
-): LedgerChapter | undefined {
+): RunGroup | undefined {
   const rowIds = chapter.rowIds.filter((rowId) => admittedRowIds.has(rowId));
   if (rowIds.length === 0) {
     return undefined;
@@ -188,7 +188,7 @@ export function narrowChapterToAdmittedRows(
     ...chapter,
     rowIds,
     rowCount: rowIds.length,
-    clippedRowCount: rowIds.length - chapterRowIdsWithinCap(rowIds).length,
+    clippedRowCount: rowIds.length - selectRunGroupRowIdsWithinCap(rowIds).length,
   };
 }
 

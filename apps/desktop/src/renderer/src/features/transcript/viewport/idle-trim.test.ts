@@ -1,16 +1,16 @@
 // The quiet-period trim: what it takes, what it refuses to take, and when it runs.
 //
-// Every case drives the real objects — a real `LedgerWindow`, a real
-// `RowMeasurementLedger`, the shipped `ManualClock` — because the claim is about what
+// Every case drives the real objects — a real `TranscriptWindow`, a real
+// `RowMeasurementTable`, the shipped `ManualClock` — because the claim is about what
 // those three do together after a quiet period, and a stand-in for any of them would
 // be a claim about the stand-in.
 
 import { describe, expect, it } from "vitest";
 
-import { LedgerIdleMemoryTrim } from "./idle-trim.js";
-import { LedgerWindow } from "./window-cap.js";
-import { RowMeasurementLedger } from "./row-measurement-table.js";
-import { LEDGER_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
+import { IdleMemoryTrim } from "./idle-trim.js";
+import { TranscriptWindow } from "./window-cap.js";
+import { RowMeasurementTable } from "./row-measurement-table.js";
+import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-support.js";
 
@@ -21,24 +21,24 @@ const TEST_DWELL_MS = 1_000;
 const NEWEST_CHAPTER_KEY = `chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
 
 /** A window holding the rows named, each a top-level row of its own. */
-function windowWithRows(rowKeys: readonly string[]): LedgerWindow {
-  const window = new LedgerWindow();
+function windowWithRows(rowKeys: readonly string[]): TranscriptWindow {
+  const window = new TranscriptWindow();
   window.ingest(rowKeys.map((key) => ({ key, parentKey: undefined, rootCursor: key })));
   return window;
 }
 
 interface TrimFixture {
   readonly clock: ManualClock;
-  readonly window: LedgerWindow;
-  readonly measurements: RowMeasurementLedger;
-  readonly trim: LedgerIdleMemoryTrim;
+  readonly window: TranscriptWindow;
+  readonly measurements: RowMeasurementTable;
+  readonly trim: IdleMemoryTrim;
 }
 
 function fixture(rowKeys: readonly string[] = ["row-a", "row-b"]): TrimFixture {
   const clock = new ManualClock();
   const window = windowWithRows(rowKeys);
-  const measurements = new RowMeasurementLedger();
-  const trim = new LedgerIdleMemoryTrim({
+  const measurements = new RowMeasurementTable();
+  const trim = new IdleMemoryTrim({
     clock,
     window,
     measurements,
@@ -51,7 +51,7 @@ describe("the trim arms nothing", () => {
   it("leaves the clock empty however much activity it is told about", () => {
     // The property the console's steady state asks for, and the reason this is a
     // measured gap rather than a dwell timer. A first draft armed
-    // one and `LedgerViewport.test.tsx`'s settled-frame case caught it.
+    // one and `TranscriptViewport.test.tsx`'s settled-frame case caught it.
     const { clock, trim } = fixture();
     for (let beat = 0; beat < 5; beat += 1) {
       trim.noteActivity();
@@ -114,9 +114,9 @@ describe("the trim runs on the first activity after a quiet period", () => {
     // to give back; comparing against an absent stamp would trim on the first render.
     const clock = new ManualClock();
     clock.advance(TEST_DWELL_MS * 10);
-    const measurements = new RowMeasurementLedger();
+    const measurements = new RowMeasurementTable();
     measurements.acceptedHeight("dropped-row", 80);
-    const trim = new LedgerIdleMemoryTrim({
+    const trim = new IdleMemoryTrim({
       clock,
       window: windowWithRows(["row-a"]),
       measurements,
@@ -181,10 +181,10 @@ describe("the trim takes only what the frame cannot reach", () => {
     window.prune(PRUNABLE);
     expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
 
-    const trim = new LedgerIdleMemoryTrim({
+    const trim = new IdleMemoryTrim({
       clock,
       window,
-      measurements: new RowMeasurementLedger(),
+      measurements: new RowMeasurementTable(),
       dwellMs: TEST_DWELL_MS,
     });
     trim.noteActivity();
@@ -227,19 +227,19 @@ describe("the trim records only a pass that returned something", () => {
 describe("the shipped dwell is the one the bounds module declares", () => {
   it("defaults to it rather than to a number written here", () => {
     const clock = new ManualClock();
-    const measurements = new RowMeasurementLedger();
+    const measurements = new RowMeasurementTable();
     measurements.acceptedHeight("dropped-row", 80);
-    const trim = new LedgerIdleMemoryTrim({
+    const trim = new IdleMemoryTrim({
       clock,
       window: windowWithRows(["row-a"]),
       measurements,
     });
     trim.noteActivity();
-    clock.advance(LEDGER_IDLE_TRIM_DWELL_MS - 1);
+    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS - 1);
     trim.noteActivity();
     expect(trim.lastPass).toBeUndefined();
 
-    clock.advance(LEDGER_IDLE_TRIM_DWELL_MS);
+    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
     trim.noteActivity();
     expect(trim.lastPass).toBeDefined();
   });

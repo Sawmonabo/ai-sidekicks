@@ -5,7 +5,7 @@
 /* --- Structure: the seam row --------------------------------------------- */
 
 /*
- * A seam is ONE LINE, which is the whole visual claim `SeamRow.tsx` is built on: a
+ * A seam is ONE LINE, which is the whole visual claim `SystemMessage.tsx` is built on: a
  * glyph, a label, and whichever wire members that kind carries, laid across the row
  * rather than stacked. `flex-wrap` is what keeps that true on a narrow pane — the
  * parts reflow onto a second line rather than the row growing a scrollbar or one
@@ -28,7 +28,7 @@
 
 /*
  * The one caution in the set. Rule 3 spends amber on attention and red on failure,
- * and `SEAM_WIRE_BINDINGS` marks exactly one member a caution — the failed provider
+ * and `SYSTEM_MESSAGE_BINDINGS` marks exactly one member a caution — the failed provider
  * switch — so this class is reachable from one binding and no other.
  */
 

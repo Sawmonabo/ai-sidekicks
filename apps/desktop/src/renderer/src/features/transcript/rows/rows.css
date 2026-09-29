@@ -20,7 +20,7 @@
 }
 
 /* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
-.meridian-message-card--assistant-reasoning {
+.meridian-message-card--thinking {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
 }

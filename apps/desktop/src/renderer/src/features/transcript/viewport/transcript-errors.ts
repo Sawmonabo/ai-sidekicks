@@ -12,14 +12,14 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
  * The four things that fail independently in a transcript, highest rank first. The order
  * is the policy; there is no severity field to disagree with it.
  */
-export const LEDGER_ERROR_KINDS = ["row-projection", "reveal", "prune", "geometry"] as const;
+export const TRANSCRIPT_ERROR_KINDS = ["row-projection", "reveal", "prune", "geometry"] as const;
 
 /** One error slot. */
-export type LedgerErrorKind = (typeof LEDGER_ERROR_KINDS)[number];
+export type TranscriptErrorKind = (typeof TRANSCRIPT_ERROR_KINDS)[number];
 
 /** What one slot holds. */
-export interface LedgerErrorEntry {
-  readonly kind: LedgerErrorKind;
+export interface TranscriptErrorEntry {
+  readonly kind: TranscriptErrorKind;
   readonly refusal: ConsoleRefusal;
 }
 
@@ -30,32 +30,32 @@ export interface LedgerErrorEntry {
  * the reveal engine's diagnostics, the window's prune outcome and the scroll controller's
  * geometry.
  */
-export class LedgerErrorSlots {
-  readonly #refusalByKind = new Map<LedgerErrorKind, ConsoleRefusal>();
+export class TranscriptErrorTable {
+  readonly #refusalByKind = new Map<TranscriptErrorKind, ConsoleRefusal>();
 
-  public record(kind: LedgerErrorKind, refusal: ConsoleRefusal): void {
+  public record(kind: TranscriptErrorKind, refusal: ConsoleRefusal): void {
     this.#refusalByKind.set(kind, refusal);
   }
 
   /** Clear one slot; the others are untouched. */
-  public clear(kind: LedgerErrorKind): void {
+  public clear(kind: TranscriptErrorKind): void {
     this.#refusalByKind.delete(kind);
   }
 
   /** Every occupied slot, in rank order. */
-  public entries(): readonly LedgerErrorEntry[] {
-    return LEDGER_ERROR_KINDS.flatMap((kind) => {
+  public entries(): readonly TranscriptErrorEntry[] {
+    return TRANSCRIPT_ERROR_KINDS.flatMap((kind) => {
       const refusal = this.#refusalByKind.get(kind);
       return refusal === undefined ? [] : [{ kind, refusal }];
     });
   }
 
   /** The slot a surface with room for one renders. */
-  public highest(): LedgerErrorEntry | undefined {
+  public highest(): TranscriptErrorEntry | undefined {
     return this.entries()[0];
   }
 
-  public get occupiedSlotCount(): number {
+  public get recordedKindCount(): number {
     return this.#refusalByKind.size;
   }
 }

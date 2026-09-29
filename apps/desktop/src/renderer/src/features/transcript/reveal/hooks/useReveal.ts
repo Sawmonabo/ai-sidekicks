@@ -3,7 +3,7 @@
 //
 // `reveal-engine.ts` holds the mechanism — the ordered queue, the per-frame budget
 // split across lanes, the rope smoother, the checkpoint tail. This module holds the
-// React side of it, on `viewport-binding.ts`' split and for the same reason: the
+// React side of it, on `useTranscriptViewport.ts`' split and for the same reason: the
 // engine submits its drains to the frame coordinator and knows nothing about renders, and a
 // tree that has to repaint when a lane moves needs a notification the engine does
 // not owe it.
@@ -11,7 +11,7 @@
 // THREE THINGS THIS BINDING IS RESPONSIBLE FOR:
 //
 //   • **Ownership.** One engine per feed, minted once and disposed when the feed
-//     unmounts, with the re-mint arm `viewport-binding.ts` takes for its own
+//     unmounts, with the re-mint arm `useTranscriptViewport.ts` takes for its own
 //     controller — a remount of the same component instance has already run the
 //     cleanup, and a disposed engine ingests nothing, so the second mount takes a
 //     fresh one rather than a corpse.
@@ -35,18 +35,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type LedgerFrameCoordinator } from "../../animation-frame-coordinator.js";
+import { type AnimationFrameCoordinator } from "../../animation-frame-coordinator.js";
 import { RevealEngine } from "../reveal-engine.js";
-import { type LedgerRowRevealChannel } from "../components/RowRevealProvider.js";
+import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
 import { type RevealDelta } from "../reveal-model.js";
 
 /** What a view gets back: the channel its rows read, the drain state, and the acts. */
-export interface LedgerRevealBinding {
+export interface RevealBinding {
   /**
    * The channel handed to `LedgerRowRevealProvider`. Stable for the engine's life, so
    * publishing it re-renders no row body on its own.
    */
-  readonly channel: LedgerRowRevealChannel;
+  readonly channel: RowRevealContextValue;
   /** True while a frame is armed. The viewport defers prune on it. */
   readonly isDraining: boolean;
   /** Take one lane's delta. See this file's header on what will call this. */
@@ -55,7 +55,7 @@ export interface LedgerRevealBinding {
   readonly retireLanes: (shouldRetire: (laneId: string) => boolean) => void;
 }
 
-export interface UseLedgerRevealOptions {
+export interface UseRevealOptions {
   /**
    * The frame every drain in this engine is ordered inside — the feed's, minted
    * above both this hook and the viewport so one object orders the whole frame.
@@ -68,15 +68,15 @@ export interface UseLedgerRevealOptions {
    * drops the lane text published so far, which is a loss this engine takes rather
    * than carrying work submitted to one scheduler and cancelled on another.
    */
-  readonly frameCoordinator: LedgerFrameCoordinator;
+  readonly frameCoordinator: AnimationFrameCoordinator;
 }
 
 /** Mint one reveal engine for a feed, and bind it to the tree. */
-export function useLedgerReveal(options: UseLedgerRevealOptions): LedgerRevealBinding {
+export function useLedgerReveal(options: UseRevealOptions): RevealBinding {
   const { frameCoordinator } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
   // The engine owns its own state and is not React state; the revision is how the
-  // tree finds out it moved. Nothing renders the number — see `viewport-binding.ts`'
+  // tree finds out it moved. Nothing renders the number — see `useTranscriptViewport.ts`'
   // lease revision, which is the same idiom for the same reason.
   const [frameRevision, setFrameRevision] = useState(0);
 
@@ -98,7 +98,7 @@ export function useLedgerReveal(options: UseLedgerRevealOptions): LedgerRevealBi
     [engine],
   );
 
-  const channel = useMemo<LedgerRowRevealChannel>(
+  const channel = useMemo<RowRevealContextValue>(
     () => ({
       publishedTextFor: (laneId: string) => {
         const published = engine.publishedText(laneId);

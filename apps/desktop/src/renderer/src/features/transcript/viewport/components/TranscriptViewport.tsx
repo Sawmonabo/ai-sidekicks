@@ -39,21 +39,21 @@
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
 import { WindowAbsences } from "@renderer/console/primitives/index.js";
-import { EmptyLedgerWindow } from "./EmptyTranscript.js";
-import { type LedgerErrorEntry } from "../transcript-errors.js";
-import { LedgerErrorSlot } from "./TranscriptErrors.js";
-import { LedgerRowMount, type LedgerRowRenderer } from "./VirtualRow.js";
-import { LedgerTailAffordance } from "./JumpToLatest.js";
-import { LoadEarlierAffordance } from "../../history/components/LoadEarlier.js";
-import { type LedgerEarlierPaging } from "../../history/hooks/useEarlierHistory.js";
-import { type LedgerViewportBinding } from "../hooks/useTranscriptViewport.js";
+import { EmptyTranscript } from "./EmptyTranscript.js";
+import { type TranscriptErrorEntry } from "../transcript-errors.js";
+import { TranscriptErrors } from "./TranscriptErrors.js";
+import { VirtualRow, type TranscriptRowRenderer } from "./VirtualRow.js";
+import { JumpToLatest } from "./JumpToLatest.js";
+import { LoadEarlier } from "../../history/components/LoadEarlier.js";
+import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
+import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
 /** What a surface hands the ledger viewport. */
-export interface LedgerViewportProps {
+export interface TranscriptViewportProps {
   /**
    * The caller's binding — the one this ledger has.
    *
-   * TAKEN rather than minted. `useLedgerViewport` builds a controller, a scroll
+   * TAKEN rather than minted. `useTranscriptViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
    * own would give the surrounding surface a SECOND set: the session header's follow seat
    * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
@@ -61,9 +61,9 @@ export interface LedgerViewportProps {
    * requiring it as a prop is what makes a second one unrepresentable rather than
    * merely discouraged.
    */
-  readonly binding: LedgerViewportBinding;
+  readonly binding: TranscriptViewportBinding;
   /** STABLE across renders, or the memoized rows below re-render with it. */
-  readonly renderRow: LedgerRowRenderer;
+  readonly renderRow: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /**
@@ -88,34 +88,32 @@ export interface LedgerViewportProps {
    * Absent, nothing renders at the head, which is also what a present value says while
    * the window opens at the beginning of its log.
    */
-  readonly earlierPaging?: LedgerEarlierPaging | undefined;
-  readonly errorEntries?: readonly LedgerErrorEntry[];
+  readonly earlierPaging?: EarlierHistoryPaging | undefined;
+  readonly errorEntries?: readonly TranscriptErrorEntry[];
 }
 
-const NO_ERROR_ENTRIES: readonly LedgerErrorEntry[] = [];
+const NO_ERROR_ENTRIES: readonly TranscriptErrorEntry[] = [];
 
 /** The scrolling window over one ledger's rows, with its head and tail affordances. */
-export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
+export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
 
   return (
     <div className="meridian-ledger-viewport">
-      <LedgerErrorSlot entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
+      <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
        * The head act, floating over the top of the surface exactly as the tail
        * affordance floats over the bottom — both outside the scroll box, because a
        * control in the flow changes the content height and the reading position each
        * of them exists to protect is measured against that height.
        */}
-      {props.earlierPaging === undefined ? null : (
-        <LoadEarlierAffordance paging={props.earlierPaging} />
-      )}
+      {props.earlierPaging === undefined ? null : <LoadEarlier paging={props.earlierPaging} />}
       <div
         className="meridian-ledger-viewport__surface"
         ref={binding.attachSurface}
         // The feed role is claimed only while there is something to be a feed OF,
-        // and the articles it owns are `LedgerRowMount`'s half of the same claim.
+        // and the articles it owns are `VirtualRow`'s half of the same claim.
         // `feed` REQUIRES owned articles, so an empty one is not a quieter feed but
         // an invalid one — and a role whose contract the element is breaking is
         // worse for a screen-reader user than the plain scroll container this
@@ -141,7 +139,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
           {binding.virtualItems.map((virtualItem) => {
             const row = snapshot.rows[virtualItem.index];
             return row === undefined ? null : (
-              <LedgerRowMount
+              <VirtualRow
                 key={virtualItem.key}
                 rowIndex={virtualItem.index}
                 row={row}
@@ -160,7 +158,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
          * shells ARE the answer, and a second element saying anything at all would be
          * the surface talking over its own loading state.
          */}
-        {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyLedgerWindow /> : null}
+        {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
         {/*
          * The two ways this window's own DRAWING falls short of the log it holds,
          * in the console's shared sentences rather than in a pair this family
@@ -182,7 +180,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
           subject="entries"
         />
       </div>
-      <LedgerTailAffordance snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
+      <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // The window's own account of what it is not showing.
 //
-// The model beside it (`window-absence.ts`) owns the four kinds and their sentences;
+// The model beside it (`window-notices.ts`) owns the four kinds and their sentences;
 // this owns nothing but the mount. There is no box, no wrapper and no class of its
 // own: each absence renders as the rule 8 absence its kind names, through the one
 // primitive that draws them, and the absences stack in the order the caller derived

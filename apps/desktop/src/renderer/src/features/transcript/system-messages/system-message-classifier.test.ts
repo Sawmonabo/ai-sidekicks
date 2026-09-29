@@ -5,7 +5,7 @@
 // still draws a seam at some position. None of it throws, so each clean assertion is
 // paired with a negative control that fails when the rule is removed.
 //
-// TWO SIBLINGS DRIVE THE REST OF THIS DIRECTORY. `seam-vocabulary.test.ts` drives the
+// TWO SIBLINGS DRIVE THE REST OF THIS DIRECTORY. `system-message-kinds.test.ts` drives the
 // closed table this classifies into, and `superseded-bands.test.ts` drives the other
 // half of the design's rule — superseded turns stay present but visibly past.
 
@@ -14,10 +14,10 @@ import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SWITCH_CONTINUITY_MEMO } from "./system-message-kinds.js";
-import { LedgerSeamIndex, type LedgerSeam } from "./system-message-classifier.js";
+import { SystemMessageClassifier, type SystemMessageReading } from "./system-message-classifier.js";
 
-function classifyOne(row: TimelineRow): LedgerSeam {
-  const seam = new LedgerSeamIndex().classify(row);
+function classifyOne(row: TimelineRow): SystemMessageReading {
+  const seam = new SystemMessageClassifier().classify(row);
   if (seam === undefined) {
     throw new Error(`expected ${row.type} to classify as a seam`);
   }
@@ -25,7 +25,7 @@ function classifyOne(row: TimelineRow): LedgerSeam {
 }
 
 describe("seams — registration is asked of the contract, never hand-copied", () => {
-  const index = new LedgerSeamIndex();
+  const index = new SystemMessageClassifier();
 
   it("reads the registered census from the contract's own map", () => {
     // Both halves matter: the census must answer yes for a type it carries and no
@@ -173,7 +173,7 @@ describe("seams — one row's classification", () => {
   });
 
   it("negative control: an ordinary row is not a seam", () => {
-    const index = new LedgerSeamIndex();
+    const index = new SystemMessageClassifier();
     expect(
       index.classify(
         runRow({ id: "r1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
@@ -192,7 +192,7 @@ describe("seams — one row's classification", () => {
   });
 
   it("collects a window's seams in log order", () => {
-    const seams = new LedgerSeamIndex().seams([
+    const seams = new SystemMessageClassifier().seams([
       runRow({ id: "r1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
       runRow({ id: "p1", sequence: 2, type: "run.paused", runId: "run-a", position: 2 }),
       rollbackBoundaryRow({

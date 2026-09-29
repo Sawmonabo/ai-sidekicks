@@ -3,9 +3,9 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { runIdOfChapteredRow } from "../run-groups/run-groups.js";
-import { type LedgerWindowModel } from "../window/transcript-window.js";
-import { type LedgerJumpOutcome } from "./row-jump.js";
+import { readRunIdOfGroupedRow } from "../run-groups/run-groups.js";
+import { type TranscriptWindowModel } from "../window/transcript-window.js";
+import { type RowJumpOutcome } from "./row-jump.js";
 
 /**
  * The row the transcript's current question names, or `undefined` where it names none.
@@ -14,7 +14,7 @@ import { type LedgerJumpOutcome } from "./row-jump.js";
  * request is abandoned when this changes, so a second reading of "which row is
  * being asked about" would be a second answer to the question that cancels it.
  */
-export function jumpOutcomeRowId(outcome: LedgerJumpOutcome | undefined): string | undefined {
+export function jumpOutcomeRowId(outcome: RowJumpOutcome | undefined): string | undefined {
   return outcome === undefined || outcome.status === "not-in-loaded-log"
     ? undefined
     : outcome.row.id;
@@ -23,17 +23,17 @@ export function jumpOutcomeRowId(outcome: LedgerJumpOutcome | undefined): string
 /**
  * Which run group of this window holds a row, if one does.
  *
- * Composes `runIdOfChapteredRow` rather than restating its narrowing: which rows carry
+ * Composes `readRunIdOfGroupedRow` rather than restating its narrowing: which rows carry
  * a run at all is the chapters module's rule, and what this adds is the membership
  * test against the window in hand. Two copies of the narrowing would drift silently —
  * the jump would go on landing correctly while the chapters it opened were decided by
  * a different reading of the same row.
  */
-export function chapterRunIdInWindow(
+export function findRunGroupRunIdInWindow(
   row: TimelineRow,
-  foldedWindow: LedgerWindowModel,
+  foldedWindow: TranscriptWindowModel,
 ): string | undefined {
-  const runId = runIdOfChapteredRow(row);
+  const runId = readRunIdOfGroupedRow(row);
   if (runId === undefined) {
     return undefined;
   }

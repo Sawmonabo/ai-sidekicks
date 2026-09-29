@@ -5,8 +5,8 @@
 // re-execution reuses ordinals. Neither throws, so each clean assertion here is
 // paired with a negative control that fails when the rule is removed.
 //
-// SPLIT FROM `seams.test.ts`, which drives the seam classifier. The two share no
-// table (`seams.ts` states why), so they are two subjects rather than one file.
+// SPLIT FROM `system-message-classifier.test.ts`, which drives the seam classifier. The two share no
+// table (`system-message-classifier.ts` states why), so they are two subjects rather than one file.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

@@ -9,7 +9,7 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 
 /**
  * The row objects one derivation publishes, held across its own passes.
@@ -55,11 +55,11 @@ import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
  * when its chapter is live, so a single table would answer one of the two stages with
  * the other's triple and thrash on every pass.
  */
-export class LedgerRowRetention {
+export class TranscriptRowRetention {
   #retainedRowsById = new Map<string, TimelineRow>();
   #publishedRowsById = new Map<string, TimelineRow>();
-  #retainedIdentitiesByKey = new Map<string, LedgerViewportRow>();
-  #publishedIdentitiesByKey = new Map<string, LedgerViewportRow>();
+  #retainedIdentitiesByKey = new Map<string, ViewportRow>();
+  #publishedIdentitiesByKey = new Map<string, ViewportRow>();
 
   /** Start a derivation: what the last pass published becomes what this one may retain. */
   public beginPass(): void {
@@ -82,7 +82,7 @@ export class LedgerRowRetention {
   }
 
   /** One projected row's place in the virtualizer's identity list. */
-  public retainRowIdentity(row: TimelineRow, parentKey: string | undefined): LedgerViewportRow {
+  public retainRowIdentity(row: TimelineRow, parentKey: string | undefined): ViewportRow {
     return this.#retainIdentity(row.id, parentKey, cutUnitFor(row));
   }
 
@@ -91,21 +91,17 @@ export class LedgerRowRetention {
    *
    * ONE METHOD FOR BOTH GROUPS THE FEED FOLDS, because the identity rule is the same
    * for each: the header IS its group, so it is keyed by the group's own key — the
-   * run id for a chapter, which is the key `chapterKeyFor` already hands that
+   * run id for a chapter, which is the key `readRunGroupKey` already hands that
    * chapter's rows as their parent, and `supersededBandKey`'s composite for a
    * rewound band — and it is its own cut unit, so pruning it takes its subtree with
    * it. A second method with this body would be one implementation of one job
    * written twice.
    */
-  public retainGroupHeaderIdentity(groupKey: string): LedgerViewportRow {
+  public retainGroupHeaderIdentity(groupKey: string): ViewportRow {
     return this.#retainIdentity(groupKey, undefined, groupKey);
   }
 
-  #retainIdentity(
-    key: string,
-    parentKey: string | undefined,
-    rootCursor: string,
-  ): LedgerViewportRow {
+  #retainIdentity(key: string, parentKey: string | undefined, rootCursor: string): ViewportRow {
     const retained = this.#retainedIdentitiesByKey.get(key);
     const published =
       retained !== undefined &&
@@ -121,7 +117,7 @@ export class LedgerRowRetention {
 /**
  * The cut unit the window cap prunes by.
  *
- * `LedgerWindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
+ * `WindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
  * console holds one live subscription and reads earlier pages on demand, and every
  * row a page delivers is merged into the same window one at a time. So each row is
  * its own cut unit, which is the FINEST the cap can act on and therefore the least

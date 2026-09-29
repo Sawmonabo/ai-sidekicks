@@ -23,21 +23,21 @@ import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
  * Renderer-local state a row body leases from the list.
  *
  * `density` is the seat's own vocabulary rather than a second collapse enumeration
- * (`seats/slots/timeline-row-slot.ts`): the list decides a row's collapse state
+ * (`transcript-row-renderer.ts`): the list decides a row's collapse state
  * and hands it down, so the table parking that decision has to park the same type.
  */
-export interface LedgerRowLease {
+export interface RetainedRowState {
   readonly density: TimelineRowDensity;
   /** Offset inside the row's own clamped body, so a re-shown row reopens where it was. */
   readonly innerScrollTopPx: number;
 }
 
 /** The live and parked lease tables, and the one rule that moves a row between them. */
-export class LedgerRowLeaseTable {
+export class RetainedRowStateTable {
   readonly #parkedLeaseCap: number;
-  readonly #leaseByRowKey = new Map<string, LedgerRowLease>();
+  readonly #leaseByRowKey = new Map<string, RetainedRowState>();
   /** Insertion-ordered, so the cap evicts the least recently parked. */
-  readonly #parkedLeaseBySyntheticKey = new Map<string, LedgerRowLease>();
+  readonly #parkedLeaseBySyntheticKey = new Map<string, RetainedRowState>();
 
   public constructor(parkedLeaseCap: number = LEDGER_PARKED_LEASE_CAP) {
     this.#parkedLeaseCap = parkedLeaseCap;
@@ -49,14 +49,14 @@ export class LedgerRowLeaseTable {
    * The live table answers first: a row that was pruned and has since been re-read
    * has both, and the live one is the reader's current truth.
    */
-  public lease(rowKey: string): LedgerRowLease | undefined {
+  public lease(rowKey: string): RetainedRowState | undefined {
     return (
       this.#leaseByRowKey.get(rowKey) ??
       this.#parkedLeaseBySyntheticKey.get(this.#syntheticKeyFor(rowKey))
     );
   }
 
-  public setLease(rowKey: string, lease: LedgerRowLease): void {
+  public setLease(rowKey: string, lease: RetainedRowState): void {
     this.#leaseByRowKey.set(rowKey, lease);
   }
 

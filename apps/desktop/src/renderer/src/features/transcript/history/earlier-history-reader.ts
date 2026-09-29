@@ -52,7 +52,7 @@ import { type CurrentGenerationClaim } from "@renderer/console/store/read/genera
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What a surface renders about the rows before this window. */
-export interface LedgerEarlierWindowState {
+export interface EarlierHistoryState {
   /**
    * Whether a backward page can be asked for right now.
    *
@@ -78,7 +78,7 @@ export interface LedgerEarlierWindowState {
  * that changes it, and the act has to be able to refuse without every caller
  * remembering the single-flight rule.
  */
-export class LedgerEarlierWindowReader {
+export class EarlierHistoryReader {
   /**
    * The store window this walk is based on, once one has been observed.
    *
@@ -95,7 +95,7 @@ export class LedgerEarlierWindowReader {
    * would abort the page already in flight on exactly the double press this walk drops,
    * and the reader would then install the door's own `read-abandoned` refusal beside a
    * control that had done nothing wrong. The walk's owner ends the line through
-   * {@link abandonReads}, which is what `paging-binding.ts` hands the holder as its
+   * {@link abandonReads}, which is what `useEarlierHistory.ts` hands the holder as its
    * disposal — so a pane that leaves stops its outstanding page rather than only
    * ignoring it.
    */
@@ -130,7 +130,7 @@ export class LedgerEarlierWindowReader {
    * STORE owns — a completed read re-establishes where the window starts — and an
    * object holding its own copy would keep walking from a head the store had moved.
    */
-  public state(sessionStore: SessionStore): LedgerEarlierWindowState {
+  public state(sessionStore: SessionStore): EarlierHistoryState {
     this.#rebaseIfWindowMoved(sessionStore);
     return {
       canLoadEarlier: !this.#exhausted && !this.#isReading && this.#nextBeforeCursor !== undefined,

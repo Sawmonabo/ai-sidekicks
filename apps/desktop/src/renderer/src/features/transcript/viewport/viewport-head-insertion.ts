@@ -17,10 +17,10 @@
 // took are still at the front of what arrives, and the answer is honest in both
 // directions.
 
-import { countInsertedBefore, type LedgerViewportRow } from "./viewport-snapshot.js";
+import { countInsertedBefore, type ViewportRow } from "./viewport-snapshot.js";
 
 /** What one reconcile learned about the front of the window. */
-export interface LedgerHeadGrowthReading {
+export interface HeadInsertionReading {
   /** How many rows arrived in front of the previous set. Zero on a first reconcile. */
   readonly insertedCount: number;
   /**
@@ -34,11 +34,11 @@ export interface LedgerHeadGrowthReading {
   readonly headRootCursor: string | undefined;
 }
 
-export class LedgerHeadGrowth {
+export class HeadInsertion {
   #headKey: string | undefined;
 
   /** Fold one incoming set in, and answer for it. Advances the remembered head. */
-  public read(rows: readonly LedgerViewportRow[]): LedgerHeadGrowthReading {
+  public read(rows: readonly ViewportRow[]): HeadInsertionReading {
     const insertedCount = countInsertedBefore(rows, this.#headKey);
     const headRow = rows[0];
     this.#headKey = headRow?.key;

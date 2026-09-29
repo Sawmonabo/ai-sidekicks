@@ -2,7 +2,7 @@
 //
 // A seam is one line marking a change in the run's condition, and this module decides
 // which rows earn one. The closed vocabulary it classifies into is
-// `seam-vocabulary.ts`': the kinds, the wire types each reads, the label, the glyph
+// `system-message-kinds.ts`': the kinds, the wire types each reads, the label, the glyph
 // and the one caution. Splitting the two is what keeps a reader of the table away from
 // the payload reads, and a reader of the payload reads away from the table.
 //
@@ -21,11 +21,11 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
-  LEDGER_SEAM_KINDS,
-  SEAM_WIRE_BINDINGS,
+  SYSTEM_MESSAGE_KINDS,
+  SYSTEM_MESSAGE_BINDINGS,
   SWITCH_CONTINUITY_MEMO,
-  type LedgerSeamKind,
-  type SeamWireRegistration,
+  type SystemMessageKind,
+  type WireTypeRegistration,
 } from "./system-message-kinds.js";
 
 /**
@@ -38,8 +38,8 @@ import {
  * to do with a value it did not know, and the only fail-closed answers are to drop
  * it or to guess.
  */
-export interface LedgerSeam {
-  readonly kind: LedgerSeamKind;
+export interface SystemMessageReading {
+  readonly kind: SystemMessageKind;
   readonly rowId: string;
   readonly sequence: number;
   readonly timestamp: string;
@@ -48,7 +48,7 @@ export interface LedgerSeam {
   readonly actorId: string | undefined;
   /** The event type this seam was read from, verbatim. */
   readonly wireType: string;
-  readonly wireRegistration: SeamWireRegistration;
+  readonly wireRegistration: WireTypeRegistration;
   /**
    * The boundary position, for the two seams that carry one: the rollback's
    * confirmed rewind floor, read through the boundary arm's typed payload, and the
@@ -80,14 +80,14 @@ export interface LedgerSeam {
  * Module-level tables would be module-level mutable state, which this tree does
  * not keep; an instance built once per surface is the same table with an owner.
  */
-export class LedgerSeamIndex {
-  readonly #kindByWireType: ReadonlyMap<string, LedgerSeamKind>;
+export class SystemMessageClassifier {
+  readonly #kindByWireType: ReadonlyMap<string, SystemMessageKind>;
   readonly #registeredWireTypes: ReadonlySet<string>;
 
   public constructor() {
-    const kindByWireType = new Map<string, LedgerSeamKind>();
-    for (const kind of LEDGER_SEAM_KINDS) {
-      for (const wireType of SEAM_WIRE_BINDINGS[kind].wireTypes) {
+    const kindByWireType = new Map<string, SystemMessageKind>();
+    for (const kind of SYSTEM_MESSAGE_KINDS) {
+      for (const wireType of SYSTEM_MESSAGE_BINDINGS[kind].wireTypes) {
         kindByWireType.set(wireType, kind);
       }
     }
@@ -112,8 +112,8 @@ export class LedgerSeamIndex {
    */
   public unregisteredWireTypes(): readonly string[] {
     const missing: string[] = [];
-    for (const kind of LEDGER_SEAM_KINDS) {
-      for (const wireType of SEAM_WIRE_BINDINGS[kind].wireTypes) {
+    for (const kind of SYSTEM_MESSAGE_KINDS) {
+      for (const wireType of SYSTEM_MESSAGE_BINDINGS[kind].wireTypes) {
         if (!this.#registeredWireTypes.has(wireType)) {
           missing.push(wireType);
         }
@@ -123,16 +123,16 @@ export class LedgerSeamIndex {
   }
 
   /** Seam kinds none of whose wire types the contract registers. */
-  public unregisteredSeamKinds(): readonly LedgerSeamKind[] {
-    return LEDGER_SEAM_KINDS.filter((kind) =>
-      SEAM_WIRE_BINDINGS[kind].wireTypes.every(
+  public unregisteredSeamKinds(): readonly SystemMessageKind[] {
+    return SYSTEM_MESSAGE_KINDS.filter((kind) =>
+      SYSTEM_MESSAGE_BINDINGS[kind].wireTypes.every(
         (wireType) => !this.#registeredWireTypes.has(wireType),
       ),
     );
   }
 
   /** One row's seam, or `undefined` when the row is not a seam. */
-  public classify(row: TimelineRow): LedgerSeam | undefined {
+  public classify(row: TimelineRow): SystemMessageReading | undefined {
     if (row.kind === "rollback_boundary") {
       return rollbackSeamOf(row);
     }
@@ -172,8 +172,8 @@ export class LedgerSeamIndex {
   }
 
   /** Every seam in one loaded window, in log order. */
-  public seams(rows: readonly TimelineRow[]): readonly LedgerSeam[] {
-    const seams: LedgerSeam[] = [];
+  public seams(rows: readonly TimelineRow[]): readonly SystemMessageReading[] {
+    const seams: SystemMessageReading[] = [];
     for (const row of rows) {
       const seam = this.classify(row);
       if (seam !== undefined) {
@@ -211,7 +211,9 @@ function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonl
  * Read through the arm's own narrowing so the rewind cutoff never reaches a
  * consumer through a cast — the property this narrowing exists to guarantee.
  */
-function rollbackSeamOf(row: Extract<TimelineRow, { kind: "rollback_boundary" }>): LedgerSeam {
+function rollbackSeamOf(
+  row: Extract<TimelineRow, { kind: "rollback_boundary" }>,
+): SystemMessageReading {
   return {
     kind: "rollback",
     rowId: row.id,

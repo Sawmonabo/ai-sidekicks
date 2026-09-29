@@ -19,8 +19,8 @@ import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LedgerScrollController } from "./scroll-chokepoint.js";
-import type { LedgerGeometry } from "./geometry-sample.js";
-import type { LedgerScrollSurface } from "./scroll-chokepoint.js";
+import type { ScrollGeometry } from "./geometry-sample.js";
+import type { ScrollContainer } from "./scroll-chokepoint.js";
 
 let clock: ManualClock;
 
@@ -39,7 +39,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
   // subscribers already hold wakes nobody, by design — so a case that fired a resize
   // over an unchanged element would read as starvation whether or not the seam worked.
   interface GrowableSurface {
-    readonly surface: LedgerScrollSurface;
+    readonly surface: ScrollContainer;
     growTo: (clientHeight: number) => void;
   }
 
@@ -91,7 +91,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     const observer = installObserverCapture();
     const controller = new LedgerScrollController({ clock });
     const mounted = growableElement(32, 9000);
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
 
     controller.attach(mounted.surface);
     controller.subscribeToGeometry((geometry) => received.push(geometry));

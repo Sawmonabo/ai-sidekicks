@@ -13,14 +13,14 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
-import { LedgerFeed } from "./TranscriptFeed.js";
+import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
-  LEDGER_FIXTURE_PANE_ID,
+  TRANSCRIPT_FIXTURE_PANE_ID,
   SHORT_LOG_EVENT_COUNT,
-  contributeLedgerCommands,
-  dispatchConsoleCommand,
+  contributeTranscriptCommands,
+  dispatchCommand,
   renderFeed,
-  withdrawLedgerCommands,
+  withdrawTranscriptCommands,
   withLaidOutViewport,
 } from "./TranscriptFeed.test-support.js";
 import { openSessionStoreWithFeedLog } from "../../transcript-logs.test-support.js";
@@ -31,15 +31,15 @@ afterEach(() => {
 
 describe("the ledger feed — the palette acts on the mounted feed", () => {
   afterEach(() => {
-    withdrawLedgerCommands();
+    withdrawTranscriptCommands();
   });
 
   it("opens this feed's find field when the palette's find row is run", () => {
     withLaidOutViewport();
-    contributeLedgerCommands();
+    contributeTranscriptCommands();
     const feed = renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
     expect(feed.querySelector(".meridian-find")).toBeNull();
-    dispatchConsoleCommand("ledger.find");
+    dispatchCommand("transcript.find");
     expect(feed.querySelector(".meridian-find")).not.toBeNull();
   });
 
@@ -48,9 +48,9 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // field is the only thing on this surface that can hold a caret without
     // scrolling the log. Before this focus stayed on the ledger or the palette.
     withLaidOutViewport();
-    contributeLedgerCommands();
+    contributeTranscriptCommands();
     const feed = renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
-    dispatchConsoleCommand("ledger.find");
+    dispatchCommand("transcript.find");
     const input = feed.querySelector<HTMLInputElement>(".meridian-find__input");
     expect(input).not.toBeNull();
     expect(document.activeElement).toBe(input);
@@ -68,13 +68,15 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // Which is the other half of the seam: the command is contributed for the
     // window's whole life and the feed is not, so the press has to say so rather
     // than doing nothing.
-    contributeLedgerCommands();
+    contributeTranscriptCommands();
     const raised: ConsoleRefusal[] = [];
     const withdrawSink = publishConsoleActRefusalSink((refusal) => {
       raised.push(refusal);
     });
-    dispatchConsoleCommand("ledger.find");
-    expect(raised.map((refusal) => refusal.code)).toStrictEqual(["ledger.no_mounted_ledger"]);
+    dispatchCommand("transcript.find");
+    expect(raised.map((refusal) => refusal.code)).toStrictEqual([
+      "transcript.no_mounted_transcript",
+    ]);
     withdrawSink();
   });
 
@@ -82,27 +84,27 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // Without this the case above would pass over a feed that never took the seat
     // at all, which is exactly the state this lane found the ledger in.
     withLaidOutViewport();
-    contributeLedgerCommands();
+    contributeTranscriptCommands();
     const raisedWhileMounted: ConsoleRefusal[] = [];
     const withdrawSink = publishConsoleActRefusalSink((refusal) => {
       raisedWhileMounted.push(refusal);
     });
     const mounted = render(
       <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
-        <LedgerFeed
+        <TranscriptFeed
           sessionStore={openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT)}
-          paneId={LEDGER_FIXTURE_PANE_ID}
+          paneId={TRANSCRIPT_FIXTURE_PANE_ID}
           renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
           feedLabel="Session timeline"
         />
       </DesktopBridgeProvider>,
     );
-    dispatchConsoleCommand("ledger.find");
+    dispatchCommand("transcript.find");
     expect(raisedWhileMounted).toStrictEqual([]);
     mounted.unmount();
-    dispatchConsoleCommand("ledger.find");
+    dispatchCommand("transcript.find");
     expect(raisedWhileMounted.map((refusal) => refusal.code)).toStrictEqual([
-      "ledger.no_mounted_ledger",
+      "transcript.no_mounted_transcript",
     ]);
     withdrawSink();
   });

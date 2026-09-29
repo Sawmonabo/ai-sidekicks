@@ -2,12 +2,12 @@ import { useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerWindowModel } from "../../window/transcript-window.js";
-import { chapterRunIdInWindow } from "../event-jump.js";
-import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../row-jump.js";
+import { type TranscriptWindowModel } from "../../window/transcript-window.js";
+import { findRunGroupRunIdInWindow } from "../event-jump.js";
+import { type RowJumpAbsence, type RowJumpOutcome } from "../row-jump.js";
 
 /** What one arm offers, when there is an act that reaches the row. */
-export interface LedgerJumpReach {
+export interface TranscriptJumpReach {
   /** The button's words: the act, named for what it does to this transcript. */
   readonly label: string;
   /** Perform it. The jump itself is the deferred request, not this. */
@@ -20,7 +20,7 @@ export interface LedgerJumpReach {
  * absence and cannot take an argument list per arm.
  */
 interface LedgerJumpActContext {
-  readonly foldedWindow: LedgerWindowModel;
+  readonly foldedWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   /** Open the shut chapter holding this row, so the jump that follows can land. */
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
@@ -31,12 +31,12 @@ interface LedgerJumpActContext {
 type LedgerJumpAct = (
   row: TimelineRow,
   context: LedgerJumpActContext,
-) => LedgerJumpReach | undefined;
+) => TranscriptJumpReach | undefined;
 
 /**
  * The act each absence deserves over THIS ledger, or `undefined` where none exists.
  *
- * A TABLE KEYED BY ABSENCE, total over `LEDGER_JUMP_ABSENCES` by `satisfies`, so a
+ * A TABLE KEYED BY ABSENCE, total over `ROW_JUMP_ABSENCES` by `satisfies`, so a
  * narrowing added to the pipeline cannot compile and fall through to "Open that
  * chapter and go to it", offering an act that could not reach the row.
  *
@@ -51,9 +51,9 @@ type LedgerJumpAct = (
  *     log and holds no read that fetches a range of it, so the honest surface is
  *     the sentence alone.
  */
-const LEDGER_JUMP_ACTS = {
+const JUMP_ACTS = {
   "folded-into-chapter": (row, context) => {
-    const chapterRunId = chapterRunIdInWindow(row, context.foldedWindow);
+    const chapterRunId = findRunGroupRunIdInWindow(row, context.foldedWindow);
     if (chapterRunId === undefined || context.openedTerminalRunIds.has(chapterRunId)) {
       return undefined;
     }
@@ -66,7 +66,7 @@ const LEDGER_JUMP_ACTS = {
     };
   },
   "outside-window": () => undefined,
-} satisfies Readonly<Record<LedgerJumpAbsence, LedgerJumpAct>>;
+} satisfies Readonly<Record<RowJumpAbsence, LedgerJumpAct>>;
 
 /**
  * The act this ledger offers for one outcome, or `undefined` where it offers none.
@@ -75,13 +75,13 @@ const LEDGER_JUMP_ACTS = {
  * own reason rather than for one shared one: a row the viewport is showing needs no
  * act to reach it, and a row this window never held has none to offer.
  */
-export function useLedgerJumpReach(inputs: {
-  readonly outcome: LedgerJumpOutcome | undefined;
-  readonly foldedWindow: LedgerWindowModel;
+export function useTranscriptJumpReach(inputs: {
+  readonly outcome: RowJumpOutcome | undefined;
+  readonly foldedWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly requestJump: (rowId: string) => void;
-}): LedgerJumpReach | undefined {
+}): TranscriptJumpReach | undefined {
   const { outcome, foldedWindow, openedTerminalRunIds, openFoldsHoldingRow, requestJump } = inputs;
   return useMemo(() => {
     if (
@@ -91,7 +91,7 @@ export function useLedgerJumpReach(inputs: {
     ) {
       return undefined;
     }
-    return LEDGER_JUMP_ACTS[outcome.status](outcome.row, {
+    return JUMP_ACTS[outcome.status](outcome.row, {
       foldedWindow,
       openedTerminalRunIds,
       openFoldsHoldingRow,

@@ -20,7 +20,7 @@
 //     four treatments are expressed as four fill patterns down the edge: continuous,
 //     long dashes, paired ticks, and dots. The spec fixes the width and names the
 //     treatments; how they compose is under-determined, and this is the reading that
-//     keeps the width honest. (See `ledger-row.css`.)
+//     keeps the width honest. (See `TranscriptRowLayout.css`.)
 //   • **The footer is revealed, never added.** Rule 7: "secondary controls live one
 //     click away — a row's hover footer or its context menu — never as a second
 //     visible button." Revealing on `:hover` alone would hide the row's affordances
@@ -40,11 +40,11 @@ import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
 export interface LedgerRowProps {
   /** Wheel step, 0 to 11 — drives the 2 px attribution edge. */
-  readonly actorHueStep: number;
+  readonly agentHueStep: number;
   /** How a wrapped step is told apart from the step it repeats. */
   readonly ringTreatment?: ActorRingTreatment;
   readonly occurredAtIso: string;
-  readonly actorLabel: string;
+  readonly authorLabel: string;
   /** A wire-true event kind. Rendered mono and verbatim. */
   readonly kindLabel: string;
   /** The row body, in a single measure. */
@@ -82,12 +82,12 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   // The edge falls back to the neutral control boundary and the row says, in its
   // class, that it carries no attribution.
   const isAttributed =
-    Number.isInteger(props.actorHueStep) &&
-    props.actorHueStep >= 0 &&
-    props.actorHueStep < ACTOR_HUE_STEPS;
+    Number.isInteger(props.agentHueStep) &&
+    props.agentHueStep >= 0 &&
+    props.agentHueStep < ACTOR_HUE_STEPS;
   const edgeStyle: AttributionEdgeStyle = {
     "--meridian-row-hue": isAttributed
-      ? tokenReference(actorHueTokenName(props.actorHueStep))
+      ? tokenReference(actorHueTokenName(props.agentHueStep))
       : tokenReference("edge-strong"),
   };
 
@@ -105,7 +105,7 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
       <span className="meridian-ledger-row__edge" style={edgeStyle} aria-hidden="true" />
       <div className="meridian-ledger-row__gutter">
         <span className="meridian-ledger-row__actor" id={actorId}>
-          {props.actorLabel}
+          {props.authorLabel}
         </span>
         <WireFigure value={occurredAtClockTime} title={props.occurredAtIso} />
       </div>

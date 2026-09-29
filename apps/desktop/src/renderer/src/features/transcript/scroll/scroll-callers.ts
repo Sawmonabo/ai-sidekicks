@@ -19,7 +19,7 @@
  * how much; the scroll controller performs it. A library that wrote the offset itself
  * would be the second writer this union exists to prevent.
  */
-export const LEDGER_SCROLL_CALLERS = [
+export const SCROLL_CALLERS = [
   "follow-tail",
   "jump-to-tail",
   "hold-reading-position",
@@ -30,4 +30,4 @@ export const LEDGER_SCROLL_CALLERS = [
 ] as const;
 
 /** One scroll caller. Derived from the enumeration, never restated. */
-export type LedgerScrollCaller = (typeof LEDGER_SCROLL_CALLERS)[number];
+export type ScrollCaller = (typeof SCROLL_CALLERS)[number];

@@ -18,23 +18,23 @@
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
-import { RowMeasurementLedger } from "./row-measurement-table.js";
-import { LedgerScrollController, type LedgerScrollSurface } from "../scroll/scroll-chokepoint.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
+import { RowMeasurementTable } from "./row-measurement-table.js";
+import { LedgerScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
-export type LedgerRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
+export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
 export interface LedgerVirtualizerSeamsOptions {
   readonly scroll: LedgerScrollController;
-  readonly measurements: RowMeasurementLedger;
+  readonly measurements: RowMeasurementTable;
   /** The distinct key the measurement ledger projected for a row index. */
   readonly virtualKeyAt: (index: number) => string | undefined;
 }
 
-export class LedgerVirtualizerSeams {
+export class VirtualizerOptions {
   readonly #scroll: LedgerScrollController;
-  readonly #measurements: RowMeasurementLedger;
+  readonly #measurements: RowMeasurementTable;
   readonly #virtualKeyAt: (index: number) => string | undefined;
 
   #surface: HTMLElement | undefined;
@@ -59,7 +59,7 @@ export class LedgerVirtualizerSeams {
 
   /** The library's scroll offset, replayed from the chokepoint's own sample. */
   public readonly observeElementOffset = (
-    _instance: LedgerRowVirtualizer,
+    _instance: TranscriptRowVirtualizer,
     sink: (offset: number, isScrolling: boolean) => void,
   ): Unsubscribe =>
     this.#scroll.subscribeToGeometry((geometry) => {
@@ -70,7 +70,7 @@ export class LedgerVirtualizerSeams {
 
   /** The library's viewport rect, from the same sample. */
   public readonly observeElementRect = (
-    _instance: LedgerRowVirtualizer,
+    _instance: TranscriptRowVirtualizer,
     sink: (rect: Rect) => void,
   ): Unsubscribe =>
     this.#scroll.subscribeToGeometry((geometry) => {
@@ -91,13 +91,13 @@ export class LedgerVirtualizerSeams {
   public readonly getItemKey = (index: number): string =>
     this.#virtualKeyAt(index) ?? `row-without-a-key-${String(index)}`;
 
-  public readonly estimateSize = (): number => LEDGER_ROW_HEIGHT_ESTIMATE_PX;
+  public readonly estimateSize = (): number => TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
 
   /** The measurement ledger's verdict on an observed row height. */
   public readonly measureElement = (
     element: HTMLElement,
     entry: ResizeObserverEntry | undefined,
-    instance: LedgerRowVirtualizer,
+    instance: TranscriptRowVirtualizer,
   ): number => {
     const index = instance.indexFromElement(element);
     const rowKey = String(instance.options.getItemKey(index));
@@ -117,7 +117,7 @@ export class LedgerVirtualizerSeams {
    * by a test leaves the library detached, which is the honest state rather than a
    * stand-in element it would try to observe.
    */
-  public bindSurface(surface: LedgerScrollSurface | undefined): void {
+  public bindSurface(surface: ScrollContainer | undefined): void {
     this.#surface = surface instanceof HTMLElement ? surface : undefined;
   }
 }

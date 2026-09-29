@@ -1,15 +1,15 @@
 // The window cap: what it drops, what it refuses to drop, and what it leaves owed.
 //
 // The logs and the all-clear conditions are `window-cap.test-support.ts`', shared with
-// `window-cap.leases.test.ts` — the seam to the lease table and the rules that decide
+// `window-cap.test.ts` — the seam to the lease table and the rules that decide
 // what counts as one row, which is the other half of this module and a subject of its
 // own.
 
 import { describe, expect, it } from "vitest";
 
-import { LedgerWindow, PRUNE_DEFERRAL_REASONS, type PruneConditions } from "./window-cap.js";
+import { TranscriptWindow, PRUNE_DEFERRAL_REASONS, type PruneConditions } from "./window-cap.js";
 import {
-  CHILDREN_PER_CHAPTER,
+  CHILDREN_PER_RUN_GROUP,
   loadedWindow,
   PRUNABLE,
   syntheticWindowRows,
@@ -25,7 +25,7 @@ describe("the ledger window — the cap", () => {
     expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
     // Children never trip the cap: the retained set is the cap's worth of chapters
     // WITH their children, not the cap's worth of rows.
-    expect(window.size).toBe(LEDGER_WINDOW_ROW_CAP * (CHILDREN_PER_CHAPTER + 1));
+    expect(window.size).toBe(LEDGER_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
   it("drops the oldest first, and keeps the newest", () => {
@@ -88,7 +88,7 @@ describe("the ledger window — when prune may not land", () => {
   });
 
   it("says `under-cap` rather than reporting a prune that dropped nothing", () => {
-    const window = new LedgerWindow();
+    const window = new TranscriptWindow();
     window.ingest(syntheticWindowRows(4));
     const outcome = window.prune(PRUNABLE);
     expect(outcome.deferredBecause).toBe("under-cap");
@@ -114,7 +114,7 @@ describe("the ledger window — when prune may not land", () => {
     // The second way a pass can end over its cap: no floor stopped the walk, it
     // simply had nothing it was allowed to take. Reported as an applied prune with
     // an empty key list this reads exactly like a window already under cap.
-    const window = new LedgerWindow({ topLevelCap: 2 });
+    const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
@@ -130,7 +130,7 @@ describe("the ledger window — when prune may not land", () => {
     // One of the three rows the cap wanted is free, so the pass APPLIES — and the
     // window is still two rows over its ceiling with nobody re-asking unless the
     // residual is named beside the applied outcome.
-    const window = new LedgerWindow({ topLevelCap: 2 });
+    const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
@@ -146,7 +146,7 @@ describe("the ledger window — when prune may not land", () => {
   it("negative control: the same rows unheld leave nothing owed", () => {
     // Without this the two cases above would pass over a window that had started
     // reporting `held-rows` for every prune it performed.
-    const window = new LedgerWindow({ topLevelCap: 2 });
+    const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
@@ -176,7 +176,7 @@ describe("the ledger window — the reading floor", () => {
         (chapterKey) => [
           chapterKey,
           ...Array.from(
-            { length: CHILDREN_PER_CHAPTER },
+            { length: CHILDREN_PER_RUN_GROUP },
             (_unused, child) => `${chapterKey}-child-${String(child)}`,
           ),
         ],
@@ -186,7 +186,7 @@ describe("the ledger window — the reading floor", () => {
     // reader is about to scroll into is whole rather than holed.
     const retainedKeys = window.rows().map((row) => row.key);
     expect(retainedKeys[0]).toBe(READER_ROW);
-    expect(retainedKeys).toHaveLength((TOP_LEVEL_ROW_COUNT - 10) * (CHILDREN_PER_CHAPTER + 1));
+    expect(retainedKeys).toHaveLength((TOP_LEVEL_ROW_COUNT - 10) * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
   it("negative control: without the floor the very same row is dropped", () => {

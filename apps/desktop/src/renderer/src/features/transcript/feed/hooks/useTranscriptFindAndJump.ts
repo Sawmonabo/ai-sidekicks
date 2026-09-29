@@ -14,13 +14,13 @@ import { useCallback } from "react";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type FindStepDirection } from "../../find/find-model.js";
-import { type LedgerFindState, useLedgerFind } from "../../find/hooks/useTranscriptFind.js";
-import { type VisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
+import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
+import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** Everything the find field needs, over one transcript. */
-export interface LedgerFindAndJump {
+export interface TranscriptFindAndJump {
   /** The field's own state, also handed to the palette's acts. */
-  readonly find: LedgerFindState;
+  readonly find: TranscriptFindState;
   /** Walk to the next or previous match, scrolling to it. */
   readonly onStep: (direction: FindStepDirection) => void;
   /** Close the field and put focus back on the log. */
@@ -28,20 +28,20 @@ export interface LedgerFindAndJump {
 }
 
 /** Wire the find field to the window it searches and the scroll writer it jumps through. */
-export function useLedgerFindAndJump(inputs: {
+export function useTranscriptFindAndJump(inputs: {
   /** What the chapter fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TimelineRow[];
-  readonly visible: VisibleLedgerWindow;
+  readonly visible: VisibleTranscriptWindow;
   /** The transcript's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusLedgerSurface: () => void;
-}): LedgerFindAndJump {
+}): TranscriptFindAndJump {
   const { foldedAwayRows, visible, jumpToRow, focusLedgerSurface } = inputs;
 
   // Every stage, not just the rows on screen: what the walk cannot reach is counted
   // under the name of the stage holding it, each reported by the stage that removed it
   // rather than re-derived here from a pair of windows.
-  const find = useLedgerFind({ visible, foldedAwayRows });
+  const find = useTranscriptFind({ visible, foldedAwayRows });
 
   const onStep = useCallback(
     (direction: FindStepDirection) => {

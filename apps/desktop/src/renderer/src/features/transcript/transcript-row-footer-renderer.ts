@@ -1,6 +1,6 @@
 // The timeline row's FOOTER seat — where a row-level control another plan owns sits.
 //
-// WHY A SECOND SEAT BESIDE THE ROW SLOT. `timeline-row-slot.ts` hands out the whole
+// WHY A SECOND SEAT BESIDE THE ROW SLOT. `transcript-row-renderer.ts` hands out the whole
 // row body, and the family that fills it owns everything inside. The edit-and-resend
 // affordance is not inside it: the pencil belongs in the footer of a user
 // message row, the body it opens is authored by the run-controls plan, and neither
@@ -20,8 +20,8 @@
 // run's state. A member saying "this caller may edit" would be exactly the second
 // answer the design forbids, and it would be computed here, in the renderer.
 //
-// AND IT IS NOT THE CARD'S OWN `editAffordance` HOLE, WHICH IS WHY BOTH EXIST.
-// `ledger/cards/MessageCard.tsx` carries an owner slot on its footer, and that slot
+// AND IT IS NOT THE CARD'S OWN `editControl` HOLE, WHICH IS WHY BOTH EXIST.
+// `ledger/cards/MessageRow.tsx` carries an owner slot on its footer, and that slot
 // lives INSIDE the fixture shell's row body — the body the timeline subtree replaces
 // and deletes. A seat that dies with the shell is not a seat the affordance's owner
 // can be handed, so the durable one is mounted by the FEED, outside the body, and
@@ -36,7 +36,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
 
 /** What the ledger hands a row footer. */
-export interface TimelineRowFooterSlotProps {
+export interface TranscriptRowFooterRendererProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
   readonly row: TimelineRow;
   /**
@@ -50,7 +50,9 @@ export interface TimelineRowFooterSlotProps {
 }
 
 /** The footer body. Returns `React.ReactNode` so the row can render it directly. */
-export type TimelineRowFooterRenderer = (props: TimelineRowFooterSlotProps) => React.ReactNode;
+export type TimelineRowFooterRenderer = (
+  props: TranscriptRowFooterRendererProps,
+) => React.ReactNode;
 
 const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
   "timeline row footer",
@@ -64,7 +66,7 @@ const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
  * PR that deletes the shell. Owner-scoped, so forgetting the deletion is a refusal
  * naming both rather than a race decided by import order.
  */
-export function registerTimelineRowFooterRenderer(
+export function registerTranscriptRowFooterRenderer(
   owner: string,
   render: TimelineRowFooterRenderer,
 ): void {
@@ -77,7 +79,7 @@ export function registerTimelineRowFooterRenderer(
  * Test scaffolding: the seat is module-scope, so a case that fills it would leak
  * into the next one. The shell is retired by DELETING its registration.
  */
-export function unregisterTimelineRowFooterRenderer(): void {
+export function unregisterTranscriptRowFooterRenderer(): void {
   timelineRowFooterSeat.unregister();
 }
 
@@ -93,9 +95,9 @@ export function timelineRowFooterRenderer(): TimelineRowFooterRenderer | undefin
  * membership question has one home: the affordance corrects what a user
  * SENT, and no other row is a thing a user sent.
  */
-export const TIMELINE_ROW_FOOTER_TYPES = ["user.message"] as const;
+export const ROW_TYPES_WITH_FOOTER = ["user.message"] as const;
 
 /** Whether this row is one the footer is offered on. Wire-verbatim, never inferred. */
 export function rowTakesFooter(row: TimelineRow): boolean {
-  return (TIMELINE_ROW_FOOTER_TYPES as readonly string[]).includes(row.type);
+  return (ROW_TYPES_WITH_FOOTER as readonly string[]).includes(row.type);
 }

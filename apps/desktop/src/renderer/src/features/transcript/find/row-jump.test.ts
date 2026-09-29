@@ -4,7 +4,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import { jumpToEventId, type LedgerJumpStages } from "./row-jump.js";
+import { jumpToEventId, type RowJumpStages } from "./row-jump.js";
 
 /** Two runs by two agents, one session row, and a boundary in each run. */
 function twoRunWindow(): readonly TimelineRow[] {
@@ -73,7 +73,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
   function stagesOver(admissions: {
     fold?: readonly TimelineRow[];
     viewport?: readonly TimelineRow[];
-  }): LedgerJumpStages {
+  }): RowJumpStages {
     const idsOf = (admitted: readonly TimelineRow[] | undefined): ReadonlySet<string> =>
       new Set((admitted ?? rows).map((row) => row.id));
     return {

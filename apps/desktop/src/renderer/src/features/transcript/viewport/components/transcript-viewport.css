@@ -26,7 +26,7 @@
  */
 .meridian-ledger-viewport__surface {
   /* PLACED, not auto-placed. The two tracks above were written for an error slot over
-     a scroll surface, but `ErrorSlot.tsx` returns null with no entries and both
+     a scroll surface, but `TranscriptErrors.tsx` returns null with no entries and both
      affordances are out of flow — so in the ordinary case the surface is the only
      in-flow child, auto-places into track 1, and is sized by its CONTENT while the
      `1fr` track it was meant for sits empty and absorbs the free space. Measured: zero

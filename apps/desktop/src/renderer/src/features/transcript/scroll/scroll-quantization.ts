@@ -16,7 +16,7 @@
 // is one unskipped no-op write. Two readings that disagree discard both rather than
 // averaging two contradictions.
 
-import { SCROLL_QUANTIZATION_WITNESS_COUNT } from "../viewport/viewport-constants.js";
+import { SCROLL_QUANTIZATION_SAMPLE_COUNT } from "../viewport/viewport-constants.js";
 
 export class WholePixelQuantizationLearner {
   readonly #witnessCount: number;
@@ -25,7 +25,7 @@ export class WholePixelQuantizationLearner {
 
   #verdict: boolean | undefined;
 
-  public constructor(witnessCount: number = SCROLL_QUANTIZATION_WITNESS_COUNT) {
+  public constructor(witnessCount: number = SCROLL_QUANTIZATION_SAMPLE_COUNT) {
     this.#witnessCount = witnessCount;
   }
 

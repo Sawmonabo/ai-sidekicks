@@ -6,7 +6,7 @@
 // TOUCHES, and `happy-dom` answers zero for every geometry read, so a test against
 // it would pass whether or not the controller did anything at all.
 //
-// The stand-in is a real implementation of `LedgerScrollSurface`, not a stub of the
+// The stand-in is a real implementation of `ScrollContainer`, not a stub of the
 // controller: the module under test is imported and driven.
 //
 // WHAT A SAMPLE MEANS IS NOT ASKED HERE ANY MORE. The tail arithmetic, the replay and
@@ -19,15 +19,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LEDGER_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
-import { countingSurface } from "./scroll-container.test-support.js";
-import { LEDGER_SCROLL_CALLERS } from "./scroll-callers.js";
+import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
+import { createCountingScrollContainer } from "./scroll-container.test-support.js";
+import { SCROLL_CALLERS } from "./scroll-callers.js";
 import { LedgerScrollController } from "./scroll-chokepoint.js";
-import type { LedgerGeometry } from "./geometry-sample.js";
-import type { LedgerScrollSurface } from "./scroll-chokepoint.js";
+import type { ScrollGeometry } from "./geometry-sample.js";
+import type { ScrollContainer } from "./scroll-chokepoint.js";
 
 /** A surface that counts every property the controller reads. */
-class RecordingScrollSurface implements LedgerScrollSurface {
+class RecordingScrollSurface implements ScrollContainer {
   public readonly readCountByProperty = new Map<string, number>();
   /** When true, the surface rounds a written offset, as a quantizing display does. */
   public quantizesWrites = false;
@@ -107,7 +107,7 @@ beforeEach(() => {
 describe("the scroll chokepoint — geometry", () => {
   it("replays the last sample to a subscriber that arrives after it", () => {
     controller.attach(surface);
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     expect(received).toHaveLength(1);
     expect(received[0]?.contentHeight).toBe(5000);
@@ -117,7 +117,7 @@ describe("the scroll chokepoint — geometry", () => {
   it("negative control: a controller that never attached replays nothing", () => {
     // Without this, the case above would pass over a subscription that replayed a
     // fabricated zero sample rather than the one the surface produced.
-    const received: LedgerGeometry[] = [];
+    const received: ScrollGeometry[] = [];
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     expect(received).toStrictEqual([]);
   });
@@ -158,7 +158,7 @@ describe("the scroll chokepoint — writes", () => {
   it("declares its caller union closed and complete", () => {
     // A caller absent from the union cannot be passed at all, which is the point;
     // this pins the set so widening it is a deliberate edit rather than a typo.
-    expect([...LEDGER_SCROLL_CALLERS]).toStrictEqual([
+    expect([...SCROLL_CALLERS]).toStrictEqual([
       "follow-tail",
       "jump-to-tail",
       "hold-reading-position",
@@ -191,16 +191,16 @@ describe("the scroll chokepoint — writes", () => {
 describe("the scroll chokepoint — a box that changed size", () => {
   /** A surface whose box a case can change, and the pass that notices it. */
   function resizableController(): {
-    resizable: ReturnType<typeof countingSurface>;
-    samples: LedgerGeometry[];
+    resizable: ReturnType<typeof createCountingScrollContainer>;
+    samples: ScrollGeometry[];
   } {
-    const resizable = countingSurface({
+    const resizable = createCountingScrollContainer({
       initialScrollTop: 0,
       clientHeight: 500,
       scrollHeight: 5000,
     });
     controller.attach(resizable);
-    const samples: LedgerGeometry[] = [];
+    const samples: ScrollGeometry[] = [];
     controller.subscribeToGeometry((geometry) => samples.push(geometry));
     samples.length = 0;
     return { resizable, samples };
@@ -225,7 +225,7 @@ describe("the scroll chokepoint — a box that changed size", () => {
     // Which is what makes the publication above a change rather than a heartbeat:
     // sub-pixel wobble is what a fractional row height produces every frame.
     const { resizable, samples } = resizableController();
-    resizable.resizeTo(500 + LEDGER_GEOMETRY_EPSILON_PX / 2, 5000);
+    resizable.resizeTo(500 + TRANSCRIPT_GEOMETRY_EPSILON_PX / 2, 5000);
     controller.requestOverflowMeasurement();
     clock.runFrame();
     expect(samples).toStrictEqual([]);
@@ -239,7 +239,7 @@ describe("the scroll chokepoint — a box that changed size", () => {
 
   it("hands the overflow sink the one sample it published, rather than taking a second", () => {
     const { resizable, samples } = resizableController();
-    const measuredAt: LedgerGeometry[] = [];
+    const measuredAt: ScrollGeometry[] = [];
     controller.observeOverflow((geometry) => measuredAt.push(geometry));
     resizable.resizeTo(320, 6000);
     controller.requestOverflowMeasurement();
@@ -341,8 +341,8 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     // the surface that has gone: under a frozen fixture clock a remount arrives before
     // the frame it armed ever runs, so every cycle armed one and cancelled it, and the
     // box was never re-measured for any of them. A re-attach owes its own pass.
-    const outgoing = countingSurface({ clientHeight: 300, scrollHeight: 4000 });
-    const incoming = countingSurface({ clientHeight: 640, scrollHeight: 9000 });
+    const outgoing = createCountingScrollContainer({ clientHeight: 300, scrollHeight: 4000 });
+    const incoming = createCountingScrollContainer({ clientHeight: 640, scrollHeight: 9000 });
     const measuredViewportHeights: number[] = [];
     controller.observeOverflow((geometry) => {
       measuredViewportHeights.push(geometry.viewportHeight);

@@ -6,5 +6,5 @@ import "@renderer/features/transcript/transcript.css";
 
 export {
   registerLedger,
-  type LedgerComposition,
+  type TranscriptComposition,
 } from "@renderer/features/transcript/contributions/screens.js";

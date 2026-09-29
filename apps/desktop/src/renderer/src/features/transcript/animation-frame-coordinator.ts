@@ -19,7 +19,7 @@
 //
 // FOUR DECISIONS THIS MODULE MAKES:
 //
-//   • **Two phases, closed, in this file.** `LEDGER_FRAME_PHASES` is the order, and
+//   • **Two phases, closed, in this file.** `ANIMATION_FRAME_PHASES` is the order, and
 //     the order IS the array. A third phase is a change to one line and to every
 //     reader at once, rather than a comparison scattered over the callers.
 //   • **A task is coalesced by its key, per phase.** Ten ingests in one frame arm one
@@ -60,7 +60,7 @@ import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js"
  * Declared as the ordering rather than described by one: the index of a phase in
  * this array is its precedence, and `#drainFrame` walks it forwards.
  */
-export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
+export const ANIMATION_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
 
 /**
  * The label every frame meter series carries, before this coordinator's own ordinal.
@@ -69,35 +69,35 @@ export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
  * wrong because the budget the reading is compared against is a FRAME budget, and a
  * split would be two series neither of which is the number the budget names. Per
  * window is wrong because there is one coordinator per FEED — `coordinator-binding.ts`
- * says so in its first line and `ledger/pane/feed/model/ledger-feed-windows.ts` mints
+ * says so in its first line and `useTranscriptFeedWindows.ts` mints
  * one per feed model — so two feeds open side by side would have folded two feeds'
  * frames into one series, and the p95 an author read would have been an average over
  * a feed that was blowing the budget and one that was idle, with no second series
  * anywhere to notice it by.
  */
-const FRAME_TIME_METER_LABEL = "ledger-frame";
+const FRAME_TIME_METER_LABEL = "transcript-frame";
 
 /** One frame phase. Derived from the enumeration, never restated. */
-export type LedgerFramePhase = (typeof LEDGER_FRAME_PHASES)[number];
+export type AnimationFramePhase = (typeof ANIMATION_FRAME_PHASES)[number];
 
 /** A task that threw, reported out of band so the phase that held it still finished. */
-export interface LedgerFrameDiagnostic {
-  readonly phase: LedgerFramePhase;
+export interface AnimationFrameDiagnostic {
+  readonly phase: AnimationFramePhase;
   readonly taskKey: string;
   readonly detail: string;
 }
 
-export interface LedgerFrameCoordinatorOptions {
+export interface AnimationFrameCoordinatorOptions {
   readonly clock: ConsoleClock;
 }
 
 /** Per-frame work, ordered by phase and coalesced by task key. */
-export class LedgerFrameCoordinator {
+export class AnimationFrameCoordinator {
   readonly #clock: ConsoleClock;
-  readonly #diagnosticEmitter = new Emitter<LedgerFrameDiagnostic>("ledger frame diagnostic");
+  readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("ledger frame diagnostic");
   /** One insertion-ordered queue per phase; a key holds at most one task. */
-  readonly #queueByPhase = new Map<LedgerFramePhase, Map<string, () => void>>(
-    LEDGER_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
+  readonly #queueByPhase = new Map<AnimationFramePhase, Map<string, () => void>>(
+    ANIMATION_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
   );
 
   /**
@@ -128,10 +128,10 @@ export class LedgerFrameCoordinator {
   #nextTaskKeyOrdinal = 1;
   #disposed = false;
 
-  public constructor(options: LedgerFrameCoordinatorOptions) {
+  public constructor(options: AnimationFrameCoordinatorOptions) {
     this.#clock = options.clock;
-    this.#coordinatorId = `${FRAME_TIME_METER_LABEL}#${String(LedgerFrameCoordinator.#nextCoordinatorOrdinal)}`;
-    LedgerFrameCoordinator.#nextCoordinatorOrdinal += 1;
+    this.#coordinatorId = `${FRAME_TIME_METER_LABEL}#${String(AnimationFrameCoordinator.#nextCoordinatorOrdinal)}`;
+    AnimationFrameCoordinator.#nextCoordinatorOrdinal += 1;
   }
 
   /**
@@ -185,7 +185,7 @@ export class LedgerFrameCoordinator {
    * Submitting again under the same key before that frame runs replaces the task and
    * costs one run, which is what lets a subsystem arm on every delta.
    */
-  public schedule(phase: LedgerFramePhase, taskKey: string, task: () => void): void {
+  public schedule(phase: AnimationFramePhase, taskKey: string, task: () => void): void {
     if (this.#disposed) {
       return;
     }
@@ -216,7 +216,7 @@ export class LedgerFrameCoordinator {
    * them submits here instead, a coordinator holding a frame for an empty queue is
    * the only timer left to fire.
    */
-  public cancel(phase: LedgerFramePhase, taskKey: string): void {
+  public cancel(phase: AnimationFramePhase, taskKey: string): void {
     this.#queueByPhase.get(phase)?.delete(taskKey);
     if (this.#armedFrame !== undefined && this.pendingTaskCount === 0) {
       this.#clock.cancel(this.#armedFrame);
@@ -239,7 +239,7 @@ export class LedgerFrameCoordinator {
   }
 
   /** Watch quarantined tasks. No replay: a diagnostic is an event, not a state. */
-  public subscribeToDiagnostics(sink: (diagnostic: LedgerFrameDiagnostic) => void): Unsubscribe {
+  public subscribeToDiagnostics(sink: (diagnostic: AnimationFrameDiagnostic) => void): Unsubscribe {
     return this.#diagnosticEmitter.subscribe(sink);
   }
 
@@ -314,7 +314,7 @@ export class LedgerFrameCoordinator {
     // the recording it feeds — the whole cost of the meter in a shipped bundle is
     // this branch on a build-time literal, which Rollup removes.
     const startedAt = __SIDEKICKS_CONSOLE_FIXTURES__ ? perfMeterNow() : 0;
-    for (const [phaseIndex, phase] of LEDGER_FRAME_PHASES.entries()) {
+    for (const [phaseIndex, phase] of ANIMATION_FRAME_PHASES.entries()) {
       const queue = this.#queueByPhase.get(phase);
       if (queue === undefined || queue.size === 0) {
         continue;
@@ -336,7 +336,7 @@ export class LedgerFrameCoordinator {
     this.#armFrame();
   }
 
-  #runTask(phase: LedgerFramePhase, taskKey: string, task: () => void): void {
+  #runTask(phase: AnimationFramePhase, taskKey: string, task: () => void): void {
     try {
       task();
     } catch (frameTaskFailure: unknown) {

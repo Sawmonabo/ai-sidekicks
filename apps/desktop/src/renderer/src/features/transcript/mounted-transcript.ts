@@ -31,20 +31,20 @@ import { type Unsubscribe } from "@renderer/lib/emitter.js";
  * rather than the control that triggers it. Declared beside the seat that holds one, so
  * the commands and the seat do not import each other.
  */
-export interface LedgerStructureActs {
+export interface TranscriptActs {
   readonly openFind: () => void;
   readonly stepFindNext: () => void;
   readonly stepFindPrevious: () => void;
-  readonly scrollToTail: () => void;
-  readonly collapseAllTerminalChapters: () => void;
+  readonly jumpToLatest: () => void;
+  readonly foldEveryRun: () => void;
 }
 
 /** One act, by name. Every member is a niladic call, so the name is the whole request. */
-export type LedgerActName = keyof LedgerStructureActs;
+export type TranscriptActName = keyof TranscriptActs;
 
 /** What asking the seat to perform an act produced. */
-export type LedgerActOutcome =
-  | { readonly status: "performed"; readonly act: LedgerActName }
+export type TranscriptActOutcome =
+  | { readonly status: "performed"; readonly act: TranscriptActName }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
@@ -52,18 +52,18 @@ export type LedgerActOutcome =
  * person pressing a transcript chord from the settings page needs to know the transcript
  * is not here, not which act they reached for.
  */
-export const LEDGER_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
+export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
   "ledger",
-  "ledger.no_mounted_ledger",
+  "transcript.no_mounted_transcript",
   "No ledger is open in this window. Open a session and try again.",
 );
 
 /** The mounted feeds, in mount order. */
-export class MountedLedgerSeat {
-  readonly #adopted: LedgerStructureActs[] = [];
+export class MountedTranscript {
+  readonly #adopted: TranscriptActs[] = [];
 
   /** Take the seat for a mount's lifetime. The return value releases exactly this one. */
-  public adopt(acts: LedgerStructureActs): Unsubscribe {
+  public adopt(acts: TranscriptActs): Unsubscribe {
     this.#adopted.push(acts);
     return () => {
       const position = this.#adopted.lastIndexOf(acts);
@@ -74,7 +74,7 @@ export class MountedLedgerSeat {
   }
 
   /** The transcript a command acts on, or `undefined` while none is mounted. */
-  public current(): LedgerStructureActs | undefined {
+  public current(): TranscriptActs | undefined {
     return this.#adopted[this.#adopted.length - 1];
   }
 
@@ -84,10 +84,10 @@ export class MountedLedgerSeat {
   }
 
   /** Perform one act on the mounted transcript, or answer why it could not be. */
-  public perform(act: LedgerActName): LedgerActOutcome {
+  public perform(act: TranscriptActName): TranscriptActOutcome {
     const acts = this.current();
     if (acts === undefined) {
-      return { status: "refused", refusal: LEDGER_NOT_MOUNTED_REFUSAL };
+      return { status: "refused", refusal: TRANSCRIPT_NOT_MOUNTED_REFUSAL };
     }
     acts[act]();
     return { status: "performed", act };
@@ -95,4 +95,4 @@ export class MountedLedgerSeat {
 }
 
 /** This window's seat. */
-export const mountedLedger: MountedLedgerSeat = new MountedLedgerSeat();
+export const mountedTranscript: MountedTranscript = new MountedTranscript();

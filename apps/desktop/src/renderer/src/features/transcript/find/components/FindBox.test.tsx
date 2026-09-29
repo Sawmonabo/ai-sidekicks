@@ -6,16 +6,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FindInLedger } from "./FindBox.js";
-import { emptyFindResult, findInLedger, type LedgerFindResult } from "../find-model.js";
+import { FindBox } from "./FindBox.js";
+import { emptyFindResult, findInTranscript, type FindResult } from "../find-model.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
 const UNCAPPED_TOTAL = 940;
 
 /** Three rows, all matching "hit", so a query produces a walkable list. */
-function matchingResult(): LedgerFindResult {
-  return findInLedger(
+function matchingResult(): FindResult {
+  return findInTranscript(
     [
       runRow({
         id: "r1",
@@ -55,7 +55,7 @@ interface FindHarness {
 
 function renderField(
   options: {
-    readonly result?: LedgerFindResult;
+    readonly result?: FindResult;
     readonly query?: string;
     readonly currentMatchIndex?: number;
     /** How many times the caller has asked for the field. One, unless a case re-opens it. */
@@ -65,7 +65,7 @@ function renderField(
   const acts: string[] = [];
   const result = options.result ?? matchingResult();
   render(
-    <FindInLedger
+    <FindBox
       query={options.query ?? result.query}
       result={result}
       currentMatchIndex={options.currentMatchIndex ?? -1}
@@ -107,14 +107,14 @@ describe("find field — the counter is the console's own reading", () => {
     // The denominator is the set the next/previous walk can actually reach. It read
     // "1 of 940" over a three-match walk, so the walk wrapped at three while the
     // field advertised 940 and matches 4-940 were unreachable in silence.
-    const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
+    const capped: FindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
     expect(field.textContent).not.toContain(`1 of ${String(UNCAPPED_TOTAL)}`);
   });
 
   it("negative control: with nothing found it says so", () => {
-    const empty = findInLedger([], "nothing here");
+    const empty = findInTranscript([], "nothing here");
     const { field } = renderField({ result: empty, query: "nothing here" });
     expect(field.textContent).toContain("No matches");
   });
@@ -142,7 +142,7 @@ describe("find field — the walk", () => {
   });
 
   it("negative control: with no matches the step buttons are disabled", () => {
-    renderField({ result: findInLedger([], "nothing here"), query: "nothing here" });
+    renderField({ result: findInTranscript([], "nothing here"), query: "nothing here" });
     for (const name of ["Next match", "Previous match"]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
     }
@@ -163,7 +163,7 @@ describe("find field — the chord puts the caret in the field", () => {
     // A mount-only effect covers the first open and not this one, which is why the
     // press count is a prop rather than `autoFocus`.
     const { rerender } = render(
-      <FindInLedger
+      <FindBox
         query="hit"
         result={matchingResult()}
         currentMatchIndex={-1}
@@ -177,7 +177,7 @@ describe("find field — the chord puts the caret in the field", () => {
     input.blur();
     expect(document.activeElement).not.toBe(input);
     rerender(
-      <FindInLedger
+      <FindBox
         query="hit"
         result={matchingResult()}
         currentMatchIndex={-1}
@@ -196,7 +196,7 @@ describe("find field — the chord puts the caret in the field", () => {
     // list, which would snatch focus back on every keystroke and every result
     // recompute.
     const { rerender } = render(
-      <FindInLedger
+      <FindBox
         query="hit"
         result={matchingResult()}
         currentMatchIndex={-1}
@@ -209,7 +209,7 @@ describe("find field — the chord puts the caret in the field", () => {
     const input = screen.getByRole("searchbox", { name: "Find in ledger" }) as HTMLInputElement;
     input.blur();
     rerender(
-      <FindInLedger
+      <FindBox
         query="hit"
         result={matchingResult()}
         currentMatchIndex={2}

@@ -1,6 +1,6 @@
 // What a render of the FEED'S PARENT costs the rows that did not change in it.
 //
-// `LedgerViewport.tsx` memoizes its row mount and says in the prop's own doc that
+// `TranscriptViewport.tsx` memoizes its row mount and says in the prop's own doc that
 // the memo "only holds if the caller's `renderRow` is stable". This feed's row
 // renderer listed the whole `props` object among its dependencies, and React hands a
 // component a fresh props object whenever its parent renders — so a pane-level
@@ -19,13 +19,13 @@
 // projection used to rebuild every row and every identity triple per pass, so an
 // event that changed nothing visible re-rendered the whole mounted window TWICE —
 // measured on a ten-row window, ten bodies at mount and twenty-one more per event.
-// `ledger-window.ts`'s retention table holds those objects across passes and
+// `transcript-window.ts`'s retention table holds those objects across passes and
 // `LedgerFeedRow`'s memo is what spends the stability, so what an event costs now is
 // the rows it actually changed.
 //
-// The mount is composed here rather than taken from `LedgerFeedFixtures.test-support.tsx`
+// The mount is composed here rather than taken from `TranscriptFeed.test-support.tsx`
 // because this case needs the PARENT in its hands, which that helper deliberately
-// does not expose — `LedgerFeed.seats.test.tsx`' precedent, for its reason.
+// does not expose.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,9 +35,9 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { LedgerFeed } from "./TranscriptFeed.js";
+import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
-  LEDGER_FIXTURE_PANE_ID,
+  TRANSCRIPT_FIXTURE_PANE_ID,
   LeasingRowBody,
   SHORT_LOG_EVENT_COUNT,
   renderFeed,
@@ -45,7 +45,7 @@ import {
 } from "./TranscriptFeed.test-support.js";
 import {
   SESSION_ID,
-  ledgerFixtureEventId,
+  transcriptFixtureEventId,
   openSessionStoreWithGeneralLog,
 } from "../../transcript-logs.test-support.js";
 
@@ -71,9 +71,9 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
   void props.renderNudge;
   return (
     <DesktopBridgeProvider bridge={FIXTURE_BRIDGE}>
-      <LedgerFeed
+      <TranscriptFeed
         sessionStore={props.sessionStore}
-        paneId={LEDGER_FIXTURE_PANE_ID}
+        paneId={TRANSCRIPT_FIXTURE_PANE_ID}
         renderTimelineRow={props.renderTimelineRow}
         feedLabel="Session timeline"
       />
@@ -163,7 +163,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
   act(() => {
     sessionStore.applyBatch([
       {
-        id: ledgerFixtureEventId(sequence),
+        id: transcriptFixtureEventId(sequence),
         sessionId: SESSION_ID,
         sequence,
         kind: "user.message",

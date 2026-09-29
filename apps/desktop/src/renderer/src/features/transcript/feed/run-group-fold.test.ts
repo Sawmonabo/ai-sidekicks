@@ -1,6 +1,6 @@
 // The chapter fold, driven with no store and no React — what it admits per row.
 //
-// `LedgerFeed.rows.test.tsx` proves the fold reaches the screen; this file proves what
+// `TranscriptFeed.rows.test.tsx` proves the fold reaches the screen; this file proves what
 // it selects, which the mounted feed cannot show at this size: the cases below need a
 // run longer than the chapter cap, and a virtualized feed mounts a range rather than
 // a window whatever the fold admitted.
@@ -14,18 +14,18 @@ import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.j
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
-import { ChapterCollapseState } from "../run-groups/run-group-fold-state.js";
-import { type LedgerChapter } from "../run-groups/run-groups.js";
+import { RunGroupFoldState } from "../run-groups/run-group-fold-state.js";
+import { type RunGroup } from "../run-groups/run-groups.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import {
-  chapterRowIdsWithinCap,
-  foldChapterHeaders,
-  narrowChapterToAdmittedRows,
-  type LedgerChapterDisclosure,
+  selectRunGroupRowIdsWithinCap,
+  foldRunGroupHeaders,
+  narrowRunGroupToAdmittedRows,
+  type RunGroupDisclosure,
 } from "./run-group-fold.js";
-import { useChapterDisclosure } from "./hooks/useRunGroupDisclosure.js";
-import { ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
-import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
+import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
+import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
+import { deriveLedgerWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 const SESSION_ID = "session-chapter-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -45,21 +45,21 @@ function oneRunLog(memberCount: number): readonly ConsoleSessionEvent[] {
     sessionId: SESSION_ID,
     sequence: index,
     kind: index === memberCount - 1 ? "run.completed" : "assistant.message",
-    occurredAt: ledgerFixtureStampAt(index),
+    occurredAt: transcriptFixtureStampAt(index),
     payload,
   }));
 }
 
 /** That log, folded, with the chapter open or shut. */
-function foldedOverOneRun(memberCount: number, isOpen: boolean): LedgerWindowModel {
-  return foldChapterHeaders(
+function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
+  return foldRunGroupHeaders(
     deriveLedgerWindow(oneRunLog(memberCount), false),
     new Set(isOpen ? [RUN_ID] : []),
   ).window;
 }
 
 /** The chapter's rows in the viewport, which is every row hanging off its header. */
-function renderedMemberKeys(model: LedgerWindowModel): readonly string[] {
+function renderedMemberKeys(model: TranscriptWindowModel): readonly string[] {
   return model.viewportRows.filter((row) => row.parentKey === RUN_ID).map((row) => row.key);
 }
 
@@ -118,9 +118,9 @@ describe("an opened chapter admits the cap's own window and no more", () => {
     // Without this the selection above could have been written as an unconditional
     // slice, which allocates a second array for every chapter in every fold.
     const shortRowIds = ["a", "b", "c"];
-    expect(chapterRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
+    expect(selectRunGroupRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
     expect(
-      chapterRowIdsWithinCap(
+      selectRunGroupRowIdsWithinCap(
         Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + 1 }, (_u, i) => `r${String(i)}`),
       ),
     ).toHaveLength(CHAPTER_VISIBLE_ROW_CAP);
@@ -139,14 +139,14 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
     return chapter;
   }
 
-  function chapterOf(model: LedgerWindowModel) {
+  function chapterOf(model: TranscriptWindowModel) {
     return model.chapterByHeaderKey.get(RUN_ID);
   }
 
   it("re-counts membership and carries the run's own facts through untouched", () => {
     const chapter = wholeChapter();
     const admitted = new Set(chapter.rowIds.slice(0, 2));
-    const narrowed = narrowChapterToAdmittedRows(chapter, admitted);
+    const narrowed = narrowRunGroupToAdmittedRows(chapter, admitted);
     expect(narrowed?.rowCount).toBe(2);
     expect(narrowed?.rowIds).toStrictEqual([...admitted]);
     // Lifecycle and the terminal are facts about the SESSION. Re-deriving them over
@@ -158,12 +158,12 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
   });
 
   it("answers undefined for a chapter the narrowing admits no row of", () => {
-    expect(narrowChapterToAdmittedRows(wholeChapter(), new Set<string>())).toBeUndefined();
+    expect(narrowRunGroupToAdmittedRows(wholeChapter(), new Set<string>())).toBeUndefined();
   });
 
   it("negative control: a narrowing that took nothing returns the chapter by identity", () => {
     const chapter = wholeChapter();
-    expect(narrowChapterToAdmittedRows(chapter, new Set(chapter.rowIds))).toBe(chapter);
+    expect(narrowRunGroupToAdmittedRows(chapter, new Set(chapter.rowIds))).toBe(chapter);
   });
 });
 
@@ -174,7 +174,7 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
  * toggle is handed is the one the fold produces — a hand-built chapter would let a
  * disclosure that keyed on the wrong member pass.
  */
-function terminalChapter(): LedgerChapter {
+function terminalChapter(): RunGroup {
   const chapter = deriveLedgerWindow(oneRunLog(3), false).chapterByHeaderKey.get(RUN_ID);
   if (chapter === undefined) {
     throw new Error("the fixture log produced no terminal chapter");
@@ -189,8 +189,8 @@ function terminalChapter(): LedgerChapter {
  * opened set, and differs in the one thing these cases are about: what the holder is
  * keyed on.
  */
-function useMountScopedChapterDisclosure(): LedgerChapterDisclosure {
-  const [collapseState] = useState(() => new ChapterCollapseState());
+function useMountScopedChapterDisclosure(): RunGroupDisclosure {
+  const [collapseState] = useState(() => new RunGroupFoldState());
   const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
@@ -198,7 +198,7 @@ function useMountScopedChapterDisclosure(): LedgerChapterDisclosure {
     setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
   }, [collapseState]);
   const toggle = useCallback(
-    (chapter: LedgerChapter) => {
+    (chapter: RunGroup) => {
       if (collapseState.isOpen(chapter)) {
         collapseState.close(chapter);
       } else {
@@ -222,8 +222,8 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
    * sessions re-renders this position rather than unmounting it.
    */
   function mountDisclosureOver(
-    useDisclosure: (sessionId: string) => LedgerChapterDisclosure,
-  ): ReturnType<typeof renderHook<LedgerChapterDisclosure, { readonly sessionId: string }>> {
+    useDisclosure: (sessionId: string) => RunGroupDisclosure,
+  ): ReturnType<typeof renderHook<RunGroupDisclosure, { readonly sessionId: string }>> {
     const bridge = createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO });
     return renderHook((props: { readonly sessionId: string }) => useDisclosure(props.sessionId), {
       initialProps: { sessionId: SESSION_ID },
@@ -233,7 +233,7 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
   }
 
   it("opens the next session's chapters fresh, whatever was opened in the last", () => {
-    const disclosure = mountDisclosureOver(useChapterDisclosure);
+    const disclosure = mountDisclosureOver(useRunGroupDisclosure);
     act(() => {
       disclosure.result.current.toggle(terminalChapter());
     });
@@ -251,7 +251,7 @@ describe("the chapter disclosure follows the session the pane is a log of", () =
   it("holds a session's own disclosure across a re-render at that same session", () => {
     // The negative control on the SCOPE: without it the fix could be "reset on every
     // render", which would fold a chapter the moment any row arrived.
-    const disclosure = mountDisclosureOver(useChapterDisclosure);
+    const disclosure = mountDisclosureOver(useRunGroupDisclosure);
     act(() => {
       disclosure.result.current.toggle(terminalChapter());
     });

@@ -2,7 +2,7 @@ import { useContext } from "react";
 
 import {
   RetainedRowStateContext,
-  type LedgerRowLeaseChannel,
+  type RetainedRowStateContextValue,
 } from "../components/RetainedRowStateProvider.js";
 
 /**
@@ -11,7 +11,7 @@ import {
  * Throws outside a transcript rather than answering with a stub: a silently discarded
  * write looks exactly like a row that will not open.
  */
-export function useLedgerRowLease(): LedgerRowLeaseChannel {
+export function useRetainedRowState(): RetainedRowStateContextValue {
   const channel = useContext(RetainedRowStateContext);
   if (channel === undefined) {
     throw new Error("a ledger row body was mounted outside a ledger row lease provider");

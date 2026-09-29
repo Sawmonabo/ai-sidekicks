@@ -37,10 +37,10 @@ import {
   type TimelineRowRenderer,
   type TimelineRowSlotProps,
 } from "../../transcript-row-renderer.js";
-import { TimelineRowFooter } from "./TranscriptRowFooter.js";
+import { TranscriptRowFooter } from "./TranscriptRowFooter.js";
 
 /** What one row hands the seat's renderer and the footer seat. */
-export interface LedgerFeedRowProps extends TimelineRowSlotProps {
+export interface TranscriptFeedRowProps extends TimelineRowSlotProps {
   /** The seat's renderer. STABLE across renders, or this memo moves with it. */
   readonly renderTimelineRow: TimelineRowRenderer;
   /** The footer seat's renderer, or `undefined` while nobody has filled it. */
@@ -63,8 +63,8 @@ export interface LedgerFeedRowProps extends TimelineRowSlotProps {
  * EXPRESSION inside `memo(...)` is neither a declaration nor an arrow, so the module
  * would declare none — clean against a rule that was never applied to it.
  */
-export const TranscriptFeedRow: React.NamedExoticComponent<LedgerFeedRowProps> = memo(
-  (props: LedgerFeedRowProps): React.ReactNode => (
+export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProps> = memo(
+  (props: TranscriptFeedRowProps): React.ReactNode => (
     <>
       {props.renderTimelineRow({
         row: props.row,
@@ -72,7 +72,7 @@ export const TranscriptFeedRow: React.NamedExoticComponent<LedgerFeedRowProps> =
         isSuperseded: props.isSuperseded,
         density: props.density,
       })}
-      <TimelineRowFooter
+      <TranscriptRowFooter
         row={props.row}
         isSuperseded={props.isSuperseded}
         renderFooter={props.renderTimelineRowFooter}

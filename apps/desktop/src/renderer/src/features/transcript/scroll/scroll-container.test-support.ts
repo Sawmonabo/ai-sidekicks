@@ -16,9 +16,9 @@
 // for one, and the honest answer is not to exempt the file but to write the field once,
 // where the surface's own accessor already is.
 
-import { type LedgerScrollSurface } from "./scroll-chokepoint.js";
+import { type ScrollContainer } from "./scroll-chokepoint.js";
 
-export interface CountingSurface extends LedgerScrollSurface {
+export interface CountingScrollContainer extends ScrollContainer {
   readonly scrollListenerCount: number;
   /** Move the offset the way a reader does, and tell the listeners about it. */
   moveTo(offset: number): void;
@@ -30,7 +30,7 @@ export interface CountingSurface extends LedgerScrollSurface {
   resizeTo(clientHeight: number, scrollHeight: number): void;
 }
 
-export interface CountingSurfaceOptions {
+export interface CountingScrollContainerOptions {
   readonly initialScrollTop?: number;
   readonly clientHeight?: number;
   readonly scrollHeight?: number;
@@ -40,7 +40,9 @@ const DEFAULT_INITIAL_SCROLL_TOP_PX = 40;
 const DEFAULT_CLIENT_HEIGHT_PX = 300;
 const DEFAULT_SCROLL_HEIGHT_PX = 4000;
 
-export function countingSurface(options: CountingSurfaceOptions = {}): CountingSurface {
+export function createCountingScrollContainer(
+  options: CountingScrollContainerOptions = {},
+): CountingScrollContainer {
   const scrollListeners: (() => void)[] = [];
   let scrollOffsetPx = options.initialScrollTop ?? DEFAULT_INITIAL_SCROLL_TOP_PX;
   let viewportHeightPx = options.clientHeight ?? DEFAULT_CLIENT_HEIGHT_PX;

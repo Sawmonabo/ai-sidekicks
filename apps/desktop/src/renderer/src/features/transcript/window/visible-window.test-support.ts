@@ -7,7 +7,7 @@
 // against a figure derived under the other would be measuring the setup.
 
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
+import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
 
 export const VISIBLE_WINDOW_SESSION_ID = "session-visible-window";
 /** Long enough that the cap has something to take, short enough to enumerate. */
@@ -35,7 +35,7 @@ export function syntheticEventLog(
     sessionId,
     sequence: index,
     kind: EVERY_ROW_QUERY,
-    occurredAt: ledgerFixtureStampAt(index),
+    occurredAt: transcriptFixtureStampAt(index),
     payload: {},
   }));
 }

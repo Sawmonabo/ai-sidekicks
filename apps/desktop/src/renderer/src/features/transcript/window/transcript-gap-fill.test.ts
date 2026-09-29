@@ -12,11 +12,11 @@ import type {
   TimelineSubscribeCall,
 } from "@renderer/services/daemon/session-reads.js";
 import {
-  ledgerGapFillSubjectKey,
-  resolveLedgerGapFill,
-  type LedgerGapFillInput,
+  buildGapFillSubjectKey,
+  resolveTranscriptGapFill,
+  type TranscriptGapFillInput,
 } from "./transcript-gap-fill.js";
-import { useLedgerGapFill, type LedgerGapFillState } from "./hooks/useTranscriptGapFill.js";
+import { useTranscriptGapFill, type TranscriptGapFillState } from "./hooks/useTranscriptGapFill.js";
 
 const SESSION_ID = "session-gap-fill";
 const KEPT_CURSOR = "cursor-kept-by-the-last-read";
@@ -32,9 +32,9 @@ function recordingCall(asks: TimelineResubscribeRequest[]): TimelineSubscribeCal
 /** The hook over inputs the caller can move, under one call that outlives the moves. */
 function mountFill(
   call: TimelineSubscribeCall,
-  initialProps: LedgerGapFillInput,
-): ReturnType<typeof renderHook<LedgerGapFillState, LedgerGapFillInput>> {
-  return renderHook((props: LedgerGapFillInput) => useLedgerGapFill(props, call), {
+  initialProps: TranscriptGapFillInput,
+): ReturnType<typeof renderHook<TranscriptGapFillState, TranscriptGapFillInput>> {
+  return renderHook((props: TranscriptGapFillInput) => useTranscriptGapFill(props, call), {
     initialProps,
   });
 }
@@ -42,7 +42,7 @@ function mountFill(
 describe("resolveLedgerGapFill", () => {
   it("asks for nothing where no rows are missing", () => {
     expect(
-      resolveLedgerGapFill({
+      resolveTranscriptGapFill({
         sessionId: SESSION_ID,
         missingFromSequence: undefined,
         keptCursor: KEPT_CURSOR,
@@ -52,7 +52,7 @@ describe("resolveLedgerGapFill", () => {
 
   it("asks from the hole's own position when a read acknowledged one", () => {
     expect(
-      resolveLedgerGapFill({
+      resolveTranscriptGapFill({
         sessionId: SESSION_ID,
         missingFromSequence: 7,
         keptCursor: KEPT_CURSOR,
@@ -69,7 +69,7 @@ describe("resolveLedgerGapFill", () => {
     // A console that fell back to a row id here would be asking with a value the
     // contract calls opaque and this console orders nothing by.
     expect(
-      resolveLedgerGapFill({
+      resolveTranscriptGapFill({
         sessionId: SESSION_ID,
         missingFromSequence: 7,
         keptCursor: undefined,
@@ -78,7 +78,7 @@ describe("resolveLedgerGapFill", () => {
   });
 
   it("relays the acknowledged position byte for byte", () => {
-    const intent = resolveLedgerGapFill({
+    const intent = resolveTranscriptGapFill({
       sessionId: SESSION_ID,
       missingFromSequence: 2,
       keptCursor: " cursor with spaces and : colons ",
@@ -91,10 +91,10 @@ describe("resolveLedgerGapFill", () => {
 
 describe("ledgerGapFillSubjectKey", () => {
   it("is one key per hole, so one ask goes out per hole", () => {
-    expect(ledgerGapFillSubjectKey(SESSION_ID, 7)).toBe(ledgerGapFillSubjectKey(SESSION_ID, 7));
-    expect(ledgerGapFillSubjectKey(SESSION_ID, 7)).not.toBe(ledgerGapFillSubjectKey(SESSION_ID, 8));
-    expect(ledgerGapFillSubjectKey(SESSION_ID, 7)).not.toBe(
-      ledgerGapFillSubjectKey("other-session", 7),
+    expect(buildGapFillSubjectKey(SESSION_ID, 7)).toBe(buildGapFillSubjectKey(SESSION_ID, 7));
+    expect(buildGapFillSubjectKey(SESSION_ID, 7)).not.toBe(buildGapFillSubjectKey(SESSION_ID, 8));
+    expect(buildGapFillSubjectKey(SESSION_ID, 7)).not.toBe(
+      buildGapFillSubjectKey("other-session", 7),
     );
   });
 });

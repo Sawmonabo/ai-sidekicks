@@ -9,9 +9,9 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
-import { ChapterHeader } from "./RunGroupHeader.js";
-import { foldChapters } from "../run-groups.js";
-import { chapterFor } from "../run-groups.test-support.js";
+import { RunGroupHeader } from "./RunGroupHeader.js";
+import { groupRowsByRun } from "../run-groups.js";
+import { findRunGroup } from "../run-groups.test-support.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -34,8 +34,8 @@ function oneRun(rowCount: number, payload?: Readonly<Record<string, unknown>>): 
 
 function renderHeader(rows: readonly TimelineRow[], isOpen = false): HTMLElement {
   const { container } = render(
-    <ChapterHeader
-      chapter={chapterFor(foldChapters(rows).chapters, RUN_ID)}
+    <RunGroupHeader
+      chapter={findRunGroup(groupRowsByRun(rows).chapters, RUN_ID)}
       isOpen={isOpen}
       onToggle={() => undefined}
     />,

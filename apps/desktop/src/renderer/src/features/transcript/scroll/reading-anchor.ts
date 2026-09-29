@@ -28,7 +28,7 @@
 // module that can make it happen.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type LedgerGeometry } from "./geometry-sample.js";
+import { type ScrollGeometry } from "./geometry-sample.js";
 
 /**
  * The three reading states this module's promise resolves to. Closed.
@@ -120,7 +120,7 @@ export class ReadingAnchor {
    * no reader action at all, and dropping a follower out of following because the
    * window got smaller is the ledger deciding to stop following on its own.
    */
-  public observeGeometry(geometry: LedgerGeometry): void {
+  public observeGeometry(geometry: ScrollGeometry): void {
     if (geometry.isAtTail) {
       // Through `unpin` rather than by assignment, so a sample that releases a pin
       // without moving the mode still notifies: the pin is on the published state, and

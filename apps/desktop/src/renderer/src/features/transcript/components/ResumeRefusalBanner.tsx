@@ -38,7 +38,7 @@ import { RefusalBanner } from "@renderer/console/primitives/index.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
-export interface SessionResumeDegradedProps {
+export interface ResumeRefusalBannerProps {
   readonly registry: SessionStoreRegistry;
   readonly sessionId: string;
 }
@@ -52,7 +52,7 @@ export interface SessionResumeDegradedProps {
  * and none of them is this surface's to report — the first two are the ordinary course
  * and the third is already rendered as loading by the surface above.
  */
-export function SessionResumeDegraded(props: SessionResumeDegradedProps): React.JSX.Element | null {
+export function ResumeRefusalBanner(props: ResumeRefusalBannerProps): React.JSX.Element | null {
   const decision = useTimelineResume(props.registry, props.sessionId);
   if (decision === undefined || decision.outcome !== "refused") {
     return null;

@@ -1,7 +1,7 @@
 // The chapter body's own viewport: how tall it is, what it holds, and what it says
 // about the rows it does not hold.
 //
-// WHY A CHAPTER SCROLLS INSIDE ITSELF. `core/constants/ledger-structure-caps.ts`
+// WHY A CHAPTER SCROLLS INSIDE ITSELF. `structure-caps.ts`
 // fixes the chapter's row
 // ceiling and says why in its own words — the cap "is not about what fits on screen,
 // it is about how many rows one run may mount at once while three sibling runs stream
@@ -46,7 +46,7 @@ import {
  * `min()` keeps a chapter from taking most of a tall display: past two dozen lines a
  * body stops being a passage somebody reads and becomes a second feed.
  */
-export const CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT = "min(38svh, 24rem)";
+export const RUN_GROUP_BODY_INTRINSIC_HEIGHT = "min(38svh, 24rem)";
 
 /**
  * The height an engine that refused the expression above takes instead.
@@ -55,10 +55,10 @@ export const CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT = "min(38svh, 24rem)";
  * `min()`'s own second operand rather than a third figure, so the bounded body is the
  * same height on the fallback path as it is on a short display.
  */
-export const CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT = "24rem";
+export const RUN_GROUP_BODY_FALLBACK_HEIGHT = "24rem";
 
 /** The property the length above is applied to, named once so the probe asks about it. */
-export const CHAPTER_BODY_HEIGHT_PROPERTY = "max-height";
+export const RUN_GROUP_BODY_HEIGHT_PROPERTY = "max-height";
 
 /**
  * Whether the engine parses one declaration — the shape `CSS.supports` answers.
@@ -89,12 +89,12 @@ export function supportsCssDeclaration(property: string, value: string): boolean
  * until something sticks — a chain would make the applied height depend on the order
  * somebody happened to write the candidates in.
  */
-export function resolveChapterBodyViewportHeight(
+export function resolveRunGroupBodyHeight(
   probe: CssDeclarationSupportProbe = supportsCssDeclaration,
 ): string {
-  return probe(CHAPTER_BODY_HEIGHT_PROPERTY, CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT)
-    ? CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT
-    : CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT;
+  return probe(RUN_GROUP_BODY_HEIGHT_PROPERTY, RUN_GROUP_BODY_INTRINSIC_HEIGHT)
+    ? RUN_GROUP_BODY_INTRINSIC_HEIGHT
+    : RUN_GROUP_BODY_FALLBACK_HEIGHT;
 }
 
 /**
@@ -126,7 +126,7 @@ const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
  * length holds them with a single write per row and no movement at all, and the head
  * is cut out of it once, at the seal, where the caller asks for it.
  */
-export class ChapterBodyRowWindow {
+export class RunGroupBodyRowWindow {
   /** The newest rows, in ring order. Never longer than the retained cap. */
   readonly #retained: TimelineRow[] = [];
   /** Where the oldest retained row sits. Zero until the ring has filled once. */
@@ -178,7 +178,7 @@ export class ChapterBodyRowWindow {
  * admitted event, to answer a subtraction. A ten-thousand-row session paid that
  * allocation for rows nothing was going to look at.
  */
-export function chapterClippedHeadRowCount(chapterRowCount: number): number {
+export function countClippedHeadRows(chapterRowCount: number): number {
   return Math.max(0, chapterRowCount - CHAPTER_VISIBLE_ROW_CAP);
 }
 
@@ -190,10 +190,10 @@ export function chapterClippedHeadRowCount(chapterRowCount: number): number {
  * holds rather than from the sealed chapter, which is what keeps it right under a
  * narrowing: a filtered chapter carries the admitted ids, so the head this returns is
  * the admitted head and never the whole run's. Where the cut falls is
- * {@link chapterClippedHeadRowCount}'s to say, so the count and the selection cannot
+ * {@link countClippedHeadRows}'s to say, so the count and the selection cannot
  * disagree about which rows are outside.
  */
-export function chapterClippedHeadRowIds(rowIds: readonly string[]): readonly string[] {
-  const clippedCount = chapterClippedHeadRowCount(rowIds.length);
+export function listClippedHeadRowIds(rowIds: readonly string[]): readonly string[] {
+  const clippedCount = countClippedHeadRows(rowIds.length);
   return clippedCount === 0 ? EMPTY_HEAD : rowIds.slice(0, clippedCount);
 }

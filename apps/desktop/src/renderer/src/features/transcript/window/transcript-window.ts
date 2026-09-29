@@ -17,7 +17,7 @@
 //
 // What this module produces is the unfurled window, every member row of every run group,
 // before any fold: the fold (`feed/run-group-fold.ts`) runs after the narrowing, which could
-// otherwise neither count nor admit a folded group's rows. `chapterKeyFor` is exported for
+// otherwise neither count nor admit a folded group's rows. `readRunGroupKey` is exported for
 // the fold, which re-keys rows under their headers, so a row's parent key has one answer.
 //
 // The objects this derivation publishes are held across passes by `row-retention.ts`, so an
@@ -33,11 +33,14 @@ import {
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
 import { projectFixtureShellRows } from "../projection/transcript-row-projection.js";
-import { LedgerChapterIndex, type LedgerChapter } from "../run-groups/run-groups.js";
+import { RunGroupIndex, type RunGroup } from "../run-groups/run-groups.js";
 import { SupersededIndex, type SupersededBand } from "../superseded/superseded-bands.js";
-import { LedgerSeamIndex, type LedgerSeam } from "../system-messages/system-message-classifier.js";
-import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
-import { LedgerRowRetention } from "./row-retention.js";
+import {
+  SystemMessageClassifier,
+  type SystemMessageReading,
+} from "../system-messages/system-message-classifier.js";
+import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+import { TranscriptRowRetention } from "./row-retention.js";
 
 /**
  * What one pipeline stage admitted, and the rows it removed on the way.
@@ -53,8 +56,8 @@ import { LedgerRowRetention } from "./row-retention.js";
  * makes the common ledger free rather than merely cheaper: a consumer's memo over
  * {@link NO_ROWS_REMOVED} does not re-run at all when the log grows.
  */
-export interface LedgerPipelineStage {
-  readonly window: LedgerWindowModel;
+export interface TranscriptPipelineStage {
+  readonly window: TranscriptWindowModel;
   /** The rows this stage took out of the window it was handed, in log order. */
   readonly removedRows: readonly TimelineRow[];
 }
@@ -69,9 +72,9 @@ export interface LedgerPipelineStage {
 export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
 
 /** Everything one render of the ledger needs, derived once per store revision. */
-export interface LedgerWindowModel {
+export interface TranscriptWindowModel {
   /** The virtualizer's identity list. Memoized: the viewport keys its reconcile on it. */
-  readonly viewportRows: readonly LedgerViewportRow[];
+  readonly viewportRows: readonly ViewportRow[];
   /** The projected row behind each viewport key. */
   readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
@@ -96,7 +99,7 @@ export interface LedgerWindowModel {
    * A live chapter has none — it draws no header, its rows are top-level, and the
    * fold below never touches it.
    */
-  readonly chapterByHeaderKey: ReadonlyMap<string, LedgerChapter>;
+  readonly chapterByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
    * consults BEFORE it delegates to the timeline row seat.
@@ -107,7 +110,7 @@ export interface LedgerWindowModel {
    * fold has to remember to re-filter, and the one that gets forgotten is the one a
    * reader never sees go stale.
    */
-  readonly seamByRowId: ReadonlyMap<string, LedgerSeam>;
+  readonly seamByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
    * The child-run summary behind each row that carries one — the second lookup the
    * feed's row renderer consults before it delegates to the timeline row seat.
@@ -143,7 +146,7 @@ export interface LedgerWindowModel {
  * contract guarantees, and three of the four arms carry `runId` structurally while
  * the `general` arm structurally cannot.
  */
-export function chapterKeyFor(row: TimelineRow): string | undefined {
+export function readRunGroupKey(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
@@ -151,35 +154,35 @@ export function chapterKeyFor(row: TimelineRow): string | undefined {
  * Derive the whole window from one log.
  *
  * Exported beside the hook so the fold can be driven by a test and by the bench tier
- * with no store and no React at all — `foldChapters`' own precedent, for its reason.
+ * with no store and no React at all — `groupRowsByRun`' own precedent, for its reason.
  */
 export function deriveLedgerWindow(
   timeline: readonly ConsoleSessionEvent[],
   hasUnreceivedEntries: boolean,
-  retention: LedgerRowRetention = new LedgerRowRetention(),
-): LedgerWindowModel {
+  retention: TranscriptRowRetention = new TranscriptRowRetention(),
+): TranscriptWindowModel {
   const projection = projectFixtureShellRows(timeline);
   // BEFORE the indexes below read a row, so every one of them — and the feed, and
   // every memo under it — sees the object this window is actually publishing. A
   // fresh retention retains nothing, which is exactly what a one-shot caller wants.
   retention.beginPass();
   const rows = projection.rows.map((row) => retention.retainRow(row));
-  const chapterIndex = new LedgerChapterIndex(rows);
+  const chapterIndex = new RunGroupIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
   // The seam vocabulary has one classifier; this is the instance that reads the whole
   // log. Its log-order pass is a LOCAL and reaches the model only as the map keyed
   // from it below, so the row a narrowing carries forward and the row the feed draws
   // are one classification rather than two.
-  const seamIndex = new LedgerSeamIndex();
+  const seamIndex = new SystemMessageClassifier();
   const seams = seamIndex.seams(rows);
   // Child runs and handoffs, over the same rows every other index reads.
   const childRunIndex = new ChildRunIndex(rows);
   const rowsByKey = new Map<string, TimelineRow>();
-  const viewportRows: LedgerViewportRow[] = [];
+  const viewportRows: ViewportRow[] = [];
   const supersededRowIds = new Set<string>();
   for (const row of rows) {
     rowsByKey.set(row.id, row);
-    viewportRows.push(retention.retainRowIdentity(row, chapterKeyFor(row)));
+    viewportRows.push(retention.retainRowIdentity(row, readRunGroupKey(row)));
     if (supersededIndex.isSuperseded(row.id)) {
       supersededRowIds.add(row.id);
     }
@@ -215,7 +218,7 @@ export function deriveLedgerWindow(
  * re-derived from a terminal event type here, so the fold that decides a chapter is
  * over and the fold that decides a row is collapsed are one fold.
  */
-function collapsedRowIdsOf(chapterIndex: LedgerChapterIndex): ReadonlySet<string> {
+function collapsedRowIdsOf(chapterIndex: RunGroupIndex): ReadonlySet<string> {
   const collapsed = new Set<string>();
   for (const chapter of chapterIndex.terminalChapters()) {
     for (const rowId of chapter.rowIds) {

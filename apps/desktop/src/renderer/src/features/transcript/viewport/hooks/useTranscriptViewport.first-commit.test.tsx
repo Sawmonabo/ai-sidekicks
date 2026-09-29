@@ -16,7 +16,7 @@
 // the mount settles with rows, and the control is a box the layout gives no height,
 // which settles with none.
 //
-// `viewport-binding.test.tsx` attaches the surface by hand AFTER the mount, which is
+// `useTranscriptViewport.test.tsx` attaches the surface by hand AFTER the mount, which is
 // the right shape for what it drives (a prune the window refused, re-asked) and
 // cannot answer this: the ordering being checked here is the ref callback against the
 // library's own layout effect, and an attach performed from a test body has already
@@ -27,15 +27,15 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { useLedgerViewport, type LedgerViewportBinding } from "./useTranscriptViewport.js";
-import type { LedgerViewportRow } from "../viewport-snapshot.js";
+import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
+import type { ViewportRow } from "../viewport-snapshot.js";
 
 const VIEWPORT_HEIGHT_PX = 400;
 const CONTENT_HEIGHT_PX = 10_000;
 /** Comfortably more rows than a 400 px box can hold, so a window is the only answer. */
 const LOG_ROW_COUNT = 200;
 
-function syntheticRows(count: number): readonly LedgerViewportRow[] {
+function syntheticRows(count: number): readonly ViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
     key: `row-${String(index)}`,
     parentKey: undefined,
@@ -47,7 +47,7 @@ function syntheticRows(count: number): readonly LedgerViewportRow[] {
 const MOUNTED_ROW_SELECTOR = ".ledger-first-commit-row";
 
 function MountedLedgerSurface(props: {
-  readonly binding: LedgerViewportBinding;
+  readonly binding: TranscriptViewportBinding;
 }): React.JSX.Element {
   return (
     <div ref={props.binding.attachSurface}>
@@ -67,11 +67,9 @@ function MountedLedgerSurface(props: {
  * is minted once; a fresh one per render re-mints the controller the hook keys on and
  * the mount never settles.
  */
-function LedgerUnderTest(props: {
-  readonly rows: readonly LedgerViewportRow[];
-}): React.JSX.Element {
+function LedgerUnderTest(props: { readonly rows: readonly ViewportRow[] }): React.JSX.Element {
   const [clock] = useState(() => new ManualClock());
-  const binding = useLedgerViewport({
+  const binding = useTranscriptViewport({
     clock,
     rows: props.rows,
     hasActiveTurn: false,

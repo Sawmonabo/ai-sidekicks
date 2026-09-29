@@ -15,22 +15,22 @@ import {
   publishConsoleActRefusalSink,
   type ConsoleCommand,
 } from "@renderer/console/palette/index.js";
-import { MountedLedgerSeat, type LedgerStructureActs } from "../mounted-transcript.js";
+import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import {
-  LEDGER_COMMAND_GROUP,
-  LEDGER_COMMAND_OWNER,
-  ledgerStructureCommands,
-  registerLedgerCommands,
+  TRANSCRIPT_COMMAND_GROUP,
+  TRANSCRIPT_COMMAND_OWNER,
+  createTranscriptCommands,
+  registerTranscriptCommands,
 } from "./commands.js";
 
 /** The acts, each recording that it and only it fired. */
-function recordingActs(fired: string[]): LedgerStructureActs {
+function recordingActs(fired: string[]): TranscriptActs {
   return {
     openFind: () => fired.push("openFind"),
     stepFindNext: () => fired.push("stepFindNext"),
     stepFindPrevious: () => fired.push("stepFindPrevious"),
-    scrollToTail: () => fired.push("scrollToTail"),
-    collapseAllTerminalChapters: () => fired.push("collapseAllTerminalChapters"),
+    jumpToLatest: () => fired.push("jumpToLatest"),
+    foldEveryRun: () => fired.push("foldEveryRun"),
   };
 }
 
@@ -45,7 +45,7 @@ function commandById(commands: readonly ConsoleCommand[], commandId: string): Co
 describe("ledger commands — the contribution is a value, and building it registers nothing", () => {
   it("fires no act merely by being built", () => {
     const fired: string[] = [];
-    ledgerStructureCommands(recordingActs(fired));
+    createTranscriptCommands(recordingActs(fired));
     expect(fired).toStrictEqual([]);
   });
 
@@ -53,23 +53,23 @@ describe("ledger commands — the contribution is a value, and building it regis
     // Every `run` closes over one window's ledger, which is why this is a function
     // of the acts and not a module-scope constant.
     const acts = recordingActs([]);
-    expect(ledgerStructureCommands(acts)).not.toBe(ledgerStructureCommands(acts));
+    expect(createTranscriptCommands(acts)).not.toBe(createTranscriptCommands(acts));
   });
 
   it("contributes through the palette's own registry, which accepts the rows whole", () => {
     // The one registry, driven for real rather than shape-checked: if these rows
     // were built for something else, `registerAll` is where that would show.
     const registry = new CommandRegistry();
-    registry.registerAll(ledgerStructureCommands(recordingActs([])));
+    registry.registerAll(createTranscriptCommands(recordingActs([])));
     expect(registry.size).toBe(5);
     expect(registry.all().map((command) => command.id)).toStrictEqual(
-      ledgerStructureCommands(recordingActs([])).map((command) => command.id),
+      createTranscriptCommands(recordingActs([])).map((command) => command.id),
     );
   });
 
   it("offers every act in a window with a session, through the palette's own evaluator", () => {
     const registry = new CommandRegistry();
-    registry.registerAll(ledgerStructureCommands(recordingActs([])));
+    registry.registerAll(createTranscriptCommands(recordingActs([])));
     expect(registry.commandsFor({ sessionActive: true })).toHaveLength(5);
   });
 
@@ -78,21 +78,21 @@ describe("ledger commands — the contribution is a value, and building it regis
     // false for a key the context does not carry — so this holds for a context
     // that says `false` and for one that says nothing at all.
     const registry = new CommandRegistry();
-    registry.registerAll(ledgerStructureCommands(recordingActs([])));
+    registry.registerAll(createTranscriptCommands(recordingActs([])));
     expect(registry.commandsFor({ sessionActive: false })).toStrictEqual([]);
     expect(registry.commandsFor({})).toStrictEqual([]);
   });
 });
 
 describe("ledger commands — the rows themselves", () => {
-  const commands = ledgerStructureCommands(recordingActs([]));
+  const commands = createTranscriptCommands(recordingActs([]));
 
   it("offers five acts under one group, each id unique and namespaced", () => {
     expect(commands).toHaveLength(5);
     expect(new Set(commands.map((command) => command.id)).size).toBe(5);
     for (const command of commands) {
-      expect(command.group).toBe(LEDGER_COMMAND_GROUP);
-      expect(command.id.startsWith("ledger.")).toBe(true);
+      expect(command.group).toBe(TRANSCRIPT_COMMAND_GROUP);
+      expect(command.id.startsWith("transcript.")).toBe(true);
       expect(command.title.endsWith(".")).toBe(false);
     }
   });
@@ -114,15 +114,15 @@ describe("ledger commands — the rows themselves", () => {
 
   it("runs exactly its own act, and only when run", () => {
     const expectations: readonly (readonly [string, string])[] = [
-      ["ledger.find", "openFind"],
-      ["ledger.findNext", "stepFindNext"],
-      ["ledger.findPrevious", "stepFindPrevious"],
-      ["ledger.scrollToTail", "scrollToTail"],
-      ["ledger.collapseTerminalChapters", "collapseAllTerminalChapters"],
+      ["transcript.find", "openFind"],
+      ["transcript.findNext", "stepFindNext"],
+      ["transcript.findPrevious", "stepFindPrevious"],
+      ["transcript.scrollToTail", "jumpToLatest"],
+      ["transcript.collapseTerminalChapters", "foldEveryRun"],
     ];
     for (const [commandId, actName] of expectations) {
       const fired: string[] = [];
-      commandById(ledgerStructureCommands(recordingActs(fired)), commandId).run();
+      commandById(createTranscriptCommands(recordingActs(fired)), commandId).run();
       expect(fired).toStrictEqual([actName]);
     }
   });
@@ -132,7 +132,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   /** Contributing an empty set is how a window is left with none of this family's rows. */
   function withdrawLedgerContribution(): void {
     consoleCommandSurface.contribute({
-      owner: LEDGER_COMMAND_OWNER,
+      owner: TRANSCRIPT_COMMAND_OWNER,
       commands: [],
       keyBindings: [],
     });
@@ -157,19 +157,19 @@ describe("ledger commands — the contribution reaches the palette and the keybo
    * not care which host it is running on, so the other modifier is tried only when
    * the first press was not consumed.
    */
-  function pressModifiedKey(table: KeyBindingTable, key: string, shiftKey = false): boolean {
+  function pressModifiedKey(table: KeyBindingTable, key: string): boolean {
     return (
-      table.handleKeyDown(new KeyboardEvent("keydown", { key, ctrlKey: true, shiftKey })) ||
-      table.handleKeyDown(new KeyboardEvent("keydown", { key, metaKey: true, shiftKey }))
+      table.handleKeyDown(new KeyboardEvent("keydown", { key, ctrlKey: true })) ||
+      table.handleKeyDown(new KeyboardEvent("keydown", { key, metaKey: true }))
     );
   }
 
   it("puts every act in the window's palette once the family is composed", () => {
-    registerLedgerCommands(consoleCommandSurface);
+    registerTranscriptCommands(consoleCommandSurface);
     const offered = consoleCommands
       .commandsFor({ sessionActive: true })
       .map((command) => command.id);
-    for (const command of ledgerStructureCommands(recordingActs([]))) {
+    for (const command of createTranscriptCommands(recordingActs([]))) {
       expect(offered).toContain(command.id);
     }
   });
@@ -177,23 +177,21 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   it("opens find on the ledger that is mounted when the chord is pressed", () => {
     // The whole seam in one case: contributed at composition, resolved at press.
     const fired: string[] = [];
-    const seat = new MountedLedgerSeat();
-    registerLedgerCommands(consoleCommandSurface, seat);
+    const seat = new MountedTranscript();
+    registerTranscriptCommands(consoleCommandSurface, seat);
     const release = seat.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
     release();
   });
 
-  it("walks the matches from the keyboard, forward and back", () => {
+  it("walks forward through the matches from the keyboard", () => {
     const fired: string[] = [];
-    const seat = new MountedLedgerSeat();
-    registerLedgerCommands(consoleCommandSurface, seat);
+    const seat = new MountedTranscript();
+    registerTranscriptCommands(consoleCommandSurface, seat);
     const release = seat.adopt(recordingActs(fired));
-    const table = keyBindingTable();
-    pressModifiedKey(table, "g");
-    pressModifiedKey(table, "g", true);
-    expect(fired).toStrictEqual(["stepFindNext", "stepFindPrevious"]);
+    expect(pressModifiedKey(keyBindingTable(), "g")).toBe(true);
+    expect(fired).toStrictEqual(["stepFindNext"]);
     release();
   });
 
@@ -202,10 +200,10 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     // banner — which is exactly what a ledger chord from the settings page needs.
     const raised: ConsoleRefusal[] = [];
     const withdrawSink = publishConsoleActRefusalSink((refusal) => raised.push(refusal));
-    registerLedgerCommands(consoleCommandSurface, new MountedLedgerSeat());
+    registerTranscriptCommands(consoleCommandSurface, new MountedTranscript());
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(raised).toHaveLength(1);
-    expect(raised[0]?.code).toBe("ledger.no_mounted_ledger");
+    expect(raised[0]?.code).toBe("transcript.no_mounted_transcript");
     expect(raised[0]?.origin).toBe("ledger");
     withdrawSink();
   });
@@ -213,10 +211,10 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   it("replaces its own rows when the console is composed twice", () => {
     // Composition runs at module scope in production and repeatedly in a test, and
     // the command registry refuses a duplicate id — so a second pass must replace.
-    registerLedgerCommands(consoleCommandSurface);
+    registerTranscriptCommands(consoleCommandSurface);
     const afterFirst = consoleCommands.size;
     expect(() => {
-      registerLedgerCommands(consoleCommandSurface);
+      registerTranscriptCommands(consoleCommandSurface);
     }).not.toThrow();
     expect(consoleCommands.size).toBe(afterFirst);
   });
@@ -225,12 +223,12 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     // Every case above passes over a console that had these rows all along, which is
     // precisely what this family did NOT have.
     withdrawLedgerContribution();
-    expect(consoleCommands.has("ledger.find")).toBe(false);
+    expect(consoleCommands.has("transcript.find")).toBe(false);
     expect(
       consoleKeybindingOverrides.surface.bindings.map((binding) => binding.commandId),
-    ).not.toContain("ledger.find");
+    ).not.toContain("transcript.find");
     const fired: string[] = [];
-    const seat = new MountedLedgerSeat();
+    const seat = new MountedTranscript();
     seat.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(false);
     expect(fired).toStrictEqual([]);

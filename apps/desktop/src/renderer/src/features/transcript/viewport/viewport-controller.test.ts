@@ -5,7 +5,7 @@
 // about which objects were CALLED and with what — that holding a reading position is
 // one glide named for its caller, and that a scroll costs no reconcile. Where a pixel
 // is the claim, the case lives in `scroll-chokepoint.test.ts` or
-// `row-measurement-ledger.test.ts`, which drive their subjects without a DOM.
+// `row-measurement-table.test.ts`, which drive their subjects without a DOM.
 //
 // What the CAP prunes is `viewport-controller.pruning.test.ts`', which reconciles the
 // same controller against the same conditions through `viewport-controller.test-support.ts`.
@@ -13,8 +13,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { countingSurface } from "../scroll/scroll-container.test-support.js";
-import { LedgerViewportController } from "./viewport-controller.js";
+import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { ViewportController } from "./viewport-controller.js";
 import { CALM, attachedController, syntheticRows } from "./viewport-controller.test-support.js";
 
 describe("the viewport controller — reconcile", () => {
@@ -132,8 +132,8 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     // exactly the render `directDomUpdates` exists to avoid — and, because a render
     // re-runs the virtualizer's layout effects, one turn of a loop that would not
     // settle.
-    const surface = countingSurface();
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const surface = createCountingScrollContainer();
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
     let notifications = 0;
@@ -148,8 +148,8 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
   });
 
   it("negative control: a scroll that changes a RENDERED fact does notify", () => {
-    const surface = countingSurface();
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const surface = createCountingScrollContainer();
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
     let notifications = 0;
@@ -165,8 +165,8 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
   it("does not re-anchor to a position the ledger itself just wrote", () => {
     // Anchoring to the result of a glide discards the position the glide was
     // performed to preserve.
-    const surface = countingSurface();
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const surface = createCountingScrollContainer();
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(40), ...CALM });
     surface.moveTo(220);
@@ -179,8 +179,12 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
 
 describe("the viewport controller — a pane that changed size", () => {
   /** A viewport parked at the bottom of its content, in the tail's own arithmetic. */
-  function surfaceAtTail(): ReturnType<typeof countingSurface> {
-    return countingSurface({ initialScrollTop: 3700, clientHeight: 300, scrollHeight: 4000 });
+  function surfaceAtTail(): ReturnType<typeof createCountingScrollContainer> {
+    return createCountingScrollContainer({
+      initialScrollTop: 3700,
+      clientHeight: 300,
+      scrollHeight: 4000,
+    });
   }
 
   it("keeps a follower following, and re-glides to the tail the resize moved", () => {
@@ -188,7 +192,7 @@ describe("the viewport controller — a pane that changed size", () => {
     // asymmetry the anchor states, this alone would stop the ledger following.
     const surface = surfaceAtTail();
     const clock = new ManualClock();
-    const controller = new LedgerViewportController({ clock });
+    const controller = new ViewportController({ clock });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     const followsBefore = controller.scroll.writeCount("follow-tail");
@@ -203,13 +207,13 @@ describe("the viewport controller — a pane that changed size", () => {
   });
 
   it("negative control: a reader who had scrolled away is not dragged to the tail", () => {
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: 300,
       scrollHeight: 4000,
     });
     const clock = new ManualClock();
-    const controller = new LedgerViewportController({ clock });
+    const controller = new ViewportController({ clock });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
@@ -241,15 +245,15 @@ describe("the viewport controller — the tail glide and the height it lands aga
    * unchanged `clientHeight`.
    */
   function followerAtTail(): {
-    controller: LedgerViewportController;
-    surface: ReturnType<typeof countingSurface>;
+    controller: ViewportController;
+    surface: ReturnType<typeof createCountingScrollContainer>;
   } {
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: TAIL_BEFORE_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
     });
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     controller.commitPendingPositionHold();
@@ -314,12 +318,12 @@ describe("the viewport controller — the tail glide and the height it lands aga
   it("holds a reader's anchor during the reconcile itself, deferring nothing", () => {
     // Only the following arm is deferred: the anchor arm's index lookup is measured
     // in the pre-render offset space on purpose, so moving it would break it.
-    const surface = countingSurface({
+    const surface = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
     });
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
 

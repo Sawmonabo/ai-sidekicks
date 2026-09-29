@@ -1,8 +1,7 @@
 // What a ROW is, in the mounted feed: a chapter header, a seam line, or the seat.
 //
-// The feed's other subjects are their own files (`LedgerFeed.test.tsx` for the hue
-// seam, `LedgerFeed.absences.test.tsx`, `LedgerFeed.seats.test.tsx`), and this one
-// holds the three dispatches the row renderer performs and the one piece of state it
+// The feed's other subjects are the `TranscriptFeed.<subject>.test` files beside this one,
+// and this one holds the three dispatches the row renderer performs and the one piece of state it
 // keeps for a row body. Every case drives the composed feed, because each defect it
 // pins was a correct model that reached no component: the chapter fold, the seam
 // metadata, and the window's lease table were all derived on every pass and drawn by
@@ -15,16 +14,16 @@ import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
 import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
 import {
   LeasingRowBody,
-  contributeLedgerCommands,
-  dispatchConsoleCommand,
+  contributeTranscriptCommands,
+  dispatchCommand,
   renderFeed,
   withLaidOutViewport,
-  withdrawLedgerCommands,
+  withdrawTranscriptCommands,
 } from "./TranscriptFeed.test-support.js";
 import { openSessionStoreWithToolRows } from "../../transcript-logs.test-support.js";
 import {
-  openSessionStoreWithSeam,
-  openSessionStoreWithTerminalChapter,
+  openSessionStoreWithSystemMessage,
+  openSessionStoreWithTerminalRunGroup,
 } from "../../run-group-logs.test-support.js";
 
 afterEach(() => {
@@ -67,7 +66,7 @@ function headerByPosition(feed: HTMLElement): HTMLElement {
 describe("the ledger feed — a finished run folds to a header and its receipt", () => {
   it("draws one header for the terminal chapter and none for the live one", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithTerminalChapter());
+    const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.querySelectorAll(CHAPTER_HEADER)).toHaveLength(1);
     // The header carries the terminal the daemon named, verbatim, and how much the
     // chapter holds — which is the whole of what a fold may say about hidden rows.
@@ -78,7 +77,7 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
 
   it("hides the folded chapter's member rows and keeps its receipt", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithTerminalChapter());
+    const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     const drawn = feed.textContent ?? "";
     // The terminal row survives the fold: "header and receipt" is what folded means.
     expect(drawn).toContain("run.completed");
@@ -92,7 +91,7 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
 
   it("opens the fold when the header's disclosure is pressed", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithTerminalChapter());
+    const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.querySelector(CHAPTER_DISCLOSURE)?.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(feed.querySelector(CHAPTER_DISCLOSURE) as Element);
@@ -104,26 +103,26 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
     // Without this every case above would pass over a feed that headed every run,
     // which would fold the chapter somebody is watching being written.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithSeam());
+    const feed = renderFeed(openSessionStoreWithSystemMessage());
     expect(feed.querySelectorAll(CHAPTER_HEADER)).toHaveLength(0);
     expect(feed.querySelectorAll(SEAT_ROW).length).toBeGreaterThan(0);
   });
 
   it("folds an opened chapter back when the palette's collapse row is run", () => {
     withLaidOutViewport();
-    contributeLedgerCommands();
+    contributeTranscriptCommands();
     try {
-      const feed = renderFeed(openSessionStoreWithTerminalChapter());
+      const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
       fireEvent.click(feed.querySelector(CHAPTER_DISCLOSURE) as Element);
       expect(feed.textContent).toContain("run.paused");
 
-      dispatchConsoleCommand("ledger.collapseTerminalChapters");
+      dispatchCommand("transcript.collapseTerminalChapters");
       // The act used to raise a typed refusal saying every finished chapter was
       // already folded and no control opened one. Both halves are false now.
       expect(feed.querySelector(CHAPTER_DISCLOSURE)?.getAttribute("aria-expanded")).toBe("false");
       expect(feed.textContent).not.toContain("run.paused");
     } finally {
-      withdrawLedgerCommands();
+      withdrawTranscriptCommands();
     }
   });
 
@@ -133,7 +132,7 @@ describe("the ledger feed — a finished run folds to a header and its receipt",
     // run and no row being it — counted every row, so a long single-run session was
     // over cap before it had many chapters at all.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithTerminalChapter());
+    const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
     expect(LEDGER_WINDOW_ROW_CAP).toBeGreaterThan(1);
     expect(headerByPosition(feed)).not.toBeNull();
@@ -144,7 +143,7 @@ describe("the ledger feed — a seam is the ledger's own row", () => {
   it("draws a compaction as a seam line rather than delegating it to the seat", () => {
     withLaidOutViewport();
     const seatRowSummaries: string[] = [];
-    const feed = renderFeed(openSessionStoreWithSeam(), (mount) => {
+    const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
       seatRowSummaries.push(mount.row.type);
     });
     const seamLine = feed.querySelector(".meridian-seam-row");
@@ -162,7 +161,7 @@ describe("the ledger feed — a seam is the ledger's own row", () => {
     // anything, which would replace every row body in the ledger with a seam line.
     withLaidOutViewport();
     const seatRowTypes: string[] = [];
-    const feed = renderFeed(openSessionStoreWithSeam(), (mount) => {
+    const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
       seatRowTypes.push(mount.row.type);
     });
     expect(seatRowTypes).toContain("assistant.message");

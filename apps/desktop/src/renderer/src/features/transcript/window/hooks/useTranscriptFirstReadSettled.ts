@@ -24,7 +24,7 @@ import { type SessionStoreState } from "@renderer/store/session/session-state.js
  * `false` while it is in flight — which is not the same as a session with nothing in
  * it, and is the distinction every caller of this hook exists to draw.
  */
-export function useLedgerFirstReadSettled(sessionStore: SessionStore): boolean {
+export function useTranscriptFirstReadSettled(sessionStore: SessionStore): boolean {
   return useSessionStore(sessionStore, readInitialised);
 }
 

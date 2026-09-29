@@ -1,12 +1,12 @@
 // What one derivation's rows keep from the one before it.
 //
-// The subject is `LedgerRowRetention`, driven THROUGH `deriveLedgerWindow` rather than
+// The subject is `TranscriptRowRetention`, driven THROUGH `deriveLedgerWindow` rather than
 // alone: the retention's value is a property of the derivation that uses it — which
 // objects reach the feed and which of them are recognisable — and a case that called
 // the table directly would prove the table works while saying nothing about whether
 // the window is wired to it.
 //
-// The LOGS are built here rather than taken from `ledger-feed-logs.test-support.ts`
+// The LOGS are built here rather than taken from `transcript-logs.test-support.ts`
 // because two of these cases need two logs that differ in ONE member of ONE event,
 // which no shared builder offers and which is the whole instrument: it separates a
 // table that compares what it holds from one that trusts a key and serves a stale
@@ -17,8 +17,11 @@
 import { describe, expect, it } from "vitest";
 
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { ledgerFixtureEventId, ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
-import { LedgerRowRetention } from "./row-retention.js";
+import {
+  transcriptFixtureEventId,
+  transcriptFixtureStampAt,
+} from "../transcript-logs.test-support.js";
+import { TranscriptRowRetention } from "./row-retention.js";
 import { deriveLedgerWindow } from "./transcript-window.js";
 
 const SESSION_ID = "session-ledger-row-retention";
@@ -29,11 +32,11 @@ function logEntry(
   payload: Readonly<Record<string, unknown>>,
 ): ConsoleSessionEvent {
   return {
-    id: ledgerFixtureEventId(sequence),
+    id: transcriptFixtureEventId(sequence),
     sessionId: SESSION_ID,
     sequence,
     kind: "user.message",
-    occurredAt: ledgerFixtureStampAt(sequence),
+    occurredAt: transcriptFixtureStampAt(sequence),
     payload,
   };
 }
@@ -47,7 +50,7 @@ const LOG_ENTRY_COUNT = 4;
 
 describe("the ledger window's row retention", () => {
   it("publishes the same row objects when the log gained an entry and nothing else moved", () => {
-    const retention = new LedgerRowRetention();
+    const retention = new TranscriptRowRetention();
     // ONE array of entries, appended to — which is what the store actually holds: it
     // admits an event by publishing a new array over the SAME entry objects. Rebuilding
     // the entries here would hand the projection fresh payload objects and the rows
@@ -74,7 +77,7 @@ describe("the ledger window's row retention", () => {
     // over a table that returned whatever it held under a key and never looked at the
     // candidate — which is not a cache but a stale card on screen, and the one failure
     // this whole mechanism can cause.
-    const retention = new LedgerRowRetention();
+    const retention = new TranscriptRowRetention();
     const first = [logEntry(0, { index: 0 }), logEntry(1, { index: 1 })];
     const before = deriveLedgerWindow(first, false, retention);
     const movedEntry = { ...logEntry(1, { index: 1 }), occurredAt: "2026-06-01T00:00:00.000Z" };
@@ -119,7 +122,7 @@ describe("the ledger window's row retention", () => {
     // unchanged takes a NEW object, which is the observable half of "this can never
     // outgrow the window it describes" — an accumulating map keyed by row id would
     // hand back the object it had been holding since the row left.
-    const retention = new LedgerRowRetention();
+    const retention = new TranscriptRowRetention();
     const entries = log(LOG_ENTRY_COUNT);
     const held = deriveLedgerWindow(entries, false, retention).rows[0];
     if (held === undefined) {

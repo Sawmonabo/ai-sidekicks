@@ -7,27 +7,27 @@
 //
 // It invents nothing. Every part comes off the row's own declared reading: the server
 // label where the row names one, the argument summary the daemon composed, and the
-// sub-family itself. Nothing is derived from the tool's NAME, which `card-family.ts`
+// sub-family itself. Nothing is derived from the tool's NAME, which `row-kind.ts`
 // refuses to do.
 //
 // The unrecognized arm prints what was sent, so a seventh sub-family shipped by a newer
 // daemon reads as a value this build does not know rather than as no sub-family at all.
 
 import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
-import { type ToolSubFamilyReading, type ToolSubFamilyRenderer } from "./tool-kinds.js";
+import { type ToolKindReading, type ToolKindRenderer } from "./tool-kinds.js";
 
 import "./tool-kinds.css";
 
 /** What a tool card hands the sub-family badge. */
-export interface ToolSubFamilyBadgeProps {
+export interface ToolKindBadgeProps {
   /** A renderer that replaces the badge, or `undefined` while the badge draws itself. */
-  readonly body: ToolSubFamilyRenderer | undefined;
+  readonly body: ToolKindRenderer | undefined;
   /** What this row declared, or `undefined` where it declared nothing. */
-  readonly reading: ToolSubFamilyReading | undefined;
+  readonly reading: ToolKindReading | undefined;
 }
 
 /** One row's sub-family treatment: the supplied renderer, the badge, or nothing at all. */
-export function ToolSubFamilyBadge(props: ToolSubFamilyBadgeProps): React.ReactNode {
+export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
   const reading = props.reading;
   if (reading === undefined) {
     return null;

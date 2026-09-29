@@ -5,8 +5,8 @@ import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { LedgerRowRetention } from "../row-retention.js";
-import { deriveLedgerWindow, type LedgerWindowModel } from "../transcript-window.js";
+import { TranscriptRowRetention } from "../row-retention.js";
+import { deriveLedgerWindow, type TranscriptWindowModel } from "../transcript-window.js";
 
 /**
  * Subscribe to one session's log and project it, UNFURLED.
@@ -21,7 +21,7 @@ import { deriveLedgerWindow, type LedgerWindowModel } from "../transcript-window
  * narrowing both see a finished run's messages, tools and users rather than
  * only the receipt its fold would have left.
  */
-export function useLedgerProjection(sessionStore: SessionStore): LedgerWindowModel {
+export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
   const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
   // One table per SESSION, so a pass has a predecessor to retain from — and so a
@@ -34,7 +34,7 @@ export function useLedgerProjection(sessionStore: SessionStore): LedgerWindowMod
   const retention = useSessionScopedState(
     bridge,
     sessionStore.sessionId,
-    () => new LedgerRowRetention(),
+    () => new TranscriptRowRetention(),
   );
   const heldRetention = retention.value;
   return useMemo(

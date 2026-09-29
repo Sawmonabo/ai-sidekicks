@@ -1,6 +1,6 @@
 // The tool sub-family vocabulary and the reader over a row's own payload.
 //
-// `card-family.ts` refuses to read a tool kind out of the tool's name:
+// `row-kind.ts` refuses to read a tool kind out of the tool's name:
 // `ToolActivityPayload` carries `toolName`, `toolCallId` and `durationMs`, and no member
 // says what kind of tool ran, so deciding "this one is an MCP call" from the string would
 // assert a fact the daemon never sent. The design names six tool treatments, so the
@@ -19,10 +19,10 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
  *
  * Data rather than prose, so the set can be counted and a seventh treatment is an
  * edit here rather than a sentence somebody has to notice. The tuple is the
- * declaration and the union is derived from it — `card-family.ts`' rule about its own
+ * declaration and the union is derived from it — `row-kind.ts`' rule about its own
  * family set, for its reason.
  */
-export const TOOL_SUB_FAMILIES = [
+export const TOOL_KINDS = [
   "command-output",
   "file-edit",
   "read-fold",
@@ -32,7 +32,7 @@ export const TOOL_SUB_FAMILIES = [
 ] as const;
 
 /** One tool treatment. Derived from the enumeration, never restated. */
-export type ToolSubFamily = (typeof TOOL_SUB_FAMILIES)[number];
+export type ToolKind = (typeof TOOL_KINDS)[number];
 
 /**
  * The payload member that would declare a row's sub-family.
@@ -43,19 +43,19 @@ export type ToolSubFamily = (typeof TOOL_SUB_FAMILIES)[number];
  * than left implicit because this is where the member lands when the timeline read
  * grows one — and because a constant is checkable, where a comment is not.
  */
-export const TOOL_SUB_FAMILY_MEMBER = "toolSubFamily";
+export const TOOL_KIND_PAYLOAD_KEY = "toolSubFamily";
 
 /** The member carrying an MCP call's server label, on the same footing. */
-export const TOOL_SUB_FAMILY_SERVER_MEMBER = "mcpServerLabel";
+export const TOOL_SERVER_LABEL_PAYLOAD_KEY = "mcpServerLabel";
 
 /** The member carrying the call's typed argument summary, on the same footing. */
-export const TOOL_SUB_FAMILY_ARGUMENTS_MEMBER = "toolArgumentSummary";
+export const TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY = "toolArgumentSummary";
 
 /** What one row declares about its own treatment. Two arms and no third. */
-export type ToolSubFamilyReading =
+export type ToolKindReading =
   | {
       readonly kind: "declared";
-      readonly subFamily: ToolSubFamily;
+      readonly subFamily: ToolKind;
       /** The MCP server the call went to, where the row names one. */
       readonly serverLabel: string | undefined;
       /** The call's arguments as the wire summarized them, never re-parsed here. */
@@ -68,12 +68,12 @@ export type ToolSubFamilyReading =
     };
 
 /** What a sub-family renderer is handed. */
-export interface ToolSubFamilySlotProps {
-  readonly reading: ToolSubFamilyReading;
+export interface ToolKindRendererProps {
+  readonly reading: ToolKindReading;
 }
 
 /** The sub-family treatment. Returns `React.ReactNode` so the card renders it directly. */
-export type ToolSubFamilyRenderer = (props: ToolSubFamilySlotProps) => React.ReactNode;
+export type ToolKindRenderer = (props: ToolKindRendererProps) => React.ReactNode;
 
 /**
  * What one row declares about its treatment, or `undefined` for a row declaring none.
@@ -83,10 +83,10 @@ export type ToolSubFamilyRenderer = (props: ToolSubFamilySlotProps) => React.Rea
  * card already holds it, and a second projection per row would walk the same record
  * twice on every frame of a scrolling log.
  */
-export function declaredToolSubFamily(
+export function readDeclaredToolKind(
   payload: Readonly<Record<string, unknown>>,
-): ToolSubFamilyReading | undefined {
-  const declared = readWireString(payload[TOOL_SUB_FAMILY_MEMBER]);
+): ToolKindReading | undefined {
+  const declared = readWireString(payload[TOOL_KIND_PAYLOAD_KEY]);
   if (declared === undefined) {
     return undefined;
   }
@@ -96,14 +96,14 @@ export function declaredToolSubFamily(
   return {
     kind: "declared",
     subFamily: declared,
-    serverLabel: readWireString(payload[TOOL_SUB_FAMILY_SERVER_MEMBER]),
-    argumentSummary: readArgumentSummary(payload[TOOL_SUB_FAMILY_ARGUMENTS_MEMBER]),
+    serverLabel: readWireString(payload[TOOL_SERVER_LABEL_PAYLOAD_KEY]),
+    argumentSummary: readArgumentSummary(payload[TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]),
   };
 }
 
 /** Whether a wire string is one of the six. A membership test, never a coercion. */
-function isToolSubFamily(candidate: string): candidate is ToolSubFamily {
-  return (TOOL_SUB_FAMILIES as readonly string[]).includes(candidate);
+function isToolSubFamily(candidate: string): candidate is ToolKind {
+  return (TOOL_KINDS as readonly string[]).includes(candidate);
 }
 
 /**

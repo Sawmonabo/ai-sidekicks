@@ -7,7 +7,7 @@
 // entry vocabulary here would author a second body beside the real one.
 //
 // IT HOLDS NO STATE OF ITS OWN. A disclosure press writes the row's density to the list's
-// retained row state through `useLedgerRowLease`, and the density it renders is
+// retained row state through `useRetainedRowState`, and the density it renders is
 // whatever it was handed. That is the only way the choice survives: the virtualizer mounts
 // the visible range and nothing else, so anything a row remembers privately is discarded
 // the moment a reader scrolls past it.
@@ -28,18 +28,18 @@
 
 import { useCallback, useState } from "react";
 
-import { useLedgerRowLease } from "../viewport/hooks/useRetainedRowState.js";
+import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
 import { useLedgerRowReveal } from "../reveal/hooks/useRowReveal.js";
 import {
   type TimelineRowDensity,
   type TimelineRowSlotProps,
 } from "@renderer/console/seats/index.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
-import { MessageCard } from "./MessageRow.js";
-import { classifyCardFamily } from "./row-kind.js";
-import { FixtureShellReasoningSurface } from "./thinking/BoundThinkingRow.js";
+import { MessageRow } from "./MessageRow.js";
+import { classifyTranscriptRow } from "./row-kind.js";
+import { BoundThinkingRow } from "./thinking/BoundThinkingRow.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
-import { ToolCard } from "./ToolRow.js";
+import { ToolRow } from "./ToolRow.js";
 
 /**
  * One row, through the card its family names.
@@ -50,7 +50,7 @@ import { ToolCard } from "./ToolRow.js";
  */
 export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | null {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const rowLease = useLedgerRowLease();
+  const rowLease = useRetainedRowState();
   const rowId = props.row.id;
   const density: TimelineRowDensity = props.density;
   // THE TOGGLE INVERTS WHAT IS ON SCREEN, which is the density the row was HANDED —
@@ -67,7 +67,7 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
     });
   }, [density, rowId, rowLease]);
 
-  const family = classifyCardFamily(props.row);
+  const family = classifyTranscriptRow(props.row);
   // THE REASONING READ IS NOT ARMED HERE, AND THAT IS A COST RULE RATHER THAN A STYLE
   // ONE. It binds a COMPONENT, not a tree, so it lives in the component that renders it,
   // and the ordinary row builds no reading for a control it does not draw. Measured on a
@@ -81,10 +81,13 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
   // run instead would give two machine rows of one turn one body between them.
   const liveText = useLedgerRowReveal(rowId);
 
-  switch (family.family) {
-    case "tool-activity":
+  if (family === undefined) {
+    return null;
+  }
+  switch (family.kind) {
+    case "tool-call":
       return (
-        <ToolCard
+        <ToolRow
           row={props.row}
           actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
@@ -92,29 +95,28 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
           onDensityToggle={toggleDensity}
-          subFamily={undefined}
+          toolKindRenderer={undefined}
         />
       );
     case "user-message":
-    case "assistant-message":
-    case "assistant-reasoning":
+    case "agent-message":
+    case "thinking":
       return (
-        <MessageCard
+        <MessageRow
           row={props.row}
+          rowKind={family}
           actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
-          editAffordance={undefined}
-          reasoningSurface={
-            family.family === "assistant-reasoning" ? (
-              <FixtureShellReasoningSurface runId={attributedRunId} liveText={liveText} />
+          editControl={undefined}
+          thinkingRow={
+            family.kind === "thinking" ? (
+              <BoundThinkingRow runId={attributedRunId} liveText={liveText} />
             ) : undefined
           }
         />
       );
-    case "receipt":
-      return null;
   }
 }

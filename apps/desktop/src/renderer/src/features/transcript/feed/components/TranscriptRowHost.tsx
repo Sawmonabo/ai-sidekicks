@@ -13,10 +13,10 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";
-import { LedgerFeed } from "./TranscriptFeed.js";
+import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** What the rows' hole needs to choose between its three nothings and the feed. */
-export interface TimelineRowHostProps {
+export interface TranscriptRowHostProps {
   /** The registered row renderer, or `undefined` while none is registered. */
   readonly body: TimelineRowRenderer | undefined;
   readonly sessionStore: SessionStore | undefined;
@@ -34,11 +34,11 @@ export interface TimelineRowHostProps {
  * would tell somebody their session was empty when the truth is that the console
  * cannot draw it, or has not been asked to.
  *
- * The third is the FEED's to render rather than this file's — `LedgerViewport` shows
+ * The third is the FEED's to render rather than this file's — `TranscriptViewport` shows
  * it inside the scroll container, where a row would appear the moment one arrived —
  * so the empty session is not a case here at all.
  */
-export function TimelineRowHost(props: TimelineRowHostProps): React.JSX.Element {
+export function TranscriptRowHost(props: TranscriptRowHostProps): React.JSX.Element {
   const body = props.body;
   if (body === undefined) {
     return (
@@ -61,7 +61,7 @@ export function TimelineRowHost(props: TimelineRowHostProps): React.JSX.Element 
     );
   }
   return (
-    <LedgerFeed
+    <TranscriptFeed
       sessionStore={props.sessionStore}
       paneId={props.paneId}
       renderTimelineRow={body}

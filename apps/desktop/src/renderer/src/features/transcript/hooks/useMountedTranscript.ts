@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import {
-  mountedLedger,
-  type LedgerStructureActs,
-  type MountedLedgerSeat,
+  mountedTranscript,
+  type TranscriptActs,
+  type MountedTranscript,
 } from "../mounted-transcript.js";
 
 /**
@@ -13,9 +13,9 @@ import {
  * rebuilds its callbacks on every render, and adopting the object itself would either
  * re-seat the transcript on each pass or keep the first render's callbacks.
  */
-export function useMountedLedger(
-  acts: LedgerStructureActs,
-  seat: MountedLedgerSeat = mountedLedger,
+export function useMountedTranscript(
+  acts: TranscriptActs,
+  seat: MountedTranscript = mountedTranscript,
 ): void {
   const actsRef = useRef(acts);
   actsRef.current = acts;
@@ -24,7 +24,7 @@ export function useMountedLedger(
 }
 
 /** An act set that reads the live one on every call and holds none of it. */
-function forwardingActs(read: () => LedgerStructureActs): LedgerStructureActs {
+function forwardingActs(read: () => TranscriptActs): TranscriptActs {
   return {
     openFind: () => {
       read().openFind();
@@ -35,11 +35,11 @@ function forwardingActs(read: () => LedgerStructureActs): LedgerStructureActs {
     stepFindPrevious: () => {
       read().stepFindPrevious();
     },
-    scrollToTail: () => {
-      read().scrollToTail();
+    jumpToLatest: () => {
+      read().jumpToLatest();
     },
-    collapseAllTerminalChapters: () => {
-      read().collapseAllTerminalChapters();
+    foldEveryRun: () => {
+      read().foldEveryRun();
     },
   };
 }

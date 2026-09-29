@@ -27,31 +27,31 @@
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import { type LedgerViewportSnapshot } from "./viewport-snapshot.js";
+import { type ViewportSnapshot } from "./viewport-snapshot.js";
 
-export interface LedgerViewportPublicationOptions {
+export interface ViewportPublicationOptions {
   readonly clock: ConsoleClock;
   /** Rebuild the snapshot from the frame's objects. Called once per publication. */
-  readonly build: () => LedgerViewportSnapshot;
+  readonly build: () => ViewportSnapshot;
 }
 
-export class LedgerViewportPublication {
+export class ViewportPublication {
   readonly #clock: ConsoleClock;
-  readonly #build: () => LedgerViewportSnapshot;
+  readonly #build: () => ViewportSnapshot;
   readonly #changeEmitter = new Emitter<void>("ledger viewport snapshot");
 
-  #snapshot: LedgerViewportSnapshot;
+  #snapshot: ViewportSnapshot;
   #frame: ScheduledHandle | undefined;
   #disposed = false;
 
-  public constructor(options: LedgerViewportPublicationOptions) {
+  public constructor(options: ViewportPublicationOptions) {
     this.#clock = options.clock;
     this.#build = options.build;
     this.#snapshot = options.build();
   }
 
   /** The stable value a render reads. Same reference until something changes. */
-  public get current(): LedgerViewportSnapshot {
+  public get current(): ViewportSnapshot {
     return this.#snapshot;
   }
 
@@ -92,10 +92,7 @@ export class LedgerViewportPublication {
 }
 
 /** Whether two snapshots say the same thing to a render. See this file's header. */
-function sameViewportSnapshot(
-  left: LedgerViewportSnapshot,
-  right: LedgerViewportSnapshot,
-): boolean {
+function sameViewportSnapshot(left: ViewportSnapshot, right: ViewportSnapshot): boolean {
   return (
     left.rows === right.rows &&
     left.rowKeys === right.rowKeys &&

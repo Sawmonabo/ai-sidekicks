@@ -18,7 +18,7 @@
  * gamut and nothing measured them against the well they are painted on. Both are now
  * `tokens/contrast.test.ts`' subject.
  *
- * The theme in `meridian-code-theme.ts` still emits a reference to the per-family
+ * The theme in `code-theme.ts` still emits a reference to the per-family
  * custom property as each token's foreground rather than a color, which is what
  * makes one token cache serve both schemes: a cached line is theme-independent, and
  * flipping the scheme repaints through the cascade.

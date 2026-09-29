@@ -7,7 +7,7 @@
 
 import { formatByteQuantity } from "@renderer/console/primitives/index.js";
 
-export interface MessageReceiptProps {
+export interface RecordedBodyLineProps {
   readonly contentType: string | undefined;
   readonly contentLength: number | undefined;
 }
@@ -23,7 +23,7 @@ export interface MessageReceiptProps {
  * nothing was recorded — an absence of descriptive members is the ordinary case for a
  * body-less row and not a fact worth a line in the log.
  */
-export function MessageReceipt(props: MessageReceiptProps): React.JSX.Element | null {
+export function RecordedBodyLine(props: RecordedBodyLineProps): React.JSX.Element | null {
   if (props.contentType === undefined && props.contentLength === undefined) {
     return null;
   }

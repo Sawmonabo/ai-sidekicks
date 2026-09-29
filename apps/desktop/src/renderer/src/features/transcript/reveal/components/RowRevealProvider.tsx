@@ -11,7 +11,7 @@ import { createContext, type Context } from "react";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /** How a row body reaches the text one lane of the reveal engine is publishing. */
-export interface LedgerRowRevealChannel {
+export interface RowRevealContextValue {
   /**
    * The published text for one lane, or `undefined` for a lane with nothing on it.
    *
@@ -27,17 +27,17 @@ export interface LedgerRowRevealChannel {
  * The channel, or `undefined` outside a transcript, which means no lane is streaming into
  * the row: the ordinary state of every row in a settled log.
  */
-export const RowRevealContext: Context<LedgerRowRevealChannel | undefined> = createContext<
-  LedgerRowRevealChannel | undefined
+export const RowRevealContext: Context<RowRevealContextValue | undefined> = createContext<
+  RowRevealContextValue | undefined
 >(undefined);
 
 /** The channel to publish and the row bodies it reaches. */
-export interface LedgerRowRevealProviderProps {
-  readonly channel: LedgerRowRevealChannel;
+export interface RowRevealProviderProps {
+  readonly channel: RowRevealContextValue;
   readonly children: React.ReactNode;
 }
 
 /** Publish one transcript's reveal channel to the row bodies it mounts. */
-export function LedgerRowRevealProvider(props: LedgerRowRevealProviderProps): React.JSX.Element {
+export function LedgerRowRevealProvider(props: RowRevealProviderProps): React.JSX.Element {
   return <RowRevealContext value={props.channel}>{props.children}</RowRevealContext>;
 }

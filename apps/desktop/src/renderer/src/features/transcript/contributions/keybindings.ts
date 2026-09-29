@@ -20,9 +20,7 @@ export const WHEN_SESSION_ACTIVE = "sessionActive";
  * binding type names — a wrongly-firing chord destroys text, a wrongly-declining
  * one costs a menu — decides it.
  */
-export const LEDGER_KEY_BINDINGS: readonly KeyBinding[] = [
-  { chord: "$mod+f", commandId: "ledger.find", when: WHEN_SESSION_ACTIVE },
-  { chord: "$mod+g", commandId: "ledger.findNext", when: WHEN_SESSION_ACTIVE },
-  { chord: "$mod+Shift+g", commandId: "ledger.findPrevious", when: WHEN_SESSION_ACTIVE },
-  { chord: "$mod+Shift+t", commandId: "ledger.scrollToTail", when: WHEN_SESSION_ACTIVE },
+export const TRANSCRIPT_KEY_BINDINGS: readonly KeyBinding[] = [
+  { chord: "$mod+f", commandId: "transcript.find", when: WHEN_SESSION_ACTIVE },
+  { chord: "$mod+g", commandId: "transcript.findNext", when: WHEN_SESSION_ACTIVE },
 ];

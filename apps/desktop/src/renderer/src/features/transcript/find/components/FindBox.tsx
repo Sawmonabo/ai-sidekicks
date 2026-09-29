@@ -9,15 +9,15 @@
 
 import { DerivedFigure, Glyph } from "@renderer/console/primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { type FindStepDirection, type LedgerFindResult } from "../find-model.js";
+import { type FindStepDirection, type FindResult } from "../find-model.js";
 import { useCaretOnOpen } from "../hooks/useCaretOnOpen.js";
 
 import "./find-box.css";
 
 /** The query, its result, and the acts the field offers. */
-export interface FindInLedgerProps {
+export interface FindBoxProps {
   readonly query: string;
-  readonly result: LedgerFindResult;
+  readonly result: FindResult;
   /** Which match the walk is on, or `-1` before the first step. */
   readonly currentMatchIndex: number;
   /**
@@ -36,7 +36,7 @@ export interface FindInLedgerProps {
 }
 
 /** The find field: query, match count, step and close controls. */
-export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
+export function FindBox(props: FindBoxProps): React.JSX.Element {
   const { result } = props;
   const inputRef = useCaretOnOpen(props.openRequestCount);
   const hasMatches = result.matches.length > 0;
@@ -123,7 +123,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
  * count, so a step never wraps into a total that contains matches no press could
  * reach.
  */
-function matchCountText(result: LedgerFindResult, currentMatchIndex: number): string {
+function matchCountText(result: FindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
     return `${String(result.searchedRowCount)} rows loaded`;
   }

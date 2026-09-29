@@ -14,7 +14,7 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { emptySnapshot } from "@test/helpers/session-store-fixtures.js";
-import { LedgerGapFill } from "./TranscriptGapFill.js";
+import { TranscriptGapFill } from "./TranscriptGapFill.js";
 
 const SESSION_ID = "session-gap-surface";
 const ACKNOWLEDGED_CURSOR = "cursor-acknowledged-by-the-read";
@@ -68,11 +68,12 @@ function openHole(sessionStore: SessionStore): void {
 function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): HTMLElement {
   const fillGap: TimelineSubscribeCall = () =>
     Promise.resolve({ subscriptionId: "subscription-replay" });
-  return render(<LedgerGapFill registry={registry} sessionStore={sessionStore} fillGap={fillGap} />)
-    .container;
+  return render(
+    <TranscriptGapFill registry={registry} sessionStore={sessionStore} fillGap={fillGap} />,
+  ).container;
 }
 
-describe("LedgerGapFill", () => {
+describe("TranscriptGapFill", () => {
   it("renders nothing for a window that is missing nothing", async () => {
     const registry = registryAcknowledging(ACKNOWLEDGED_CURSOR);
     const sessionStore = await openAndRead(registry);

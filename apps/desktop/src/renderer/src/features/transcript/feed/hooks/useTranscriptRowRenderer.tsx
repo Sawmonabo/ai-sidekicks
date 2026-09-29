@@ -2,25 +2,25 @@ import { useCallback } from "react";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { ChapterHeader } from "../../run-groups/components/RunGroupHeader.js";
-import { type LedgerChapter } from "../../run-groups/run-groups.js";
-import { SeamRow } from "../../system-messages/components/SystemMessage.js";
-import { type LedgerRowLease } from "../../viewport/retained-row-state-table.js";
-import { type LedgerRowRenderer } from "../../viewport/components/VirtualRow.js";
-import { type LedgerViewportRow } from "../../viewport/viewport-snapshot.js";
-import { type LedgerWindowModel } from "../../window/transcript-window.js";
+import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
+import { type RunGroup } from "../../run-groups/run-groups.js";
+import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
+import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
+import { type TranscriptRowRenderer } from "../../viewport/components/VirtualRow.js";
+import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { timelineRowFooterRenderer } from "../../transcript-row-footer-renderer.js";
 import { type TimelineRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeedRow } from "../components/TranscriptFeedRow.js";
 import { densityFor } from "../run-group-fold.js";
 
 /** Everything the dispatch below reads. Each member is stable except the window. */
-export interface LedgerRowRendererOptions {
-  readonly ledgerWindow: LedgerWindowModel;
+export interface TranscriptRowRendererOptions {
+  readonly ledgerWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly hueForActor: (userId: string) => ActorHueAssignment | undefined;
-  readonly toggleChapter: (chapter: LedgerChapter) => void;
-  readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
+  readonly toggleChapter: (chapter: RunGroup) => void;
+  readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
   readonly renderTimelineRow: TimelineRowRenderer;
 }
@@ -32,7 +32,9 @@ export interface LedgerRowRendererOptions {
  * what a row's body is looked up in, so a callback pinned across a changed window
  * would hand the viewport a lookup that could not see the change.
  */
-export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerRowRenderer {
+export function useTranscriptRowRenderer(
+  options: TranscriptRowRendererOptions,
+): TranscriptRowRenderer {
   const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleChapter, rowLease } = options;
   const renderTimelineRow = options.renderTimelineRow;
   // The FOOTER seat, read here rather than threaded from the pane: unlike the row
@@ -42,7 +44,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
   // which is what the memo below compares.
   const renderTimelineRowFooter = timelineRowFooterRenderer();
   return useCallback(
-    (row: LedgerViewportRow) => {
+    (row: ViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
       // dispatched before the body lookup — there is no projected row behind it and
       // there was never meant to be. Every terminal chapter has one; a live chapter
@@ -50,7 +52,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       const chapter = ledgerWindow.chapterByHeaderKey.get(row.key);
       if (chapter !== undefined) {
         return (
-          <ChapterHeader
+          <RunGroupHeader
             chapter={chapter}
             isOpen={openedTerminalRunIds.has(chapter.runId)}
             actorHue={chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)}
@@ -77,7 +79,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       // position, the continuity, the losses, the reason and the blocked-on state.
       const seam = ledgerWindow.seamByRowId.get(projected.id);
       if (seam !== undefined) {
-        return <SeamRow seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;
+        return <SystemMessage seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;
       }
       // THROUGH `TranscriptFeedRow` RATHER THAN STRAIGHT INTO THE SEAT, and the
       // indirection is the memo boundary — see that file. This callback's identity

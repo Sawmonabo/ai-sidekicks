@@ -1,6 +1,6 @@
 // The act at the window's head: read the rows this user was never sent.
 //
-// SYMMETRIC WITH `LedgerTailAffordance.tsx`, and the symmetry is the design rather
+// SYMMETRIC WITH `JumpToLatest.tsx`, and the symmetry is the design rather
 // than a coincidence. The tail affordance is the way back to rows that arrived while
 // somebody was reading; this is the way back to rows that were never delivered at all,
 // and both sit outside the scroll surface at the end of the log they are about, so
@@ -20,10 +20,10 @@
 // who was only passing through, on a walk with no end while the log has one.
 
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
-import { type LedgerEarlierPaging } from "../hooks/useEarlierHistory.js";
+import { type EarlierHistoryPaging } from "../hooks/useEarlierHistory.js";
 
 export interface LoadEarlierAffordanceProps {
-  readonly paging: LedgerEarlierPaging;
+  readonly paging: EarlierHistoryPaging;
 }
 
 /**
@@ -35,7 +35,7 @@ export interface LoadEarlierAffordanceProps {
  * offered again beside it, because a transport failure is exactly the kind a second
  * attempt settles.
  */
-export function LoadEarlierAffordance(props: LoadEarlierAffordanceProps): React.JSX.Element | null {
+export function LoadEarlier(props: LoadEarlierAffordanceProps): React.JSX.Element | null {
   const { canLoadEarlier, isReading, refusal, loadEarlier } = props.paging;
   if (!canLoadEarlier && !isReading && refusal === undefined) {
     return null;

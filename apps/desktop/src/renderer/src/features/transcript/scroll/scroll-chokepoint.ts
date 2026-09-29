@@ -35,20 +35,17 @@
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
+import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { OverflowMeasurementBatch } from "../viewport/overflow-measurement-batch.js";
-import { type LedgerGeometry, type LedgerGeometryCause } from "./geometry-sample.js";
-import { type LedgerScrollCaller } from "./scroll-callers.js";
-import {
-  LedgerScrollFrameWrites,
-  type LedgerScrollTargetComputation,
-} from "./scroll-frame-writes.js";
-import { LedgerGeometryPublisher } from "./scroll-geometry-publisher.js";
+import { type ScrollGeometry, type GeometryChangeCause } from "./geometry-sample.js";
+import { type ScrollCaller } from "./scroll-callers.js";
+import { ScrollFrameWrites, type ScrollTargetComputation } from "./scroll-frame-writes.js";
+import { ScrollGeometryPublisher } from "./scroll-geometry-publisher.js";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
 
 /** What one glide did, including the arm that did nothing. */
-export interface LedgerScrollWrite {
-  readonly caller: LedgerScrollCaller;
+export interface ScrollWrite {
+  readonly caller: ScrollCaller;
   readonly requestedScrollTop: number;
   readonly appliedScrollTop: number;
   /** True when the controller had confirmed quantization and the write was a no-op. */
@@ -62,7 +59,7 @@ export interface LedgerScrollWrite {
  * property reads it counts — which is how "no hit test per scroll event" is
  * checked rather than asserted. A real element satisfies it.
  */
-export interface LedgerScrollSurface {
+export interface ScrollContainer {
   scrollTop: number;
   readonly clientHeight: number;
   readonly scrollHeight: number;
@@ -71,9 +68,9 @@ export interface LedgerScrollSurface {
 }
 
 /** Called once per batched overflow pass, with the geometry it was measured at. */
-export type OverflowMeasurementSink = (geometry: LedgerGeometry) => void;
+export type OverflowMeasurementSink = (geometry: ScrollGeometry) => void;
 
-export interface LedgerScrollControllerOptions {
+export interface ScrollControllerOptions {
   readonly clock: ConsoleClock;
   /** Within this many pixels of the bottom counts as the tail. */
   readonly tailTolerancePx?: number;
@@ -81,23 +78,23 @@ export interface LedgerScrollControllerOptions {
 
 export class LedgerScrollController {
   /** What a sample MEANS, and who is woken by one. One publisher per controller. */
-  readonly #geometryPublisher: LedgerGeometryPublisher;
-  readonly #writeCountByCaller = new Map<LedgerScrollCaller, number>();
+  readonly #geometryPublisher: ScrollGeometryPublisher;
+  readonly #writeCountByCaller = new Map<ScrollCaller, number>();
   readonly #quantization = new WholePixelQuantizationLearner();
   readonly #overflowBatch: OverflowMeasurementBatch;
   /** Phase one of the frame: the reactive writes, ordered ahead of reveal work. */
-  readonly #frameWrites: LedgerScrollFrameWrites;
+  readonly #frameWrites: ScrollFrameWrites;
 
-  #surface: LedgerScrollSurface | undefined;
+  #surface: ScrollContainer | undefined;
   #onSurfaceScroll: (() => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
   #disposed = false;
 
-  public constructor(options: LedgerScrollControllerOptions) {
-    const controllerGeometry = (): LedgerGeometry | undefined =>
+  public constructor(options: ScrollControllerOptions) {
+    const controllerGeometry = (): ScrollGeometry | undefined =>
       this.#geometryPublisher.lastGeometry;
-    this.#geometryPublisher = new LedgerGeometryPublisher({
+    this.#geometryPublisher = new ScrollGeometryPublisher({
       clock: options.clock,
       tailTolerancePx: options.tailTolerancePx,
     });
@@ -110,8 +107,8 @@ export class LedgerScrollController {
         this.#publishGeometry("resize");
       },
     });
-    this.#frameWrites = new LedgerScrollFrameWrites({
-      get lastGeometry(): LedgerGeometry | undefined {
+    this.#frameWrites = new ScrollFrameWrites({
+      get lastGeometry(): ScrollGeometry | undefined {
         return controllerGeometry();
       },
       glide: (caller, targetScrollTop) => {
@@ -133,7 +130,7 @@ export class LedgerScrollController {
    * resized still costs one pass. The BOX is not what this covers: that is published on
    * the line above and again by `publishOnResize`, neither of which waits for a frame.
    */
-  public attach(surface: LedgerScrollSurface): void {
+  public attach(surface: ScrollContainer): void {
     if (this.#disposed) {
       return;
     }
@@ -153,7 +150,7 @@ export class LedgerScrollController {
   /**
    * Release the surface.
    *
-   * Every read here is null-safe (`frame/ErrorSlot.tsx`'s teardown rule): teardown runs
+   * Every read here is null-safe (`TranscriptErrors.tsx`'s teardown rule): teardown runs
    * on an unmount that may follow a failed attach, so the listener and everything the
    * batch holds may each be absent independently.
    */
@@ -184,12 +181,12 @@ export class LedgerScrollController {
    * mounted mid-stream needs to know whether it is at the tail before the next scroll
    * event, and polling for that is what the budgets forbid.
    */
-  public subscribeToGeometry(sink: (geometry: LedgerGeometry) => void): Unsubscribe {
+  public subscribeToGeometry(sink: (geometry: ScrollGeometry) => void): Unsubscribe {
     return this.#geometryPublisher.subscribe(sink);
   }
 
   /** The last published sample, or `undefined` before the first attach. */
-  public get geometry(): LedgerGeometry | undefined {
+  public get geometry(): ScrollGeometry | undefined {
     return this.#geometryPublisher.lastGeometry;
   }
 
@@ -200,10 +197,7 @@ export class LedgerScrollController {
    * from a write that landed somewhere else — which is the difference between "the
    * anchor held" and "the browser clamped us to the end of the content".
    */
-  public glideTo(
-    caller: LedgerScrollCaller,
-    targetScrollTop: number,
-  ): LedgerScrollWrite | undefined {
+  public glideTo(caller: ScrollCaller, targetScrollTop: number): ScrollWrite | undefined {
     const surface = this.#surface;
     if (surface === undefined || this.#disposed) {
       return undefined;
@@ -230,7 +224,7 @@ export class LedgerScrollController {
   }
 
   /** The glide that replaces `scrollIntoView` for the bottom of the log. */
-  public glideToTail(caller: LedgerScrollCaller): LedgerScrollWrite | undefined {
+  public glideToTail(caller: ScrollCaller): ScrollWrite | undefined {
     const surface = this.#surface;
     if (surface === undefined) {
       return undefined;
@@ -244,7 +238,7 @@ export class LedgerScrollController {
    * coordinator is the FEED's, one per frame, and this controller is constructed by
    * the viewport underneath it.
    */
-  public adoptFrameCoordinator(frameCoordinator: LedgerFrameCoordinator): void {
+  public adoptFrameCoordinator(frameCoordinator: AnimationFrameCoordinator): void {
     if (this.#disposed) {
       return;
     }
@@ -258,10 +252,7 @@ export class LedgerScrollController {
    * A gesture calls `glideTo` and lands in the frame the person acted in; a REACTIVE write
    * comes here. `scroll-frame-writes.ts` states why, and this returns whether it was taken.
    */
-  public requestGlide(
-    caller: LedgerScrollCaller,
-    computeTarget: LedgerScrollTargetComputation,
-  ): boolean {
+  public requestGlide(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
     return this.#frameWrites.request(caller, computeTarget);
   }
 
@@ -302,7 +293,7 @@ export class LedgerScrollController {
   }
 
   /** How many times a caller has written. Read by diagnostics and by tests. */
-  public writeCount(caller: LedgerScrollCaller): number {
+  public writeCount(caller: ScrollCaller): number {
     return this.#writeCountByCaller.get(caller) ?? 0;
   }
 
@@ -314,7 +305,7 @@ export class LedgerScrollController {
     return this.#quantization.verdict;
   }
 
-  #clampToContent(surface: LedgerScrollSurface, targetScrollTop: number): number {
+  #clampToContent(surface: ScrollContainer, targetScrollTop: number): number {
     const maximum = Math.max(0, surface.scrollHeight - surface.clientHeight);
     if (!Number.isFinite(targetScrollTop)) {
       // Fail closed rather than handing `NaN` to the platform, which silently
@@ -334,7 +325,7 @@ export class LedgerScrollController {
    * and `undefined` is returned for a controller with no surface because there is
    * nothing to read rather than nothing to say.
    */
-  #publishGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
+  #publishGeometry(cause: GeometryChangeCause): ScrollGeometry | undefined {
     const surface = this.#surface;
     if (surface === undefined) {
       return undefined;

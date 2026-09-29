@@ -1,5 +1,5 @@
 import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import { LEDGER_SURFACE_OWNER } from "./screens.js";
+import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
  * Claim the deck's `timeline` kind.
@@ -13,7 +13,7 @@ import { LEDGER_SURFACE_OWNER } from "./screens.js";
 export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "timeline",
-    owner: LEDGER_SURFACE_OWNER,
+    owner: TRANSCRIPT_OWNER,
     // LOADER-BACKED, like every other kind on this board: the pane is reached by opening
     // a session, which is an act, and `transcript-pane-body.ts` carries the rest of the
     // reasoning. The specifier is written at the registration so the chunk boundary is

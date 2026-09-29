@@ -28,7 +28,7 @@
 // AND ONE WALK, WHICH IS THE OTHER END OF THE LOG. The store's window begins wherever
 // this user's stream was last acknowledged, and everything below that head was
 // never delivered — so the ledger reaches it by asking rather than by scrolling.
-// `useLedgerEarlierPaging` is that walk, held here because this is where the session
+// `useEarlierHistory` is that walk, held here because this is where the session
 // store is, and handed on to the viewport, where the head control is placed beside
 // the tail's.
 
@@ -37,32 +37,32 @@ import { useEffect } from "react";
 import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import {
-  useLedgerEarlierPaging,
-  type LedgerEarlierPaging,
+  useEarlierHistory,
+  type EarlierHistoryPaging,
 } from "../../history/hooks/useEarlierHistory.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
-import { useLedgerReveal, type LedgerRevealBinding } from "../../reveal/hooks/useReveal.js";
+import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
-  useLedgerViewport,
-  type LedgerViewportBinding,
+  useTranscriptViewport,
+  type TranscriptViewportBinding,
 } from "../../viewport/hooks/useTranscriptViewport.js";
-import { useLedgerFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
-import { useLedgerProjection } from "../../window/hooks/useTranscriptProjection.js";
+import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
+import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import {
-  useVisibleLedgerWindow,
-  type VisibleLedgerWindow,
+  useVisibleTranscriptWindow,
+  type VisibleTranscriptWindow,
 } from "../../window/hooks/useVisibleTranscriptWindow.js";
 import {
-  type LedgerPipelineStage,
-  type LedgerWindowModel,
+  type TranscriptPipelineStage,
+  type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type LedgerChapterDisclosure } from "../run-group-fold.js";
-import { useFoldedChapters } from "./useFoldedRunGroups.js";
-import { useChapterDisclosure } from "./useRunGroupDisclosure.js";
+import { type RunGroupDisclosure } from "../run-group-fold.js";
+import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
+import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 
 /** What the window chain is derived from: the session's store and the frame's clock. */
-export interface LedgerFeedWindowsInputs {
+export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
   /** The frame coordinator's clock, minted once by the mount that holds this chain. */
   readonly clock: ConsoleClock;
@@ -76,33 +76,35 @@ export interface LedgerFeedWindowsInputs {
  * every stage to say WHICH one is the reason a row is not on screen, and the rows
  * render the folded one.
  */
-export interface LedgerFeedWindows {
+export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
-  readonly chapterDisclosure: LedgerChapterDisclosure;
+  readonly chapterDisclosure: RunGroupDisclosure;
   /** Every member row of every chapter, before any fold. */
-  readonly unfurledWindow: LedgerWindowModel;
-  readonly chapterFold: LedgerPipelineStage;
+  readonly unfurledWindow: TranscriptWindowModel;
+  readonly chapterFold: TranscriptPipelineStage;
   /** The last model window: chapter-folded. */
-  readonly ledgerWindow: LedgerWindowModel;
-  readonly reveal: LedgerRevealBinding;
-  readonly viewport: LedgerViewportBinding;
-  readonly earlierPaging: LedgerEarlierPaging;
+  readonly ledgerWindow: TranscriptWindowModel;
+  readonly reveal: RevealBinding;
+  readonly viewport: TranscriptViewportBinding;
+  readonly earlierPaging: EarlierHistoryPaging;
   /** What the viewport reconciled onto the screen, with both absences separable. */
-  readonly visible: VisibleLedgerWindow;
+  readonly visible: VisibleTranscriptWindow;
 }
 
 /** Derive every window this feed draws from, in the one order they may be derived in. */
-export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFeedWindows {
-  // The same reading `<LedgerWindowReadState>` draws its shells from, so the empty
+export function useTranscriptFeedWindows(
+  inputs: TranscriptFeedWindowsInputs,
+): TranscriptFeedWindows {
+  // The same reading `<TranscriptReadState>` draws its shells from, so the empty
   // sentence and the loading shells cannot both be on screen.
-  const firstReadSettled = useLedgerFirstReadSettled(inputs.sessionStore);
+  const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // The fold is the MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useChapterDisclosure(inputs.sessionStore.sessionId);
+  const chapterDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(inputs.sessionStore);
-  const chapterFold = useFoldedChapters(
+  const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
+  const chapterFold = useFoldedRunGroups(
     unfurledWindow,
     chapterDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
@@ -118,7 +120,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // that half against nothing.
   const frameCoordinator = useLedgerFrameCoordinator(inputs.clock);
   const reveal = useLedgerReveal({ frameCoordinator });
-  const viewport = useLedgerViewport({
+  const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: ledgerWindow.viewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
@@ -127,7 +129,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // The walk back past the window's head. Read against the STORE rather than against
   // any of the windows above, because what it can reach is a property of the log this
   // window was given and not of whichever run groups this pane happens to have folded.
-  const earlierPaging = useLedgerEarlierPaging(inputs.sessionStore);
+  const earlierPaging = useEarlierHistory(inputs.sessionStore);
 
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
   // here because this is where the session id and the one binding meet, and gated on
@@ -160,7 +162,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // Read back off the viewport's own reconciled snapshot, so find is looking at the
   // window on screen rather than at the log behind it. What the cap took is the
   // difference between the two.
-  const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
+  const visible = useVisibleTranscriptWindow(ledgerWindow, viewport.snapshot.rows);
 
   return {
     firstReadSettled,

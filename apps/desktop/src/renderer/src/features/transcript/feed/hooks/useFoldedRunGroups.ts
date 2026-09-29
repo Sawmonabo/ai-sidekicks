@@ -2,12 +2,12 @@ import { useMemo } from "react";
 
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
-import { LedgerRowRetention } from "../../window/row-retention.js";
+import { TranscriptRowRetention } from "../../window/row-retention.js";
 import {
-  type LedgerPipelineStage,
-  type LedgerWindowModel,
+  type TranscriptPipelineStage,
+  type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import { foldChapterHeaders } from "../run-group-fold.js";
+import { foldRunGroupHeaders } from "../run-group-fold.js";
 
 /**
  * Fold the chapters of the window a narrowing left.
@@ -16,21 +16,21 @@ import { foldChapterHeaders } from "../run-group-fold.js";
  * re-folds over a projection and a narrowing it did not have to redo — and so the
  * narrowing has somewhere to sit between the two.
  */
-export function useFoldedChapters(
-  model: LedgerWindowModel,
+export function useFoldedRunGroups(
+  model: TranscriptWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
   sessionId: string,
-): LedgerPipelineStage {
+): TranscriptPipelineStage {
   // One table per SESSION rather than per mount — the projection hook's own idiom,
   // for its reason, and a second INSTANCE rather than a second class. The session is
   // the subject because this pane follows a navigation that changes which log it is
   // of without unmounting, and a table carried across that holds the rows of a
   // session nobody is reading.
   const bridge = useConsoleBridge();
-  const retention = useSessionScopedState(bridge, sessionId, () => new LedgerRowRetention());
+  const retention = useSessionScopedState(bridge, sessionId, () => new TranscriptRowRetention());
   const heldRetention = retention.value;
   return useMemo(
-    () => foldChapterHeaders(model, openedTerminalRunIds, heldRetention),
+    () => foldRunGroupHeaders(model, openedTerminalRunIds, heldRetention),
     [model, openedTerminalRunIds, heldRetention],
   );
 }

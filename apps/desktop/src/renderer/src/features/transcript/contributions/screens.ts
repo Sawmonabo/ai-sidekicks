@@ -20,7 +20,7 @@ import {
   type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
 } from "@renderer/console/seats/index.js";
-import { SessionResumeDegraded } from "../components/ResumeRefusalBanner.js";
+import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
 
 /**
  * What the composition root supplies this feature, because this file may not import it.
@@ -33,7 +33,7 @@ import { SessionResumeDegraded } from "../components/ResumeRefusalBanner.js";
  * decision, and what it is handed is this file's — the surface context exists only when
  * the slot renders, which is long after the root registered it.
  */
-export interface LedgerComposition {
+export interface TranscriptComposition {
   readonly workspace: ComponentType<WorkspaceMountProps>;
 }
 
@@ -43,11 +43,11 @@ export interface LedgerComposition {
  * Takes the registry rather than reaching for the module-scope singleton: a test
  * composes into a registry it owns and an auxiliary window composes a subset without a
  * second code path. The transcript's commands are registered by their own contribution,
- * `registerLedgerCommands`, which the composition root calls beside this.
+ * `registerTranscriptCommands`, which the composition root calls beside this.
  */
 export function registerLedger(
   registry: ConsoleSurfaceRegistry,
-  composition: LedgerComposition,
+  composition: TranscriptComposition,
 ): void {
   for (const descriptor of ledgerSurfaces(composition)) {
     registry.register(descriptor);
@@ -62,7 +62,7 @@ export function registerLedger(
  * and a different owner is refused by name. Two spellings of this feature's own name
  * would make a hot reload a collision.
  */
-export const LEDGER_SURFACE_OWNER = "ledger";
+export const TRANSCRIPT_OWNER = "ledger";
 
 /**
  * The deck's single pane, while the deck holds exactly one.
@@ -71,7 +71,7 @@ export const LEDGER_SURFACE_OWNER = "ledger";
  * a value rather than an index: the lane that ships the deck mints one per pane and
  * this constant retires with the single-pane arm.
  */
-const LEDGER_PANE_ID = "ledger-timeline";
+const TRANSCRIPT_PANE_ID = "ledger-timeline";
 
 /**
  * What the workspace slot hands its body.
@@ -84,14 +84,14 @@ const LEDGER_PANE_ID = "ledger-timeline";
 type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
 
 /** The two slots this feature claims, given the body the root composed in. */
-function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceRegistration[] {
+function ledgerSurfaces(composition: TranscriptComposition): readonly ConsoleSurfaceRegistration[] {
   return [
     {
       slot: "workspace",
-      owner: LEDGER_SURFACE_OWNER,
+      owner: TRANSCRIPT_OWNER,
       render: (context) => mountWorkspace(context, composition.workspace),
     },
-    { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
+    { slot: "timeline", owner: TRANSCRIPT_OWNER, render: mountTranscriptPane },
   ];
 }
 
@@ -127,7 +127,7 @@ function mountWorkspace(
     // shape React allows for a reading whose session id may not exist.
     sessionId === undefined
       ? null
-      : createElement(SessionResumeDegraded, {
+      : createElement(ResumeRefusalBanner, {
           registry: context.sessionStoreRegistry,
           sessionId,
         }),
@@ -159,7 +159,7 @@ function mountWorkspace(
  * the board THIS composition filled — rather than the process-wide singleton, so a
  * window composed with its own board mounts its own body and not production's.
  */
-function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
+function mountTranscriptPane(context: ConsoleSurfaceContext): ReactNode {
   const descriptor = context.paneRegistry.descriptorFor("timeline");
   if (descriptor === undefined) {
     // Reserved, not stubbed. Unreachable while the pane seat board composes this
@@ -204,7 +204,7 @@ function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
 function ledgerPaneContext(context: ConsoleSurfaceContext): ConsolePaneContext {
   return {
     kind: "timeline",
-    paneId: LEDGER_PANE_ID,
+    paneId: TRANSCRIPT_PANE_ID,
     bridge: context.bridge,
     frameStore: context.frameStore,
     sessionStore: context.sessionStore,

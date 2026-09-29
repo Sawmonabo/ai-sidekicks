@@ -1,7 +1,7 @@
 // What this window can do about the entries it was told about and never received.
 //
 // BESIDE THE CATCHING-UP MARK AND NOT IN PLACE OF IT. `pane/window/
-// LedgerWindowReadState.tsx` says the projection is behind and names the cause. This
+// TranscriptReadState.tsx` says the projection is behind and names the cause. This
 // says what is being done about the hole, which is a different fact and the one a
 // person can act on: a replay from the position this window kept, or — where no read
 // has acknowledged a position — the whole-window re-read the store performs anyway.
@@ -15,7 +15,7 @@
 //
 // WHY IT MOUNTS AT THE FAMILY'S WORKSPACE ROOT. It needs two things that are in hand
 // in exactly one place: the store, for the hole, and the registry, for the position a
-// read acknowledged. `SessionResumeDegraded` next door is mounted there for the same
+// read acknowledged. `ResumeRefusalBanner` next door is mounted there for the same
 // reason and says so — the workspace body is handed everything BUT the registry.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
@@ -25,10 +25,10 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import type { TimelineSubscribeCall } from "@renderer/services/daemon/session-reads.js";
-import { useLedgerGapFill } from "../hooks/useTranscriptGapFill.js";
+import { useTranscriptGapFill } from "../hooks/useTranscriptGapFill.js";
 
 /** The stores the hole and the kept position are read from, and the call that asks. */
-export interface LedgerGapFillProps {
+export interface TranscriptGapFillProps {
   readonly registry: SessionStoreRegistry;
   readonly sessionStore: SessionStore;
   /** Puts the replay ask. */
@@ -41,11 +41,11 @@ export interface LedgerGapFillProps {
  * `null` for a window with nothing missing, and for the interval an ask is in flight.
  * Both are the ordinary course and neither is this surface's to report.
  */
-export function LedgerGapFill(props: LedgerGapFillProps): React.JSX.Element | null {
+export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Element | null {
   const { sessionId } = props.sessionStore;
   const missingFromSequence = useSessionStore(props.sessionStore, readOldestMissingSequence);
   const resume = useTimelineResume(props.registry, sessionId);
-  const fill = useLedgerGapFill(
+  const fill = useTranscriptGapFill(
     {
       sessionId,
       missingFromSequence,

@@ -7,12 +7,12 @@
 // never captions the summary as if it were the message.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import type { LedgerCardProps } from "../hydrated-row-props.js";
+import type { HydratedRowProps } from "../hydrated-row-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 
 export interface UserBodyProps {
-  readonly row: LedgerCardProps["row"];
-  readonly footnotes: LedgerCardProps["footnotes"];
+  readonly row: HydratedRowProps["row"];
+  readonly footnotes: HydratedRowProps["footnotes"];
 }
 
 /**

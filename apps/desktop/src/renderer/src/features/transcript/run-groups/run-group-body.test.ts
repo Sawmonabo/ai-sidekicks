@@ -9,12 +9,12 @@ import { describe, expect, it } from "vitest";
 
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import {
-  CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT,
-  CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT,
-  ChapterBodyRowWindow,
-  chapterClippedHeadRowCount,
-  chapterClippedHeadRowIds,
-  resolveChapterBodyViewportHeight,
+  RUN_GROUP_BODY_FALLBACK_HEIGHT,
+  RUN_GROUP_BODY_INTRINSIC_HEIGHT,
+  RunGroupBodyRowWindow,
+  countClippedHeadRows,
+  listClippedHeadRowIds,
+  resolveRunGroupBodyHeight,
 } from "./run-group-body.js";
 import { runRow } from "../timeline-rows.test-support.js";
 
@@ -30,43 +30,39 @@ function chapterRow(sequence: number): ReturnType<typeof runRow> {
 
 describe("the body's height — validated before it is applied", () => {
   it("takes the intrinsic expression where the engine parses it", () => {
-    expect(resolveChapterBodyViewportHeight(() => true)).toBe(
-      CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT,
-    );
+    expect(resolveRunGroupBodyHeight(() => true)).toBe(RUN_GROUP_BODY_INTRINSIC_HEIGHT);
   });
 
   it("falls back to a length every engine parses where it does not", () => {
-    expect(resolveChapterBodyViewportHeight(() => false)).toBe(
-      CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT,
-    );
+    expect(resolveRunGroupBodyHeight(() => false)).toBe(RUN_GROUP_BODY_FALLBACK_HEIGHT);
   });
 
   it("asks about the property it is going to set", () => {
     const asked: string[] = [];
-    resolveChapterBodyViewportHeight((property, value) => {
+    resolveRunGroupBodyHeight((property, value) => {
       asked.push(`${property}: ${value}`);
       return true;
     });
-    expect(asked).toEqual([`max-height: ${CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT}`]);
+    expect(asked).toEqual([`max-height: ${RUN_GROUP_BODY_INTRINSIC_HEIGHT}`]);
   });
 });
 
 describe("where the clip falls", () => {
   it("clips nothing while the chapter is under the ceiling", () => {
-    expect(chapterClippedHeadRowIds(["a", "b", "c"])).toEqual([]);
+    expect(listClippedHeadRowIds(["a", "b", "c"])).toEqual([]);
   });
 
   it("clips the OLDER head, never the newest rows", () => {
     const rowIds = Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + 3 }, (_unused, index) =>
       String(index),
     );
-    const head = chapterClippedHeadRowIds(rowIds);
+    const head = listClippedHeadRowIds(rowIds);
     expect(head).toEqual(["0", "1", "2"]);
     expect(head).not.toContain(String(CHAPTER_VISIBLE_ROW_CAP + 2));
   });
 
   it("returns one identity for every empty head, so a memo over it does not re-run", () => {
-    expect(chapterClippedHeadRowIds(["a"])).toBe(chapterClippedHeadRowIds(["b", "c"]));
+    expect(listClippedHeadRowIds(["a"])).toBe(listClippedHeadRowIds(["b", "c"]));
   });
 
   it("counts the clip from the chapter's length alone, without building the list", () => {
@@ -74,12 +70,12 @@ describe("where the clip falls", () => {
     // the length of a list nobody keeps: a chapter of ten thousand rows used to be
     // sliced into a ten-thousand-element array so that a number could be read off
     // it and the array thrown away.
-    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP - 1)).toBe(0);
-    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP)).toBe(0);
-    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP + 7)).toBe(7);
+    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP - 1)).toBe(0);
+    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP)).toBe(0);
+    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP + 7)).toBe(7);
     // A negative length is not reachable, and the floor says what happens anyway
     // rather than leaving a caller to subtract past zero.
-    expect(chapterClippedHeadRowCount(0)).toBe(0);
+    expect(countClippedHeadRows(0)).toBe(0);
   });
 
   it("counts exactly what the list form would have listed, at every boundary", () => {
@@ -95,14 +91,14 @@ describe("where the clip falls", () => {
       CHAPTER_VISIBLE_ROW_CAP * 2,
     ]) {
       const rowIds = Array.from({ length }, (_unused, index) => String(index));
-      expect(chapterClippedHeadRowIds(rowIds)).toHaveLength(chapterClippedHeadRowCount(length));
+      expect(listClippedHeadRowIds(rowIds)).toHaveLength(countClippedHeadRows(length));
     }
   });
 });
 
 describe("the body's row window — bounded on both sides", () => {
   it("holds nothing while the chapter is under the ceiling", () => {
-    const window = new ChapterBodyRowWindow();
+    const window = new RunGroupBodyRowWindow();
     for (let sequence = 1; sequence <= CHAPTER_VISIBLE_ROW_CAP; sequence += 1) {
       window.admit(chapterRow(sequence));
     }
@@ -110,7 +106,7 @@ describe("the body's row window — bounded on both sides", () => {
   });
 
   it("holds the rows the mounted window displaced, oldest first", () => {
-    const window = new ChapterBodyRowWindow();
+    const window = new RunGroupBodyRowWindow();
     for (let sequence = 1; sequence <= CHAPTER_VISIBLE_ROW_CAP + 2; sequence += 1) {
       window.admit(chapterRow(sequence));
     }
@@ -118,7 +114,7 @@ describe("the body's row window — bounded on both sides", () => {
   });
 
   it("never grows past the ceiling, however long the run is", () => {
-    const window = new ChapterBodyRowWindow();
+    const window = new RunGroupBodyRowWindow();
     const admitted = CHAPTER_VISIBLE_ROW_CAP * 3;
     for (let sequence = 1; sequence <= admitted; sequence += 1) {
       window.admit(chapterRow(sequence));

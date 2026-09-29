@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LedgerWindowReadState } from "./TranscriptReadState.js";
+import { TranscriptReadState } from "./TranscriptReadState.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 function openStore(): SessionStore {
@@ -16,7 +16,7 @@ function openStore(): SessionStore {
 }
 
 function readStateOf(sessionStore: SessionStore): HTMLElement {
-  return render(<LedgerWindowReadState sessionStore={sessionStore} />).container;
+  return render(<TranscriptReadState sessionStore={sessionStore} />).container;
 }
 
 describe("before the first read lands", () => {

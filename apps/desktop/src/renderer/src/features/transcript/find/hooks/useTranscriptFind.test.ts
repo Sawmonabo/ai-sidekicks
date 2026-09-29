@@ -9,11 +9,11 @@ import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { useLedgerFind, type LedgerFindState } from "./useTranscriptFind.js";
-import { NO_ROWS_REMOVED, type LedgerWindowModel } from "../../window/transcript-window.js";
+import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";
+import { NO_ROWS_REMOVED, type TranscriptWindowModel } from "../../window/transcript-window.js";
 import {
-  useVisibleLedgerWindow,
-  type VisibleLedgerWindow,
+  useVisibleTranscriptWindow,
+  type VisibleTranscriptWindow,
 } from "../../window/hooks/useVisibleTranscriptWindow.js";
 import { deriveLedgerWindow } from "../../window/transcript-window.js";
 import {
@@ -24,7 +24,7 @@ import {
 
 describe("the walk when the result moves under it", () => {
   /** A visible window over exactly these rows, with nothing outside it. */
-  function windowOver(rows: readonly TimelineRow[]): VisibleLedgerWindow {
+  function windowOver(rows: readonly TimelineRow[]): VisibleTranscriptWindow {
     return {
       rows,
       prunedAwayRows: [],
@@ -38,10 +38,10 @@ describe("the walk when the result moves under it", () => {
   /** The find state over a window a case can swap for a different one. */
   function findOver(
     rows: readonly TimelineRow[],
-  ): RenderHookResult<LedgerFindState, { readonly rows: readonly TimelineRow[] }> {
+  ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TimelineRow[] }> {
     return renderHook(
       ({ rows: currentRows }) =>
-        useLedgerFind({
+        useTranscriptFind({
           visible: windowOver(currentRows),
           // Nothing is folded here, so the fold reports the shared empty removal.
           foldedAwayRows: NO_ROWS_REMOVED,
@@ -63,12 +63,12 @@ describe("the walk when the result moves under it", () => {
   function findOverPipeline(stages: {
     readonly unfurled: number;
     readonly folded: number;
-  }): RenderHookResult<LedgerFindState, unknown> {
-    const modelOf = (count: number): LedgerWindowModel =>
+  }): RenderHookResult<TranscriptFindState, unknown> {
+    const modelOf = (count: number): TranscriptWindowModel =>
       deriveLedgerWindow(syntheticEventLog(count), false);
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
-      useLedgerFind({
+      useTranscriptFind({
         visible: windowOver(foldedWindow.rows),
         foldedAwayRows: modelOf(stages.unfurled).rows.slice(stages.folded),
       }),
@@ -95,7 +95,7 @@ describe("the walk when the result moves under it", () => {
 
     // And the next step ENTERS the shorter list rather than resuming from an
     // ordinal the new result cannot hold.
-    let walked: ReturnType<LedgerFindState["step"]>;
+    let walked: ReturnType<TranscriptFindState["step"]>;
     act(() => {
       walked = result.current.step("next");
     });
@@ -164,11 +164,11 @@ describe("the walk when the result moves under it", () => {
 
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
-  function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
+  function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
     const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
-      useLedgerFind({
-        visible: useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows),
+      useTranscriptFind({
+        visible: useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
       }),

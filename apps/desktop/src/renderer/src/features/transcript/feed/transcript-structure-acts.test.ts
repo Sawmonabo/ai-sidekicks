@@ -11,8 +11,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "@renderer/console/palette/index.js";
 import { emptyFindResult } from "../find/find-model.js";
-import { type LedgerFindState } from "../find/hooks/useTranscriptFind.js";
-import { buildLedgerStructureActs, type LedgerFeedActInputs } from "./transcript-structure-acts.js";
+import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
+import {
+  buildTranscriptStructureActs,
+  type TranscriptStructureActInputs,
+} from "./transcript-structure-acts.js";
 
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
@@ -23,11 +26,11 @@ const WALKED_ROW_ID = "row-the-walk-found";
 /**
  * A find state whose members record rather than derive.
  *
- * `useLedgerFind`'s real behaviour is `useTranscriptFind.test.ts`'; what matters
+ * `useTranscriptFind`'s real behaviour is `useTranscriptFind.test.ts`'; what matters
  * here is which member an act calls, which a recording stand-in answers and a real
  * hook would only obscure.
  */
-function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindState {
+function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFindState {
   return {
     isOpen: false,
     query: "",
@@ -60,7 +63,7 @@ function actInputs(
   options: {
     readonly walkedRowId?: string;
   } = {},
-): LedgerFeedActInputs {
+): TranscriptStructureActInputs {
   return {
     find: recordingFindState(trace, options.walkedRowId),
     jumpToRow: (rowId) => {
@@ -90,13 +93,13 @@ function collectRaisedRefusals(): {
 describe("the transcript's acts — what each one reaches", () => {
   it("opens the find field without touching its query", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).openFind();
+    buildTranscriptStructureActs(actInputs(trace)).openFind();
     expect(trace).toStrictEqual(["open"]);
   });
 
   it("walks the matches and scrolls to each one it lands on", () => {
     const trace: ActTrace = [];
-    const acts = buildLedgerStructureActs(actInputs(trace, { walkedRowId: WALKED_ROW_ID }));
+    const acts = buildTranscriptStructureActs(actInputs(trace, { walkedRowId: WALKED_ROW_ID }));
     acts.stepFindNext();
     acts.stepFindPrevious();
     expect(trace).toStrictEqual([
@@ -112,25 +115,25 @@ describe("the transcript's acts — what each one reaches", () => {
     // press — which, with no match to land on, is a scroll to a row id nobody
     // produced and a reader moved for no reason.
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).stepFindNext();
+    buildTranscriptStructureActs(actInputs(trace)).stepFindNext();
     expect(trace).toStrictEqual(["step:next"]);
   });
 
   it("scrolls to the tail through the transcript's own scroll writer", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).scrollToTail();
+    buildTranscriptStructureActs(actInputs(trace)).jumpToLatest();
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
   it("folds every terminal chapter this feed has open", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
     expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
   });
 
   it("fires nothing merely by being built", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace));
+    buildTranscriptStructureActs(actInputs(trace));
     expect(trace).toStrictEqual([]);
   });
 });
@@ -150,7 +153,7 @@ describe("the transcript's acts — none of them refuses", () => {
     const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
     expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
     expect(raised).toStrictEqual([]);
   });
@@ -160,11 +163,11 @@ describe("the transcript's acts — none of them refuses", () => {
     // press with a banner, which would state a refusal over work that was done.
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
-    const acts = buildLedgerStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));
+    const acts = buildTranscriptStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));
     acts.openFind();
     acts.stepFindNext();
-    acts.scrollToTail();
-    acts.collapseAllTerminalChapters();
+    acts.jumpToLatest();
+    acts.foldEveryRun();
     expect(raised).toStrictEqual([]);
   });
 });

@@ -9,24 +9,24 @@
 // computed here would be a second answer to a question `useVisibleTranscriptWindow.ts`
 // already answers, and the two would agree until one of them shipped.
 
-import { FindInLedger } from "../../find/components/FindBox.js";
+import { FindBox } from "../../find/components/FindBox.js";
 import { PartialRead } from "@renderer/console/primitives/index.js";
 import { matchWalkReading } from "../../find/find-readings.js";
-import { type LedgerFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
+import { type TranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 
 /** The find state the header draws its field and counts from. */
-export interface LedgerFeedHeaderProps {
+export interface TranscriptFeedHeaderProps {
   /** The field, its walk and its close. */
-  readonly findAndJump: LedgerFindAndJump;
+  readonly findAndJump: TranscriptFindAndJump;
 }
 
 /** The find field and the counts of matches the window could not reach. */
-export function LedgerFeedHeader(props: LedgerFeedHeaderProps): React.JSX.Element {
+export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JSX.Element {
   const { find } = props.findAndJump;
   return (
     <>
       {find.isOpen ? (
-        <FindInLedger
+        <FindBox
           query={find.query}
           result={find.result}
           currentMatchIndex={find.currentMatchIndex}

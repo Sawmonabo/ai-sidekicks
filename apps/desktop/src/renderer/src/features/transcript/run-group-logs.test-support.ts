@@ -1,7 +1,7 @@
 // The logs a case needs when it is about a CHAPTER — a run that ended, a run that is
 // still going, a folded chapter's messages, and a seam.
 //
-// SPLIT FROM `ledger-feed-logs.test-support.ts`, which keeps the fixture vocabulary
+// SPLIT FROM `transcript-logs.test-support.ts`, which keeps the fixture vocabulary
 // and the plain logs. The two files hold two subjects: a case about the cap, a
 // filter, or a join order needs a log and nothing else, while every log here is
 // shaped so a FOLD rule can fail over it — two lanes rather than one, a boundary with
@@ -19,8 +19,8 @@ import {
   LIVE_RUN_ID,
   SESSION_ID,
   TERMINAL_RUN_ID,
-  ledgerFixtureEventId,
-  ledgerFixtureStampAt,
+  transcriptFixtureEventId,
+  transcriptFixtureStampAt,
 } from "./transcript-logs.test-support.js";
 
 /**
@@ -31,64 +31,64 @@ import {
  * draws none and keeps every row on screen. A single-lane log would pass over a fold
  * that folded everything.
  */
-export function openSessionStoreWithTerminalChapter(): SessionStore {
+export function openSessionStoreWithTerminalRunGroup(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
-      id: ledgerFixtureEventId(0),
+      id: transcriptFixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "run.running",
-      occurredAt: ledgerFixtureStampAt(0),
+      occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(1),
+      id: transcriptFixtureEventId(1),
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "assistant.message",
-      occurredAt: ledgerFixtureStampAt(1),
+      occurredAt: transcriptFixtureStampAt(1),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(2),
+      id: transcriptFixtureEventId(2),
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "run.paused",
-      occurredAt: ledgerFixtureStampAt(2),
+      occurredAt: transcriptFixtureStampAt(2),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(3),
+      id: transcriptFixtureEventId(3),
       sessionId: SESSION_ID,
       sequence: 3,
       kind: "run.completed",
-      occurredAt: ledgerFixtureStampAt(3),
+      occurredAt: transcriptFixtureStampAt(3),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(4),
+      id: transcriptFixtureEventId(4),
       sessionId: SESSION_ID,
       sequence: 4,
       kind: "run.running",
-      occurredAt: ledgerFixtureStampAt(4),
+      occurredAt: transcriptFixtureStampAt(4),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(5),
+      id: transcriptFixtureEventId(5),
       sessionId: SESSION_ID,
       sequence: 5,
       kind: "assistant.message",
-      occurredAt: ledgerFixtureStampAt(5),
+      occurredAt: transcriptFixtureStampAt(5),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
   ]);
   return sessionStore;
 }
 
-/** Message rows the finished run in `foldedMessageChapterLog` holds, all folded away. */
-export const FOLDED_CHAPTER_MESSAGE_ROW_COUNT = 3;
+/** Message rows the finished run in `foldedMessageRunGroupLog` holds, all folded away. */
+export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
 
 /**
  * A finished run full of message rows, beside a live run holding a tool call.
@@ -100,43 +100,43 @@ export const FOLDED_CHAPTER_MESSAGE_ROW_COUNT = 3;
  * empties that chapter entirely. A single-family log would pass over a narrowing
  * that never looked inside a fold at all.
  */
-export function foldedMessageChapterLog(): readonly ConsoleSessionEvent[] {
+export function foldedMessageRunGroupLog(): readonly ConsoleSessionEvent[] {
   const messageRows = Array.from(
-    { length: FOLDED_CHAPTER_MESSAGE_ROW_COUNT },
+    { length: FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT },
     (_unused, index) => ({
-      id: ledgerFixtureEventId(index + 1),
+      id: transcriptFixtureEventId(index + 1),
       sessionId: SESSION_ID,
       sequence: index + 1,
       kind: "assistant.message",
-      occurredAt: ledgerFixtureStampAt(index + 1),
+      occurredAt: transcriptFixtureStampAt(index + 1),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     }),
   );
-  const afterMessages = FOLDED_CHAPTER_MESSAGE_ROW_COUNT + 1;
+  const afterMessages = FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT + 1;
   return [
     {
-      id: ledgerFixtureEventId(0),
+      id: transcriptFixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "run.running",
-      occurredAt: ledgerFixtureStampAt(0),
+      occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     ...messageRows,
     {
-      id: ledgerFixtureEventId(afterMessages),
+      id: transcriptFixtureEventId(afterMessages),
       sessionId: SESSION_ID,
       sequence: afterMessages,
       kind: "run.completed",
-      occurredAt: ledgerFixtureStampAt(afterMessages),
+      occurredAt: transcriptFixtureStampAt(afterMessages),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(afterMessages + 1),
+      id: transcriptFixtureEventId(afterMessages + 1),
       sessionId: SESSION_ID,
       sequence: afterMessages + 1,
       kind: "tool.invoked",
-      occurredAt: ledgerFixtureStampAt(afterMessages + 1),
+      occurredAt: transcriptFixtureStampAt(afterMessages + 1),
       payload: {
         sessionId: SESSION_ID,
         runId: LIVE_RUN_ID,
@@ -155,32 +155,32 @@ export function foldedMessageChapterLog(): readonly ConsoleSessionEvent[] {
  * rather than drawn — which would make a case about the seam pass or fail for the
  * fold's reasons.
  */
-export function openSessionStoreWithSeam(): SessionStore {
+export function openSessionStoreWithSystemMessage(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
-      id: ledgerFixtureEventId(0),
+      id: transcriptFixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "run.running",
-      occurredAt: ledgerFixtureStampAt(0),
+      occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(1),
+      id: transcriptFixtureEventId(1),
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "usage.context_compacted",
-      occurredAt: ledgerFixtureStampAt(1),
+      occurredAt: transcriptFixtureStampAt(1),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
-      id: ledgerFixtureEventId(2),
+      id: transcriptFixtureEventId(2),
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "assistant.message",
-      occurredAt: ledgerFixtureStampAt(2),
+      occurredAt: transcriptFixtureStampAt(2),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
   ]);

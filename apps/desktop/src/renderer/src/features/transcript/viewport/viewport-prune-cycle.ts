@@ -27,17 +27,21 @@
 // `reconcile` and `retryDeferredPrune` and through nothing else, so driving it
 // apart from the controller would be driving a stand-in for the caller.
 
-import { LedgerIdleMemoryTrim, type LedgerIdleTrimPass } from "./idle-trim.js";
+import { IdleMemoryTrim, type IdleTrimPass } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
-import { type RowMeasurementLedger } from "./row-measurement-table.js";
+import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { type LedgerViewportConditions } from "./viewport-snapshot.js";
-import { type LedgerWindow, type PruneDeferralReason, type PruneOutcome } from "./window-cap.js";
+import { type ViewportConditions } from "./viewport-snapshot.js";
+import {
+  type TranscriptWindow,
+  type PruneDeferralReason,
+  type PruneOutcome,
+} from "./window-cap.js";
 
-export interface LedgerPruneCycleOptions {
-  readonly window: LedgerWindow;
-  readonly measurements: RowMeasurementLedger;
+export interface ViewportPruneCycleOptions {
+  readonly window: TranscriptWindow;
+  readonly measurements: RowMeasurementTable;
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
   readonly clock: ConsoleClock;
@@ -46,16 +50,16 @@ export interface LedgerPruneCycleOptions {
 }
 
 /** What one pass took, and the floor it was told to stop at. */
-export interface LedgerPruneCycleResult {
+export interface ViewportPruneCycleResult {
   /** Measured height of every row the pass dropped, summed in pixels. */
   readonly prunedHeightPx: number;
   /** The row the drop may not walk past, or `undefined` while following. */
   readonly readingFloorRowKey: string | undefined;
 }
 
-export class LedgerPruneCycle {
-  readonly #window: LedgerWindow;
-  readonly #measurements: RowMeasurementLedger;
+export class ViewportPruneCycle {
+  readonly #window: TranscriptWindow;
+  readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
   readonly #scroll: LedgerScrollController;
   /**
@@ -66,7 +70,7 @@ export class LedgerPruneCycle {
    * frame's own definition of the ledger having moved. Holding it in the controller
    * would have meant a second reader of that same fact.
    */
-  readonly #idleTrim: LedgerIdleMemoryTrim;
+  readonly #idleTrim: IdleMemoryTrim;
 
   #lastOutcome: PruneOutcome | undefined;
   /**
@@ -77,24 +81,24 @@ export class LedgerPruneCycle {
    * exactly what a re-ask must NOT invent: re-running the prune against a row set
    * this frame made up would apply the cap to a window nobody is showing.
    */
-  #lastConditions: LedgerViewportConditions | undefined;
+  #lastConditions: ViewportConditions | undefined;
   /**
    * The held set the last pass was run against, so `held-rows` can be answered by
    * comparing it with the anchor's current one.
    *
-   * The held set is not on `LedgerViewportConditions` — the pass reads it off the
+   * The held set is not on `ViewportConditions` — the pass reads it off the
    * anchor — so without this field the one question that refusal turns on, "is the
    * reader still engaged with the rows that blocked the drop", has nothing to be
    * asked against.
    */
   #lastHeldRowKeys: readonly string[] = [];
 
-  public constructor(options: LedgerPruneCycleOptions) {
+  public constructor(options: ViewportPruneCycleOptions) {
     this.#window = options.window;
     this.#measurements = options.measurements;
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
-    this.#idleTrim = new LedgerIdleMemoryTrim({
+    this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
       measurements: options.measurements,
@@ -103,7 +107,7 @@ export class LedgerPruneCycle {
   }
 
   /** What the last idle trim returned, or `undefined` before one has taken anything. */
-  public get lastIdleTrimPass(): LedgerIdleTrimPass | undefined {
+  public get lastIdleTrimPass(): IdleTrimPass | undefined {
     return this.#idleTrim.lastPass;
   }
 
@@ -130,7 +134,7 @@ export class LedgerPruneCycle {
    * priors are dropped: after the loop below there is nothing left to ask how tall
    * the pruned rows were.
    */
-  public run(conditions: LedgerViewportConditions): LedgerPruneCycleResult {
+  public run(conditions: ViewportConditions): ViewportPruneCycleResult {
     // Before anything else: the ledger has moved. If it had been still for a dwell,
     // this is where the trim runs — the end of the quiet period, which is the moment
     // the tables it walks are known to be stale.
@@ -204,7 +208,7 @@ export class LedgerPruneCycle {
    * and is also what keeps the re-ask from spinning, since a residual whose blocker
    * has not lifted answers `undefined` however many times it is asked.
    */
-  public owedConditions(): LedgerViewportConditions | undefined {
+  public owedConditions(): ViewportConditions | undefined {
     const conditions = this.#lastConditions;
     const owedBecause = this.#lastOutcome?.owedBecause;
     if (conditions === undefined || owedBecause === undefined) {
@@ -237,7 +241,7 @@ export class LedgerPruneCycle {
    * THE THREE ARMS THAT ANSWER `false` ARE NOT UNOBSERVABLE, THEY ARE ALREADY
    * OBSERVED. `under-cap` is not a refusal to retry at all — the window is within
    * its cap and there is nothing owed. `active-turn` and `reveal-drain` are read
-   * straight off `LedgerViewportConditions`, so the surface that reports them
+   * straight off `ViewportConditions`, so the surface that reports them
    * re-runs the pass the moment either changes; retrying them here would be a
    * second reader of one fact, racing the first.
    *

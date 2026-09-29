@@ -10,12 +10,12 @@ import { describe, expect, it } from "vitest";
 
 import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import {
-  CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT,
-  CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT,
+  RUN_GROUP_BODY_FALLBACK_HEIGHT,
+  RUN_GROUP_BODY_INTRINSIC_HEIGHT,
 } from "../run-group-body.js";
-import { ChapterBodyViewport } from "./RunGroupBody.js";
-import { foldChapters } from "../run-groups.js";
-import { chapterFor } from "../run-groups.test-support.js";
+import { RunGroupBody } from "./RunGroupBody.js";
+import { groupRowsByRun } from "../run-groups.js";
+import { findRunGroup } from "../run-groups.test-support.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -38,14 +38,12 @@ function renderBody(
   rows: readonly TimelineRow[],
   narrowedRowIds?: readonly string[],
 ): HTMLElement | null {
-  const sealed = chapterFor(foldChapters(rows).chapters, RUN_ID);
+  const sealed = findRunGroup(groupRowsByRun(rows).chapters, RUN_ID);
   const chapter =
     narrowedRowIds === undefined
       ? sealed
       : { ...sealed, rowIds: narrowedRowIds, rowCount: narrowedRowIds.length };
-  const { container } = render(
-    <ChapterBodyViewport chapter={chapter} supportsDeclaration={() => true} />,
-  );
+  const { container } = render(<RunGroupBody chapter={chapter} supportsDeclaration={() => true} />);
   return container.querySelector<HTMLElement>(".meridian-chapter-body");
 }
 
@@ -66,17 +64,17 @@ describe("the chapter body — the head the outer list left out", () => {
     const scroller = renderBody(longRun(2))?.querySelector<HTMLElement>(
       ".meridian-chapter-body__scroller",
     );
-    expect(scroller?.style.maxBlockSize).toBe(CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT);
+    expect(scroller?.style.maxBlockSize).toBe(RUN_GROUP_BODY_INTRINSIC_HEIGHT);
   });
 
   it("falls back to a length every engine parses where the expression is refused", () => {
-    const sealed = chapterFor(foldChapters(longRun(2)).chapters, RUN_ID);
+    const sealed = findRunGroup(groupRowsByRun(longRun(2)).chapters, RUN_ID);
     const { container } = render(
-      <ChapterBodyViewport chapter={sealed} supportsDeclaration={() => false} />,
+      <RunGroupBody chapter={sealed} supportsDeclaration={() => false} />,
     );
     expect(
       container.querySelector<HTMLElement>(".meridian-chapter-body__scroller")?.style.maxBlockSize,
-    ).toBe(CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT);
+    ).toBe(RUN_GROUP_BODY_FALLBACK_HEIGHT);
   });
 
   it("re-pins through the engine's own anchoring rather than a second scroll writer", () => {

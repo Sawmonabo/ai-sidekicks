@@ -33,11 +33,11 @@ import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useReadScope } from "@renderer/console/store/read/read-cancellation.js";
 import type { RunId } from "@ai-sidekicks/contracts";
-import { type ReasoningSurfaceReading } from "../reasoning-reading.js";
+import { type ReasoningReading } from "../reasoning-reading.js";
 
 /** The reading a row holds, and the call that advances it. */
-export interface ReasoningSurfaceRead {
-  readonly reading: ReasoningSurfaceReading;
+export interface ReasoningRead {
+  readonly reading: ReasoningReading;
   readonly expand: () => void;
 }
 
@@ -69,9 +69,9 @@ export interface ReasoningSurfaceRead {
  * `read-abandoned` refusal reaches the control — a departure is not a refusal a reader
  * should be offered a retry for.
  */
-export function useReasoningSurfaceRead(runId: RunId | undefined): ReasoningSurfaceRead {
+export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
   const bridge = useConsoleBridge();
-  const [reading, setReading] = useState<ReasoningSurfaceReading>({ status: "not-asked" });
+  const [reading, setReading] = useState<ReasoningReading>({ status: "not-asked" });
   const readScope = useReadScope(bridge, runId);
 
   const expand = useCallback(() => {

@@ -11,14 +11,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  compensatesForGrowth,
+  shouldCompensateForInsertion,
   countAppendedAfter,
   countInsertedBefore,
-  type LedgerViewportRow,
+  type ViewportRow,
 } from "./viewport-snapshot.js";
 
 /** A retained window, spelled the way `viewport-controller.test.ts` spells one. */
-const RETAINED_ROWS: readonly LedgerViewportRow[] = ["a", "b", "c", "d"].map((key) => ({
+const RETAINED_ROWS: readonly ViewportRow[] = ["a", "b", "c", "d"].map((key) => ({
   key,
   parentKey: undefined,
   rootCursor: `cursor-${key}`,
@@ -76,22 +76,22 @@ describe("counting rows inserted before the previous head", () => {
 
 describe("compensating for a row that grew above the fold", () => {
   it("compensates for a row that ends at or above the reader's offset", () => {
-    expect(compensatesForGrowth("reading", 400, 400)).toBe(true);
-    expect(compensatesForGrowth("reading", 120, 400)).toBe(true);
+    expect(shouldCompensateForInsertion("reading", 400, 400)).toBe(true);
+    expect(shouldCompensateForInsertion("reading", 120, 400)).toBe(true);
   });
 
   it("negative control: refuses a row the reader can see growing", () => {
     // A row ending one pixel below the fold is growing under the reader's eyes.
     // Subtracting its delta drags the viewport down every frame of a stream, and
     // each drag moves the anchor, which notifies, which renders, which glides.
-    expect(compensatesForGrowth("reading", 401, 400)).toBe(false);
+    expect(shouldCompensateForInsertion("reading", 401, 400)).toBe(false);
   });
 
   it("negative control: refuses every row while the reader is following", () => {
     // The tail glide already puts a follower at the bottom; a compensation would
     // fight it. Both conjuncts are load-bearing, so this arm fails even for a row
     // that clears the fold by a mile.
-    expect(compensatesForGrowth("following", 0, 400)).toBe(false);
-    expect(compensatesForGrowth("following", 400, 400)).toBe(false);
+    expect(shouldCompensateForInsertion("following", 0, 400)).toBe(false);
+    expect(shouldCompensateForInsertion("following", 400, 400)).toBe(false);
   });
 });

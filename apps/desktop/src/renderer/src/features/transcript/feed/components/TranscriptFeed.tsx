@@ -21,7 +21,7 @@
 //
 //   • Find's walk JUMPS, and it jumps through the viewport's `jumpToRow` — the
 //     transcript's one scroll writer. Nothing here touches an element. There is exactly
-//     ONE binding, minted by the chain and handed to `<LedgerViewport>`: a second one
+//     ONE binding, minted by the chain and handed to `<TranscriptViewport>`: a second one
 //     would leave the find walk reading a virtualizer with no element under it, which
 //     is a jump that reports success and scrolls nothing.
 //   • Find's result is derived from the same window the feed renders — the viewport's
@@ -55,21 +55,21 @@
 import { useCallback, useMemo } from "react";
 
 import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
-import { LedgerRowLeaseProvider } from "../../viewport/components/RetainedRowStateProvider.js";
+import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
-import { LedgerViewport } from "../../viewport/components/TranscriptViewport.js";
-import { LedgerFeedHeader } from "./TranscriptFeedHeader.js";
-import { LedgerWindowAbsences } from "../../window/components/TranscriptWindowNotices.js";
-import { LedgerWindowReadState } from "../../window/components/TranscriptReadState.js";
-import { useLedgerRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
+import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
+import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
+import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
+import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
+import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";
-import { useLedgerFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
-import { useLedgerFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
-import { useLedgerStructureActs } from "../hooks/useTranscriptStructureActs.js";
+import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
+import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
+import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
-export interface LedgerFeedProps {
+export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
   /**
    * The deck pane this feed is the body of.
@@ -85,13 +85,13 @@ export interface LedgerFeedProps {
 }
 
 /** The session's log: the find field, the rows, and what the window does not hold. */
-export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
+export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
-  const windows = useLedgerFeedWindows({ sessionStore: props.sessionStore, clock });
+  const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
   const { chapterDisclosure, ledgerWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD AND ITS WALK — one seam, wired next door.
-  const findAndJump = useLedgerFindAndJump({
+  const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.chapterFold.removedRows,
     visible,
     jumpToRow,
@@ -117,11 +117,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // Named off the props object rather than read through it, because the callback
   // below keys on this and `props` is a fresh object on every render. Depending on
   // the whole object rebuilt `renderRow` on every render of this feed — a find
-  // keystroke, a lease write — and `LedgerRowMount`'s memo compares it, so every
+  // keystroke, a lease write — and `VirtualRow`'s memo compares it, so every
   // mounted row re-rendered for a change none of them could see.
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
-  const renderRow = useLedgerRowRenderer({
+  const renderRow = useTranscriptRowRenderer({
     ledgerWindow,
     openedTerminalRunIds,
     hueForActor,
@@ -137,7 +137,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
   }, [collapseAllTerminal, ledgerWindow]);
-  useLedgerStructureActs({
+  useTranscriptStructureActs({
     find,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
@@ -146,11 +146,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
 
   return (
     <div className="meridian-ledger">
-      <LedgerFeedHeader findAndJump={findAndJump} />
+      <TranscriptFeedHeader findAndJump={findAndJump} />
       <div className="meridian-ledger__body">
-        <LedgerRowLeaseProvider channel={rowLeaseChannel}>
+        <RetainedRowStateProvider channel={rowLeaseChannel}>
           <LedgerRowRevealProvider channel={windows.reveal.channel}>
-            <LedgerViewport
+            <TranscriptViewport
               binding={viewport}
               renderRow={renderRow}
               feedLabel={props.feedLabel}
@@ -159,10 +159,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
               earlierPaging={windows.earlierPaging}
             />
           </LedgerRowRevealProvider>
-        </LedgerRowLeaseProvider>
+        </RetainedRowStateProvider>
       </div>
-      <LedgerWindowReadState sessionStore={props.sessionStore} />
-      <LedgerWindowAbsences
+      <TranscriptReadState sessionStore={props.sessionStore} />
+      <TranscriptWindowNotices
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}

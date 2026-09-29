@@ -22,7 +22,7 @@ import type { TimelineResubscribeRequest } from "@renderer/services/daemon/sessi
  * position cannot ask at all — its only repair is the whole-window re-read, which is
  * worth saying rather than leaving as a request that quietly never went out.
  */
-export type LedgerGapFillIntent =
+export type TranscriptGapFillIntent =
   | { readonly outcome: "whole" }
   | { readonly outcome: "unanchored"; readonly missingFromSequence: number }
   | {
@@ -32,7 +32,7 @@ export type LedgerGapFillIntent =
     };
 
 /** The three facts the decision is taken over, and nothing else. */
-export interface LedgerGapFillInput {
+export interface TranscriptGapFillInput {
   readonly sessionId: string;
   /**
    * The first log position of the oldest hole standing, or nothing where none is.
@@ -47,7 +47,7 @@ export interface LedgerGapFillInput {
 }
 
 /** Decide what this window can ask for. Pure: it holds nothing and it calls nothing. */
-export function resolveLedgerGapFill(input: LedgerGapFillInput): LedgerGapFillIntent {
+export function resolveTranscriptGapFill(input: TranscriptGapFillInput): TranscriptGapFillIntent {
   if (input.missingFromSequence === undefined) {
     return { outcome: "whole" };
   }
@@ -69,6 +69,6 @@ export function resolveLedgerGapFill(input: LedgerGapFillInput): LedgerGapFillIn
  * store's revision it would be one ask per row admitted, which is the polling this
  * console forbids wearing a read's clothes.
  */
-export function ledgerGapFillSubjectKey(sessionId: string, missingFromSequence: number): string {
+export function buildGapFillSubjectKey(sessionId: string, missingFromSequence: number): string {
   return `${sessionId}:${String(missingFromSequence)}`;
 }

@@ -8,7 +8,7 @@
  * Top-level rows the ledger window retains before the oldest are pruned.
  *
  * A ceiling rather than a nicety: Chromium caps an element's height at
- * `LEDGER_MAX_ELEMENT_HEIGHT_PX`, so an uncapped log eventually renders rows the
+ * `MAX_ELEMENT_HEIGHT_PX`, so an uncapped log eventually renders rows the
  * browser cannot place. Four hundred rows is several screens of scrollback at the
  * ledger's density, which is as far back as a person reads before reaching for
  * find.
@@ -37,7 +37,7 @@ export const LEDGER_EARLIER_PAGE_ROWS = 50;
  * The reason the window is a cap and not an optimisation: past this a virtual
  * list's total-size spacer stops growing and every row below it is unreachable.
  */
-export const LEDGER_MAX_ELEMENT_HEIGHT_PX = 33_554_431;
+export const MAX_ELEMENT_HEIGHT_PX = 33_554_431;
 /**
  * Characters the reveal engine publishes per frame, across every lane.
  *

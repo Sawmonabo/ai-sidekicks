@@ -1,6 +1,6 @@
 // Which run a wire payload names, and which of its members is allowed to say so.
 //
-// WHY IT IS ITS OWN MODULE. `fixture-shell-projection.ts` is a projection: it folds
+// WHY IT IS ITS OWN MODULE. `transcript-row-projection.ts` is a projection: it folds
 // this window's log into rows, deriving position, epoch, and identity. Deciding
 // whether a payload member names the row's OWN run is a different job, and its
 // subject is not the shell at all — it is the contracts package's registered payload
@@ -36,7 +36,7 @@ import {
  */
 const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS;
 
-export type RunNamingPayloadMember = RunNamingMemberOf<
+export type RunNamingPayloadKey = RunNamingMemberOf<
   SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
 >;
 
@@ -96,8 +96,8 @@ type RunNamingMemberOf<TPayload> = TPayload extends unknown
  * DORMANT, and the test pins the dormancy by checking each listed key's decision
  * rather than leaving "removes nothing" as a claim.
  */
-export const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER: Readonly<
-  Record<RunNamingPayloadMember, RunAttributionRole>
+export const RUN_ATTRIBUTION_BY_PAYLOAD_KEY: Readonly<
+  Record<RunNamingPayloadKey, RunAttributionRole>
 > = {
   runId: "this-run",
   targetRunId: "this-run",
@@ -106,7 +106,7 @@ export const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER: Readonly<
 
 /** The decided members that attribute, as the lookup below asks them. */
 const ATTRIBUTING_PAYLOAD_MEMBERS: ReadonlySet<string> = new Set(
-  Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER)
+  Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_KEY)
     .filter(([, role]) => role === "this-run")
     .map(([member]) => member),
 );

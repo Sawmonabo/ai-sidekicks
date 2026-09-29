@@ -7,13 +7,13 @@
 import { describe, expect, it } from "vitest";
 
 import { READING_HOLD_REASONS, READING_MODES, ReadingAnchor } from "./reading-anchor.js";
-import type { LedgerGeometry, LedgerGeometryCause } from "./geometry-sample.js";
+import type { ScrollGeometry, GeometryChangeCause } from "./geometry-sample.js";
 
 function geometry(
   scrollTop: number,
   isAtTail: boolean,
-  cause: LedgerGeometryCause = "scroll",
-): LedgerGeometry {
+  cause: GeometryChangeCause = "scroll",
+): ScrollGeometry {
   return {
     scrollTop,
     viewportHeight: 500,

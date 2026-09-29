@@ -24,16 +24,16 @@
 //     fallback would be exactly the path the coordinator exists to close — available,
 //     silently, to whichever composition forgot to wire the frame.
 
-import { type LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
-import { type LedgerGeometry } from "./geometry-sample.js";
-import { type LedgerScrollCaller } from "./scroll-callers.js";
+import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { type ScrollGeometry } from "./geometry-sample.js";
+import { type ScrollCaller } from "./scroll-callers.js";
 
 /**
  * What a phase-one caller computes: the offset it wants, from the frame's one clean
  * geometry sample. `undefined` withdraws the request, which is how a caller whose
  * reason has passed by the time the frame runs writes nothing at all.
  */
-export type LedgerScrollTargetComputation = (geometry: LedgerGeometry) => number | undefined;
+export type ScrollTargetComputation = (geometry: ScrollGeometry) => number | undefined;
 
 /**
  * The narrow port back into the chokepoint.
@@ -42,23 +42,23 @@ export type LedgerScrollTargetComputation = (geometry: LedgerGeometry) => number
  * WHAT, so anything wider would let the frame queue reach into the clamp, the
  * quantization, or the publication — every one of which is the controller's.
  */
-export interface LedgerScrollWriteSurface {
+export interface ScrollWriteTarget {
   /** The last published sample, or `undefined` before the first attach. */
-  readonly lastGeometry: LedgerGeometry | undefined;
+  readonly lastGeometry: ScrollGeometry | undefined;
   /** Perform the write. The controller's one `scrollTop` write path. */
-  readonly glide: (caller: LedgerScrollCaller, targetScrollTop: number) => void;
+  readonly glide: (caller: ScrollCaller, targetScrollTop: number) => void;
 }
 
 /** Reactive scroll writes, held for phase one of the next frame. */
-export class LedgerScrollFrameWrites {
-  readonly #writeSurface: LedgerScrollWriteSurface;
-  readonly #taskKeyByCaller = new Map<LedgerScrollCaller, string>();
-  readonly #pendingByCaller = new Map<LedgerScrollCaller, LedgerScrollTargetComputation>();
+export class ScrollFrameWrites {
+  readonly #writeSurface: ScrollWriteTarget;
+  readonly #taskKeyByCaller = new Map<ScrollCaller, string>();
+  readonly #pendingByCaller = new Map<ScrollCaller, ScrollTargetComputation>();
 
-  #frameCoordinator: LedgerFrameCoordinator | undefined;
+  #frameCoordinator: AnimationFrameCoordinator | undefined;
   #released = false;
 
-  public constructor(writeSurface: LedgerScrollWriteSurface) {
+  public constructor(writeSurface: ScrollWriteTarget) {
     this.#writeSurface = writeSurface;
   }
 
@@ -69,7 +69,7 @@ export class LedgerScrollFrameWrites {
    * one controller's writes in two frames, which is the split being ordered at all
    * exists to end — so it throws rather than picking one.
    */
-  public adopt(frameCoordinator: LedgerFrameCoordinator): void {
+  public adopt(frameCoordinator: AnimationFrameCoordinator): void {
     if (this.#released || this.#frameCoordinator === frameCoordinator) {
       return;
     }
@@ -97,10 +97,7 @@ export class LedgerScrollFrameWrites {
    * Returns whether the request was taken, so a caller can tell "queued" from "this
    * controller is in no frame" rather than assuming the write is coming.
    */
-  public request(
-    caller: LedgerScrollCaller,
-    computeTarget: LedgerScrollTargetComputation,
-  ): boolean {
+  public request(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
     const frameCoordinator = this.#frameCoordinator;
     if (frameCoordinator === undefined || this.#released) {
       return false;
@@ -126,7 +123,7 @@ export class LedgerScrollFrameWrites {
     this.#released = true;
   }
 
-  #runPending(caller: LedgerScrollCaller): void {
+  #runPending(caller: ScrollCaller): void {
     const computeTarget = this.#pendingByCaller.get(caller);
     this.#pendingByCaller.delete(caller);
     if (computeTarget === undefined || this.#released) {
@@ -147,7 +144,7 @@ export class LedgerScrollFrameWrites {
   }
 
   /** One key per caller per coordinator, so two callers never coalesce into one. */
-  #taskKeyFor(frameCoordinator: LedgerFrameCoordinator, caller: LedgerScrollCaller): string {
+  #taskKeyFor(frameCoordinator: AnimationFrameCoordinator, caller: ScrollCaller): string {
     const existing = this.#taskKeyByCaller.get(caller);
     if (existing !== undefined) {
       return existing;

@@ -10,29 +10,28 @@
 
 import { createContext, type Context } from "react";
 
-import { type LedgerRowLease } from "../retained-row-state-table.js";
+import { type RetainedRowState } from "../retained-row-state-table.js";
 
 /** What a row body may do to the state the window holds for it. */
-export interface LedgerRowLeaseChannel {
+export interface RetainedRowStateContextValue {
   /** Park this row's state on the window, where a prune re-parks rather than drops it. */
-  readonly setLease: (rowKey: string, lease: LedgerRowLease) => void;
+  readonly setLease: (rowKey: string, lease: RetainedRowState) => void;
 }
 
 /**
  * The channel, or `undefined` outside a transcript. Not a no-op default: that would
  * swallow every disclosure press in a tree that forgot the provider.
  */
-export const RetainedRowStateContext: Context<LedgerRowLeaseChannel | undefined> = createContext<
-  LedgerRowLeaseChannel | undefined
->(undefined);
+export const RetainedRowStateContext: Context<RetainedRowStateContextValue | undefined> =
+  createContext<RetainedRowStateContextValue | undefined>(undefined);
 
 /** The channel to publish and the row bodies it reaches. */
-export interface LedgerRowLeaseProviderProps {
-  readonly channel: LedgerRowLeaseChannel;
+export interface RetainedRowStateProviderProps {
+  readonly channel: RetainedRowStateContextValue;
   readonly children: React.ReactNode;
 }
 
 /** Publish one transcript's retained-state channel to the row bodies it mounts. */
-export function LedgerRowLeaseProvider(props: LedgerRowLeaseProviderProps): React.JSX.Element {
+export function RetainedRowStateProvider(props: RetainedRowStateProviderProps): React.JSX.Element {
   return <RetainedRowStateContext value={props.channel}>{props.children}</RetainedRowStateContext>;
 }

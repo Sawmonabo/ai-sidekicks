@@ -18,18 +18,18 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
   emptyFindResult,
-  findInLedger,
+  findInTranscript,
   stepFindMatch,
   type FindStepDirection,
-  type LedgerFindResult,
+  type FindResult,
 } from "../find-model.js";
-import { type VisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
+import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */
-export interface LedgerFindState {
+export interface TranscriptFindState {
   readonly isOpen: boolean;
   readonly query: string;
-  readonly result: LedgerFindResult;
+  readonly result: FindResult;
   /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
   /**
@@ -75,9 +75,9 @@ export interface LedgerFindState {
 }
 
 /** Every stage between the loaded log and the rows on screen. */
-export interface LedgerFindInputs {
+export interface TranscriptFindInputs {
   /** The rows the walk searches — the only ones a step can land on. */
-  readonly visible: VisibleLedgerWindow;
+  readonly visible: VisibleTranscriptWindow;
   /**
    * The rows the terminal-run fold withheld, as the fold reported them.
    *
@@ -104,7 +104,7 @@ export interface LedgerFindInputs {
  * window moves under a query somebody is still walking, and an ordinal into the
  * previous result is a position in a list that no longer exists.
  */
-export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
+export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
   const { visible, foldedAwayRows } = inputs;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
@@ -115,13 +115,15 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
     () =>
       query.trim().length === 0
         ? emptyFindResult(visible.rows.length)
-        : findInLedger(visible.rows, query),
+        : findInTranscript(visible.rows, query),
     [visible, query],
   );
 
   const beyondWindowMatchCount = useMemo(
     () =>
-      query.trim().length === 0 ? 0 : findInLedger(visible.prunedAwayRows, query).totalMatchCount,
+      query.trim().length === 0
+        ? 0
+        : findInTranscript(visible.prunedAwayRows, query).totalMatchCount,
     [visible, query],
   );
 
@@ -201,5 +203,5 @@ function matchesAmong(rows: readonly TimelineRow[], query: string): number {
   if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }
-  return findInLedger(rows, query).totalMatchCount;
+  return findInTranscript(rows, query).totalMatchCount;
 }

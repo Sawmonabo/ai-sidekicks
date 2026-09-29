@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 
-import { useMountedLedger } from "../../hooks/useMountedTranscript.js";
+import { useMountedTranscript } from "../../hooks/useMountedTranscript.js";
 import {
-  buildLedgerStructureActs,
-  type LedgerFeedActInputs,
+  buildTranscriptStructureActs,
+  type TranscriptStructureActInputs,
 } from "../transcript-structure-acts.js";
 
 /**
@@ -14,11 +14,12 @@ import {
  * rather than a correctness the seat depends on. Nothing is handed back: every act reaches
  * a person through a palette row or a chord, and none has a control on this surface.
  */
-export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
+export function useTranscriptStructureActs(inputs: TranscriptStructureActInputs): void {
   const { find, jumpToRow, jumpToTail, collapseAllTerminalChapters } = inputs;
   const acts = useMemo(
-    () => buildLedgerStructureActs({ find, jumpToRow, jumpToTail, collapseAllTerminalChapters }),
+    () =>
+      buildTranscriptStructureActs({ find, jumpToRow, jumpToTail, collapseAllTerminalChapters }),
     [find, jumpToRow, jumpToTail, collapseAllTerminalChapters],
   );
-  useMountedLedger(acts);
+  useMountedTranscript(acts);
 }

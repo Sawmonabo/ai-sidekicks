@@ -4,11 +4,11 @@
 // boundary with `TranscriptRowGroup` as its fallback.
 
 import { InlineRefusal, RefusalCard } from "@renderer/console/primitives/index.js";
-import { type LedgerErrorEntry } from "../transcript-errors.js";
+import { type TranscriptErrorEntry } from "../transcript-errors.js";
 
 /** The occupied slots, and the action for the highest one. */
-export interface LedgerErrorSlotProps {
-  readonly entries: readonly LedgerErrorEntry[];
+export interface TranscriptErrorsProps {
+  readonly entries: readonly TranscriptErrorEntry[];
   /** The operator's next move for the highest-ranked slot, when there is one. */
   readonly action?: React.ReactNode;
 }
@@ -17,7 +17,7 @@ export interface LedgerErrorSlotProps {
  * The highest-ranked slot as a card, the one a person is meant to act on; the rest
  * inline, as context for it. Four cards would bury the log the pane exists to show.
  */
-export function LedgerErrorSlot(props: LedgerErrorSlotProps): React.JSX.Element | null {
+export function TranscriptErrors(props: TranscriptErrorsProps): React.JSX.Element | null {
   const [highest, ...rest] = props.entries;
   if (highest === undefined) {
     return null;

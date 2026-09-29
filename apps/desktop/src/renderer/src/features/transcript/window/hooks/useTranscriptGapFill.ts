@@ -1,23 +1,23 @@
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 import type { TimelineSubscribeCall } from "@renderer/services/daemon/session-reads.js";
 import {
-  ledgerGapFillSubjectKey,
-  resolveLedgerGapFill,
-  type LedgerGapFillInput,
+  buildGapFillSubjectKey,
+  resolveTranscriptGapFill,
+  type TranscriptGapFillInput,
 } from "../transcript-gap-fill.js";
 
 /** Where the fill for the hole standing now has got to. */
-export type LedgerGapFillState =
+export type TranscriptGapFillState =
   | { readonly status: "whole" }
   | { readonly status: "unanchored" }
   | { readonly status: "asking" }
   | { readonly status: "replaying" };
 
 /** The four arms, minted once: each is one identity across every render. */
-const WHOLE: LedgerGapFillState = { status: "whole" };
-const UNANCHORED: LedgerGapFillState = { status: "unanchored" };
-const ASKING: LedgerGapFillState = { status: "asking" };
-const REPLAYING: LedgerGapFillState = { status: "replaying" };
+const WHOLE: TranscriptGapFillState = { status: "whole" };
+const UNANCHORED: TranscriptGapFillState = { status: "unanchored" };
+const ASKING: TranscriptGapFillState = { status: "asking" };
+const REPLAYING: TranscriptGapFillState = { status: "replaying" };
 
 /**
  * Put one replay ask per hole, and report where it got to. `call` must be referentially
@@ -33,22 +33,22 @@ const REPLAYING: LedgerGapFillState = { status: "replaying" };
  * the settlement here are both drivable without mounting either. `TranscriptGapFill`
  * reads them off the store and the registry, the one place both are in hand.
  */
-export function useLedgerGapFill(
-  input: LedgerGapFillInput,
+export function useTranscriptGapFill(
+  input: TranscriptGapFillInput,
   call: TimelineSubscribeCall,
-): LedgerGapFillState {
-  const intent = resolveLedgerGapFill(input);
+): TranscriptGapFillState {
+  const intent = resolveTranscriptGapFill(input);
   const request = intent.outcome === "resumable" ? intent.request : undefined;
   const subjectKey =
     intent.outcome === "resumable"
-      ? ledgerGapFillSubjectKey(input.sessionId, intent.missingFromSequence)
+      ? buildGapFillSubjectKey(input.sessionId, intent.missingFromSequence)
       : undefined;
   // A subject to ask about IS an ask in flight, because the read's effect runs on the
   // commit that seeded this. The two unsettled arms are the two ways there is nothing
   // to ask, and they are told apart by the intent rather than by the key — which
   // cannot tell them apart, both being unaddressed.
   const unsettled = intent.outcome === "whole" ? WHOLE : UNANCHORED;
-  const { value } = useSubjectRead<{ readonly subscriptionId: string }, LedgerGapFillState>(
+  const { value } = useSubjectRead<{ readonly subscriptionId: string }, TranscriptGapFillState>(
     call,
     subjectKey,
     () => (request === undefined ? undefined : call(request)),

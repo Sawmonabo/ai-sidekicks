@@ -15,7 +15,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
 import { devPerfMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import { REVEAL_CATCH_UP_MULTIPLIER } from "../viewport/viewport-constants.js";
-import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-model.js";
@@ -24,7 +24,7 @@ function engineOn(clock: ManualClock): RevealEngine {
   // The engine no longer arms its own frame: every drain is submitted to the frame
   // coordinator's phase two, so `clock.runFrame()` here runs the coordinator's frame
   // and the coordinator runs the drain. What `pendingCount` measures is unchanged.
-  return new RevealEngine({ frameCoordinator: new LedgerFrameCoordinator({ clock }) });
+  return new RevealEngine({ frameCoordinator: new AnimationFrameCoordinator({ clock }) });
 }
 
 describe("the reveal engine — the frame budget", () => {
@@ -34,7 +34,7 @@ describe("the reveal engine — the frame budget", () => {
 
   it("records what each drain revealed, keyed so two engines are two series", () => {
     const clock = new ManualClock();
-    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const frameCoordinator = new AnimationFrameCoordinator({ clock });
     const first = new RevealEngine({ frameCoordinator });
     const second = new RevealEngine({ frameCoordinator });
     expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
@@ -56,10 +56,10 @@ describe("the reveal engine — the frame budget", () => {
   it("keys a drain by its coordinator too, so two feeds are two series", () => {
     // The task key alone cannot carry this: the ordinal restarts at 1 inside every
     // coordinator, and there is one coordinator per feed, so both engines below hold
-    // the identical `ledger-reveal-drain#1` and their drains folded into one series.
+    // the identical `transcript-reveal-drain#1` and their drains folded into one series.
     const clock = new ManualClock();
-    const firstFeed = new LedgerFrameCoordinator({ clock });
-    const secondFeed = new LedgerFrameCoordinator({ clock });
+    const firstFeed = new AnimationFrameCoordinator({ clock });
+    const secondFeed = new AnimationFrameCoordinator({ clock });
     const first = new RevealEngine({ frameCoordinator: firstFeed });
     const second = new RevealEngine({ frameCoordinator: secondFeed });
 
@@ -78,7 +78,7 @@ describe("the reveal engine — the frame budget", () => {
     // feed's drain series outlives the feed, and the registry's bound then counts
     // engines this renderer has ever mounted rather than the ones it is drawing.
     const clock = new ManualClock();
-    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const frameCoordinator = new AnimationFrameCoordinator({ clock });
     const engine = new RevealEngine({ frameCoordinator });
 
     engine.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });

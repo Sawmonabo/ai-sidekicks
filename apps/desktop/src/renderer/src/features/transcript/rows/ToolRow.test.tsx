@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../cards/card-caps.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
-import { ToolCard, clampSummary } from "./ToolRow.js";
+import { ToolRow, clampSummary } from "./ToolRow.js";
 
 function renderToolCard(
   overrides: {
@@ -19,7 +19,7 @@ function renderToolCard(
   } = {},
 ): HTMLElement {
   const { container } = render(
-    <ToolCard
+    <ToolRow
       row={sampleRunRow({
         type: overrides.type ?? "tool.invoked",
         ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
@@ -29,7 +29,7 @@ function renderToolCard(
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
-      subFamily={undefined}
+      toolKindRenderer={undefined}
       {...(overrides.body === undefined
         ? {}
         : { content: { status: "available", body: overrides.body } as const })}

@@ -24,7 +24,7 @@
 // THE INLINE CARDS ARE NOT A FAMILY HERE. A diff, an attachment, and an artifact are
 // bodies the repos family owns behind `InlineCardSeatProps`, and a row carries one
 // where its own content says so — which is a question about a row's attachments, not
-// about which card it is. `MessageCard` renders the seat; this table does not know it
+// about which card it is. `MessageRow` renders the seat; this table does not know it
 // exists.
 
 import type { HydratedSessionEventContent, TimelineRow } from "@ai-sidekicks/contracts";
@@ -35,36 +35,34 @@ import type { GlyphName } from "@renderer/styles/glyphs.js";
  * Every card family a ledger row can take. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `primitives/figures/Chip.tsx` gives about its own tone set: a sixth family added to a
- * hand-written union while the table below stayed at five would render a row through
+ * `primitives/figures/Chip.tsx` gives about its own tone set: a fifth kind added to a
+ * hand-written union while the table below stayed at four would render a row through
  * a descriptor that does not exist.
  */
-export const CARD_FAMILIES = [
+export const TRANSCRIPT_ROW_KINDS = [
   "user-message",
-  "assistant-message",
-  "assistant-reasoning",
-  "tool-activity",
-  "receipt",
+  "agent-message",
+  "thinking",
+  "tool-call",
 ] as const;
 
 /** One card family. Derived from the enumeration, never restated. */
-export type CardFamily = (typeof CARD_FAMILIES)[number];
+export type TranscriptRowKind = (typeof TRANSCRIPT_ROW_KINDS)[number];
 
 /**
  * How much of a family's card is open before anybody touches it.
  *
- * Tool rows render as one line until opened. The other two are this console's own
- * reading of the same density budget —
- * message bodies open, receipts one line — stated here as a value.
+ * Tool rows render as one line until opened, and message bodies open: this app's own
+ * reading of the density budget, stated here as a value.
  */
-export const CARD_LAYOUTS = ["body-open", "one-line"] as const;
+export const ROW_LAYOUTS = ["body-open", "one-line"] as const;
 
 /** One card layout. Derived from the enumeration, never restated. */
-export type CardLayout = (typeof CARD_LAYOUTS)[number];
+export type RowLayout = (typeof ROW_LAYOUTS)[number];
 
 /** What one family supplies: the icon, the label, and the layout. */
-export interface CardFamilyDescriptor {
-  readonly family: CardFamily;
+export interface RowKindDescriptor {
+  readonly kind: TranscriptRowKind;
   /** The family's icon, or `undefined` where the row carries no mark (the person's own message). */
   readonly glyph: GlyphName | undefined;
   /**
@@ -72,54 +70,49 @@ export interface CardFamilyDescriptor {
    * row carries no wire-true label of its own. Sentence case, no exclamation.
    */
   readonly label: string;
-  readonly layout: CardLayout;
+  readonly layout: RowLayout;
 }
 
 /**
  * One family's descriptor, with the icon typed present for every family but the
  * person's own message, so a caller naming one of those reads it without a check.
  */
-type DescriptorOf<TFamily extends CardFamily> = CardFamilyDescriptor & {
-  readonly family: TFamily;
+type DescriptorOf<TFamily extends TranscriptRowKind> = RowKindDescriptor & {
+  readonly kind: TFamily;
   readonly glyph: TFamily extends "user-message" ? undefined : GlyphName;
 };
 
 /**
- * Total over `CardFamily` by construction — a sixth family fails to compile here
+ * Total over `TranscriptRowKind` by construction — a fifth kind fails to compile here
  * before it can reach a card that renders it without an icon.
  */
-const CARD_FAMILY_DESCRIPTORS: { readonly [TFamily in CardFamily]: DescriptorOf<TFamily> } = {
-  "user-message": {
-    family: "user-message",
-    glyph: undefined,
-    label: "Message",
-    layout: "body-open",
-  },
-  "assistant-message": {
-    family: "assistant-message",
-    glyph: "agent",
-    label: "Reply",
-    layout: "body-open",
-  },
-  "assistant-reasoning": {
-    family: "assistant-reasoning",
-    glyph: "dot",
-    label: "Reasoning",
-    layout: "body-open",
-  },
-  "tool-activity": {
-    family: "tool-activity",
-    glyph: "run",
-    label: "Tool",
-    layout: "one-line",
-  },
-  receipt: {
-    family: "receipt",
-    glyph: "check",
-    label: "Receipt",
-    layout: "one-line",
-  },
-};
+const CARD_FAMILY_DESCRIPTORS: { readonly [TFamily in TranscriptRowKind]: DescriptorOf<TFamily> } =
+  {
+    "user-message": {
+      kind: "user-message",
+      glyph: undefined,
+      label: "Message",
+      layout: "body-open",
+    },
+    "agent-message": {
+      kind: "agent-message",
+      glyph: "agent",
+      label: "Reply",
+      layout: "body-open",
+    },
+    thinking: {
+      kind: "thinking",
+      glyph: "dot",
+      label: "Reasoning",
+      layout: "body-open",
+    },
+    "tool-call": {
+      kind: "tool-call",
+      glyph: "run",
+      label: "Tool",
+      layout: "one-line",
+    },
+  };
 
 /**
  * Which family each body-bearing event type takes.
@@ -128,31 +121,30 @@ const CARD_FAMILY_DESCRIPTORS: { readonly [TFamily in CardFamily]: DescriptorOf<
  * a prefix would silently absorb a later `tool.*` type nobody has looked at, and the
  * fall-through below is the honest answer for a type this table has not been taught.
  */
-const FAMILY_BY_EVENT_TYPE: ReadonlyMap<string, CardFamily> = new Map([
+const FAMILY_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
   ["user.message", "user-message"],
-  ["assistant.message", "assistant-message"],
-  ["assistant.thinking_update", "assistant-reasoning"],
-  ["tool.invoked", "tool-activity"],
-  ["tool.result", "tool-activity"],
-  ["tool.error", "tool-activity"],
-] satisfies readonly (readonly [string, CardFamily])[]);
+  ["assistant.message", "agent-message"],
+  ["assistant.thinking_update", "thinking"],
+  ["tool.invoked", "tool-call"],
+  ["tool.result", "tool-call"],
+  ["tool.error", "tool-call"],
+] satisfies readonly (readonly [string, TranscriptRowKind])[]);
 
 /**
- * The family this row belongs to.
+ * The kind this row belongs to, or `undefined` for a type this table does not name.
  *
- * A row whose type this table does not name is a `receipt` — one line stating what
- * happened, drawn from the row's own wire summary. That is deliberately not an error
- * and deliberately not a guess: the taxonomy has 159 types and five of them carry a
- * machine-authored body, so "this row has no body to open" is the ordinary case and
- * a card family for it is what keeps the log complete.
+ * `undefined` is deliberately not an error and deliberately not a guess: the taxonomy has
+ * 159 types and six of them carry a body this seat draws, so "this row has no body here"
+ * is the ordinary case, and the rows a person reads among the rest (the system messages)
+ * are drawn before the seat is asked.
  */
-export function classifyCardFamily(row: TimelineRow): CardFamilyDescriptor {
-  const family = FAMILY_BY_EVENT_TYPE.get(row.type) ?? "receipt";
-  return CARD_FAMILY_DESCRIPTORS[family];
+export function classifyTranscriptRow(row: TimelineRow): RowKindDescriptor | undefined {
+  const kind = FAMILY_BY_EVENT_TYPE.get(row.type);
+  return kind === undefined ? undefined : CARD_FAMILY_DESCRIPTORS[kind];
 }
 
 /** The descriptor for a family named directly, for a caller that already has one. */
-export function cardFamilyDescriptor<TFamily extends CardFamily>(
+export function describeRowKind<TFamily extends TranscriptRowKind>(
   family: TFamily,
 ): DescriptorOf<TFamily> {
   return CARD_FAMILY_DESCRIPTORS[family];

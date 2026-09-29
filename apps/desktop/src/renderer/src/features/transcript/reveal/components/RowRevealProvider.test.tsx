@@ -1,13 +1,13 @@
 // A row body reading its own lane — the path that did not exist.
 //
-// `ledger/cards/bodies/MachineBody.tsx` has taken `liveText` since it was written and takes
+// `MessageContent.tsx` has taken `liveText` since it was written and takes
 // it in preference to a stored body; nothing ever passed one. These cases drive the
 // real composition — a mounted engine, the provider the feed publishes, and a row
 // body asking for its own lane — so what is pinned is the delivery rather than either
 // half of it.
 //
 // The second case is the reason this is a subscription per row rather than a value on
-// the context: `card-props.ts` objects that a subscribed card "would re-render on
+// the context: `hydrated-row-props.ts` objects that a subscribed card "would re-render on
 // frames its own text did not change in", and a context carrying the text would do
 // exactly that to every row in the window on every drained frame.
 
@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
-import { useLedgerReveal, type LedgerRevealBinding } from "../hooks/useReveal.js";
+import { useLedgerReveal, type RevealBinding } from "../hooks/useReveal.js";
 import { useLedgerRowReveal } from "../hooks/useRowReveal.js";
 import { LedgerRowRevealProvider } from "./RowRevealProvider.js";
 
@@ -28,7 +28,7 @@ const SECOND_LANE = "session-1:42";
 /**
  * One row body: its lane's published text, and how often it has been rendered.
  *
- * MEMOIZED, because `LedgerViewport`'s row mount is: the feed re-renders on every
+ * MEMOIZED, because `TranscriptViewport`'s row mount is: the feed re-renders on every
  * drained frame and the rows above the one that moved have identical props, so the
  * only thing that can wake a row body is its own subscription. A probe without the
  * memo would model a viewport this console does not have.
@@ -56,7 +56,7 @@ const RevealProbe = memo(function RevealProbe(props: {
 function RevealHost(props: {
   readonly clock: ManualClock;
   readonly laneIds: readonly string[];
-  readonly onBinding: (binding: LedgerRevealBinding) => void;
+  readonly onBinding: (binding: RevealBinding) => void;
 }): React.JSX.Element {
   const reveal = useLedgerReveal({ frameCoordinator: useLedgerFrameCoordinator(props.clock) });
   props.onBinding(reveal);
@@ -75,7 +75,7 @@ interface MountedReveal {
 }
 
 function mountReveal(clock: ManualClock, laneIds: readonly string[]): MountedReveal {
-  let binding: LedgerRevealBinding | undefined;
+  let binding: RevealBinding | undefined;
   const { container } = render(
     <RevealHost
       clock={clock}

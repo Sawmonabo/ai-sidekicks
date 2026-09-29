@@ -23,7 +23,7 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
-import { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
+import { type RetainedRowState } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
 import { sampleGeneralRow } from "@test/helpers/timeline-row-samples.js";
 import {
   LEDGER_BODY_NOT_COPIED_REFUSAL,
@@ -82,7 +82,7 @@ function instrumentedBridge(trace: SurfaceTrace, failure: HostFailure): ConsoleB
 function offerSurface(
   trace: SurfaceTrace,
   bridge: ConsoleBridge,
-  leases: Map<string, LedgerRowLease> = new Map(),
+  leases: Map<string, RetainedRowState> = new Map(),
 ): LedgerRowOfferSurface {
   return {
     rowLease: (rowKey) => leases.get(rowKey),
@@ -147,7 +147,7 @@ describe("a row's offer binding — the surfaces it writes to", () => {
     // A body a reader scrolled inside and then collapsed comes back where they left
     // it. Zeroing here would be the row deciding that closing a body also rewinds it.
     const trace: SurfaceTrace = [];
-    const leases = new Map<string, LedgerRowLease>([
+    const leases = new Map<string, RetainedRowState>([
       [SAMPLE_ROW_ID, { density: "expanded", innerScrollTopPx: 240 }],
     ]);
     const surface = offerSurface(trace, instrumentedBridge(trace, "none"), leases);

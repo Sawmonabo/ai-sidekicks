@@ -2,7 +2,7 @@
 //
 // Every case here reads the RENDERED line rather than the model behind it, because
 // the defect this component answers was exactly that the model was correct and
-// nothing drew it: `LedgerSeamIndex` derived the boundary, the continuity, the
+// nothing drew it: `SystemMessageClassifier` derived the boundary, the continuity, the
 // losses, the reason and the blocked-on state on every pass, and the only consumer
 // was the replay dock's next-seam jump, itself since removed. A case asserting over
 // `classify()` would have passed throughout.
@@ -11,21 +11,24 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../../timeline-rows.test-support.js";
-import { SeamRow } from "./SystemMessage.js";
-import { SEAM_WIRE_BINDINGS } from "../system-message-kinds.js";
-import { LedgerSeamIndex, type LedgerSeam } from "../system-message-classifier.js";
+import { SystemMessage } from "./SystemMessage.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
+import {
+  SystemMessageClassifier,
+  type SystemMessageReading,
+} from "../system-message-classifier.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-function seamOf(row: TimelineRow): LedgerSeam {
-  const seam = new LedgerSeamIndex().classify(row);
+function seamOf(row: TimelineRow): SystemMessageReading {
+  const seam = new SystemMessageClassifier().classify(row);
   if (seam === undefined) {
     throw new Error(`expected ${row.type} to classify as a seam`);
   }
   return seam;
 }
 
-function renderSeam(seam: LedgerSeam): HTMLElement {
-  const { container } = render(<SeamRow seam={seam} />);
+function renderSeam(seam: SystemMessageReading): HTMLElement {
+  const { container } = render(<SystemMessage seam={seam} />);
   const line = container.querySelector<HTMLElement>(".meridian-seam-row");
   if (line === null) {
     throw new Error("the seam row drew no line");
@@ -46,7 +49,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS.rollback.label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.rollback.label);
     expect(line.textContent).toContain("2");
   });
 
@@ -63,7 +66,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS.compaction.label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.compaction.label);
     expect(line.textContent).toContain("7");
   });
 
@@ -71,7 +74,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
     const line = renderSeam(
       seamOf(runRow({ id: "p1", sequence: 2, type: "run.paused", runId: "run-a", position: 2 })),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS["run-paused"].label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-paused"].label);
     expect(line.textContent).not.toContain("Boundary");
   });
 
@@ -87,7 +90,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.textContent).toContain(SEAM_WIRE_BINDINGS["run-blocked"].label);
+    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-blocked"].label);
     expect(line.textContent).toContain("run.waiting_for_approval");
   });
 
@@ -176,7 +179,7 @@ describe("the seam row — the loss clause is the memo arm's and nobody else's",
 describe("the seam row — a kind the wire does not register says so", () => {
   it("draws the not-checked absence for an unregistered seam type", () => {
     const { container } = render(
-      <SeamRow
+      <SystemMessage
         seam={seamOf(
           runRow({
             id: "sw2",
@@ -196,7 +199,7 @@ describe("the seam row — a kind the wire does not register says so", () => {
     // Without this the case above would pass over a row that marked every seam
     // unregistered, which would report the whole vocabulary as unavailable.
     const { container } = render(
-      <SeamRow
+      <SystemMessage
         seam={seamOf(
           runRow({ id: "p2", sequence: 10, type: "run.paused", runId: "run-a", position: 10 }),
         )}

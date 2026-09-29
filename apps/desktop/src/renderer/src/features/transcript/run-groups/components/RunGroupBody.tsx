@@ -18,14 +18,14 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import {
-  chapterClippedHeadRowIds,
-  resolveChapterBodyViewportHeight,
+  listClippedHeadRowIds,
+  resolveRunGroupBodyHeight,
   type CssDeclarationSupportProbe,
 } from "../run-group-body.js";
-import { type LedgerChapter } from "../run-groups.js";
+import { type RunGroup } from "../run-groups.js";
 
-export interface ChapterBodyViewportProps {
-  readonly chapter: LedgerChapter;
+export interface RunGroupBodyProps {
+  readonly chapter: RunGroup;
   /**
    * How the engine is asked whether it parses the body's height. Defaulted, and
    * overridable only so a test can drive the arm this host's engine does not take.
@@ -39,11 +39,11 @@ export interface ChapterBodyViewportProps {
  * `null` where the chapter clips nothing, so an ordinary chapter mounts no scroller
  * and pays for none.
  */
-export function ChapterBodyViewport(props: ChapterBodyViewportProps): React.JSX.Element | null {
+export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null {
   const { chapter } = props;
   const contents = useMemo(() => chapterBodyContents(chapter), [chapter]);
   const maxBlockSize = useMemo(
-    () => resolveChapterBodyViewportHeight(props.supportsDeclaration),
+    () => resolveRunGroupBodyHeight(props.supportsDeclaration),
     [props.supportsDeclaration],
   );
   // The fade is a fact about the scroll offset, so it is held rather than derived —
@@ -108,9 +108,9 @@ interface ChapterBodyContents {
  * older than the sealed head is asked for, not found, and counted as unheld rather
  * than silently omitted.
  */
-function chapterBodyContents(chapter: LedgerChapter): ChapterBodyContents {
+function chapterBodyContents(chapter: RunGroup): ChapterBodyContents {
   const headRowsById = new Map(chapter.clippedHeadRows.map((row) => [row.id, row]));
-  const headRowIds = chapterClippedHeadRowIds(chapter.rowIds);
+  const headRowIds = listClippedHeadRowIds(chapter.rowIds);
   const rows = headRowIds
     .map((rowId) => headRowsById.get(rowId))
     .filter((row): row is TimelineRow => row !== undefined);
