@@ -23,10 +23,7 @@ import { refuseAbsentCapability } from "@renderer/services/daemon/refusal.fixtur
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 import { subscribeToScenarioRelay } from "@renderer/services/daemon/scenario-subscriptions.fixture.js";
 import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import {
-  createFixtureAttentionSubscribe,
-  createFixtureDaemon,
-} from "@renderer/services/daemon/daemon.fixture.js";
+import { createFixtureDaemon } from "@renderer/services/daemon/daemon.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** Fixed `app` meta, so a screenshot does not move with the machine. */
@@ -87,7 +84,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): PlatformBrid
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
     app: FIXTURE_APP_META,
-    attentionSubscribe: createFixtureAttentionSubscribe(scenarioEngine),
     transportReconnect: new TransportReconnectSignal(),
     source: "fixture",
     scenarioEngine,

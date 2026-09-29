@@ -69,7 +69,6 @@ export interface LabeledBridgeShape {
 const BRIDGE_SIGNAL_MEMBERS: Readonly<
   Record<Exclude<keyof PlatformBridge, DesktopBridgeNamespace>, true>
 > = {
-  attentionSubscribe: true,
   transportReconnect: true,
   source: true,
   scenarioEngine: true,

@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -288,32 +287,9 @@ describe("what makes the attention read run again", () => {
   // The read goes through the console's one refresh scheduler, so time is frozen and a
   // case releases a coalesced read by moving the clock past its window.
 
-  /** A bridge whose attention signal a case can fire, and whose listeners it can count. */
-  function bridgeOn(clock: ManualClock): {
-    readonly bridge: PlatformBridge;
-    readonly wake: () => void;
-    readonly listenerCount: () => number;
-  } {
-    const listeners = new Set<() => void>();
-    const bridge = {
-      source: "fixture",
-      scenarioEngine: { clock },
-      attentionSubscribe: (onSignal: () => void) => {
-        listeners.add(onSignal);
-        return () => {
-          listeners.delete(onSignal);
-        };
-      },
-    } as unknown as PlatformBridge;
-    return {
-      bridge,
-      wake: () => {
-        for (const listener of [...listeners]) {
-          listener();
-        }
-      },
-      listenerCount: () => listeners.size,
-    };
+  /** A bridge whose window runs on this clock. */
+  function bridgeOn(clock: ManualClock): PlatformBridge {
+    return { source: "fixture", scenarioEngine: { clock } } as unknown as PlatformBridge;
   }
 
   function registryOn(clock: ManualClock): SessionStoreRegistry {
@@ -344,17 +320,9 @@ describe("what makes the attention read run again", () => {
     readonly read: AttentionProjectionReadCall;
     readonly registry: SessionStoreRegistry;
   }): React.JSX.Element {
-    const bridge = usePlatformBridge();
     const clock = useClock();
     return (
-      <NotificationsList
-        reading={useAttentionProjection(
-          props.read,
-          props.registry,
-          clock,
-          bridge.attentionSubscribe,
-        )}
-      />
+      <NotificationsList reading={useAttentionProjection(props.read, props.registry, clock)} />
     );
   }
 
@@ -391,12 +359,11 @@ describe("what makes the attention read run again", () => {
 
   it("re-reads and renders the new answer when an open session's store moves", async () => {
     const clock = new ManualClock(0);
-    const { bridge } = bridgeOn(clock);
     const registry = registryOn(clock);
     const sessionId = openInitializedSession(registry);
     const served = { items: [] as readonly AttentionItem[] };
     const read = callServing(served);
-    const { container } = mount(bridge, read, registry);
+    const { container } = mount(bridgeOn(clock), read, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
     expect(container.textContent ?? "").not.toContain("An approval is waiting.");
@@ -411,64 +378,21 @@ describe("what makes the attention read run again", () => {
     expect(container.textContent ?? "").toContain("An approval is waiting.");
   });
 
-  it("re-reads when the bridge is swapped and the call did not move", async () => {
+  it("releases its subscription and reads no more once the surface has gone", async () => {
     const clock = new ManualClock(0);
     const registry = registryOn(clock);
     const read = callServing({ items: [] });
-    const view = mount(bridgeOn(clock).bridge, read, registry);
+    const view = mount(bridgeOn(clock), read, registry);
     await releaseCoalescedRead(clock);
-    expect(read).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      view.rerender(
-        <PlatformBridgeProvider bridge={bridgeOn(clock).bridge}>
-          <ReadThroughCenter read={read} registry={registry} />
-        </PlatformBridgeProvider>,
-      );
-    });
-    await releaseCoalescedRead(clock);
-
-    expect(read).toHaveBeenCalledTimes(2);
-  });
-
-  it("re-reads when the bridge signals attention moved, for a session with no store", async () => {
-    const clock = new ManualClock(0);
-    const { bridge, wake } = bridgeOn(clock);
-    const served = { items: [] as readonly AttentionItem[] };
-    const read = callServing(served);
-    const { container } = mount(bridge, read, registryOn(clock));
-    await releaseCoalescedRead(clock);
-    expect(read).toHaveBeenCalledTimes(1);
-
-    served.items = [item({ sessionId: "session-never-opened" })];
-    act(() => {
-      wake();
-    });
-    await releaseCoalescedRead(clock);
-
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(container.textContent ?? "").toContain("An approval is waiting.");
-  });
-
-  it("releases both subscriptions and reads no more once the surface has gone", async () => {
-    const clock = new ManualClock(0);
-    const { bridge, wake, listenerCount } = bridgeOn(clock);
-    const registry = registryOn(clock);
-    const read = callServing({ items: [] });
-    const view = mount(bridge, read, registry);
-    await releaseCoalescedRead(clock);
-    expect(listenerCount()).toBe(1);
     expect(registry.listenerCount).toBe(1);
     view.unmount();
 
     act(() => {
-      wake();
       registry.open("session-b");
     });
     await releaseCoalescedRead(clock);
 
     expect(read).toHaveBeenCalledTimes(1);
-    expect(listenerCount()).toBe(0);
     expect(registry.listenerCount).toBe(0);
     expect(clock.pendingCount).toBe(0);
   });

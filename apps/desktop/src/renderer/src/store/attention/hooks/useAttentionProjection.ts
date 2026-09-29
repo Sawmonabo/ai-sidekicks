@@ -9,28 +9,14 @@
 // The call that reads the projection is the caller's, taken as an argument, so this
 // module keeps only its own logic.
 //
-// THE SIGNAL IS THE ATTENTION PLANE AND THE SESSION PROJECTIONS, NOT A TIMER.
+// THE SIGNAL IS THE SESSION PROJECTIONS, NOT A TIMER.
 // Interval polling is forbidden outright, so what re-reads this projection is a
-// subscription — two of them, over the two halves of the set the read is fanned out
-// over.
-//
-// The stores are one half. An attention item is derived from canonical session
-// state, so a session store whose state moved is the honest signal that the
-// projection may have moved with it, and the registry's own open/close emitter
-// carries the rest, because a session that has just been opened may already carry
-// attention nobody has read yet. Both are `store/session/open-session-signal.ts`'s, hoisted
-// there when the frame's honest chrome became the second caller that has to watch
-// every open session at once.
-//
-// AND THE STORES ARE ONLY HALF, which is the defect the second subscription closes.
-// The read is fanned out over every session this window can NAME — the node's
-// directory merged with this window's open set — and a directory session nobody in
-// this window ever opened has no store to move. Its approval, its input request, and
-// its failed run therefore reached the badge, the center, and the OS banner never:
-// the projection was read once for it, at mount, and no signal in this window could
-// ever say it had changed. The bridge's attention subscription is the signal on the
-// whole addressed set, handed in by the window's composition, and it is taken beside
-// the stores rather than instead of them — the two coalesce into one read.
+// subscription over the session stores this window has open. An attention item is
+// derived from canonical session state, so a session store whose state moved is the
+// honest signal that the projection may have moved with it, and the registry's own
+// open/close emitter carries the rest, because a session that has just been opened
+// may already carry attention nobody has read yet. Both come through
+// `store/session/open-session-signal.ts`.
 //
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
@@ -46,7 +32,6 @@
 // no surface narrows on both vocabularies at once.
 
 import { useEffect, useMemo } from "react";
-import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { type Clock } from "@renderer/lib/clock.js";
 import { RefusalError } from "@renderer/lib/refusal.js";
@@ -83,12 +68,6 @@ export interface AttentionProjectionRead {
 /** The call that reads the attention projection. */
 export type AttentionProjectionReadCall = () => Promise<AttentionProjectionRead>;
 
-/**
- * The bridge's signal that the attention projection moved, for the sessions this window
- * can name. Returns the disposer the caller owes.
- */
-export type AttentionSubscribeCall = (onAttentionChange: () => void) => Unsubscribe;
-
 /** The subsystem name a failed attention read names itself with. */
 const ATTENTION_READ_ORIGIN = "attention-plane";
 
@@ -105,15 +84,13 @@ const ATTENTION_READ_ORIGIN = "attention-plane";
  * behind, and the subscribe-and-read that must not happen during render rides the
  * effect.
  *
- * The clock and the attention subscription are the caller's, handed down by the
- * window's composition, so the read is rebuilt in the same commit either is replaced
- * and the store reaches no service.
+ * The clock is the caller's, handed down by the window's composition, so the read is
+ * rebuilt in the same commit it is replaced and the store reaches no service.
  */
 export function useAttentionProjection(
   read: AttentionProjectionReadCall,
   sessionStoreRegistry: SessionStoreRegistry,
   clock: Clock,
-  subscribeToAttention: AttentionSubscribeCall,
 ): AttentionReading {
   const projectionRead = useMemo(
     () =>
@@ -122,9 +99,9 @@ export function useAttentionProjection(
         origin: ATTENTION_READ_ORIGIN,
         read,
         subscribe: (onChangeSignal) =>
-          subscribeToAttentionChanges(subscribeToAttention, sessionStoreRegistry, onChangeSignal),
+          subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
       }),
-    [clock, read, subscribeToAttention, sessionStoreRegistry],
+    [clock, read, sessionStoreRegistry],
   );
   useEffect(() => {
     projectionRead.start();
@@ -135,35 +112,6 @@ export function useAttentionProjection(
 
   const state = usePushDrivenRead(projectionRead);
   return useMemo(() => attentionReadingFrom(state), [state]);
-}
-
-/**
- * Watch both halves of the set this read is fanned out over, as one signal.
- *
- * TWO SUBSCRIPTIONS AND ONE READ. They answer different sessions — the stores speak
- * for the ones this window has open, the bridge for every session it can name — and
- * a window that took only the first went permanently quiet about a directory session
- * it never opened. Both are opaque, both call the same handler, and the read they
- * wake coalesces through `lib/reads/refresh-scheduler.ts`, so a change the two happen to report
- * together still costs one read rather than two.
- *
- * Released in the order they were taken, and every one of them: a partial teardown
- * would leave the surviving half signaling into a read that has been disposed.
- */
-function subscribeToAttentionChanges(
-  subscribeToAttention: AttentionSubscribeCall,
-  sessionStoreRegistry: SessionStoreRegistry,
-  onChangeSignal: () => void,
-): Unsubscribe {
-  const releases: readonly Unsubscribe[] = [
-    subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
-    subscribeToAttention(onChangeSignal),
-  ];
-  return () => {
-    for (const release of releases) {
-      release();
-    }
-  };
 }
 
 /** The read's states as the plane's phases. Written once, here. */

@@ -47,12 +47,6 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
 export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
-    // No attention signal, and that is this bridge's honest answer rather than a
-    // stub. The attention projection is not a wire this transport serves yet, so a
-    // signal that woke that read would be a wake-up for a question nothing on this
-    // transport can answer. The day the wire lands, the daemon's own event stream is
-    // what this line becomes.
-    attentionSubscribe: () => () => undefined,
     // Minted here and REPORTED INTO by every subscription this window opens, through
     // `transport/observed-subscription.ts`: whether `daemon.subscribe` returned or
     // threw is the only connection state a live renderer has. Built fresh per window
