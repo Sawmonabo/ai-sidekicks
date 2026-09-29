@@ -26,7 +26,7 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-const ON_WORKSPACE: WhenClauseContext = {
+const ON_SESSION: WhenClauseContext = {
   sessionActive: true,
   onSessions: false,
   onSession: true,
@@ -64,7 +64,7 @@ function openPaletteOver(command: CommandDefinition): void {
       open
       onOpenChange={() => undefined}
       platform="darwin"
-      context={ON_WORKSPACE}
+      context={ON_SESSION}
       scopeLabel="Session mercury"
     />,
   );

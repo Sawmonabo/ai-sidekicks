@@ -126,7 +126,7 @@ export function routeSessionId(route: AppRoute): string | undefined {
  *
  * TOTAL OVER THE UNION, like {@link routeSessionId} beside it: every other arm answers
  * `undefined` rather than being narrowed away at the call site, because a caller
- * holding a `ConsoleRoute` is exactly the caller that does not yet know which arm it is.
+ * holding an `AppRoute` is exactly the caller that does not yet know which arm it is.
  */
 export function routeWorkflowPhase(route: AppRoute): WorkflowPhaseFocus | undefined {
   return route.kind === "session" ? route.workflowPhase : undefined;
