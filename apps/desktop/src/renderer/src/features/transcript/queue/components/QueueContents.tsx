@@ -4,7 +4,7 @@
 // default. Here there is nothing secondary to fold: the line carries what the wire
 // supplies — id, state, priority and the two timestamps — and nothing it does not.
 //
-// THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue/queue-feed.ts` owns the fold that keeps
+// THE ORDER IS RENDERED, NEVER REORDERED. `queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort
 // here, no drag handle, no priority stepper, and no "move to front" — V1 defers
 // queue priority overrides, so front-inserting is not an available remedy anywhere.
@@ -14,9 +14,21 @@
 // an absence. Cancel is offered on the one state that can still be taken back.
 
 import { DerivedFigure, Nothing, formatCount } from "@renderer/console/primitives/index.js";
-import { QUEUE_ROWS_RENDERED_CAP } from "@renderer/console/core/constants/runs-caps.js";
 import type { QueueFeed } from "../queue-reading.js";
 import { QueueRow } from "./QueueRow.js";
+
+import "./QueueContents.css";
+
+/**
+ * Queue rows rendered before the remainder is folded into a count.
+ *
+ * The cap is spent by a `slice` and a withheld count, which is the whole mechanism: the
+ * queue windows nothing and imports no windowing layer. Below the cap the list is a plain
+ * block; above it the surface says how many rows it is not drawing rather than drawing
+ * them all. The queue is FIFO and the head is what matters, so the ceiling truncates the
+ * tail and never the front.
+ */
+const QUEUE_ROWS_RENDERED_CAP = 50;
 
 /** What the waiting queue draws: the feed it reads. */
 export interface QueueContentsProps {
