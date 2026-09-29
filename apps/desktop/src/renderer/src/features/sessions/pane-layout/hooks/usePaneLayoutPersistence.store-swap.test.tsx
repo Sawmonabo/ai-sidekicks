@@ -49,7 +49,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
     const retiredStore = storeOver(retiredAdapter);
-    await saveLayout(retiredStore, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(retiredStore, SESSION_ID, ["transcript", "runs"]);
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, because that is the shape the defect lives in: the same session with a
@@ -119,9 +119,9 @@ describe("Workspace — the restore runs once for the session on screen", () => 
     // below deliberately disagree, so a second restore is visible as the deck losing a
     // pane rather than as nothing at all.
     const firstStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(firstStore, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(firstStore, SESSION_ID, ["transcript", "runs"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
+    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container, rerender } = render(workspaceFor(session, firstStore, false));
@@ -140,7 +140,7 @@ describe("Workspace — the restore runs once for the session on screen", () => 
     // Without this, the case above would pass over two records that said the same
     // thing, and the assertion would be about nothing.
     const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
+    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container } = render(workspaceFor(session, secondStore, false));

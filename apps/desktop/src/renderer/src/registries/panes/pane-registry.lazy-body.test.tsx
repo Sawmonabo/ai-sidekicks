@@ -49,10 +49,10 @@ describe("the deck's board — a loader-form registration", () => {
       owner: "repos-family",
       body: countingLoader(() => null).load,
     });
-    registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
     // Nothing downstream of `descriptorFor` branches on how the body was registered, so
     // the two forms have to be indistinguishable HERE or every mount site learns to ask.
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", "diff"]);
+    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "diff"]);
     expect(registry.descriptorFor("diff")?.owner).toBe("repos-family");
     expect(typeof registry.descriptorFor("diff")?.render).toBe("function");
   });
@@ -222,8 +222,8 @@ describe("the deck's board — one fetch per registration", () => {
     // A caller preloading an address it has not opened must not have to ask first
     // whether the kind is loader-backed, or every call site carries that question.
     const registry = new PaneRegistry();
-    registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
-    await expect(registry.preload("timeline")).resolves.toBeUndefined();
+    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    await expect(registry.preload("transcript")).resolves.toBeUndefined();
     await expect(registry.preload("workflow-builder")).resolves.toBeUndefined();
   });
 });
@@ -235,17 +235,17 @@ describe("the deck's board — what the warm walk is offered", () => {
     // implementation reporting insertion order or reporting every registered kind would
     // answer differently.
     registry.register({
-      kind: "agent-console",
+      kind: "agents",
       owner: "agents-family",
       body: countingLoader<PaneContext>(() => null).load,
     });
-    registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
+    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
     registry.register({
       kind: "diff",
       owner: "repos-family",
       body: countingLoader<PaneContext>(() => null).load,
     });
-    expect(registry.unloadedKeys()).toStrictEqual(["diff", "agent-console"]);
+    expect(registry.unloadedKeys()).toStrictEqual(["diff", "agents"]);
   });
 
   it("drops a kind from the walk once its body is asked for", async () => {
@@ -263,8 +263,8 @@ describe("the deck's board — what the warm walk is offered", () => {
 
   it("negative control: a board of component-form bodies offers the walk nothing", () => {
     const registry = new PaneRegistry();
-    registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
+    registry.register({ kind: "transcript", owner: "workspace-family", render: () => null });
+    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript"]);
     expect(registry.unloadedKeys()).toStrictEqual([]);
   });
 });

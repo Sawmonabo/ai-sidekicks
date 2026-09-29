@@ -24,7 +24,7 @@ import {
 function panesWithWidths(widths: readonly number[]): readonly SessionPane[] {
   return widths.map((sizePermille, position) => ({
     paneId: `pane-${String(position + 1)}`,
-    kind: "timeline" as const,
+    kind: "transcript" as const,
     entity: undefined,
     sizePermille,
     isEphemeral: false,
@@ -131,8 +131,8 @@ describe("paneAddressKey", () => {
       paneAddressKey(paneAt("inspector", { kind: "run", id: "run-02" })),
     );
     // A session-scoped pane is its own address, not the entity-scoped one emptied.
-    expect(paneAddressKey(paneAt("timeline", undefined))).not.toBe(
-      paneAddressKey(paneAt("timeline", { kind: "run", id: "run-01" })),
+    expect(paneAddressKey(paneAt("transcript", undefined))).not.toBe(
+      paneAddressKey(paneAt("transcript", { kind: "run", id: "run-01" })),
     );
   });
 

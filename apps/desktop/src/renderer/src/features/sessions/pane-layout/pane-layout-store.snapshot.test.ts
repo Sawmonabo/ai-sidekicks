@@ -32,7 +32,7 @@ function emptyLayout(): PaneLayoutStore {
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline" });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
@@ -50,7 +50,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     expect(report.refusals).toStrictEqual([]);
     expect(report.restoredPaneCount).toBe(2);
     expect(restored.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "inspector",
     ]);
     expect(restored.snapshot().panes[1]?.entity).toStrictEqual({
@@ -159,14 +159,14 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("drops a pane whose entity kind that pane kind is not a view of", () => {
-    // `timeline` is a view of the session; an artifact is not.
+    // `transcript` is a view of the session; an artifact is not.
     // A weaker admission here passes the row on to a body that refuses it later,
     // leaving a pane nothing can render sitting in one of the cap's slots — and
     // written straight back out on the next save, so it survives every restart.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-95"] = {
       position: 5,
-      kind: "timeline",
+      kind: "transcript",
       sizePermille: 300,
       entityKind: "artifact",
       entityId: "artifact-02",
@@ -226,7 +226,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     // Without this, every case above would pass over an admission that had simply
     // stopped admitting anything with an entity on it.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
     layout.open({ kind: "runs" });
 

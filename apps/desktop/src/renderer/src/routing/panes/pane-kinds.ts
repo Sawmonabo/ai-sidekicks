@@ -1,9 +1,8 @@
 // The deck's pane kinds, as one closed set.
 //
-// The console's design fixes this set and fixes its members: "Pane kinds, a closed
-// set: `timeline`, `inspector`, `runs`, `approvals`,
-// `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`, `terminal`,
-// `agent-console`." The order below is that bullet's own order, and
+// The console's design fixes this set and fixes its members: `transcript`, `inspector`,
+// `runs`, `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
+// `terminal`, `agents`. The order below is the design's own order, and
 // `pane-kinds.test.ts` compares the two by string equality rather than by eye.
 //
 // WHY THE SET IS DECLARED HERE AND NOT IN THE FAMILY THAT RENDERS EACH PANE
@@ -30,7 +29,7 @@
  * wires land.
  */
 export const PANE_KINDS = [
-  "timeline",
+  "transcript",
   "inspector",
   "runs",
   "approvals",
@@ -40,7 +39,7 @@ export const PANE_KINDS = [
   "workflow-builder",
   "browser",
   "terminal",
-  "agent-console",
+  "agents",
 ] as const;
 
 /** One pane kind. Derived from the enumeration, never restated. */

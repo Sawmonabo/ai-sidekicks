@@ -2,7 +2,7 @@ import { type PaneRegistry } from "@renderer/console/seats/index.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
- * Claim the deck's `timeline` kind.
+ * Claim the deck's `transcript` kind.
  *
  * The descriptor says WHO owns the kind and WHAT mounts for it, and nothing else.
  *
@@ -12,7 +12,7 @@ import { TRANSCRIPT_OWNER } from "./screens.js";
  */
 export function registerTranscriptPanes(registry: PaneRegistry): void {
   registry.register({
-    kind: "timeline",
+    kind: "transcript",
     owner: TRANSCRIPT_OWNER,
     // LOADER-BACKED, like every other kind on this board: the pane is reached by opening
     // a session, which is an act, and `transcript-pane-body.ts` carries the rest of the

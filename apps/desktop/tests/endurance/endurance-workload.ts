@@ -105,7 +105,7 @@ export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .merid
 /**
  * What the session workspace renders and the settings route does not.
  *
- * The timeline PANE, which the workspace mounts on every session route whether or not
+ * The transcript PANE, which the workspace mounts on every session route whether or not
  * that session has rows yet — so the wait observes the MOUNT rather than the arrival of
  * content, which is what a churn cycle needs it to observe.
  *
@@ -117,7 +117,8 @@ export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .merid
  * asking about. The pane is the element the ROUTE mounts, which is the claim this
  * constant is making.
  */
-export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridian-pane--timeline";
+export const SESSION_SCREEN_SELECTOR: string =
+  ".meridian-frame__surface .meridian-pane--transcript";
 
 /**
  * One ledger row, anchored under the frame's surface.
@@ -243,7 +244,7 @@ export async function readBoundSessionIds(
  * What one churn cycle saw, in the two registers a caller can be fooled in.
  *
  * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The workspace
- * wait names the timeline PANE, which mounts its chrome whether or not the ledger
+ * wait names the transcript PANE, which mounts its chrome whether or not the ledger
  * inside it ever draws a row — so a run whose ledger never mounted churns the whole
  * loop, waits successfully every time, and reports clean heap growth over a surface
  * that is not there. The pane says the route arrived; this says the surface under it

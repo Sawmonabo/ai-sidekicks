@@ -52,7 +52,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
  * what a person can hold, which is the cost `tokens/glyphs.ts` names.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
-  timeline: "timeline",
+  transcript: "timeline",
   inspector: "inspector",
   runs: "run",
   approvals: "approval",
@@ -62,7 +62,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
   "workflow-builder": "workflow",
   browser: "browser",
   terminal: "terminal",
-  "agent-console": "agent",
+  agents: "agent",
 };
 
 /**
@@ -78,7 +78,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
  * (`Workflow run`).
  */
 export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
-  timeline: "Timeline",
+  transcript: "Timeline",
   inspector: "Inspector",
   runs: "Runs",
   approvals: "Approvals",
@@ -88,7 +88,7 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
   "workflow-builder": "Workflow builder",
   browser: "Browser",
   terminal: "Terminal",
-  "agent-console": "Agent console",
+  agents: "Agent console",
 };
 
 /**

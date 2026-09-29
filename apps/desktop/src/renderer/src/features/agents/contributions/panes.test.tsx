@@ -26,7 +26,7 @@ import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { registerAgentsPane } from "./panes.js";
 import { settleReads } from "../pane/agents-pane.test-support.js";
 
-const PLAYED_SESSION_ID = "session-agent-console-mounts";
+const PLAYED_SESSION_ID = "session-agents-pane-mounts";
 
 /** The agent the mount is addressed at, wherever a case addresses one. */
 const ADDRESSED_AGENT_ID = "agent-scout";
@@ -44,7 +44,7 @@ type DeckPaneContext = Parameters<
 >[0];
 
 function fixtureBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("agent-console-mounts") });
+  return createFixtureBridge({ scenario: unscriptedScenario("agents-pane-mounts") });
 }
 
 /**
@@ -64,7 +64,7 @@ function playedSessionStore(): SessionStore {
 /** The address the deck opens this pane at, over one agent or bare. */
 function deckPaneContext(agentId: string | undefined, bridge: PlatformBridge): DeckPaneContext {
   return {
-    kind: "agent-console",
+    kind: "agents",
     entity: agentId === undefined ? undefined : { kind: "agent", id: agentId },
     paneId: "pane-1",
     bridge,
@@ -81,10 +81,10 @@ async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement>
   // The body is loader-backed, so it is fetched before the mount rather than during it —
   // which is what a window does too, through the idle warm after its first frame. Without
   // it every case below would be waiting on a dynamic import inside a bounded wait.
-  await registry.preload("agent-console");
-  const descriptor = registry.descriptorFor("agent-console");
+  await registry.preload("agents");
+  const descriptor = registry.descriptorFor("agents");
   if (descriptor === undefined) {
-    throw new Error("the agent console registered no pane descriptor");
+    throw new Error("the Agents pane registered no pane descriptor");
   }
   const bridge = fixtureBridge();
   const { container } = render(<>{descriptor.render(deckPaneContext(agentId, bridge))}</>);
@@ -121,11 +121,11 @@ describe("the deck's mount — the body inside the console's one chrome", () => 
   it("wraps the body in the shared chrome rather than a frame of its own", async () => {
     const container = await renderDeckPane(ADDRESSED_AGENT_ID);
 
-    const pane = requireElement(container, ".meridian-pane.meridian-pane--agent-console");
+    const pane = requireElement(container, ".meridian-pane.meridian-pane--agents");
     // Inside the chrome's own body box, which is the whole difference: a body that
     // drew its own section would render this element as a sibling of nothing.
-    expect(pane.querySelector(".meridian-pane__body > .meridian-agent-console")).not.toBeNull();
-    expect(pane.querySelector(".meridian-agent-console__columns")).not.toBeNull();
+    expect(pane.querySelector(".meridian-pane__body > .meridian-agents")).not.toBeNull();
+    expect(pane.querySelector(".meridian-agents__columns")).not.toBeNull();
   });
 
   it("is named by the chrome's trail, and the body adds no second name", async () => {

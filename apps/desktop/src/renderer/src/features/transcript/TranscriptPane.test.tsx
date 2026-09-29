@@ -59,7 +59,7 @@ describe("TranscriptPane — what it hands the chrome", () => {
     // The chrome derives both from the kind, so the kind is what this asserts: a
     // pane that passed another kind's string would draw that kind's mark and title
     // and nothing else on screen would say otherwise.
-    expect(pane.classList.contains("meridian-pane--timeline")).toBe(true);
+    expect(pane.classList.contains("meridian-pane--transcript")).toBe(true);
     expect(pane.querySelector(".meridian-pane__heading")?.textContent).toBe("Timeline");
     expect(pane.querySelector(".meridian-pane__kind svg")).not.toBeNull();
   });

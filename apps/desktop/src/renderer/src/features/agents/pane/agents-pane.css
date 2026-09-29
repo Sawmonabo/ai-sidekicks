@@ -1,6 +1,6 @@
-/* The agent console's own styles: the body's columns.
+/* The Agents pane's own styles: the body's columns.
  *
- * `meridian-agent-console` is the BODY, mounted inside the deck's `meridian-pane`,
+ * `meridian-agents` is the BODY, mounted inside the deck's `meridian-pane`,
  * drawn by `seats/PaneFrame`. Nothing here draws a pane head, a pane border,
  * or a focus ring: the chrome's sheet owns all three for every pane kind in the
  * console, and a second set of rules here would be this family answering a question
@@ -12,7 +12,7 @@
  * a viewport query would answer about the wrong box in the deck.
  */
 
-.meridian-agent-console {
+.meridian-agents {
   container-type: inline-size;
   display: flex;
   flex: 1 1 auto;
@@ -21,7 +21,7 @@
   padding: var(--meridian-space-5);
 }
 
-.meridian-agent-console__columns {
+.meridian-agents__columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--meridian-space-5);
@@ -29,12 +29,12 @@
 }
 
 @container (min-width: 720px) {
-  .meridian-agent-console__columns {
+  .meridian-agents__columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
-.meridian-agent-console__column {
+.meridian-agents__column {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
@@ -45,7 +45,7 @@
   padding: var(--meridian-space-4);
 }
 
-.meridian-agent-console__column-title {
+.meridian-agents__column-title {
   margin: 0;
   font-size: var(--meridian-text-sm);
   font-weight: 500;

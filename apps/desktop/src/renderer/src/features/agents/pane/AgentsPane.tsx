@@ -1,4 +1,4 @@
-// The agent console's body: what each agent in the session is running under.
+// The Agents pane's body: what each agent in the session is running under.
 //
 // THE FRAME IS NOT THIS MODULE'S, AND THAT IS WHY THIS FILE IS A BODY RATHER THAN A
 // PANE. The deck mounts it inside `seats/PaneFrame`, which draws the section,
@@ -16,7 +16,7 @@
 import type { ReactNode } from "react";
 
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
-import type { AgentConsoleCalls } from "../agent-reads.js";
+import type { AgentsPaneCalls } from "../agent-reads.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
@@ -28,7 +28,7 @@ export interface AgentsPaneProps {
    * The agent this console is about, wire-verbatim.
    *
    * `undefined` is reachable and is not a fault: the frame's context picker resolves
-   * a bare auxiliary address by choosing a SESSION, and the agent-console grammar
+   * a bare auxiliary address by choosing a SESSION, and the Agents pane grammar
    * carries its agent with its session or not at all, so a picked session arrives
    * here with no agent named. The binding column answers it by showing the whole
    * roster rather than one card.
@@ -39,16 +39,16 @@ export interface AgentsPaneProps {
   /** Absent on a bare route, which both mount contexts admit. */
   readonly sessionStore?: SessionStore | undefined;
   /** The daemon reads the models drive. Held stable by the caller. */
-  readonly calls: AgentConsoleCalls;
+  readonly calls: AgentsPaneCalls;
 }
 
 /** The body's frame: the one column, its heading, and whatever `children` shows under it. */
-export function AgentConsoleFrame(props: { readonly children?: ReactNode }): React.JSX.Element {
+export function AgentsPaneFrame(props: { readonly children?: ReactNode }): React.JSX.Element {
   return (
-    <div className="meridian-agent-console">
-      <div className="meridian-agent-console__columns">
-        <div className="meridian-agent-console__column" aria-label="Binding">
-          <h3 className="meridian-agent-console__column-title">Binding</h3>
+    <div className="meridian-agents">
+      <div className="meridian-agents__columns">
+        <div className="meridian-agents__column" aria-label="Binding">
+          <h3 className="meridian-agents__column-title">Binding</h3>
           {props.children}
         </div>
       </div>
@@ -56,12 +56,12 @@ export function AgentConsoleFrame(props: { readonly children?: ReactNode }): Rea
   );
 }
 
-/** The agent console body: the binding column, or the reason there is no session to read. */
+/** The Agents pane body: the binding column, or the reason there is no session to read. */
 export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
   const models = useAgentsPaneModels(props.bridge, props.sessionStore, props.calls);
 
   return (
-    <AgentConsoleFrame>
+    <AgentsPaneFrame>
       {models === undefined ? (
         <Nothing
           kind="not-checked"
@@ -72,6 +72,6 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
       ) : (
         <AgentBindingColumn models={models} agentId={props.agentId} />
       )}
-    </AgentConsoleFrame>
+    </AgentsPaneFrame>
   );
 }

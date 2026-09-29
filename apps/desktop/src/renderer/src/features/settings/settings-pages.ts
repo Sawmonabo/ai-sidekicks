@@ -54,7 +54,7 @@ export interface SettingsPageDescriptor {
  *
  * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
  * agent definitions page's body is the AGENTS family's, and that family's door is imported
- * EAGERLY by `app/registrations.ts` for the agent console's pane registration. So
+ * EAGERLY by `app/registrations.ts` for the Agents pane's pane registration. So
  * while this registry took only a `render`, the registration site had to reach the page
  * through that door, and the bundler — which assigns a module reachable both statically
  * and dynamically to the static chunk — put the page and its stylesheet on the initial

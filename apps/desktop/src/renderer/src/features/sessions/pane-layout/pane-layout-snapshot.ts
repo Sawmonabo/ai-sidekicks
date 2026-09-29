@@ -295,7 +295,7 @@ function decodePane(
 
   // THE ADMISSION IS THE CONSOLE'S ONE PANE-ADDRESS GRAMMAR, and not a reading of
   // its own. A weaker one here — any known entity kind, any non-empty id — admits a
-  // `timeline` opened over an artifact and an id like `bad/id`, and the body that
+  // `transcript` opened over an artifact and an id like `bad/id`, and the body that
   // mounts the row then refuses it: an unusable pane holding one of the cap's slots,
   // written straight back out on the next save and surviving every restart. The
   // grammar knows both things this one cannot: WHICH entity kinds each pane kind is

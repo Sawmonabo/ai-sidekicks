@@ -95,7 +95,7 @@
   min-width: 0;
 }
 
-/* The same treatment the agent console gives its column titles, because it is the
+/* The same treatment the Agents pane gives its column titles, because it is the
  * same construct — a quiet label over a column, not a heading competing with the
  * page's own. A third uppercase scale in one family would be a third for no reason. */
 .meridian-agent-library__column-title {

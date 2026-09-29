@@ -53,7 +53,7 @@ export const RUNNING_RUN: StoredEntity = {
 };
 
 const ON_THE_AGENT: PaneAddress = {
-  kind: "agent-console",
+  kind: "agents",
   entity: { kind: "agent", id: AGENT_ID },
 };
 

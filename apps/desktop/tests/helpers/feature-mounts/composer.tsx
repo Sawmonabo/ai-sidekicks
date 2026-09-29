@@ -174,7 +174,7 @@ export async function mountComposerSessionDefault(): Promise<MountedView> {
 export async function mountComposerProviderBoundRunning(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.running",
-    focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
   });
 }
 
@@ -182,7 +182,7 @@ export async function mountComposerProviderBoundRunning(): Promise<MountedView> 
 export async function mountComposerProviderBoundWaiting(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.waiting_for_input",
-    focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
   });
 }
 

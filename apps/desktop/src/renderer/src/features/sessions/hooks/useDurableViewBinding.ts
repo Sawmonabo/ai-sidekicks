@@ -12,7 +12,7 @@ import {
  *
  * THE BINDING IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER, which is the
  * shape every bridge-bound holder in this console already takes — see
- * `settings/shared/shell-preferences/shell-preferences-holder.ts` and `agents/run-console/agent-console-model.ts`.
+ * `features/settings/machine-settings/machine-settings-holder.ts` and `features/agents/pane/agents-pane-models.ts`.
  * State replaced from an effect lags its own inputs by one committed frame, and the
  * opening arm is what that frame renders.
  *

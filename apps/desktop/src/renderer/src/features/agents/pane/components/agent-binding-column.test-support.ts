@@ -3,7 +3,7 @@
 // so they live here once rather than being copied into the file written second.
 
 import { AgentsPaneModels } from "../agents-pane-models.js";
-import type { AgentConsoleCalls } from "../../agent-reads.js";
+import type { AgentsPaneCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import {
@@ -46,7 +46,7 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): PlatformBridge {
  * The roster and the child-run links are taken as calls by the models, so a suite decides
  * their answers here rather than through the bridge.
  */
-function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentConsoleCalls {
+function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentsPaneCalls {
   return {
     listAgents: async (request) =>
       (await scriptedDaemon.answer("agent.list", request)) as AgentListReading,

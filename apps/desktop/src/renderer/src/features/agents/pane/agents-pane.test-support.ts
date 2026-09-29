@@ -1,4 +1,4 @@
-// How every agent-console suite lets a scheduled read land.
+// How every Agents pane suite lets a scheduled read land.
 //
 // THE ADVANCE IS DERIVED, NOT TYPED OUT. What the settle has to do is pass the refresh
 // scheduler's TRAILING debounce, and what it must not do is reach the absolute deadline:

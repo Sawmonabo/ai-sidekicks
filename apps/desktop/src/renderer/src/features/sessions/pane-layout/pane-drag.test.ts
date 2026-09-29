@@ -147,7 +147,7 @@ function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnounceme
 /** Three panes in order — `pane-1`, `pane-2`, `pane-3` — so a drop has room to move. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  layout.open({ kind: "timeline" });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "runs" });
   layout.open({ kind: "approvals" });
   return layout;
@@ -166,7 +166,7 @@ describe("what a settled drop says out loud", () => {
       "pane-1",
     ]);
     expect(recorded).toStrictEqual([
-      { message: "Moved the timeline pane to position 3 of 3.", politeness: "polite" },
+      { message: "Moved the transcript pane to position 3 of 3.", politeness: "polite" },
     ]);
   });
 
@@ -184,7 +184,7 @@ describe("what a settled drop says out loud", () => {
       "pane-3",
     ]);
     expect(recorded).toStrictEqual([
-      { message: "The timeline pane was not moved.", politeness: "assertive" },
+      { message: "The transcript pane was not moved.", politeness: "assertive" },
     ]);
   });
 
@@ -204,7 +204,7 @@ describe("what a settled drop says out loud", () => {
       "pane-3",
     ]);
     expect(recorded).toStrictEqual([
-      { message: "The timeline pane was not moved.", politeness: "assertive" },
+      { message: "The transcript pane was not moved.", politeness: "assertive" },
     ]);
   });
 

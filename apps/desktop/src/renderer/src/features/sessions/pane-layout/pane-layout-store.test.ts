@@ -18,7 +18,7 @@ function emptyLayout(): PaneLayoutStore {
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline" });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
@@ -60,7 +60,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
       first === undefined ? undefined : { linkedSourcePaneId: first.paneId },
     );
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "browser",
       "inspector",
     ]);
@@ -109,12 +109,12 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
     layout.movePane(first?.paneId ?? "", 1);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
-      "timeline",
+      "transcript",
     ]);
     layout.movePane(first?.paneId ?? "", 1);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
-      "timeline",
+      "transcript",
     ]);
   });
 });
@@ -178,7 +178,7 @@ describe("PaneLayoutStore — the split act", () => {
     // rule takes the arriving pane's width from that pane and nothing else, so the
     // two panes the person was not splitting keep the widths they had.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
     layout.open({ kind: "approvals" });
     const before = layout.snapshot().panes.map((pane) => pane.sizePermille);
@@ -203,7 +203,7 @@ describe("PaneLayoutStore — the split act", () => {
     // Without this the case above would pass over a deck that never equalised at
     // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
     layout.open({ kind: "approvals" });
     expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
@@ -213,7 +213,7 @@ describe("PaneLayoutStore — the split act", () => {
     // A pane at one permille has no width to give. The person still asked for a pane,
     // so they get one and the deck re-divides rather than the open being refused.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
     const [first, second] = layout.snapshot().panes;
     if (first === undefined || second === undefined) {
@@ -225,7 +225,7 @@ describe("PaneLayoutStore — the split act", () => {
     layout.open({ kind: "browser" }, { linkedSourcePaneId: first.paneId });
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "browser",
       "runs",
     ]);

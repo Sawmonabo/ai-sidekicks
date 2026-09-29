@@ -20,7 +20,7 @@
 //     and every record it writes is the newest arrangement rather than a stale one.
 //   • **An empty deck opens the ledger.** This surface's own empty state, because no
 //     committed document states one: the workspace shows the ledger alone at full
-//     width, which is a `timeline` pane rather than a special case in the renderer.
+//     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the deck and renders inside it; what a save refused changes what the whole
 //     surface can do and takes the workspace banner.

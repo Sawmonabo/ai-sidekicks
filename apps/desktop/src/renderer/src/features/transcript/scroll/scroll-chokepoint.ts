@@ -4,7 +4,7 @@
 // Two static tripwires sit here — no `scrollTop` write outside the chokepoint, and no
 // `scrollIntoView` — with review the reader that rejects a second writer. THE REST IS
 // THIS MODULE'S: one scroll controller
-// per timeline pane, every caller a member of a closed caller union and named in the
+// per transcript pane, every caller a member of a closed caller union and named in the
 // write, and glides replacing `scrollIntoView` everywhere.
 //
 // FOUR DECISIONS THIS MODULE MAKES, each of which that rule forces:

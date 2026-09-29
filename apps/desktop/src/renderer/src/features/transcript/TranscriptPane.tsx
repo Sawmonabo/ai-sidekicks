@@ -29,16 +29,16 @@ import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind, and a body does not.
  */
-export type TranscriptPaneContext = PaneContextOf<"timeline">;
+export type TranscriptPaneContext = PaneContextOf<"transcript">;
 
-/** What a deck hands the timeline pane: its context and the close control it may offer. */
+/** What a deck hands the transcript pane: its context and the close control it may offer. */
 export interface TranscriptPaneProps {
   readonly context: TranscriptPaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
 }
 
-/** The timeline pane: the chrome around the feed of the session the route names. */
+/** The transcript pane: the chrome around the feed of the session the route names. */
 export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
   const { context } = props;
 
@@ -49,7 +49,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
 
   return (
     <PaneFrame
-      kind="timeline"
+      kind="transcript"
       sessionId={routeSessionId(route)}
       // Straight through, including the absent arm: an unattributed pane sets no hue
       // and the sheet's own neutral fallback applies, which is one answer rather than

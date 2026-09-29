@@ -7,7 +7,7 @@
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import type { AgentConsoleCalls } from "../../agent-reads.js";
+import type { AgentsPaneCalls } from "../../agent-reads.js";
 
 /** A real fixture bridge that scripts no reply. */
 export function unscriptedBridge(id: string): PlatformBridge {
@@ -15,7 +15,7 @@ export function unscriptedBridge(id: string): PlatformBridge {
 }
 
 /** Calls that reject, so every read they feed settles as failed. */
-export const REJECTING_AGENT_CONSOLE_CALLS: AgentConsoleCalls = {
+export const REJECTING_AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.reject(new Error("no agent list is scripted")),
   readChildRunLinks: () => Promise.reject(new Error("no child run links are scripted")),
 };

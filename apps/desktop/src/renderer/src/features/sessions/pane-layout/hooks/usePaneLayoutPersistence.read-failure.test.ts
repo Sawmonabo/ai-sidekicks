@@ -32,7 +32,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
   it("keeps the saved arrangement instead of filing the fallback over it", async () => {
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await savePaneLayout(store, ["timeline", "runs", "approvals"]);
+    await savePaneLayout(store, ["transcript", "runs", "approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -41,7 +41,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     // The fallback is still OPENED — a window with no panes is not a state this
     // surface has — and simply not saved: the three-pane record is untouched, where
     // the one-pane fallback would have replaced it.
-    expect(paneKinds(layout)).toStrictEqual(["timeline"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
     adapter.stopFailingReads();
     expect(await savedPaneCount(store)).toBe(3);
   });
@@ -53,7 +53,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     // above.
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await savePaneLayout(store, ["timeline", "runs", "approvals"]);
+    await savePaneLayout(store, ["transcript", "runs", "approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -66,7 +66,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     // Two, not three: the deck the person is now looking at replaced the record, which
     // is what saving IS. The restore settles on a failed read for exactly this reason.
     adapter.stopFailingReads();
-    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
     expect(await savedPaneCount(store)).toBe(2);
   });
 });

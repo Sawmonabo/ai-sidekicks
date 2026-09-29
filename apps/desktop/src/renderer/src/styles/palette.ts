@@ -44,7 +44,7 @@ import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
  * Rows a bounded enumeration shows before it scrolls.
  *
  * Six, and the number is a ceiling rather than a preference. The shortest window
- * the console ships is 720 px tall (the agent-console auxiliary geometry), which is
+ * the console ships is 720 px tall (the Agents pane auxiliary geometry), which is
  * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
  * that would leave the surface holding it with nothing else on screen. Six rows is
  * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem

@@ -37,7 +37,7 @@ describe("mounted transcript — which feed an act reaches", () => {
   });
 
   it("acts on the newest mount while both are up", () => {
-    // Two timeline panes in one window are two feeds, and the chord acts on the one
+    // Two transcript panes in one window are two feeds, and the chord acts on the one
     // that was mounted last rather than on whichever the list happens to start with.
     const fired: string[] = [];
     const seat = new MountedTranscript();

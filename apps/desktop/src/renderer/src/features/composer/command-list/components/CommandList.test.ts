@@ -72,7 +72,7 @@ describe("CommandList", () => {
     await typeIntoLine(mounted.line, "/");
     expect(optionNames(mounted.container)).toEqual(expect.arrayContaining(["compact"]));
 
-    await mounted.rerenderAt({ kind: "timeline" });
+    await mounted.rerenderAt({ kind: "transcript" });
 
     // The draft store is keyed by the composer's ADDRESS, so re-addressing does not
     // carry text under a target the person did not write it for — the line the

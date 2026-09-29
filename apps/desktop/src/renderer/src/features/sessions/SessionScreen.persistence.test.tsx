@@ -42,21 +42,21 @@ describe("Workspace — the saved arrangement", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
-    expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("transcript");
   });
 
   it("negative control: a saved arrangement is restored instead", async () => {
     // Without this, the case above would pass over a workspace that ignored the
     // record entirely and always opened one ledger.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
     expect(
       [...container.querySelectorAll("[data-body]")].map((body) => body.getAttribute("data-body")),
-    ).toStrictEqual(["timeline", "runs"]);
+    ).toStrictEqual(["transcript", "runs"]);
   });
 
   it("saves the arrangement it opened, so the fallback ledger survives a restart", async () => {
@@ -73,7 +73,7 @@ describe("Workspace — the saved arrangement", () => {
     // restore completed would replace two panes with none, and the deck would look
     // exactly like a first run.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
@@ -87,7 +87,7 @@ describe("Workspace — the saved arrangement", () => {
     const store = memoryStore();
     await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
       $paneLayout: { version: 99, density: "standard" },
-      "pane-1": { position: 0, kind: "timeline" },
+      "pane-1": { position: 0, kind: "transcript" },
     });
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
@@ -120,8 +120,8 @@ describe("Workspace — navigating between two sessions the shell already has op
     // was filed under the second session's partition and overwrote its saved deck.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
-    await saveLayout(store, SESSION_B_ID, ["timeline"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+    await saveLayout(store, SESSION_B_ID, ["transcript"]);
 
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));
@@ -164,7 +164,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     // runs where a record exists, so a session with none used to inherit whatever
     // panes were already on screen — and then have them written under its own name.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
 
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, true));
@@ -176,7 +176,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
-    expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("transcript");
   });
 
   it("negative control: without the key the second session inherits the first one's deck", async () => {
@@ -184,7 +184,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     // and carries the arrangement with it. This is the case that makes the key above
     // an instrument rather than a decoration.
     const store = memoryStore();
-    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
 
     const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store, false));

@@ -40,7 +40,7 @@ const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
 describe("usePaneLayoutPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["transcript", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -56,7 +56,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
   it("keeps both the saved arrangement and the pane opened during the read", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"]);
+    await savePaneLayout(store, ["transcript"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -65,12 +65,12 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
   });
 
   it("writes the reconciled arrangement once, after the restore settles", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"]);
+    await savePaneLayout(store, ["transcript"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -84,7 +84,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
   it("does not duplicate a pane the record already held", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["transcript", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -93,7 +93,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
   });
 
   it("leaves a pane the person closed during the read closed", async () => {
@@ -102,7 +102,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // cannot see it, and the record puts the pane straight back. The person watches a
     // pane they just closed return, and the write that follows files it as theirs.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["transcript", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -112,7 +112,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
     expect(await savedPaneCount(store)).toBe(1);
   });
 
@@ -132,16 +132,16 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      const timelinePaneId = layout.open({ kind: "timeline" });
+      const transcriptPaneId = layout.open({ kind: "transcript" });
       const runsPaneId = layout.open({ kind: "runs" });
       layout.applyLayout(
-        { [timelinePaneId]: 70, [runsPaneId]: 30 },
+        { [transcriptPaneId]: 70, [runsPaneId]: 30 },
         UNCLAMPED_WIDTH_FLOOR_PERMILLE,
       );
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["approvals", "timeline", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["approvals", "transcript", "runs"]);
     expect(paneWidths(layout)).toStrictEqual([333, 467, 200]);
   });
 
@@ -192,32 +192,32 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // restore has no way to prefer one, so it takes the record's and the reorder the
     // person just performed is undone under their hands.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["transcript", "runs"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "timeline" });
+      layout.open({ kind: "transcript" });
       const runsPaneId = layout.open({ kind: "runs" });
       layout.movePane(runsPaneId, -1);
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["runs", "timeline"]);
+    expect(paneKinds(layout)).toStrictEqual(["runs", "transcript"]);
   });
 
   it("negative control: an untouched read restores the record and writes nothing back", async () => {
     // Without this, a hook that wrote on every settle would pass the cases above while
     // spending a durable write on every session a person opens.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline", "runs"]);
+    await savePaneLayout(store, ["transcript", "runs"]);
     const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
     const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
@@ -231,7 +231,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     mountPersistence(layout, store);
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
     expect(await savedPaneCount(store)).toBe(1);
   });
 
@@ -239,7 +239,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     // The gate opens; it does not stay shut. Without this every case above would pass
     // over a hook that had simply stopped writing.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"]);
+    await savePaneLayout(store, ["transcript"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -261,7 +261,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     // React's own double-mount is the trigger, and it arrives with a wrapper nobody
     // re-audits this call site for.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"]);
+    await savePaneLayout(store, ["transcript"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store, { underStrictMode: true });
@@ -278,7 +278,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     // Without this the case above would pass over a fixture whose deck reached the
     // store on some path other than the writer being tested.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"]);
+    await savePaneLayout(store, ["transcript"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);

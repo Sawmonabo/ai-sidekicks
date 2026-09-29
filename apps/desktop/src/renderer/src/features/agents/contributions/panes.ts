@@ -1,14 +1,14 @@
-// The agent console's pane registration.
+// The Agents pane's pane registration.
 //
 // The feature's door publishes the registrar below and `app/registrations.ts` calls it.
 
 import { type PaneRegistry } from "@renderer/console/seats/index.js";
 
 /** The owner string this body's claim carries, so a hot reload replaces. */
-const AGENT_CONSOLE_OWNER = "agent-console";
+const AGENTS_PANE_OWNER = "agents";
 
 /**
- * Claim the `agent-console` pane kind, and wrap its body in the console's chrome.
+ * Claim the `agents` pane kind, and wrap its body in the console's chrome.
  *
  * THE CHROME IS COMPOSED IN THE BODY'S OWN MODULE, so the body draws no frame of its
  * own. Everything the chrome is handed is read off the pane's address: the session the
@@ -32,8 +32,8 @@ const AGENT_CONSOLE_OWNER = "agent-console";
  */
 export function registerAgentsPane(registry: PaneRegistry): void {
   registry.register({
-    kind: "agent-console",
-    owner: AGENT_CONSOLE_OWNER,
+    kind: "agents",
+    owner: AGENTS_PANE_OWNER,
     // A LOADER AND NOT A `render`, so the deck's mount of this body is not on the
     // initial import graph.
     body: () => import("../pane/agents-pane-body.js"),

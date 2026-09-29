@@ -59,15 +59,15 @@ describe("the address union, at a typed call site", () => {
 
   it("admits the documented no-agent arm, so the optionality that is real survives", () => {
     // The negative control for the three cases above: a union that refused
-    // everything would satisfy them all. The agent console's bare arm is the
+    // everything would satisfy them all. The Agents pane's bare arm is the
     // picker's — a session is chosen and no agent is named yet — and the workflow
     // builder's is the workflows destination opening it with nothing defined.
-    const pickerArm: AddressArm<"agent-console"> = { kind: "agent-console", entity: undefined };
+    const pickerArm: AddressArm<"agents"> = { kind: "agents", entity: undefined };
     const bareBuilder: AddressArm<"workflow-builder"> = {
       kind: "workflow-builder",
       entity: undefined,
     };
-    const namedAgent: AddressArm<"agent-console"> = { kind: "agent-console", entity: AGENT };
+    const namedAgent: AddressArm<"agents"> = { kind: "agents", entity: AGENT };
 
     expect(pickerArm.entity).toBeUndefined();
     expect(bareBuilder.entity).toBeUndefined();
@@ -81,13 +81,13 @@ describe("the address union, at a typed call site", () => {
     // unwritable, while the parse returned exactly that object through a cast — so the
     // static contract and the runtime contract disagreed and the cast hid it. These
     // three are what the parse now returns, constructed by hand at the same type.
-    const bareTimeline: AddressArm<"timeline"> = { kind: "timeline" };
+    const bareTranscript: AddressArm<"transcript"> = { kind: "transcript" };
     const bareBuilder: AddressArm<"workflow-builder"> = { kind: "workflow-builder" };
-    const barePicker: AddressArm<"agent-console"> = { kind: "agent-console" };
+    const barePicker: AddressArm<"agents"> = { kind: "agents" };
 
-    expect(bareTimeline).toStrictEqual({ kind: "timeline" });
+    expect(bareTranscript).toStrictEqual({ kind: "transcript" });
     expect(bareBuilder).toStrictEqual({ kind: "workflow-builder" });
-    expect(barePicker).toStrictEqual({ kind: "agent-console" });
+    expect(barePicker).toStrictEqual({ kind: "agents" });
   });
 
   it("negative control: the bare object stays refused on an entity-REQUIRED arm", () => {

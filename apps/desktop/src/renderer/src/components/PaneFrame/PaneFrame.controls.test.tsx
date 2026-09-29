@@ -25,7 +25,7 @@ function controlLabels(pane: HTMLElement): readonly (string | null)[] {
 describe("PaneFrame — where the controls come from", () => {
   it("draws no control when nobody can close the pane", () => {
     const pane = renderPaneFrame(
-      <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </PaneFrame>,
     );
@@ -35,7 +35,7 @@ describe("PaneFrame — where the controls come from", () => {
   it("takes the close from the deck's context", () => {
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
         </PaneFrame>
       </PaneControlsContext.Provider>,
@@ -54,7 +54,7 @@ describe("PaneFrame — where the controls come from", () => {
         }}
       >
         <PaneFrame
-          kind="timeline"
+          kind="transcript"
           sessionId="session-1"
           focusHue={undefined}
           onClose={() => {
@@ -99,7 +99,7 @@ describe("PaneFrame — the drag handle", () => {
           },
         }}
       >
-        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
         </PaneFrame>
       </PaneControlsContext.Provider>,
@@ -113,7 +113,7 @@ describe("PaneFrame — the drag handle", () => {
     const registered: (HTMLElement | null)[] = [];
     renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <PaneFrame kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
         </PaneFrame>
       </PaneControlsContext.Provider>,

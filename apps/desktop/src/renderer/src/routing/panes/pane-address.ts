@@ -30,7 +30,7 @@
 //
 // WHERE EACH ROW COMES FROM
 //
-// Most of them come from one rule: the pane-kind set is closed, and `timeline` is
+// Most of them come from one rule: the pane-kind set is closed, and `transcript` is
 // session-scoped. The inspector shows the session's checkout — a worktree on a project
 // session, a workspace on a chat — and the `diff` pane shows that checkout's changes,
 // so both rows admit those two entity kinds and no others. No entity kind without a
@@ -40,7 +40,7 @@
 // The two kinds are declared ONCE, below, and both rows read the list. The row is
 // derived from a map that decides EVERY entity kind, so a kind added later fails to
 // compile until the question is answered for it. Optionality is never invented:
-// `agent-console` takes a no-entity arm because its body renders with no agent named,
+// `agents` takes a no-entity arm because its body renders with no agent named,
 // and `workflow-builder` takes one because `routing/routes.ts` opens the workflows
 // destination bare — "a definition id written into the address here would be a
 // second, unowned locator for something the builder has not defined yet".
@@ -134,7 +134,7 @@ export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
  */
 interface PaneEntityScopeByKind {
   /** The session's transcript. */
-  readonly timeline: never;
+  readonly transcript: never;
   /** Keyed by the inspected checkout's own kind; there is nothing to inspect without one. */
   readonly inspector: ScopedEntityRef<CheckoutEntityKind>;
   /** The session's runs list. */
@@ -163,7 +163,7 @@ interface PaneEntityScopeByKind {
   /** One shared terminal per session, over the runtime node's write lease. */
   readonly terminal: never;
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
-  readonly "agent-console": ScopedEntityRef<"agent"> | undefined;
+  readonly agents: ScopedEntityRef<"agent"> | undefined;
 }
 
 /**
@@ -222,7 +222,7 @@ const PANE_ENTITY_SCOPES: {
     readonly entityRequired: EntityRequired<K>;
   };
 } = {
-  timeline: { entityKinds: [], entityRequired: false },
+  transcript: { entityKinds: [], entityRequired: false },
   inspector: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
   runs: { entityKinds: [], entityRequired: false },
   approvals: { entityKinds: [], entityRequired: false },
@@ -232,7 +232,7 @@ const PANE_ENTITY_SCOPES: {
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
   browser: { entityKinds: [], entityRequired: false },
   terminal: { entityKinds: [], entityRequired: false },
-  "agent-console": { entityKinds: ["agent"], entityRequired: false },
+  agents: { entityKinds: ["agent"], entityRequired: false },
 };
 
 /** One pane kind's entity scope, as a caller deciding at runtime reads it. */

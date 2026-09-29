@@ -39,7 +39,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
   it("takes the provider-bound path only when the pane names an agent with a seen run", () => {
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
         agents: { [AGENT.id]: AGENT },
         runs: { [RUN.id]: RUN },
       }),
@@ -61,7 +61,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     // composer addresses the session rather than guessing which run to steer.
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
         agents: { [AGENT.id]: AGENT },
       }),
     );
@@ -72,7 +72,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     const older: StoredEntity = { ...RUN, id: "run-00", touchedAt: "2026-01-01T10:00:00.000Z" };
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
         agents: { [AGENT.id]: AGENT },
         runs: { [older.id]: older, [RUN.id]: RUN },
       }),
@@ -89,7 +89,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     };
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
         agents: { [AGENT.id]: AGENT },
         runs: { [RUN.id]: RUN, [settled.id]: settled },
       }),
@@ -105,7 +105,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     const settled: StoredEntity = { ...RUN, state: "failed" };
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
         agents: { [AGENT.id]: AGENT },
         runs: { [settled.id]: settled },
       }),

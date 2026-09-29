@@ -1,4 +1,4 @@
-// Who owns the agent console's reads, and for how long.
+// Who owns the Agents pane's reads, and for how long.
 //
 // LIFETIME, NOT REFRESH. Which method answers each read and what makes it ask again
 // is `../agent-reads.ts`; this module owns how long a read lives, who is
@@ -34,7 +34,7 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   createAgentList,
   createChildRunLinks,
-  type AgentConsoleCalls,
+  type AgentsPaneCalls,
   type AgentListRead,
   type ChildRunLinksRead,
 } from "../agent-reads.js";
@@ -62,7 +62,7 @@ export interface ChildRunLinksLease {
 }
 
 /**
- * One session's agent-console reads.
+ * One session's Agents pane reads.
  *
  * A class rather than a record: it owns the linkage cache's lifetime and its
  * teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with private
@@ -81,12 +81,12 @@ export class AgentsPaneModels {
   public readonly roster: AgentListRead;
 
   readonly #clock: Clock;
-  readonly #calls: AgentConsoleCalls;
+  readonly #calls: AgentsPaneCalls;
   #linkage: HeldChildRunLinkage | undefined;
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
-  public constructor(bridge: PlatformBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
+  public constructor(bridge: PlatformBridge, sessionStore: SessionStore, calls: AgentsPaneCalls) {
     this.subject = { bridge, sessionStore };
     this.#calls = calls;
     // Through the platform service's clock rather than resolved here. The rule — a

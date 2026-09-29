@@ -66,7 +66,7 @@
 // is what proves it.
 //
 // AND THE LOOP OBSERVES THE LEDGER ITSELF, once per cycle. The route wait names the
-// timeline PANE, whose chrome mounts on the route whether or not the ledger inside it
+// transcript PANE, whose chrome mounts on the route whether or not the ledger inside it
 // ever draws a row, so nothing in the loop would otherwise notice a console that came
 // up with no surface under it — the run would churn, wait successfully two hundred
 // times, and report clean growth over an empty box. Rows appear part-way through
@@ -290,7 +290,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         let beatsDelivered = beatsAfterWarmUp;
         let appliedEventsAtMidRun: number | null = null;
         // THE LOOP'S OWN PROOF THAT IT CHURNED A LEDGER. The workspace wait names the
-        // timeline pane, whose chrome mounts on the route whether or not the ledger
+        // transcript pane, whose chrome mounts on the route whether or not the ledger
         // inside it ever draws — so nothing else in this body observes the surface the
         // heap reading is about until the very end of the run. These two are counted
         // per cycle: rows appear part-way through, because the script is walked across

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { isCurrentSessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { type AgentConsoleCalls } from "../../agent-reads.js";
+import { type AgentsPaneCalls } from "../../agent-reads.js";
 import { AgentsPaneModels } from "../agents-pane-models.js";
 
 /**
@@ -35,7 +35,7 @@ import { AgentsPaneModels } from "../agents-pane-models.js";
 export function useAgentsPaneModels(
   bridge: PlatformBridge | undefined,
   sessionStore: SessionStore | undefined,
-  calls: AgentConsoleCalls,
+  calls: AgentsPaneCalls,
 ): AgentsPaneModels | undefined {
   const [models, setModels] = useState<AgentsPaneModels | undefined>(undefined);
 

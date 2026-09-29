@@ -67,7 +67,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     // Replacement rather than clearing: a session that cannot read its own arrangement
     // says so, whatever the session before it said.
     const store = memoryStore();
-    await savePaneLayout(store, ["timeline"], RESTORE_SESSION_ID);
+    await savePaneLayout(store, ["transcript"], RESTORE_SESSION_ID);
     await savePaneLayoutInUnknownVersion(store, SECOND_SESSION);
     const mounted = mountPersistence(deckLayout(), store);
     await drain();

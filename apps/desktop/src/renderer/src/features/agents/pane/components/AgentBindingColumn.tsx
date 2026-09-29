@@ -1,4 +1,4 @@
-// The agent console's binding column: the roster and one card per agent.
+// The Agents pane's binding column: the roster and one card per agent.
 //
 // WHY THIS IS A SEPARATE COMPONENT FROM THE PANE. Every read here needs the models,
 // and the models need a bridge and a session store — both of which an auxiliary

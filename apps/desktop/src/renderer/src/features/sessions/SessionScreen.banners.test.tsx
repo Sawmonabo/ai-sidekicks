@@ -61,8 +61,8 @@ async function storeWithSavedLayouts(): Promise<{
 }> {
   const adapter = new ScriptedWriteAdapter();
   const store = new UiStateStore({ adapter });
-  await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
-  await saveLayout(store, SESSION_B_ID, ["timeline", "runs"]);
+  await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+  await saveLayout(store, SESSION_B_ID, ["transcript", "runs"]);
   return { store, adapter };
 }
 

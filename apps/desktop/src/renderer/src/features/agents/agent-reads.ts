@@ -1,4 +1,4 @@
-// The three reads behind the agent console, and what refreshes each one.
+// The three reads behind the Agents pane, and what refreshes each one.
 //
 // One factory per read, and each one is a claim about a REFRESH STORY rather than
 // about a lifetime — which is the seam that separates this module from
@@ -69,8 +69,8 @@ export type ReadChildRunLinks = (request: {
  */
 export type ListAgentDefinitions = () => Promise<readonly AgentDefinition[]>;
 
-/** The calls the agent console's models drive. Held stable by the caller. */
-export interface AgentConsoleCalls {
+/** The calls the Agents pane's models drive. Held stable by the caller. */
+export interface AgentsPaneCalls {
   readonly listAgents: ListSessionAgents;
   readonly readChildRunLinks: ReadChildRunLinks;
 }

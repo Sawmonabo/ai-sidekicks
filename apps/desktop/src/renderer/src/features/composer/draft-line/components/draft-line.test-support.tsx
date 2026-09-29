@@ -191,7 +191,7 @@ export function storeWithTwoTrippedAgents(): SessionStore {
 }
 
 export function paneFor(agentId: string): PaneAddress {
-  return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+  return { kind: "agents", entity: { kind: "agent", id: agentId } };
 }
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */

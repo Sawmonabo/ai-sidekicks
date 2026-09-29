@@ -49,12 +49,12 @@ describe("pane registry — one owner per kind", () => {
 
   it("refuses a second owner rather than swapping", () => {
     const registry = new PaneRegistry();
-    registry.register(descriptor("timeline", "workspace-family"));
+    registry.register(descriptor("transcript", "workspace-family"));
     expect(() => {
-      registry.register(descriptor("timeline", "second-owner"));
+      registry.register(descriptor("transcript", "second-owner"));
     }).toThrow(DuplicateRegistrationError);
     // The first owner keeps the kind: a refused claim must not have half-applied.
-    expect(registry.descriptorFor("timeline")?.owner).toBe("workspace-family");
+    expect(registry.descriptorFor("transcript")?.owner).toBe("workspace-family");
   });
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
@@ -71,14 +71,10 @@ describe("pane registry — declaration order, not registration order", () => {
     const registry = new PaneRegistry();
     // Registered back to front, so an implementation that reported insertion
     // order rather than declaration order would answer differently.
-    registry.register(descriptor("agent-console", "third"));
+    registry.register(descriptor("agents", "third"));
     registry.register(descriptor("approvals", "second"));
-    registry.register(descriptor("timeline", "first"));
-    expect(registry.registeredPaneKinds()).toStrictEqual([
-      "timeline",
-      "approvals",
-      "agent-console",
-    ]);
+    registry.register(descriptor("transcript", "first"));
+    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "approvals", "agents"]);
   });
 
   it("reports only kinds that were claimed", () => {

@@ -28,9 +28,9 @@ import {
   AGENT_ON_CLAUDE,
   AGENT_ON_CODEX,
 } from "@renderer/features/agents/pane/components/agent-binding-column.test-support.js";
-import { agentConsolePaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
+import { agentsPaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
-import type { AgentConsoleCalls } from "@renderer/features/agents/agent-reads.js";
+import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { unscriptedScenario } from "../helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -46,7 +46,7 @@ import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-
 const SESSION_ID = "session-agents";
 
 /** The roster this surface shows: two agents on two providers, and no child runs. */
-const AGENT_CONSOLE_CALLS: AgentConsoleCalls = {
+const AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [AGENT_ON_CLAUDE, AGENT_ON_CODEX] }),
   readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
 };
@@ -66,11 +66,11 @@ function requireRendered(root: ParentNode, selector: string): HTMLElement {
   return element;
 }
 
-const renderAgentConsolePane = agentConsolePaneBody(AGENT_CONSOLE_CALLS);
+const renderAgentsPaneBody = agentsPaneBody(AGENTS_PANE_CALLS);
 
 /** The pane body as a component, because bodies hold hooks and must be mounted, not called. */
-function AgentConsolePaneBody(props: { readonly context: PaneContext }): ReactNode {
-  return renderAgentConsolePane(props.context);
+function AgentsPaneBody(props: { readonly context: PaneContext }): ReactNode {
+  return renderAgentsPaneBody(props.context);
 }
 
 /** The deck context a pane is mounted with, about one named agent. */
@@ -80,8 +80,8 @@ function paneContext(
   agentId: string,
 ): PaneContext {
   return {
-    kind: "agent-console",
-    paneId: "pane-agent-console-surface",
+    kind: "agents",
+    paneId: "pane-agents",
     entity: { kind: "agent", id: agentId },
     frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
@@ -111,7 +111,7 @@ async function renderAgentsPane(): Promise<{
 }> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
   const context = paneContext(bridge, agentsSessionStore(), AGENT_ON_CLAUDE.agentId);
-  const { container } = await renderSettled(<AgentConsolePaneBody context={context} />);
+  const { container } = await renderSettled(<AgentsPaneBody context={context} />);
   await settleReads(bridge);
   // Deliberately NOT inside `act`: the roster read resolves in a promise React knows
   // nothing about, and an `act` scope holds the resulting commit back until it exits,

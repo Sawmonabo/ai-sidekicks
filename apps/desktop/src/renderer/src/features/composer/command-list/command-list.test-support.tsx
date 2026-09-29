@@ -216,7 +216,7 @@ export function composerSessionStore(): SessionStore {
 }
 
 export function agentPane(agentId: string): PaneAddress {
-  return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+  return { kind: "agents", entity: { kind: "agent", id: agentId } };
 }
 
 export async function mountComposer(options: {

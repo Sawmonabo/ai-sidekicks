@@ -78,7 +78,7 @@ const SCENARIO_BASE_CURSOR = 0;
  */
 function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TranscriptPaneContext {
   return {
-    kind: "timeline",
+    kind: "transcript",
     paneId: "ledger-timeline",
     frameStore: new WindowStore({ initialRoute: { kind: "workspace", sessionId } }),
     sessionStore,

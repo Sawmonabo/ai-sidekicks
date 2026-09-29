@@ -160,7 +160,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   const BOTH_AGENTS = [AGENT, RUNNING_RUN, SECOND_AGENT, SECOND_RUN];
 
   function paneOn(agentId: string): PaneAddress {
-    return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+    return { kind: "agents", entity: { kind: "agent", id: agentId } };
   }
 
   it("draws the addressed run's fullness while another run meters later and higher", () => {

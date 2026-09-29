@@ -100,21 +100,21 @@ function renderDeck(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElemen
 /** Three panes side by side — the arrangement the library's ARIA defect shows on. */
 function threePaneDeck(): HTMLElement {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline" });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "runs" });
   layout.open({ kind: "approvals" });
   return renderDeck(
     layout,
-    registryWith({ kind: "timeline" }, { kind: "runs" }, { kind: "approvals" }),
+    registryWith({ kind: "transcript" }, { kind: "runs" }, { kind: "approvals" }),
   );
 }
 
 describe("the deck's mount door", () => {
   it("refuses a second owner claiming a kind rather than replacing the first", () => {
-    const registry = registryWith({ kind: "timeline", owner: "ledger" });
+    const registry = registryWith({ kind: "transcript", owner: "ledger" });
     expect(() =>
       registry.register({
-        kind: "timeline",
+        kind: "transcript",
         owner: "somebody-else",
         render: () => null,
       }),
@@ -124,10 +124,10 @@ describe("the deck's mount door", () => {
   it("negative control: the SAME owner re-registering replaces, so a hot reload works", () => {
     // Without this, the case above would pass over a registry that refused every
     // second registration, which would make reloading a module fatal.
-    const registry = registryWith({ kind: "timeline", owner: "ledger" });
+    const registry = registryWith({ kind: "transcript", owner: "ledger" });
     expect(() =>
       registry.register({
-        kind: "timeline",
+        kind: "transcript",
         owner: "ledger",
         render: () => null,
       }),
@@ -138,11 +138,11 @@ describe("the deck's mount door", () => {
 describe("the deck's panes", () => {
   it("mounts one body per open pane, in the layout's order", () => {
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
     expect([...deck.querySelectorAll("p")].map((body) => body.textContent)).toStrictEqual([
-      "timeline body",
+      "transcript body",
       "runs body",
     ]);
   });
@@ -194,7 +194,7 @@ describe("the deck's panes", () => {
   });
 
   it("says the deck is empty rather than rendering an unexplained blank", () => {
-    const deck = renderDeck(emptyLayout(), registryWith({ kind: "timeline" }));
+    const deck = renderDeck(emptyLayout(), registryWith({ kind: "transcript" }));
     expect(deck.textContent).toContain("No panes are open.");
   });
 
@@ -205,7 +205,7 @@ describe("the deck's panes", () => {
       <DeckWindow>
         <SessionPaneLayout
           layout={layout}
-          registry={registryWith({ kind: "timeline" })}
+          registry={registryWith({ kind: "transcript" })}
           paneContextFor={paneContextFor}
           restoreRefusals={report.refusals}
         />
@@ -223,9 +223,9 @@ describe("the deck's panes", () => {
 describe("the deck's keyboard paths", () => {
   it("moves focus with Alt+Arrow and moves the PANE with Alt+Shift+Arrow", () => {
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline" });
+    const first = layout.open({ kind: "transcript" });
     const second = layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
 
     focus(layout, first);
     press(deck, { key: "ArrowRight", altKey: true });
@@ -238,8 +238,8 @@ describe("the deck's keyboard paths", () => {
 
   it("closes the focused pane with Alt+Backspace", () => {
     const layout = emptyLayout();
-    const only = layout.open({ kind: "timeline" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }));
+    const only = layout.open({ kind: "transcript" });
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }));
     focus(layout, only);
     press(deck, { key: "Backspace", altKey: true });
     expect(layout.snapshot().panes).toHaveLength(0);
@@ -251,9 +251,9 @@ describe("the deck's keyboard paths", () => {
     // or closed the pane it was typed in — and `preventDefault` swallowed the
     // keystroke the person meant.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline" });
+    const first = layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
     focus(layout, first);
 
     const field = deck.querySelector("textarea");
@@ -271,9 +271,9 @@ describe("the deck's keyboard paths", () => {
     // Without this, the case above would pass over a deck whose keyboard paths were
     // dead everywhere rather than declining only where a widget owns the keys.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline" });
+    const first = layout.open({ kind: "transcript" });
     const second = layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
     focus(layout, first);
 
     const moveEvent = pressFrom(deck, { key: "ArrowRight", altKey: true, shiftKey: true });
@@ -286,9 +286,9 @@ describe("the deck's keyboard paths", () => {
     // Without this, the two cases above would pass over a deck that acted on every
     // arrow key — which would make every text field inside a pane unusable.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline" });
+    const first = layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });
-    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    const deck = renderDeck(layout, registryWith({ kind: "transcript" }, { kind: "runs" }));
     focus(layout, first);
     press(deck, { key: "ArrowRight" });
     press(deck, { key: "Backspace" });
@@ -347,13 +347,13 @@ describe("Deck — the clock its rect flush runs on", () => {
 
   function renderDeckOn(bridge: PlatformBridge): void {
     const layout = emptyLayout();
-    layout.open({ kind: "timeline" });
+    layout.open({ kind: "transcript" });
     render(
       <PlatformBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
           <SessionPaneLayout
             layout={layout}
-            registry={registryWith({ kind: "timeline" })}
+            registry={registryWith({ kind: "transcript" })}
             paneContextFor={paneContextFor}
           />
         </LiveAnnouncerProvider>

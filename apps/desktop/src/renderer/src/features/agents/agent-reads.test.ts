@@ -1,4 +1,4 @@
-// What refreshes each of the agent console's reads.
+// What refreshes each of the Agents pane's reads.
 //
 // One claim, checked on the two shapes the factories carry: a read with a push
 // signal re-reads when the session stream admits a kind it watches and never when
@@ -20,7 +20,7 @@ import { createChildRunLinks, createDriverCatalogRead } from "./agent-reads.js";
 import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import {
-  REJECTING_AGENT_CONSOLE_CALLS,
+  REJECTING_AGENTS_PANE_CALLS,
   unscriptedBridge,
 } from "./pane/components/run-links.test-support.js";
 
@@ -35,7 +35,7 @@ function startedLinkage(
     sessionStore,
     PARENT_RUN_ID,
     clock,
-    REJECTING_AGENT_CONSOLE_CALLS.readChildRunLinks,
+    REJECTING_AGENTS_PANE_CALLS.readChildRunLinks,
   );
   read.start();
   return read;
@@ -51,7 +51,7 @@ async function settleReads(clock: ManualClock): Promise<void> {
   });
 }
 
-describe("the agent console's models — what re-reads one run's child links", () => {
+describe("the Agents pane's models — what re-reads one run's child links", () => {
   it("re-reads once when a run is queued, and once when a create is refused", async () => {
     const sessionStore = initializedStore("session-signal");
     const clock = new ManualClock();

@@ -183,22 +183,24 @@ describe("KeyedRegistry — the idempotent policy", () => {
 describe("KeyedRegistry — the owner-scoped policy", () => {
   it("lets the same owner replace its own registration", () => {
     const registry = ownerScopedSlotRegistry();
-    registry.register("timeline", { owner: "ledger", label: "Ledger" });
+    registry.register("transcript", { owner: "transcript", label: "Transcript" });
 
-    expect(registry.register("timeline", { owner: "ledger", label: "Ledger v2" })).toBe(true);
-    expect(registry.get("timeline")?.label).toBe("Ledger v2");
+    expect(registry.register("transcript", { owner: "transcript", label: "Transcript v2" })).toBe(
+      true,
+    );
+    expect(registry.get("transcript")?.label).toBe("Transcript v2");
   });
 
   it("refuses a different owner, naming both parties", () => {
     const registry = ownerScopedSlotRegistry();
-    registry.register("timeline", { owner: "ledger", label: "Ledger" });
+    registry.register("transcript", { owner: "transcript", label: "Transcript" });
 
     const refusal = refusalFrom(() => {
-      registry.register("timeline", { owner: "workflows", label: "Workflow" });
+      registry.register("transcript", { owner: "workflows", label: "Workflow" });
     });
 
     expect(refusal.code).toBe("owner-conflict");
-    expect(refusal.detail).toContain("ledger");
+    expect(refusal.detail).toContain("transcript");
     expect(refusal.detail).toContain("workflows");
   });
 
@@ -206,15 +208,15 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
     // The two paths used to carry hand-copied message text, which is how one of
     // them drifts. They are one builder now, and this is what says so.
     const single = ownerScopedSlotRegistry();
-    single.register("timeline", { owner: "ledger", label: "Ledger" });
+    single.register("transcript", { owner: "transcript", label: "Transcript" });
     const batched = ownerScopedSlotRegistry();
-    batched.register("timeline", { owner: "ledger", label: "Ledger" });
+    batched.register("transcript", { owner: "transcript", label: "Transcript" });
 
     const fromRegister = refusalFrom(() => {
-      single.register("timeline", { owner: "workflows", label: "Workflow" });
+      single.register("transcript", { owner: "workflows", label: "Workflow" });
     });
     const fromRegisterAll = refusalFrom(() => {
-      batched.registerAll([["timeline", { owner: "workflows", label: "Workflow" }]]);
+      batched.registerAll([["transcript", { owner: "workflows", label: "Workflow" }]]);
     });
 
     expect(fromRegisterAll).toStrictEqual(fromRegister);
@@ -253,8 +255,8 @@ describe("KeyedRegistry — registerAll is atomic", () => {
 
     expect(() => {
       registry.registerAll([
-        ["run-pause", { owner: "ledger", label: "Pause" }],
-        ["open-palette", { owner: "ledger", label: "Open" }],
+        ["run-pause", { owner: "transcript", label: "Pause" }],
+        ["open-palette", { owner: "transcript", label: "Open" }],
       ]);
     }).toThrow(DuplicateRegistrationError);
 
@@ -269,8 +271,8 @@ describe("KeyedRegistry — registerAll is atomic", () => {
     // above.
     const registry = throwingCommandRegistry();
     registry.registerAll([
-      ["run-pause", { owner: "ledger", label: "Pause" }],
-      ["open-palette", { owner: "ledger", label: "Open" }],
+      ["run-pause", { owner: "transcript", label: "Pause" }],
+      ["open-palette", { owner: "transcript", label: "Open" }],
     ]);
     expect(registry.size).toBe(2);
   });
@@ -279,8 +281,8 @@ describe("KeyedRegistry — registerAll is atomic", () => {
     const registry = throwingCommandRegistry();
     const refusal = refusalFrom(() => {
       registry.registerAll([
-        ["run-pause", { owner: "ledger", label: "Pause" }],
-        ["run-pause", { owner: "ledger", label: "Pause again" }],
+        ["run-pause", { owner: "transcript", label: "Pause" }],
+        ["run-pause", { owner: "transcript", label: "Pause again" }],
       ]);
     });
 
@@ -314,10 +316,10 @@ describe("KeyedRegistry — reading", () => {
 });
 
 describe("lookupOrThrow — one wording for the missing-key defect", () => {
-  const paneTitles = new Map([["timeline", "Timeline"]]);
+  const paneTitles = new Map([["transcript", "Transcript"]]);
 
   it("returns the value under a present key", () => {
-    expect(lookupOrThrow(paneTitles, "timeline", "pane title")).toBe("Timeline");
+    expect(lookupOrThrow(paneTitles, "transcript", "pane title")).toBe("Transcript");
   });
 
   it("throws a RangeError naming what was missing", () => {
@@ -330,6 +332,6 @@ describe("lookupOrThrow — one wording for the missing-key defect", () => {
   });
 
   it("negative control: a present key does not throw, so the case above is not vacuous", () => {
-    expect(() => lookupOrThrow(paneTitles, "timeline", "pane title")).not.toThrow();
+    expect(() => lookupOrThrow(paneTitles, "transcript", "pane title")).not.toThrow();
   });
 });

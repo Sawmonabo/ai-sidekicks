@@ -46,6 +46,6 @@ registerTranscriptRows();
  * single PascalCase component per file.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
-  "timeline",
+  "transcript",
   (context) => createElement(TranscriptPane, { context }),
 );

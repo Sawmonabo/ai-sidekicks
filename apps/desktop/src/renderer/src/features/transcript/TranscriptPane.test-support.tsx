@@ -38,7 +38,7 @@ export function paneContext(
   // address arm makes it optional, and an absent key is how the union says the pane
   // is scoped to the session rather than to one of its entities.
   return {
-    kind: "timeline",
+    kind: "transcript",
     paneId: "ledger-timeline",
     frameStore: new WindowStore({
       initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "workspace", sessionId },
