@@ -34,6 +34,9 @@
 // THE EDIT AFFORDANCE IS NOT A CONTROL THIS FILE WRITES. The pencil that opens an inline
 // editor belongs to the run controls, and this card never re-authors a body they own. It
 // mounts whatever element it is handed in the row's hover footer.
+//
+// COPY IS THIS CARD'S OWN. It copies the text the row has read, a user's summary or an
+// agent's reply, and is absent while there is none, so it never copies an empty answer.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
@@ -42,6 +45,7 @@ import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
+import { CopyButton } from "./components/CopyButton.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
@@ -85,6 +89,24 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
+  const copyText = isUser
+    ? props.row.summary === ""
+      ? undefined
+      : props.row.summary
+    : family.kind === "thinking"
+      ? undefined
+      : (props.liveText ??
+        (props.content?.status === "available" ? props.content.body : undefined));
+  const copyControl = copyText === undefined ? undefined : <CopyButton text={copyText} />;
+  const footer =
+    isUser && props.editControl !== undefined ? (
+      <>
+        {copyControl}
+        {props.editControl}
+      </>
+    ) : (
+      copyControl
+    );
 
   return (
     <TranscriptRowGroup groupLabel="a message row">
@@ -94,7 +116,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         authorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
-        footer={isUser ? props.editControl : undefined}
+        footer={footer}
       >
         <div className={`meridian-message-card meridian-message-card--${family.kind}`}>
           <span className="meridian-message-card__family">

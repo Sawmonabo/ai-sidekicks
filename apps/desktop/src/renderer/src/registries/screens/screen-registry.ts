@@ -46,7 +46,6 @@ export const CONSOLE_SURFACE_SLOTS = [
   "workspace",
   "workflows",
   "settings",
-  "timeline",
   // Reached only by the fixture-gated `#/pane-harness/…` address, so a release
   // renderer can name this slot and can never route to it. It is in the tuple
   // because the tuple is what `registeredSlots` and the composition test walk: a

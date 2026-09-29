@@ -74,7 +74,7 @@ describe("the navigation policy", () => {
 
       navigationListenerOf(browserWindow, seam)(
         { preventDefault },
-        `${INDEX_URL}#/window/timeline`,
+        `${INDEX_URL}#/session/0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`,
       );
 
       expect(preventDefault).not.toHaveBeenCalled();

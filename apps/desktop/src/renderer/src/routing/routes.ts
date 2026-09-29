@@ -109,7 +109,7 @@ export function parseRoute(hash: string): ConsoleRoute {
   // The LEADING slash is the one optional separator; every other one is grammar.
   // The filter that used to drop empty segments deleted the evidence the arms
   // below validate on, so `#/session//foo` resolved to session `foo` — a different
-  // session than the link names — and `#/window/timeline/` opened a bare timeline.
+  // session than the link names.
   const path = afterHash.startsWith("/") ? afterHash.slice(1) : afterHash;
 
   if (path === "") {

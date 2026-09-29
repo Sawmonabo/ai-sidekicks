@@ -459,13 +459,6 @@ const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
  * the barrels that still import sheets from other folders. The list only shrinks.
  */
 const STYLESHEET_HELD_FILES = [
-  "src/renderer/src/console/ledger/cards/markdown/index.ts",
-  "src/renderer/src/console/ledger/cards/tool-families/index.ts",
-  "src/renderer/src/console/ledger/frame/index.ts",
-  "src/renderer/src/console/ledger/index.ts",
-  "src/renderer/src/console/ledger/pane/window/index.ts",
-  "src/renderer/src/console/ledger/structure/index.ts",
-  "src/renderer/src/console/ledger/structure/seams/index.ts",
   "src/renderer/src/console/palette/index.ts",
   "src/renderer/src/console/primitives/absence/index.ts",
   "src/renderer/src/console/primitives/figures/index.ts",

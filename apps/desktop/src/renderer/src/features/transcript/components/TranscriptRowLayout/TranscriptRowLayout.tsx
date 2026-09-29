@@ -24,6 +24,8 @@
 // walking the log hears who wrote what.
 
 import { useId, useMemo } from "react";
+
+import "./TranscriptRowLayout.css";
 import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
 import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

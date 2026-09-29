@@ -35,15 +35,16 @@ function descriptor(
 
 describe("surface registry — the module-scope door", () => {
   it("claims a slot on the process-wide registry", () => {
-    // `timeline` deliberately: the composition root claims `sessions` and
-    // `workspace` at import time, and this case is about the door rather than
-    // about who got there first.
+    // `pane-harness` deliberately: only the fixture composition claims it, and this
+    // case is about the door rather than about who got there first.
     try {
-      registerConsoleSurface(descriptor("timeline", "surface-registry-test"));
-      expect(consoleSurfaceRegistry.descriptorFor("timeline")?.owner).toBe("surface-registry-test");
-      expect(consoleSurfaceRegistry.registeredSlots()).toContain("timeline");
+      registerConsoleSurface(descriptor("pane-harness", "surface-registry-test"));
+      expect(consoleSurfaceRegistry.descriptorFor("pane-harness")?.owner).toBe(
+        "surface-registry-test",
+      );
+      expect(consoleSurfaceRegistry.registeredSlots()).toContain("pane-harness");
     } finally {
-      consoleSurfaceRegistry.unregister("timeline");
+      consoleSurfaceRegistry.unregister("pane-harness");
     }
   });
 
@@ -51,8 +52,8 @@ describe("surface registry — the module-scope door", () => {
     // Without this the case above would pass against a registry that had been
     // holding the descriptor since some earlier file ran, and would keep passing
     // if `registerConsoleSurface` stopped registering anything at all.
-    expect(consoleSurfaceRegistry.descriptorFor("timeline")).toBeUndefined();
-    expect(consoleSurfaceRegistry.registeredSlots()).not.toContain("timeline");
+    expect(consoleSurfaceRegistry.descriptorFor("pane-harness")).toBeUndefined();
+    expect(consoleSurfaceRegistry.registeredSlots()).not.toContain("pane-harness");
   });
 });
 

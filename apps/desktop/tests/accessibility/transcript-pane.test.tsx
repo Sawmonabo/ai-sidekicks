@@ -20,9 +20,8 @@
 //
 // Everything else is the real composition: the real `SessionStore`, the real
 // projection, the real `@tanstack/react-virtual` instance, the real card family
-// through the seat the console actually registers, and the same
-// `meridian-ledger-surface` wrapper `ledger/index.ts` mounts the pane inside — which
-// is also what gives the scroll container a definite height, since a virtualizer
+// through the seat the console actually registers, and the same `TranscriptSurface`
+// wrapper the workspace screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
 //
@@ -54,6 +53,7 @@ import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTimelineRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
+import { TranscriptSurface } from "@renderer/features/transcript/TranscriptSurface.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
@@ -110,18 +110,17 @@ function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
 /**
  * Mount one scenario's ledger the way a window mounts it.
  *
- * `meridian-ledger-surface` is production markup — `ledger/index.ts` wraps the pane
- * in exactly this element on both of the surfaces it registers — and it is what
- * carries the full-height grid down to the scroll container. A bare test wrapper
+ * `TranscriptSurface` is the production wrapper around the workspace screen, and it is
+ * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */
 async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
-      <div className="meridian-ledger-surface">
+      <TranscriptSurface>
         <TimelinePane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
-      </div>
+      </TranscriptSurface>
     </DesktopBridgeProvider>,
   );
   return container;

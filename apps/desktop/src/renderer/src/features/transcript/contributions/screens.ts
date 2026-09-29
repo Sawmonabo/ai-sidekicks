@@ -1,26 +1,15 @@
-// The transcript's two screens: the session's workspace and the full-screen transcript
-// window.
-//
-// THE TWO SLOTS, AND WHY THEY DO NOT MOUNT THE SAME THING. `workspace` is the session's
-// own surface: the session header, the deck, and the composer's seat, which the
-// composition root hands in. `timeline` is the full-screen transcript WINDOW — a
-// transcript pane moved into its own hardened `BrowserWindow`, loading the same renderer
-// bundle at a window route — so it mounts the pane alone: no deck around it, because an
-// auxiliary window holds one pane, and no composer, because the composer is the session
-// workspace's chrome and this window is not that workspace. The find bar is the pane's
-// own chrome and travels with it into that window.
+// The session's workspace screen: the session header, the pane layout, and the
+// composer's seat, which the composition root hands in.
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import { Nothing, SurfaceAbsence } from "@renderer/console/primitives/index.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import {
-  type ConsolePaneContext,
   type ConsoleSurfaceContext,
-  type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
 } from "@renderer/console/seats/index.js";
 import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
+import { TranscriptSurface } from "../TranscriptSurface.js";
 
 /**
  * What the composition root supplies this feature, because this file may not import it.
@@ -38,24 +27,26 @@ export interface TranscriptComposition {
 }
 
 /**
- * Claim the two surfaces the transcript mounts.
+ * Claim the workspace screen.
  *
- * Takes the registry rather than reaching for the module-scope singleton: a test
- * composes into a registry it owns and an auxiliary window composes a subset without a
- * second code path. The transcript's commands are registered by their own contribution,
- * `registerTranscriptCommands`, which the composition root calls beside this.
+ * Takes the registry rather than reaching for the module-scope singleton, so a test
+ * composes into a registry it owns. The transcript's commands are registered by their
+ * own contribution, `registerTranscriptCommands`, which the composition root calls
+ * beside this.
  */
 export function registerLedger(
   registry: ConsoleSurfaceRegistry,
   composition: TranscriptComposition,
 ): void {
-  for (const descriptor of ledgerSurfaces(composition)) {
-    registry.register(descriptor);
-  }
+  registry.register({
+    slot: "workspace",
+    owner: TRANSCRIPT_OWNER,
+    render: (context) => mountWorkspace(context, composition.workspace),
+  });
 }
 
 /**
- * The owner string every transcript claim carries, surfaces and pane alike.
+ * The owner string every transcript claim carries.
  *
  * One binding rather than a literal per descriptor: the surface registry's
  * duplicate policy is owner-scoped, so re-registering under the same owner replaces
@@ -63,15 +54,6 @@ export function registerLedger(
  * would make a hot reload a collision.
  */
 export const TRANSCRIPT_OWNER = "ledger";
-
-/**
- * The deck's single pane, while the deck holds exactly one.
- *
- * `ConsolePaneContext.paneId` is a pane's identity across a layout restore, so it is
- * a value rather than an index: the lane that ships the deck mints one per pane and
- * this constant retires with the single-pane arm.
- */
-const TRANSCRIPT_PANE_ID = "ledger-timeline";
 
 /**
  * What the workspace slot hands its body.
@@ -82,18 +64,6 @@ const TRANSCRIPT_PANE_ID = "ledger-timeline";
  * sessions reads the registry, and this one is handed the session it is a view of.
  */
 type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
-
-/** The two slots this feature claims, given the body the root composed in. */
-function ledgerSurfaces(composition: TranscriptComposition): readonly ConsoleSurfaceRegistration[] {
-  return [
-    {
-      slot: "workspace",
-      owner: TRANSCRIPT_OWNER,
-      render: (context) => mountWorkspace(context, composition.workspace),
-    },
-    { slot: "timeline", owner: TRANSCRIPT_OWNER, render: mountTranscriptPane },
-  ];
-}
 
 /**
  * Mount the session workspace: the session header, the deck, and the composer's seat.
@@ -117,8 +87,8 @@ function mountWorkspace(
 ): ReactNode {
   const sessionId = routeSessionId(context.route);
   return createElement(
-    "div",
-    { className: "meridian-ledger-surface" },
+    TranscriptSurface,
+    null,
     // ABOVE the workspace body and never in place of it. The refused arm says the
     // position this session was last read up to could not be resolved and the log was
     // re-read from the beginning of its window, which the surface below is unaffected
@@ -142,75 +112,4 @@ function mountWorkspace(
       paneRegistry: context.paneRegistry,
     }),
   );
-}
-
-/**
- * Mount the ledger's pane alone, through the deck's own door.
- *
- * The pane body is resolved from the pane registry rather than built here, which is one
- * entity opening one pane structurally — a single mount door and a tripwire that fails
- * on a second — applied at the only place a pane is mounted today. It is also what keeps
- * the body single-sourced: the descriptor `registerLedgerPanes` files is the one
- * composition of this pane, so this slot mounts it rather than building a second one.
- *
- * Resolution happens during render, on `RouteSurface`'s reasoning: the pane seat
- * board is composed at module scope before any window renders, so a descriptor is
- * there to be looked up on the first pass. The board read is the one on the context —
- * the board THIS composition filled — rather than the process-wide singleton, so a
- * window composed with its own board mounts its own body and not production's.
- */
-function mountTranscriptPane(context: ConsoleSurfaceContext): ReactNode {
-  const descriptor = context.paneRegistry.descriptorFor("timeline");
-  if (descriptor === undefined) {
-    // Reserved, not stubbed. Unreachable while the pane seat board composes this
-    // family, and rendered honestly rather than assumed away: the descriptor is
-    // resolved from a registry anything holding it can compose differently.
-    return createElement(
-      SurfaceAbsence,
-      null,
-      createElement(Nothing, {
-        kind: "empty",
-        placement: "surface",
-        title: "The ledger has no body to mount.",
-        detail: "No timeline pane is registered in this window.",
-      }),
-    );
-  }
-  return createElement(
-    "div",
-    // Keyed on the route's session, exactly as the workspace slot beside it is and
-    // for the same reason: this position holds strictly more per-session state —
-    // chapter disclosure, row retention, the reveal engine's lanes,
-    // the viewport's reading anchor and row leases, the find query, the pending jump
-    // — and moving between two already-open sessions re-renders it rather than
-    // unmounting it. The key is what makes the subtree's lifetime match the thing it
-    // holds state about.
-    { className: "meridian-ledger-surface", key: routeSessionId(context.route) ?? "no-session" },
-    descriptor.render(ledgerPaneContext(context)),
-  );
-}
-
-/**
- * What the single pane is handed.
- *
- * The `entity` member is OMITTED rather than passed as `undefined`: this timeline is
- * scoped to the session rather than to one of its entities, and an absent key is the
- * one way the address union says so. `focusHue` and `linkedSourcePaneId` are required
- * members carrying `undefined`, which is a different claim and a deliberate one — the
- * ring takes an actor's hue only where the pane's entity is a run or an agent, and this
- * pane was opened from a route rather than from another pane, so both are answered here
- * rather than left for a reader to guess whether anybody decided.
- */
-function ledgerPaneContext(context: ConsoleSurfaceContext): ConsolePaneContext {
-  return {
-    kind: "timeline",
-    paneId: TRANSCRIPT_PANE_ID,
-    bridge: context.bridge,
-    frameStore: context.frameStore,
-    sessionStore: context.sessionStore,
-    uiStateStore: context.uiStateStore,
-    draftStore: context.draftStore,
-    linkedSourcePaneId: undefined,
-    focusHue: undefined,
-  };
 }

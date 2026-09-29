@@ -65,7 +65,7 @@ describe("classifyNavigation", () => {
   it("admits a hash route on that origin", () => {
     expect(
       classifyNavigation(
-        "sidekicks-renderer://app/index.html#/window/timeline/0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+        "sidekicks-renderer://app/index.html#/session/0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
         RENDERER_ORIGINS,
       ),
     ).toEqual({ kind: "in-window" });

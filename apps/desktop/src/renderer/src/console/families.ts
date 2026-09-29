@@ -48,7 +48,7 @@ import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
-import { registerLedger } from "./ledger/index.js";
+import { registerLedger } from "@renderer/features/transcript/contributions/screens.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
 import { Workspace } from "./workspace/index.js";

@@ -6,10 +6,11 @@
  * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
  */
 
-/* --- disclosure triggers (the approval card, the callback tools) --------------- */
+/* --- quiet text controls (disclosure triggers, a message's Copy) --------------- */
 
 .meridian-approval-card__disclosure-trigger,
-.meridian-callback-tools__schema-trigger {
+.meridian-callback-tools__schema-trigger,
+.meridian-copy-button {
   padding: var(--meridian-space-1) 0;
   color: var(--meridian-text-muted);
   font: inherit;
@@ -21,7 +22,8 @@
 }
 
 .meridian-approval-card__disclosure-trigger:hover,
-.meridian-callback-tools__schema-trigger:hover {
+.meridian-callback-tools__schema-trigger:hover,
+.meridian-copy-button:hover {
   color: var(--meridian-text);
 }
 
@@ -59,7 +61,8 @@
 .meridian-grants__cancel:focus-visible,
 .meridian-approval-card__disclosure-trigger:focus-visible,
 .meridian-approval-card__scope-trigger:focus-visible,
-.meridian-callback-tools__schema-trigger:focus-visible {
+.meridian-callback-tools__schema-trigger:focus-visible,
+.meridian-copy-button:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }

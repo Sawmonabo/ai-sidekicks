@@ -1,14 +1,17 @@
-// Three families, one layout — and the edit affordance this card mounts on a user row.
+// Three families, one layout — and the controls this card mounts in a row's footer.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { inlineCardSeatRegistry, type InlineCardSeatProps } from "@renderer/console/seats/index.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
+import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
 
 function renderMessageCard(
   overrides: {
@@ -32,19 +35,21 @@ function renderMessageCard(
     throw new Error(`${row.type} is not a message kind`);
   }
   const { container } = render(
-    <MessageRow
-      row={row}
-      rowKind={rowKind}
-      actorHue={undefined}
-      isSuperseded={false}
-      density="expanded"
-      footnotes={new FootnoteRegistry()}
-      thinkingRow={overrides.reasoningSurface}
-      {...(overrides.content === undefined ? {} : { content: overrides.content })}
-      {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
-      {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-      editControl={overrides.editAffordance}
-    />,
+    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+      <MessageRow
+        row={row}
+        rowKind={rowKind}
+        actorHue={undefined}
+        isSuperseded={false}
+        density="expanded"
+        footnotes={new FootnoteRegistry()}
+        thinkingRow={overrides.reasoningSurface}
+        {...(overrides.content === undefined ? {} : { content: overrides.content })}
+        {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
+        {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
+        editControl={overrides.editAffordance}
+      />
+    </DesktopBridgeProvider>,
   );
   return container;
 }
@@ -104,27 +109,39 @@ describe("the three families this card serves", () => {
   });
 });
 
-describe("the edit affordance", () => {
-  it("renders the supplied element on a user row", () => {
+function buttonLabels(container: HTMLElement): readonly (string | null)[] {
+  return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
+}
+
+describe("the row's own controls", () => {
+  it("puts Copy before the supplied edit control on a user row", () => {
     const container = renderMessageCard({
       type: "user.message",
       editAffordance: <button type="button">Edit</button>,
     });
-    expect(container.querySelector("button")?.textContent).toBe("Edit");
+    expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
   });
 
-  it("renders nothing at all while none is supplied", () => {
+  it("offers only Copy on a user row while no edit control is supplied", () => {
     const container = renderMessageCard({ type: "user.message" });
-    expect(container.querySelector("button")).toBeNull();
+    expect(buttonLabels(container)).toStrictEqual(["Copy"]);
   });
 
-  it("offers none on a machine row", () => {
-    // The affordance edits a user's own boundary; a reply has none to edit.
+  it("offers Copy on a reply once it has text to copy", () => {
+    const container = renderMessageCard({
+      content: { status: "available", body: "here is the result" },
+    });
+    expect(buttonLabels(container)).toStrictEqual(["Copy"]);
+  });
+
+  it("offers nothing on a reply with no text yet, and never an edit control", () => {
+    // The edit control edits a user's own message; a reply has none to edit, and a
+    // reply with nothing read has nothing to copy.
     const container = renderMessageCard({
       type: "assistant.message",
       editAffordance: <button type="button">Edit</button>,
     });
-    expect(container.querySelector("button")).toBeNull();
+    expect(buttonLabels(container)).toStrictEqual([]);
   });
 });
 

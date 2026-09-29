@@ -5,8 +5,8 @@
  * eagerly registered workspace screen draws `.meridian-ledger-surface` before any pane
  * body has loaded.
  *
- *   • `.meridian-ledger-surface`, the workspace and full-screen transcript screens'
- *     wrapper (`contributions/screens.ts`).
+ *   • `.meridian-ledger-surface`, the workspace screen's wrapper (`TranscriptSurface.tsx`,
+ *     which imports this sheet).
  *   • `.meridian-ledger` and `.meridian-ledger__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
  *   • `.meridian-pane__feed`, the scroll container inside the box the pane chrome sizes.
