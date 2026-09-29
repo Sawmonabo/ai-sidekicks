@@ -14,7 +14,7 @@
 //
 // THE WATCHED SET INCLUDES THE TERMINAL HALF, NOT ONLY `workspace.stale`, the frame that
 // says a workspace BROKE: every frame that says one was repaired, archived, or
-// provisioned changes what a card draws. An explicit mode switch answers `provisioning`
+// provisioned changes what a card draws. An explicit mode switch answers `preparing`
 // with no execution root (the root does not exist yet), the daemon later emits
 // `workspace.ready` carrying it, and without that frame the section would keep drawing
 // the provisioning row until a focus, a reconnect, or another mutation arrived. The
@@ -31,7 +31,7 @@
 // asks the READING for a read when a transition carries ANY watched kind — once per
 // transition, not once per frame — and the scheduler behind that request coalesces it
 // into the window it is already holding. So a workspace that reprovisions through
-// `provisioning` and `ready`, and the five worktree transitions behind it, are one
+// `preparing` and `ready`, and the five worktree transitions behind it, are one
 // re-read rather than seven.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";

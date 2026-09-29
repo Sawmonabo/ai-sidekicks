@@ -349,7 +349,7 @@ export type WorkspaceServiceInvariantKind =
   /**
    * A daemon-internal caller asked for a transition the lifecycle does not
    * admit (reprovisioning an `archived` workspace, asserting writability on a
-   * `provisioning` one).
+   * `preparing` one).
    */
   | "illegal_state_transition"
   /**
@@ -747,16 +747,16 @@ export class WorkspaceService {
     // survives a detach; only its `state` moves), so without this predicate the
     // bind commits a workspace the cascade never archives, on a mount outside
     // the attached set. Zero rows changed aborts the prelude, which takes the
-    // `workspace.provisioning` event with it.
+    // `workspace.preparing` event with it.
     //
-    // Every bind lands `provisioning` with no root: the provisioner supplies
+    // Every bind lands `preparing` with no root: the provisioner supplies
     // the root through `completeRootPreparation`.
     this.#bindWorkspaceStmt = database.prepare(
       `INSERT INTO workspaces (
          id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
          created_at, updated_at
        )
-       SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'provisioning', '{}',
+       SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing', '{}',
               @now, @now
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
@@ -780,7 +780,7 @@ export class WorkspaceService {
     // makes `lastError` "present iff the workspace went `stale` from a recorded
     // failure" an EMITTER obligation on this module, and the documented retry
     // path is `failRootPreparation -> beginRootPreparation`: without this clause the
-    // `provisioning` row keeps advertising the PREVIOUS attempt's failure, and
+    // `preparing` row keeps advertising the PREVIOUS attempt's failure, and
     // a `markStale` from that state lands a `stale` row carrying a superseded
     // detail. Clearing only at completion fixes the success leg and leaves the
     // whole in-flight window wrong. See `#completeReprovisionStmt` for the
@@ -793,7 +793,7 @@ export class WorkspaceService {
       `UPDATE workspaces
           SET execution_mode = @execution_mode,
               fs_root = NULL,
-              state = 'provisioning',
+              state = 'preparing',
               metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
               updated_at = @now
         WHERE id = @workspace_id AND state IN ('ready', 'stale')`,
@@ -811,7 +811,7 @@ export class WorkspaceService {
               state = 'ready',
               metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
               updated_at = @now
-        WHERE id = @workspace_id AND state = 'provisioning'`,
+        WHERE id = @workspace_id AND state = 'preparing'`,
     );
 
     // `json_set` rather than a whole-blob rewrite: `metadata` is a shared blob
@@ -821,7 +821,7 @@ export class WorkspaceService {
           SET state = 'stale',
               metadata = json_set(metadata, '${LAST_ERROR_METADATA_PATH}', @last_error),
               updated_at = @now
-        WHERE id = @workspace_id AND state = 'provisioning'`,
+        WHERE id = @workspace_id AND state = 'preparing'`,
     );
 
     this.#failReprovisionWithoutDetailStmt = database.prepare(
@@ -829,7 +829,7 @@ export class WorkspaceService {
           SET state = 'stale',
               metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
               updated_at = @now
-        WHERE id = @workspace_id AND state = 'provisioning'`,
+        WHERE id = @workspace_id AND state = 'preparing'`,
     );
 
     // `busy` IS a legal predecessor — see the module header. `stale` is absent
@@ -842,7 +842,7 @@ export class WorkspaceService {
           SET state = 'stale',
               metadata = json_remove(metadata, '${HOLDING_RUN_ID_METADATA_PATH}'),
               updated_at = @now
-        WHERE id = @workspace_id AND state IN ('provisioning', 'ready', 'busy')`,
+        WHERE id = @workspace_id AND state IN ('preparing', 'ready', 'busy')`,
     );
 
     // The compare-and-swap IS the mutual exclusion: two concurrent runs both
@@ -878,7 +878,7 @@ export class WorkspaceService {
    * session → mount identity → mode capability → root reachability →
    * containment → write.
    *
-   * The workspace lands `provisioning` with `fs_root` NULL; the provisioner
+   * The workspace lands `preparing` with `fs_root` NULL; the provisioner
    * supplies the real root through {@link completeRootPreparation}. The requested
    * directory is still validated, because refusing an out-of-envelope request
    * before a provisioner is spawned is cheaper and safer than refusing after.
@@ -977,7 +977,7 @@ export class WorkspaceService {
     return {
       workspaceId: WorkspaceIdSchema.parse(workspaceId),
       executionMode: input.executionMode,
-      state: "provisioning",
+      state: "preparing",
     };
   }
 
@@ -1028,7 +1028,7 @@ export class WorkspaceService {
    * verdict.
    *
    * Scope is deliberate and narrow. `ready` and `busy` pass; `stale` raises
-   * `workspace.stale`; `provisioning` and `archived` raise a
+   * `workspace.stale`; `preparing` and `archived` raise a
    * {@link WorkspaceServiceInvariantError}, because no registered code names
    * them and inventing one is banned. `busy` passing is not a hole: the precise
    * `workspace.busy` refusal belongs to {@link markBusy}, which is the call that
@@ -1051,7 +1051,7 @@ export class WorkspaceService {
         return;
       case "stale":
         throw new WorkspaceStaleError(workspaceId);
-      case "provisioning":
+      case "preparing":
       case "archived":
         throw new WorkspaceServiceInvariantError(
           `workspace "${workspaceId}" cannot accept writes in state "${observedState}"`,
@@ -1144,7 +1144,7 @@ export class WorkspaceService {
   ): Promise<void> {
     assertAbsoluteExecutionRoot(fsRoot, workspaceId);
     const row = this.#requireWorkspaceRow(workspaceId);
-    this.#refuseIllegalPredecessor(row, ["provisioning"], "complete provisioning of");
+    this.#refuseIllegalPredecessor(row, ["preparing"], "complete provisioning of");
 
     const now = this.#now();
     await this.#events.emitWorkspaceReady({
@@ -1180,7 +1180,7 @@ export class WorkspaceService {
     options: { readonly actor?: string | null } = {},
   ): Promise<void> {
     const row = this.#requireWorkspaceRow(workspaceId);
-    this.#refuseIllegalPredecessor(row, ["provisioning"], "record a provisioning failure for");
+    this.#refuseIllegalPredecessor(row, ["preparing"], "record a provisioning failure for");
 
     const lastError = normalizeWorkspaceLastError(failureDetail);
     const now = this.#now();

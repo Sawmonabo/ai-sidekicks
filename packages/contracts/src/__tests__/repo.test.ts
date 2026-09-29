@@ -117,7 +117,7 @@ describe("ExecutionModeSchema (two-mode taxonomy)", () => {
 
 describe("WorkspaceStateSchema (the 5-value workspace lifecycle)", () => {
   it.each([
-    ["provisioning", true],
+    ["preparing", true],
     ["ready", true],
     ["busy", true],
     ["stale", true],
@@ -137,9 +137,9 @@ describe("RepoMountStateSchema (the 3-value mount lifecycle)", () => {
     ["attached", true],
     ["detached", true],
     ["archived", true],
-    // A fourth state. `provisioning` / `stale` are WORKSPACE states and a
+    // A fourth state. `preparing` / `stale` are WORKSPACE states and a
     // mount never occupies them.
-    ["provisioning", false],
+    ["preparing", false],
     ["stale", false],
   ])("parses %s -> %s", (candidate, shouldPass) => {
     expect(RepoMountStateSchema.safeParse(candidate).success).toBe(shouldPass);
@@ -334,7 +334,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
     ["attached (mount)", "attached", true],
     ["detached (mount)", "detached", true],
     ["archived (shared by both vocabularies)", "archived", true],
-    ["provisioning (workspace)", "provisioning", true],
+    ["preparing (workspace)", "preparing", true],
     ["ready (workspace)", "ready", true],
     ["busy (workspace)", "busy", true],
     ["stale (workspace)", "stale", true],
@@ -508,12 +508,12 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
     },
   );
 
-  it.each(["attached", "detached", "provisioning", "busy", "stale"])(
+  it.each(["attached", "detached", "preparing", "busy", "stale"])(
     "an instantiation REJECTS state a shared union would have admitted: %s",
     (state) => {
       // This is the finding. Adding `WorktreeStateSchema` as a third arm on
       // the shipped schema would have widened ALL eleven types at once, so a
-      // `worktree.retired` payload could claim `state: "provisioning"`.
+      // `worktree.retired` payload could claim `state: "preparing"`.
       // Parameterizing keeps each plan's accept set exactly its own.
       expect(worktreeLikePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success).toBe(
         false,
@@ -581,7 +581,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
     for (const state of [
       "attached",
       "detached",
-      "provisioning",
+      "preparing",
       "ready",
       "busy",
       "stale",
@@ -619,7 +619,7 @@ const REGISTERED_REPO_EVENTS: ReadonlyArray<
 > = [
   ["repo.attached", "attached"],
   ["repo.detached", "detached"],
-  ["workspace.provisioning", "provisioning"],
+  ["workspace.preparing", "preparing"],
   ["workspace.ready", "ready"],
   ["workspace.stale", "stale"],
   ["workspace.archived", "archived"],
@@ -855,9 +855,9 @@ describe("RepoAttachResponseSchema (resolved root required)", () => {
   it("still rejects a state outside the 3-value mount vocabulary", () => {
     // Negative control on the row above: non-narrowed is not unvalidated.
     expect(parseAttachResponse({ state: "exploded" }).success).toBe(false);
-    // `stale` and `provisioning` are WORKSPACE states and must not leak in.
+    // `stale` and `preparing` are WORKSPACE states and must not leak in.
     expect(parseAttachResponse({ state: "stale" }).success).toBe(false);
-    expect(parseAttachResponse({ state: "provisioning" }).success).toBe(false);
+    expect(parseAttachResponse({ state: "preparing" }).success).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to `canonicalRoot`", () => {
@@ -953,12 +953,12 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
     // The composed-enum leg, the same argument as the `health.status` rows
     // below: driven through the RESPONSE, these prove the projection composes
     // the canonical enums instead of re-spelling widened unions of its own.
-    // `hg` is the VCS a re-spell would plausibly admit; `provisioning` is a
+    // `hg` is the VCS a re-spell would plausibly admit; `preparing` is a
     // WORKSPACE state — the cross-vocabulary trap the attach block pins with
     // `stale`, and the reason `RepoMountState` and `WorkspaceState` must not be
     // conflated even though both carry an `archived` member.
     expect(parseMountReadResponse({ vcsType: "hg" }).success).toBe(false);
-    expect(parseMountReadResponse({ state: "provisioning" }).success).toBe(false);
+    expect(parseMountReadResponse({ state: "preparing" }).success).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to both response-side path fields", () => {
@@ -1102,11 +1102,11 @@ const buildBindRequest = () => ({
   directory: BIND_DIRECTORY,
 });
 
-// The bind's answer: the new workspace, still `provisioning`.
+// The bind's answer: the new workspace, still `preparing`.
 const buildProvisioningBindResponse = () => ({
   workspaceId: WORKSPACE_ID,
   executionMode: "provisioned-worktree" as const,
-  state: "provisioning" as const,
+  state: "preparing" as const,
 });
 
 // The git mount's answer: both modes, nothing restricted.
@@ -1278,8 +1278,8 @@ describe("WorkspaceBindResponseSchema", () => {
     },
   );
 
-  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
-    "carries the full WorkspaceState vocabulary, not a provisioning/ready literal — %s",
+  it.each(["preparing", "ready", "busy", "stale", "archived"])(
+    "carries the full WorkspaceState vocabulary, not a preparing/ready literal — %s",
     (state) => {
       // The wire doc types this field `WorkspaceState` with no narrowing. A
       // two-literal union would pass every other row in this block while
@@ -1556,7 +1556,7 @@ describe("WorkspaceList request/response (health + binding state)", () => {
     expect(WorkspaceListResponseSchema.safeParse({ workspaces: [renamed] }).success).toBe(false);
   });
 
-  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
+  it.each(["preparing", "ready", "busy", "stale", "archived"])(
     "exposes workspace health as the full `state` vocabulary — %s",
     (state) => {
       // `state` IS the health surface on this projection — not
@@ -1576,14 +1576,12 @@ describe("WorkspaceList request/response (health + binding state)", () => {
   it("exposes binding state — `executionMode` from the canonical set plus optional `fsRoot`", () => {
     expect(parseWorkspaceListItem({ executionMode: "bound-root" }).success).toBe(true);
     expect(parseWorkspaceListItem({ executionMode: "submodule" }).success).toBe(false);
-    // `fsRoot` is optional because a `provisioning` workspace has no
+    // `fsRoot` is optional because a `preparing` workspace has no
     // execution root yet.
-    const provisioning = { ...buildWorkspaceListItem() } as Record<string, unknown>;
-    delete provisioning["fsRoot"];
-    provisioning["state"] = "provisioning";
-    expect(WorkspaceListResponseSchema.safeParse({ workspaces: [provisioning] }).success).toBe(
-      true,
-    );
+    const preparing = { ...buildWorkspaceListItem() } as Record<string, unknown>;
+    delete preparing["fsRoot"];
+    preparing["state"] = "preparing";
+    expect(WorkspaceListResponseSchema.safeParse({ workspaces: [preparing] }).success).toBe(true);
     // GUARD-DOWNGRADE VISIBILITY on the optional path field.
     expect(parseWorkspaceListItem({ fsRoot: "" }).success).toBe(false);
   });
@@ -1765,7 +1763,7 @@ const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
 > = [
   ["repo.attached", "attached", contracts.RepoAttachedEventSchema],
   ["repo.detached", "detached", contracts.RepoDetachedEventSchema],
-  ["workspace.provisioning", "provisioning", contracts.WorkspacePreparingEventSchema],
+  ["workspace.preparing", "preparing", contracts.WorkspacePreparingEventSchema],
   ["workspace.ready", "ready", contracts.WorkspaceReadyEventSchema],
   ["workspace.stale", "stale", contracts.WorkspaceStaleEventSchema],
   ["workspace.archived", "archived", contracts.WorkspaceArchivedEventSchema],

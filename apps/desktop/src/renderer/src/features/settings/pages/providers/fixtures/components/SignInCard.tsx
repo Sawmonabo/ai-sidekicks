@@ -18,7 +18,7 @@ import type { SignInFlowState } from "../sign-in-flow.js";
  *
  * NOTHING HERE IS A VERDICT ABOUT THE ACCOUNT. The daemon runs the provider's own
  * unmodified sign-in binary and reads nothing it writes, so what this card reports is
- * the state of the FLOW: started, live, or cancelled. Whether the account
+ * the state of the FLOW: started, live, or canceled. Whether the account
  * ended up authenticated is a registry question, and the page says so in the same
  * breath rather than implying it.
  *

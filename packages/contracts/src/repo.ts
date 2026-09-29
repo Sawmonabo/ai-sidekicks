@@ -78,9 +78,9 @@ export const ExecutionModeSchema: z.ZodType<ExecutionMode> = z.enum([
 // are blocked until repair); `busy` is the run-hold position the `markBusy` /
 // `releaseBusy` primitives own. Aligned with the `workspaces.state` CHECK
 // constraint.
-export type WorkspaceState = "provisioning" | "ready" | "busy" | "stale" | "archived";
+export type WorkspaceState = "preparing" | "ready" | "busy" | "stale" | "archived";
 export const WorkspaceStateSchema: z.ZodType<WorkspaceState> = z.enum([
-  "provisioning",
+  "preparing",
   "ready",
   "busy",
   "stale",
@@ -171,7 +171,7 @@ export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
 // `EventEnvelope.payload` shape for every type: `{sessionId, repoMountId?,
 // workspaceId?, worktreeId?, state, actor?}`. That family registers ELEVEN
 // types under ONE payload shape — the six emits (`repo.attached`,
-// `repo.detached`, `workspace.provisioning`, `workspace.ready`,
+// `repo.detached`, `workspace.preparing`, `workspace.ready`,
 // `workspace.stale`, `workspace.archived`, registered into
 // `SessionEventSchema` by this task) plus the five `worktree.*` types
 // registers later against this SAME schema.
@@ -261,7 +261,7 @@ export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<
  *     and `tsc` does not flag it.
  *   • ACCEPT SET. One shared union widens ALL eleven types at once: a
  *     `workspace.archived` payload could then claim `state: "merged"`, and a
- *     `worktree.retired` could claim `"provisioning"`. Parameterizing keeps
+ *     `worktree.retired` could claim `"preparing"`. Parameterizing keeps
  *     each family's accept set exactly its own vocabulary.
  *   • A third arm makes every new emitter edit repo.ts, which is the edit
  *     the parameter exists to spare it.
@@ -737,7 +737,7 @@ export const WorkspaceBindResponseSchema: z.ZodType<WorkspaceBindResponse> = z
     // Echoed back from the request so the caller sees the mode the daemon
     // actually bound. Composes the full taxonomy, not a narrowing.
     executionMode: ExecutionModeSchema,
-    // The workspace's post-bind lifecycle position, `provisioning` until its
+    // The workspace's post-bind lifecycle position, `preparing` until its
     // root is prepared. Composes the full 5-value `WorkspaceStateSchema` and
     // is NOT narrowed to that literal: the
     // wire doc types the field `WorkspaceState` with no narrowing, and a
@@ -939,7 +939,7 @@ const workspaceListItemSchema = z
     // health is its lifecycle position: `stale` is the availability-loss
     // verdict requires every daemon read surface to expose.
     state: WorkspaceStateSchema,
-    // Optional because a `provisioning` workspace has no execution root yet;
+    // Optional because a `preparing` workspace has no execution root yet;
     // the root is filled in when it is prepared.
     fsRoot: wireFreeFormString(
       REPO_PATH_MAX_LEN,

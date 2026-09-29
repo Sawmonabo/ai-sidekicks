@@ -183,7 +183,7 @@ type _AssertExtends<A extends B, B> = A;
 // threat `capabilityProfileFor` closes for `vcs_type` with its `never` guard.
 const PROBE_BEARING_STATE_ROSTER = ["ready", "busy"] as const satisfies readonly WorkspaceState[];
 const NON_PROBE_BEARING_STATE_ROSTER = [
-  "provisioning",
+  "preparing",
   "stale",
   "archived",
 ] as const satisfies readonly WorkspaceState[];
@@ -210,7 +210,7 @@ type _AssertProbePolicyRostersAreDisjoint = _AssertExtends<
  * The three excluded states are excluded for three different reasons, and each
  * is load-bearing:
  *
- *   • `provisioning` — its execution root is in flux by definition (`fs_root`
+ *   • `preparing` — its execution root is in flux by definition (`fs_root`
  *     is updated as the switch completes). There is nothing stable to probe,
  *     and a failed probe of a half-provisioned root would report a fault
  *     where the model expects absence.

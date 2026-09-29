@@ -63,7 +63,7 @@ export interface MountInventoryCalls {
  * own census, so a kind the daemon never sends fails to compile.
  */
 const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
-  "workspace.provisioning",
+  "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",

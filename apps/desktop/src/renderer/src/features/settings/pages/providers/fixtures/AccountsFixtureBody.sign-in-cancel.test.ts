@@ -36,7 +36,7 @@ async function mountWithLiveSignIn(): Promise<MountedShell> {
     registry: ACCOUNT_REGISTRY,
     operations: accountPlaneCalls({
       login: PROVIDER_SIGN_IN_ATTEMPT,
-      cancel: { status: "cancelled" },
+      cancel: { status: "canceled" },
     }),
   });
   await act(async () => {
@@ -57,7 +57,7 @@ describe("the sign-in card, when a flow ends", () => {
     });
 
     expect(container.querySelector(SIGN_IN_CARD)).toBeNull();
-    expect(container.textContent).toContain("The sign-in was cancelled");
+    expect(container.textContent).toContain("The sign-in was canceled");
     expect(startControls(container).every((control) => control.disabled)).toBe(false);
     expect(requestRegistryRead).toHaveBeenCalledTimes(1);
   });

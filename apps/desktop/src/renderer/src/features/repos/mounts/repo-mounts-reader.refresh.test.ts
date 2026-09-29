@@ -99,7 +99,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
   });
 
   it("re-reads on the terminal frame a provisioning workspace settles with", async () => {
-    // The gap this closes: an accepted mode select answers `provisioning` with no
+    // The gap this closes: an accepted mode select answers `preparing` with no
     // execution root — the root does not exist yet — and the daemon emits
     // `workspace.ready` carrying it. Watching only `workspace.stale` left that reply
     // unread, so the row stayed provisioning until a focus, a reconnect, or another
@@ -150,7 +150,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
 
     sessionStore.applyBatch([
-      eventOfKind(SESSION_ID, "workspace.provisioning", 1),
+      eventOfKind(SESSION_ID, "workspace.preparing", 1),
       eventOfKind(SESSION_ID, "worktree.created", 2),
       eventOfKind(SESSION_ID, "worktree.ready", 3),
       eventOfKind(SESSION_ID, "workspace.ready", 4),

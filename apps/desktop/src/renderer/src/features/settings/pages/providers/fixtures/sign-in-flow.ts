@@ -158,7 +158,7 @@ export async function startProviderSignIn(
 /**
  * Cancel a sign-in that is still in flight.
  *
- * The reply's two statuses are kept apart on purpose. `cancelled` is the daemon
+ * The reply's two statuses are kept apart on purpose. `canceled` is the daemon
  * stopping a flow it was running; `notFound` is the daemon saying there was nothing to
  * stop, which is a real answer when the flow completed or expired between the press and
  * the call — and reporting it as a cancellation would tell an operator the console
@@ -172,8 +172,8 @@ export async function cancelSignIn(
   return {
     kind: "ended",
     because:
-      reply.status === "cancelled"
-        ? "The sign-in was cancelled. Nothing about this account has changed until the registry is read again."
+      reply.status === "canceled"
+        ? "The sign-in was canceled. Nothing about this account has changed until the registry is read again."
         : "There was no sign-in left to cancel — it had already finished or expired. Read the registry again to see what became of the account.",
   };
 }

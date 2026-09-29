@@ -49,7 +49,7 @@ function scriptedDaemon(
       return Promise.resolve({
         workspaceId: "workspace-new",
         executionMode: request.executionMode,
-        state: "provisioning",
+        state: "preparing",
       } as unknown as WorkspaceBindResponse);
     },
   };
@@ -156,7 +156,7 @@ describe("BindWorkspaceController — the bind itself", () => {
     ]);
     const { act: settlement } = controller.snapshot;
     expect(settlement.status).toBe("bound");
-    expect(settlement.status === "bound" && settlement.response.state).toBe("provisioning");
+    expect(settlement.status === "bound" && settlement.response.state).toBe("preparing");
   });
 
   it("refuses to put a second bind on the wire for one intent", async () => {

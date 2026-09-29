@@ -68,14 +68,14 @@
 //   1. `assertWritable` (see the residual on
 //                                      the open-bracket exemption)
 //   4. `bound-root` bind verification (`workspace.branch_mismatch`)
-//   ---- the workspace is now committed to `provisioning` ----
+//   ---- the workspace is now committed to `preparing` ----
 //   6. write `branch_contexts`
 //   7. `completeRootPreparation(workspaceId, root)`   |  `failRootPreparation(id, detail)`
 //   8. only when step 7 itself fails: compensate the root nothing will adopt
 //      (`#compensateOrphanedRoot`)
 //
 // Steps 1-4 are deliberately outside the try/catch. `failRootPreparation`'s only
-// legal predecessor is `provisioning`, so calling it from a pre-bracket refusal
+// legal predecessor is `preparing`, so calling it from a pre-bracket refusal
 // would trade a typed 4xx-shaped carrier for the anonymous invariant error —
 // the caller would learn that something went wrong instead of what.
 //
@@ -93,9 +93,9 @@
 //   only reading under which the primary paths work at all, and it costs nothing
 //   the gate was protecting — `stale` and `archived` are still refused, by the
 //   gate, on every closed-bracket prepare, and a `stale` workspace can never sit
-//   `provisioning` (states are exclusive). The rejected readings both lose more:
+//   `preparing` (states are exclusive). The rejected readings both lose more:
 //   gating unconditionally refuses every first-bind prepare, and widening
-//   `assertWritable` to admit `provisioning` would weaken a guard for every
+//   `assertWritable` to admit `preparing` would weaken a guard for every
 //   OTHER caller of it.
 //
 // - **`base_branch` for `bound-root` mode self-anchors.** Bound-root mode CUTS NOTHING.
@@ -278,11 +278,11 @@ export interface ExecutionRootWorktreeProvisioner {
 export interface WorkspaceLifecyclePrimitives {
   /** the gate. Passes `ready` / `busy`; refuses `stale`; defect otherwise. */
   assertWritable(workspaceId: string): Promise<void>;
-  /** `ready` | `stale` -> `provisioning`, releasing the old root. */
+  /** `ready` | `stale` -> `preparing`, releasing the old root. */
   beginRootPreparation(workspaceId: string, targetMode: ExecutionMode): Promise<void>;
-  /** `provisioning` -> `ready`, adopting `fsRoot`. */
+  /** `preparing` -> `ready`, adopting `fsRoot`. */
   completeRootPreparation(workspaceId: string, fsRoot: string): Promise<void>;
-  /** `provisioning` -> `stale`, recording `failureDetail` as `metadata.lastError`. */
+  /** `preparing` -> `stale`, recording `failureDetail` as `metadata.lastError`. */
   failRootPreparation(workspaceId: string, failureDetail: string): Promise<void>;
 }
 
@@ -707,7 +707,7 @@ export class ExecutionRootService {
    *
    * Steps 1-4 (gate, branch name, busy — the requester's hold and the reuse
    * candidate's, bind verification) run before the workspace is committed to
-   * `provisioning`, so every refusal among them leaves the row exactly as it
+   * `preparing`, so every refusal among them leaves the row exactly as it
    * was found.
    *
    * @throws {WorkspaceNotFoundError} when the workspace id does not resolve.
@@ -725,12 +725,12 @@ export class ExecutionRootService {
 
     // Bracket is ALREADY OPEN — this prepare is its provisioner. Two producers
     // land a workspace here: `repo.workspaceBind` (every bind is born
-    // `provisioning`), and a prior prepare whose swallowed `failRootPreparation` left
+    // `preparing`), and a prior prepare whose swallowed `failRootPreparation` left
     // the bracket open (see `#failRootPreparation`).
-    // `provisioning` is the one state that is both a lawful starting point and
+    // `preparing` is the one state that is both a lawful starting point and
     // outside `assertWritable`'s admitted set, so it drives BOTH the gate below
     // and the bracket further down — one predicate, because they are one fact.
-    const bracketAlreadyOpen = workspace.state === "provisioning";
+    const bracketAlreadyOpen = workspace.state === "preparing";
 
     // Normalized ONCE, here, and threaded from this point on — `input.runId` is not
     // read again below. Trimming at each use site was the bug: branch-name
@@ -746,12 +746,12 @@ export class ExecutionRootService {
     //
     // SKIPPED inside an open bracket, which is not a loophole but the only
     // reading that leaves this service usable. `assertWritable` admits `ready`
-    // and `busy` and raises the invariant error for `provisioning` — so calling
+    // and `busy` and raises the invariant error for `preparing` — so calling
     // it unconditionally would refuse every first-bind prepare, so the gate is
     // scoped to prepares that find the bracket closed.
     //
     // Nothing protective is lost. The gate exists to refuse `stale` and
-    // `archived`; `provisioning` is neither, and it is the state that says this
+    // `archived`; `preparing` is neither, and it is the state that says this
     // workspace's provisioning is in progress — which is what this call is.
     if (!bracketAlreadyOpen) {
       await this.#workspaces.assertWritable(workspace.id);
@@ -810,9 +810,9 @@ export class ExecutionRootService {
     }
 
     // The workspace is committed from here. An open bracket is ALREADY
-    // `provisioning`, and beginning again would fail that primitive's
+    // `preparing`, and beginning again would fail that primitive's
     // `ready`/`stale` compare-and-swap — so the closed-bracket case is the one
-    // that begins, not the open one. Either way the row is `provisioning`
+    // that begins, not the open one. Either way the row is `preparing`
     // below, which is what makes `failRootPreparation` legal on the catch.
     if (!bracketAlreadyOpen) {
       await this.#workspaces.beginRootPreparation(workspace.id, executionMode);
@@ -930,7 +930,7 @@ export class ExecutionRootService {
    * it.
    *
    * It could not come from `workspaces.fs_root` even if it were preferable:
-   * `beginRootPreparation` releases that column on the way into `provisioning`.
+   * `beginRootPreparation` releases that column on the way into `preparing`.
    *
    * `baseBranch` self-anchors — see the header's residual. Bound-root mode cuts
    * nothing, so there is no base to record that this module could observe.
@@ -1037,7 +1037,7 @@ export class ExecutionRootService {
       const worktreeId = materialized.worktreeId;
       // A REUSED candidate re-proves liveness inside this synchronous block —
       // the statement's docblock carries the race argument. A retirement that
-      // lands AFTER this block finds the pair row and a `provisioning`
+      // lands AFTER this block finds the pair row and a `preparing`
       // workspace, not a `busy` one, so it proceeds by ratified design; the
       // sweep's busy deferral and the root-keyed run-setup gate own that side. A
       // vanished row folds into `not_live`: no DELETE path exists on
@@ -1176,7 +1176,7 @@ export class ExecutionRootService {
    *
    * A throw from `failRootPreparation` is SWALLOWED. What the caller needs is the
    * original cause, and replacing it with a bookkeeping failure would hide the
-   * thing that actually went wrong. The workspace is left in `provisioning` —
+   * thing that actually went wrong. The workspace is left in `preparing` —
    * which is precisely the no-double-begin arm a later prepare handles, so the
    * next attempt still works.
    */
@@ -1192,7 +1192,7 @@ export class ExecutionRootService {
    * Undo a root this call materialized but could not hand over.
    *
    * `completeRootPreparation` is the last step, and a throw from it leaves the row
-   * `provisioning` with no `fs_root` while the worktree sits on disk.
+   * `preparing` with no `fs_root` while the worktree sits on disk.
    * Nothing reclaims that on its own: the sweep retires worktrees whose MOUNT
    * detached and cleans rows already `retired`, and an orphan on an attached mount
    * is in neither set — so the leak is permanent rather than eventual. That is why
@@ -1212,7 +1212,7 @@ export class ExecutionRootService {
    * completion it claims never happened. Retirement does not read it: its busy
    * probe refuses only while a `busy` workspace's current `fs_root` is the
    * worktree's directory (a join on `fs_root`), and this workspace sits
-   * `provisioning` with no `fs_root`. Retiring RECORDS the retirement and removes
+   * `preparing` with no `fs_root`. Retiring RECORDS the retirement and removes
    * nothing from disk; the sweep reclaims the root on a later tick, which is the
    * only lawful shape.
    *

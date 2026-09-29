@@ -704,7 +704,7 @@ function insertMount(repoMountId: string, canonicalRoot: string): void {
 /**
  * Seed a workspace directly.
  *
- * Raw INSERT rather than `WorkspaceService.bind`: a bind lands `provisioning`
+ * Raw INSERT rather than `WorkspaceService.bind`: a bind lands `preparing`
  * with no root, and these cases start from a workspace that already has one.
  * Every case that cares about a TRANSITION still drives the real primitives
  * through the service under test.

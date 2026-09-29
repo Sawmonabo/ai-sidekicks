@@ -2,7 +2,7 @@
 // mount and workspace state transition appends its event through.
 //
 //   • the six event types this module owns: `repo.attached`, `repo.detached`,
-//     `workspace.provisioning`, `workspace.ready`, `workspace.stale`,
+//     `workspace.preparing`, `workspace.ready`, `workspace.stale`,
 //     `workspace.archived`.
 //   • the repo-mount and workspace rows whose transitions these events
 //     witness.
@@ -104,7 +104,7 @@ type RepoWorkspaceEventName = RepoMountEventName | WorkspaceEventName;
 // the family (a name added to contracts and not paired here fails the build)
 // and confines its values to that half's state vocabulary — a workspace event
 // cannot be paired with `"attached"`, and a repo-mount event cannot be paired
-// with `"provisioning"`, because neither is a member of the other's union.
+// with `"preparing"`, because neither is a member of the other's union.
 // `RepoMountState` and `WorkspaceState` overlap only on `"archived"`, which
 // both halves legitimately use.
 //
@@ -118,7 +118,7 @@ const MOUNT_STATE_BY_EVENT_NAME = {
 } as const satisfies Record<RepoMountEventName, RepoMountState>;
 
 const WORKSPACE_STATE_BY_EVENT_NAME = {
-  "workspace.provisioning": "provisioning",
+  "workspace.preparing": "preparing",
   "workspace.ready": "ready",
   "workspace.stale": "stale",
   "workspace.archived": "archived",
@@ -263,7 +263,7 @@ export interface EmitWorkspaceEventInput extends WorkspaceEventEmitBase {
   // The workspace this event describes. Required, for the same reason.
   readonly workspaceId: string;
   // The mount this workspace binds to. Optional, and populated whenever the
-  // event carries the association: the BIRTH event (`workspace.provisioning`
+  // event carries the association: the BIRTH event (`workspace.preparing`
   // from bind, where the timeline first learns the workspace/mount pairing)
   // and the detach cascade's `workspace.archived`, which names the mount whose
   // detach caused the archival — a reader that only knows the mount would
@@ -322,9 +322,9 @@ export class WorkspaceEventEmitter {
     return this.#appendRepoMountEvent("repo.detached", input);
   }
 
-  /** Emit `workspace.provisioning` — the workspace's materialization began. */
+  /** Emit `workspace.preparing` — the workspace's materialization began. */
   async emitWorkspacePreparing(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {
-    return this.#appendWorkspaceEvent("workspace.provisioning", input);
+    return this.#appendWorkspaceEvent("workspace.preparing", input);
   }
 
   /** Emit `workspace.ready` — the workspace is usable for execution. */

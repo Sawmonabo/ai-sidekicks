@@ -515,7 +515,7 @@ describe("RunStateChangeEvent", () => {
       completionKind: "turn",
       intendedClose: true,
       executionPosture: { networkAccess: "none", writableRoots: ["/w"], mode: "trusted" },
-      trigger: "workflow_phase_cancelled",
+      trigger: "workflow_phase_canceled",
       parentRunId: PARENT_RUN_ID,
       internalHelper: false,
       admittedUnpricedCapCents: 500,

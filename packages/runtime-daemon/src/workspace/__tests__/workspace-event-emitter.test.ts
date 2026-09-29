@@ -99,7 +99,7 @@ const DAEMON_SIGNATURE_LEN: number = 64;
 const LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "repo.attached",
   "repo.detached",
-  "workspace.provisioning",
+  "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",
@@ -329,16 +329,16 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     });
   });
 
-  it("emitWorkspacePreparing appends one workspace.provisioning row in state provisioning", async () => {
+  it("emitWorkspacePreparing appends one workspace.preparing row in state provisioning", async () => {
     await makeEmitter().emitWorkspacePreparing({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
     });
 
-    expectPersistedPayload(readSingleRow("workspace.provisioning"), {
+    expectPersistedPayload(readSingleRow("workspace.preparing"), {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
-      state: "provisioning",
+      state: "preparing",
       // A system-driven transition: absent input actor narrows to null, the
       // wire form for "no user or agent did this".
       actor: null,

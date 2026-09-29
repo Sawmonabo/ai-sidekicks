@@ -124,7 +124,7 @@ const KNOWN_SESSIONS: SessionExistenceReader = {
 };
 
 /** What a bind the provisioner then completes appends, in order. */
-const READY_BIND_EVENTS: readonly string[] = ["workspace.provisioning", "workspace.ready"];
+const READY_BIND_EVENTS: readonly string[] = ["workspace.preparing", "workspace.ready"];
 
 interface StoredWorkspaceRow {
   readonly id: string;
@@ -487,7 +487,7 @@ describe("bind", () => {
     ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
   });
 
-  it("lands every bind in `provisioning` with no root, a valid directory included", async () => {
+  it("lands every bind in `preparing` with no root, a valid directory included", async () => {
     const response = await harness.service.bind({
       sessionId: SESSION_ID,
       repoMountId: GIT_MOUNT_ID,
@@ -495,17 +495,17 @@ describe("bind", () => {
       directory: "packages",
     });
 
-    expect(response.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(response.state).toBe("preparing" satisfies WorkspaceState);
 
     const row = readWorkspaceRow(response.workspaceId);
-    expect(row?.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(row?.state).toBe("preparing" satisfies WorkspaceState);
     // The validated root is DISCARDED rather than persisted: neither mode
     // executes in the requested directory, and storing it would hand an
     // approval scope the workspace never uses.
     expect(row?.fs_root).toBeNull();
     expect(row?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
     expect(row?.session_id).toBe(SESSION_ID);
-    expect(readEventTypes()).toEqual(["workspace.provisioning"]);
+    expect(readEventTypes()).toEqual(["workspace.preparing"]);
   });
 
   // -- Mount identity before envelope construction --
@@ -571,7 +571,7 @@ describe("bind", () => {
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
 
     // The whole write rolled back — no orphan row, and no
-    // `workspace.provisioning` announcing a workspace that does not exist.
+    // `workspace.preparing` announcing a workspace that does not exist.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
   });
@@ -591,9 +591,9 @@ describe("bind", () => {
       executionMode: "bound-root",
     });
 
-    expect(response.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(response.state).toBe("preparing" satisfies WorkspaceState);
     expect(countRows("workspaces")).toBe(1);
-    expect(readEventTypes()).toEqual(["workspace.provisioning"]);
+    expect(readEventTypes()).toEqual(["workspace.preparing"]);
   });
 
   // -- Reachability before containment --
@@ -676,7 +676,7 @@ describe("list", () => {
     expect(new Map(response.workspaces.map((entry) => [String(entry.id), entry.state]))).toEqual(
       new Map([
         [first, "ready"],
-        [String(second.workspaceId), "provisioning"],
+        [String(second.workspaceId), "preparing"],
         [third, "ready"],
       ]),
     );
@@ -899,7 +899,7 @@ describe("reprovision cycle", () => {
 
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     const midCycle = readWorkspaceRow(workspaceId);
-    expect(midCycle?.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(midCycle?.state).toBe("preparing" satisfies WorkspaceState);
     // The released root does not linger: would otherwise keep matching
     // approvals against a root the workspace no longer owns.
     expect(midCycle?.fs_root).toBeNull();
@@ -918,7 +918,7 @@ describe("reprovision cycle", () => {
     expect(afterCycle?.fs_root).toBe(worktreeRoot);
     expect(readEventTypes()).toEqual([
       ...READY_BIND_EVENTS,
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
     ]);
   });
@@ -952,7 +952,7 @@ describe("reprovision cycle", () => {
       expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
     }
     // Refused BEFORE the write, so the cycle is still open and retryable.
-    expect(readWorkspaceRow(workspaceId)?.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("preparing" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBeNull();
 
     // The negative control: a guard that refused everything would pass the loop
@@ -984,7 +984,7 @@ describe("reprovision cycle", () => {
     expect(lastError).toContain("fatal: could not read from");
     expect(readEventTypes()).toEqual([
       ...READY_BIND_EVENTS,
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.stale",
     ]);
   });
@@ -1014,13 +1014,13 @@ describe("reprovision cycle", () => {
 
     // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
-    // failure" an emitter obligation on this module, and a `provisioning` row is
+    // failure" an emitter obligation on this module, and a `preparing` row is
     // not that. Clearing only at completion would leave the whole in-flight
     // window advertising the PREVIOUS attempt's failure — and a `markStale` from
     // here would land a `stale` row carrying a superseded detail.
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
     const midRetry = await harness.service.list({ sessionId: SESSION_ID });
-    expect(midRetry.workspaces[0]?.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(midRetry.workspaces[0]?.state).toBe("preparing" satisfies WorkspaceState);
     expect(midRetry.workspaces[0]?.lastError).toBeUndefined();
 
     await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
@@ -1285,9 +1285,7 @@ describe("assertWritable", () => {
   });
 
   it("refuses provisioning and archived workspaces as internal invariant failures", async () => {
-    harness.db
-      .prepare("UPDATE workspaces SET state = 'provisioning' WHERE id = ?")
-      .run(workspaceId);
+    harness.db.prepare("UPDATE workspaces SET state = 'preparing' WHERE id = ?").run(workspaceId);
     const provisioningRefusal = await captureRejection(() =>
       harness.service.assertWritable(workspaceId),
     );
@@ -1529,7 +1527,7 @@ describe("run holds", () => {
   it("answers a lost hold race against any other state as an internal invariant", async () => {
     const reprovisionedUnderfoot = createService({
       probePath: interferingProbe(() => {
-        forceWorkspaceState(workspaceId, "provisioning");
+        forceWorkspaceState(workspaceId, "preparing");
       }, true),
     });
 
@@ -1541,7 +1539,7 @@ describe("run holds", () => {
     // and minting one is banned — so this reaches the wire anonymously.
     expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
     expect((refusal as WorkspaceServiceInvariantError).kind).toBe("illegal_state_transition");
-    expect(readWorkspaceRow(workspaceId)?.state).toBe("provisioning" satisfies WorkspaceState);
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("preparing" satisfies WorkspaceState);
   });
 });
 

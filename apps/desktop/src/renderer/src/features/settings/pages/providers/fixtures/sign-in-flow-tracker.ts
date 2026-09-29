@@ -27,7 +27,7 @@
 // words are composed here and the caller hands in the label it holds. Two spellings of
 // one fact drift apart, and the drift is invisible because both of them render.
 //
-// Exactly two things end a flow: a cancel that answered `cancelled` or `notFound`, and
+// Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
 // the registry's own tail reporting that attempt completed
 // ({@link SignInPlane.noteLoginCompleted}).
 
@@ -84,7 +84,7 @@ export interface SignInFlowTrackerOptions {
   /** Cancel the flow this plane is tracking. Likewise supplied by the caller. */
   readonly cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
   /**
-   * Called once a cancelled flow has settled, either way.
+   * Called once a canceled flow has settled, either way.
    *
    * The plane learns nothing about the ACCOUNT from a flow ending — the daemon reads
    * nothing the provider's login binary writes — so the only honest response is to ask
@@ -110,7 +110,7 @@ export class SignInFlowTracker {
    * Which flow this plane is on, through the console's one single-flight register.
    *
    * The key is held from the start that took it until the flow leaves the plane —
-   * ended or cancelled — so a settlement arriving for a round something has
+   * ended or canceled — so a settlement arriving for a round something has
    * superseded installs nothing and a disposed plane installs nothing at all.
    */
   readonly #flows = new GenerationLatch();
@@ -190,7 +190,7 @@ export class SignInFlowTracker {
   /**
    * Cancel the live flow.
    *
-   * `cancelled` and `notFound` are both the daemon telling this window there is no flow
+   * `canceled` and `notFound` are both the daemon telling this window there is no flow
    * of its making left, so both end the flow and free the key.
    */
   public cancel(): void {

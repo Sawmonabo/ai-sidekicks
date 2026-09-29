@@ -359,7 +359,7 @@ function createService(overrides: Partial<RepoMountServiceDeps> = {}): RepoMount
   });
 }
 
-/** Bind a `provisioning` workspace on a mount for `sessionId`, returning its id. */
+/** Bind a `preparing` workspace on a mount for `sessionId`, returning its id. */
 async function bindWorkspace(
   repoMountId: RepoMountId,
   sessionId: SessionId = SESSION_ID,
@@ -893,7 +893,7 @@ describe("RepoMountService.detach", () => {
       // The session's own bind, then its own archival — and nothing about the
       // other session's workspace or the mount itself.
       expect(readLifecycleEventTypes(sessionId)).toEqual([
-        "workspace.provisioning",
+        "workspace.preparing",
         "workspace.archived",
       ]);
       const archived = readLifecycleEnvelopes(sessionId).filter(
@@ -961,8 +961,8 @@ describe("RepoMountService.detach", () => {
 
     expect(response.archivedWorkspaceIds).toEqual([liveWorkspaceId]);
     expect(readLifecycleEventTypes()).toEqual([
-      "workspace.provisioning",
-      "workspace.provisioning",
+      "workspace.preparing",
+      "workspace.preparing",
       "workspace.archived",
     ]);
   });
@@ -1028,8 +1028,8 @@ describe("RepoMountService.detach", () => {
     // the one whose append ran after the failure. That identity is what proves
     // the loop continued rather than the first append having quietly succeeded.
     expect(readLifecycleEventTypes()).toEqual([
-      "workspace.provisioning",
-      "workspace.provisioning",
+      "workspace.preparing",
+      "workspace.preparing",
       "workspace.archived",
     ]);
     const archivedEnvelopes = readLifecycleEnvelopes().filter(
@@ -1109,10 +1109,10 @@ describe("RepoMountService.detach", () => {
     // claims to have archived nothing — because it did not.
     expect(response.state).toBe("detached");
     expect(response.archivedWorkspaceIds).toEqual([]);
-    expect(readLifecycleEventTypes()).toEqual(["workspace.provisioning"]);
+    expect(readLifecycleEventTypes()).toEqual(["workspace.preparing"]);
     // The compare-and-swap aborted the whole transaction, so the cascade's
     // archive write rolled back with it.
-    expect(requireWorkspaceRow(workspaceId).state).toBe("provisioning");
+    expect(requireWorkspaceRow(workspaceId).state).toBe("preparing");
   });
 });
 

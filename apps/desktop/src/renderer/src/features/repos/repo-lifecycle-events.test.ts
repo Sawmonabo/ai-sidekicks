@@ -27,7 +27,7 @@ describe("repo lifecycle events — the frames this family watches", () => {
     // section draws: the mount list, the workspace state and its execution root, or an
     // execution root.
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.ready");
-    expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.provisioning");
+    expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.preparing");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.archived");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("worktree.retired");
   });

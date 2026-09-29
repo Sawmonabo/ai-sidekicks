@@ -196,7 +196,7 @@ function renderModes(
  * What the bind did.
  *
  * The bind answers with the mode it bound and the workspace's state, and no root: a
- * `provisioning` answer is a bind that worked, and the card reports the root from the
+ * `preparing` answer is a bind that worked, and the card reports the root from the
  * workspace list once it exists.
  */
 function renderSettlement(reading: BindReading): React.JSX.Element | null {

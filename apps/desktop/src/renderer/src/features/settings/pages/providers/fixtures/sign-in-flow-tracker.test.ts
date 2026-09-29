@@ -56,7 +56,7 @@ function planeOverServedCalls(): {
   const onFlowSettled = vi.fn();
   const calls = accountPlaneCalls({
     login: PROVIDER_SIGN_IN_ATTEMPT,
-    cancel: { status: "cancelled" },
+    cancel: { status: "canceled" },
   });
   return { plane: planeOver(calls, onFlowSettled), calls, onFlowSettled };
 }
@@ -134,7 +134,7 @@ describe("SignInPlane", () => {
     expect(plane.snapshot().flow.kind).toBe("live");
   });
 
-  it("offers the plane again once the running flow has been cancelled", async () => {
+  it("offers the plane again once the running flow has been canceled", async () => {
     const { plane, onFlowSettled } = planeOverServedCalls();
 
     plane.start(RUNNING_ACCOUNT_ID);

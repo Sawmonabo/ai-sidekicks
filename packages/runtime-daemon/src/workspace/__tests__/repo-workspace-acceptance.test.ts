@@ -637,10 +637,10 @@ describe("one session binds workspaces across multiple repo mounts", () => {
       executionMode: "provisioned-worktree",
     });
 
-    // Every bind lands `provisioning` with no execution root yet: the
+    // Every bind lands `preparing` with no execution root yet: the
     // provisioner supplies the root that ends the cycle.
     for (const bound of [rootWorkspace, subdirectoryWorkspace, betaWorkspace]) {
-      expect(bound.state).toBe("provisioning");
+      expect(bound.state).toBe("preparing");
       expect(requireWorkspaceRow(bound.workspaceId).fs_root).toBeNull();
     }
 
@@ -660,9 +660,9 @@ describe("one session binds workspaces across multiple repo mounts", () => {
       ),
     ).toEqual(
       new Map([
-        [String(rootWorkspace.workspaceId), ["bound-root", "provisioning"]],
-        [String(subdirectoryWorkspace.workspaceId), ["provisioned-worktree", "provisioning"]],
-        [String(betaWorkspace.workspaceId), ["provisioned-worktree", "provisioning"]],
+        [String(rootWorkspace.workspaceId), ["bound-root", "preparing"]],
+        [String(subdirectoryWorkspace.workspaceId), ["provisioned-worktree", "preparing"]],
+        [String(betaWorkspace.workspaceId), ["provisioned-worktree", "preparing"]],
       ]),
     );
 
@@ -706,7 +706,7 @@ describe("the full-lifecycle event sequence", () => {
       repoMountId: alpha.repoMountId,
       executionMode: "provisioned-worktree",
     });
-    expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("provisioning");
+    expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("preparing");
     await harness.stack.workspaces.completeRootPreparation(
       alphaWorkspace.workspaceId,
       harness.provisionedWorktreeRoot,
@@ -735,8 +735,8 @@ describe("the full-lifecycle event sequence", () => {
     ).toEqual(
       new Map([
         [String(alphaWorkspace.workspaceId), "stale"],
-        [String(subdirectoryWorkspace.workspaceId), "provisioning"],
-        [String(betaWorkspace.workspaceId), "provisioning"],
+        [String(subdirectoryWorkspace.workspaceId), "preparing"],
+        [String(betaWorkspace.workspaceId), "preparing"],
       ]),
     );
 
@@ -774,10 +774,10 @@ describe("the full-lifecycle event sequence", () => {
     // The mount itself announces nothing; each archival follows the commit
     // that made it true.
     expect(readLifecycleEventTypes()).toEqual([
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
-      "workspace.provisioning",
-      "workspace.provisioning",
+      "workspace.preparing",
+      "workspace.preparing",
       "workspace.stale",
       "workspace.archived",
       "workspace.archived",
@@ -799,7 +799,7 @@ describe("the full-lifecycle event sequence", () => {
 
     // The cascade stopped at the mount boundary.
     expect(requireMountRow(beta.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(betaWorkspace.workspaceId).state).toBe("provisioning");
+    expect(requireWorkspaceRow(betaWorkspace.workspaceId).state).toBe("preparing");
     expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("archived");
     expect(requireWorkspaceRow(subdirectoryWorkspace.workspaceId).state).toBe("archived");
   });
@@ -820,9 +820,9 @@ describe("a mode switch reprovisions IN PLACE", () => {
 
     await harness.stack.workspaces.beginRootPreparation(workspaceId, "provisioned-worktree");
     const midCycle = requireWorkspaceRow(workspaceId);
-    expect(midCycle.state).toBe("provisioning");
+    expect(midCycle.state).toBe("preparing");
     expect(midCycle.execution_mode).toBe("provisioned-worktree");
-    // The old root is dropped the moment the switch begins: a `provisioning`
+    // The old root is dropped the moment the switch begins: a `preparing`
     // row still advertising the previous execution root would hand a run a
     // path the new mode does not use.
     expect(midCycle.fs_root).toBeNull();
@@ -855,11 +855,11 @@ describe("a mode switch reprovisions IN PLACE", () => {
 
     // One event per transition: the first provisioning, then both cycles.
     expect(readLifecycleEventTypes()).toEqual([
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
     ]);
   });
@@ -938,9 +938,9 @@ describe("a root that vanishes makes its workspace stale", () => {
 
     // ONE `workspace.stale`, across three read surfaces and two probes.
     expect(readLifecycleEventTypes()).toEqual([
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
-      "workspace.provisioning",
+      "workspace.preparing",
       "workspace.ready",
       "workspace.stale",
     ]);

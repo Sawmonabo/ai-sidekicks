@@ -646,7 +646,7 @@ describe("mode dispatch", () => {
   });
 
   it("provisioned-worktree mode delegates to and reports the created root", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -750,7 +750,7 @@ describe("pre-bracket refusals", () => {
     // The negative control for the case above AND for the fallback below: an
     // empty string is not a run id, and letting it through would answer a caller
     // error with `worktree.create_failed`'s underivable-name defect instead.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const rejection = await captureRejection(() =>
       makeService().prepare({ workspaceId: WORKSPACE_ID, runId: "   " }),
@@ -781,7 +781,7 @@ describe("pre-bracket refusals", () => {
   it("refuses when the workspace's mount is no longer attached", async () => {
     // A detached mount is not a provisioning target, and the refusal lands before
     // the bracket so a re-attach is all the repair a caller needs.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
 
     const rejection = await captureRejection(() =>
@@ -790,7 +790,7 @@ describe("pre-bracket refusals", () => {
 
     expect(rejection).toBeInstanceOf(RepoMountNotFoundError);
     expect(ctx.worktrees.createInputs).toHaveLength(0);
-    expect(readWorkspaceRow().state).toBe("provisioning");
+    expect(readWorkspaceRow().state).toBe("preparing");
   });
 });
 
@@ -875,7 +875,7 @@ describe("git invocation", () => {
 
 describe("branch-name resolution", () => {
   it("derives the run-<short-8> fallback and hands the mode service an explicit name", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID, runId: RUN_ID });
 
@@ -890,7 +890,7 @@ describe("branch-name resolution", () => {
   it("passes a supplied branchName through verbatim (negative control)", async () => {
     // Without this, "the fallback fired" is indistinguishable from "the service
     // always derives".
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -904,7 +904,7 @@ describe("branch-name resolution", () => {
   });
 
   it("normalizes a padded runId ONCE, for the branch and for the delegated call", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -928,7 +928,7 @@ describe("request pass-through", () => {
   it("passes an explicit onCollision to the create", async () => {
     // The negative control for the `refuse` default asserted in mode dispatch:
     // without this, "defaults to refuse" and "ignores the field" look identical.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -947,7 +947,7 @@ describe("request pass-through", () => {
       branchName: FEATURE_BRANCH,
       fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -994,7 +994,7 @@ describe("explicit worktree reuse", () => {
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
       executionMode: "provisioned-worktree",
-      state: "provisioning",
+      state: "preparing",
     });
     const prepared = await makeService().prepare({
       workspaceId: OTHER_WORKSPACE_ID,
@@ -1024,7 +1024,7 @@ describe("explicit worktree reuse", () => {
   });
 
   it("refreshes the pair row when a workspace re-binds a worktree it created", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     const service = makeService();
 
     // The full round trip: create writes the pair row, then a later reuse must
@@ -1093,7 +1093,7 @@ describe("explicit worktree reuse", () => {
       branchName: FEATURE_BRANCH,
       fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const rejection = await captureRejection(() =>
       makeService().prepare({
@@ -1138,7 +1138,7 @@ describe("explicit worktree reuse", () => {
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
       executionMode: "provisioned-worktree",
-      state: "provisioning",
+      state: "preparing",
     });
 
     const rejection = await captureRejection(() =>
@@ -1159,7 +1159,7 @@ describe("explicit worktree reuse", () => {
     const requesterState = ctx.db
       .prepare<[string], { state: string }>(`SELECT state FROM workspaces WHERE id = ?`)
       .get(OTHER_WORKSPACE_ID);
-    expect(requesterState?.state).toBe("provisioning");
+    expect(requesterState?.state).toBe("preparing");
   });
 
   it("ignores a busy-held reuse candidate on a bound-root prepare (inert field)", async () => {
@@ -1202,7 +1202,7 @@ describe("explicit worktree reuse", () => {
       branchName: FEATURE_BRANCH,
       fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1246,7 +1246,7 @@ describe("explicit worktree reuse", () => {
 
 describe("branch_contexts polymorphism", () => {
   it("writes a worktree-referencing row for provisioned-worktree mode", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1258,7 +1258,7 @@ describe("branch_contexts polymorphism", () => {
   });
 
   it("writes a root-less row for bound-root mode, one per prepare", async () => {
-    insertWorkspace({ executionMode: "bound-root", state: "provisioning" });
+    insertWorkspace({ executionMode: "bound-root", state: "preparing" });
     ctx.git.headBranch = FEATURE_BRANCH;
     const service = makeService();
 
@@ -1306,7 +1306,7 @@ describe("the reprovision bracket", () => {
     expect(prepared.state).toBe("ready");
     // The bracket rode primitives, which is what put these on the timeline. A
     // raw row write would have produced neither.
-    expect(readEventTypes()).toEqual(["workspace.provisioning", "workspace.ready"]);
+    expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.ready"]);
   });
 
   it("fail-reprovisions on a materialization failure and records the detail", async () => {
@@ -1327,15 +1327,15 @@ describe("the reprovision bracket", () => {
     expect(row.state).toBe("stale");
     expect(row.fs_root).toBeNull();
     expect(readWorkspaceLastError()).toContain("worktree.create_failed");
-    expect(readEventTypes()).toEqual(["workspace.provisioning", "workspace.stale"]);
+    expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.stale"]);
     // Nothing half-written: the branch context is on the same side of the failure.
     expect(readBranchContexts()).toHaveLength(0);
   });
 
   it("does not double-begin a first-bind workspace", async () => {
-    // A bind lands `provisioning` and stays there for this call, so
+    // A bind lands `preparing` and stays there for this call, so
     // beginning again would fail the `ready | stale` compare-and-swap.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1343,7 +1343,7 @@ describe("the reprovision bracket", () => {
     });
 
     expect(readWorkspaceRow().fs_root).toBe(prepared.executionRoot);
-    // ONLY the completion is evented: no second `workspace.provisioning`.
+    // ONLY the completion is evented: no second `workspace.preparing`.
     expect(readEventTypes()).toEqual(["workspace.ready"]);
   });
 
@@ -1363,11 +1363,11 @@ describe("the reprovision bracket", () => {
     );
 
     // The materialization failure, not the bookkeeping one. What the caller needs
-    // is the thing that actually went wrong, and a workspace left in `provisioning`
+    // is the thing that actually went wrong, and a workspace left in `preparing`
     // is the open-bracket arm a later prepare already handles.
     expect(rejection).toBe(failure);
     expect(rejection).not.toBe(bookkeepingFailure);
-    expect(readWorkspaceRow().state).toBe("provisioning");
+    expect(readWorkspaceRow().state).toBe("preparing");
   });
 });
 
@@ -1390,7 +1390,7 @@ describe("compensation", () => {
     // Without compensation this leaks permanently: the sweep retires worktrees
     // whose MOUNT detached and cleans rows already `retired`, and an orphan on an
     // attached mount is in neither set.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     const failure = new Error(COMPLETION_FAILURE_MESSAGE);
 
     const rejection = await captureRejection(() =>
@@ -1422,7 +1422,7 @@ describe("compensation", () => {
       branchName: FEATURE_BRANCH,
       fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1447,7 +1447,7 @@ describe("compensation", () => {
   });
 
   it("still reports the completion failure when the compensation itself fails", async () => {
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     const failure = new Error(COMPLETION_FAILURE_MESSAGE);
     ctx.worktrees.retireFailure = new Error("retire could not reach the database either");
 
@@ -1484,7 +1484,7 @@ describe("compensation", () => {
       baseBranch: SEEDED_BASE_BRANCH,
       headBranch: FEATURE_BRANCH,
     });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
 
     const rejection = await captureRejection(() =>
       // The id source collides with the seeded row, so the context INSERT
@@ -1518,7 +1518,7 @@ describe("no raw workspaces write", () => {
     // With the primitives replaced by recording no-ops, any
     // change to the row could only have come from this module's own SQL — so an
     // unchanged row is a direct observation, not a proxy for one.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
     const before = readWorkspaceRow();
 
     const calls: string[] = [];

@@ -696,7 +696,7 @@ describe("request/response pairs", () => {
     expect(
       ProviderAccountLoginCancelRequestSchema.safeParse({ attemptId: "attempt_1" }).success,
     ).toBe(true);
-    for (const status of ["cancelled", "notFound"]) {
+    for (const status of ["canceled", "notFound"]) {
       expect(ProviderAccountLoginCancelResponseSchema.safeParse({ status }).success).toBe(true);
     }
     // `notFound` is an outcome, not an error, so there is no third arm standing
@@ -834,7 +834,7 @@ describe("request/response pairs", () => {
         accountId: ACCOUNT_ID,
       }).success,
     ).toBe(true);
-    for (const outcome of ["succeeded", "failed", "cancelled"]) {
+    for (const outcome of ["succeeded", "failed", "canceled"]) {
       expect(
         ProviderAccountNotificationSchema.safeParse({
           kind: "login_completed",

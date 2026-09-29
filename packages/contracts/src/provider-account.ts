@@ -1165,13 +1165,13 @@ export const ProviderAccountLoginCancelRequestSchema: z.ZodType<
   })
   .strict();
 
-const PROVIDER_LOGIN_CANCEL_STATUS_VALUES = ["cancelled", "notFound"] as const;
+const PROVIDER_LOGIN_CANCEL_STATUS_VALUES = ["canceled", "notFound"] as const;
 
 /**
  * Cancellation is a FIRST-CLASS OUTCOME, not an abandonment: a broker that
  * could only be abandoned would leave a provider-side login slot occupied until
  * it timed out. `notFound` is the honest arm for an attempt that already
- * completed, already cancelled, or never existed — it is NOT an error, because
+ * completed, already canceled, or never existed — it is NOT an error, because
  * a client racing a completion should not see a refusal for losing the race.
  */
 export type ProviderLoginCancelStatus = (typeof PROVIDER_LOGIN_CANCEL_STATUS_VALUES)[number];
@@ -1214,7 +1214,7 @@ export const ProviderAccountSubscribeRequestSchema: z.ZodType<
   ProviderAccountSubscribeRequest
 > = z.object({}).strict();
 
-const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "cancelled"] as const;
+const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "canceled"] as const;
 
 export type ProviderLoginOutcome = (typeof PROVIDER_LOGIN_OUTCOME_VALUES)[number];
 export const PROVIDER_LOGIN_OUTCOMES: readonly ProviderLoginOutcome[] =
