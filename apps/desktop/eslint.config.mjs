@@ -348,22 +348,25 @@ const SCREENSHOT_MATCHER_REACH = {
 };
 
 /**
- * A stylesheet imported by a component rather than by its feature's entry.
+ * A stylesheet imported from another folder.
  *
- * Relative specifiers only: the rule is about the sheets this tree owns, and a vendor
- * sheet reached by package specifier has no owning directory here to enter through.
+ * A component imports its own sheet from its own folder, so importing the component
+ * brings its styles. Relative and `@renderer/` specifiers only: a vendor sheet reached by
+ * package specifier has no owning folder here.
  *
  * A TRAILING QUERY IS STILL THE SHEET. `./x.css?inline` and `./x.css?raw` are bundler
  * spellings of the same import, and an `$`-anchored `.css` match walks straight past
  * them. And the DYNAMIC form carries the sheet exactly as the static one does — the
  * chunk it lands on is the chunk the component is on — so both declarations are named.
  */
-const RELATIVE_STYLESHEET_SPECIFIER = "^[.][.]?[/].*[.]css(?:[?].*)?$";
+const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|@renderer[/]).*[.]css(?:[?].*)?$";
+const SAME_FOLDER_STYLESHEET_SPECIFIER = "^[.][/][^/?]+[.]css(?:[?].*)?$";
+const STYLESHEET_OUTSIDE_FOLDER_SPECIFIER = `[source.value=/${STYLESHEET_SPECIFIER}/]:not([source.value=/${SAME_FOLDER_STYLESHEET_SPECIFIER}/])`;
 
 const STYLESHEET_THROUGH_OWNER = {
-  selector: `:matches(ImportDeclaration[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/], ImportExpression[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/])`,
+  selector: `:matches(ImportDeclaration${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER}, ImportExpression${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER})`,
   message:
-    "The stylesheet rule in `apps/desktop/AGENTS.md`: a sheet sits beside its component, and its import sits in one ordered list at the feature's `index.ts` or at the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — never in a component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
+    "The stylesheet rule in `apps/desktop/AGENTS.md`: a component imports its own sheet from its own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another folder's sheet puts that surface's rules wherever the module loads.",
 };
 
 /**
@@ -446,13 +449,13 @@ function withoutSelectors(bans, ...liftedBans) {
   return bans.filter((ban) => !liftedBans.includes(ban));
 }
 
-/** The stylesheet entries: a feature's `index.ts`, and the root of a lazily-loaded chunk. */
-const STYLESHEET_OWNER_FILES = ["**/index.ts", "**/*-body.{ts,tsx}"];
+/** The files that may import a sheet from another folder: a lazily-loaded chunk root, and the renderer entry for the global sheets. */
+const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
 
 /**
  * Held open while the restructure places them, and removed one by one as each is placed:
  * modules that validate with `zod` or a contracts schema outside `services/`, and the
- * sessions door that still imports its sheets. The list only shrinks.
+ * barrels that still import sheets from other folders. The list only shrinks.
  */
 const WIRE_PARSE_HELD_FILES = [
   "src/renderer/src/store/session-events/approval-flow-projection.ts",
@@ -462,7 +465,32 @@ const WIRE_PARSE_HELD_FILES = [
   "src/renderer/src/store/provider-accounts/provider-account-fold.test.ts",
   "src/renderer/src/store/provider-accounts/provider-account-notification-hold.test.ts",
 ];
-const STYLESHEET_HELD_FILES = ["src/renderer/src/features/sessions/contributions/screens.ts"];
+const STYLESHEET_HELD_FILES = [
+  "src/renderer/src/console/ledger/cards/markdown/index.ts",
+  "src/renderer/src/console/ledger/cards/tool-families/index.ts",
+  "src/renderer/src/console/ledger/frame/index.ts",
+  "src/renderer/src/console/ledger/index.ts",
+  "src/renderer/src/console/ledger/pane/window/index.ts",
+  "src/renderer/src/console/ledger/structure/index.ts",
+  "src/renderer/src/console/ledger/structure/seams/index.ts",
+  "src/renderer/src/console/palette/index.ts",
+  "src/renderer/src/console/primitives/absence/index.ts",
+  "src/renderer/src/console/primitives/figures/index.ts",
+  "src/renderer/src/console/primitives/index.ts",
+  "src/renderer/src/console/repos/diff-pane/index.ts",
+  "src/renderer/src/console/repos/index.ts",
+  "src/renderer/src/console/seats/index.ts",
+  "src/renderer/src/console/sessions/notifications/index.ts",
+  "src/renderer/src/console/workflows/destination/index.ts",
+  "src/renderer/src/console/workflows/index.ts",
+  "src/renderer/src/console/workflows/pane/run/index.ts",
+  "src/renderer/src/console/workspace/index.ts",
+  "src/renderer/src/features/sessions/contributions/screens.ts",
+  "src/renderer/src/shell/composer/accessories/index.ts",
+  "src/renderer/src/shell/composer/commands/index.ts",
+  "src/renderer/src/shell/composer/commands/workflow-start/index.ts",
+  "src/renderer/src/shell/index.ts",
+];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
 const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
@@ -693,9 +721,13 @@ export default [
     rules: { "no-restricted-syntax": ["error", ...RENDERER_SYNTAX_BANS] },
   },
   {
-    // The stylesheet entries: a feature's `index.ts` and the root of a lazily-loaded
-    // chunk are where a sheet is SUPPOSED to be imported.
-    files: [...rendererFiles("**", STYLESHEET_OWNER_FILES), ...STYLESHEET_HELD_FILES],
+    // A chunk root imports the feature-wide sheets its body needs, and `main.tsx` the
+    // global ones in `styles/`.
+    files: [
+      ...rendererFiles("**", STYLESHEET_OWNER_FILES),
+      "src/renderer/src/main.tsx",
+      ...STYLESHEET_HELD_FILES,
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",

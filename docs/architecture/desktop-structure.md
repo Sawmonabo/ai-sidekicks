@@ -147,6 +147,11 @@ The fixture system conforms to production boundaries and never defines them.
 
 The CSS is plain CSS on global design tokens. A component's `.css` sits beside it, and the tokens live in `styles/`. No `*.module.css` file is created.
 
+- **A component imports its own stylesheet.** `ChordHint.tsx` imports `./ChordHint.css`, so importing the component brings its styles; no `index.ts` exists only to load a sheet.
+- **A sheet that styles several components of one feature stays whole** and is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`).
+- **A global sheet lives in `styles/` and is imported by `main.tsx`**: a utility class, or a treatment several shared components compose.
+- **No file imports another folder's sheet**, except a chunk root and `main.tsx`.
+
 - **One CSS class has one owning stylesheet.** Two sheets that declare the same class at equal specificity are resolved by load order, so which rules win depends on which surface loaded first.
 - **A shared component owns every rule for its own classes.** A feature that needs a variation uses the component's supported modifier, `data-*` attribute or custom property; it never restyles the shared class from another sheet.
 - **A feature-private class carries the feature's name as its prefix** when it is new or is already being renamed with the concept it names. An otherwise-correct existing class is not renamed only to add a prefix.
@@ -171,6 +176,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 
 - `.dependency-cruiser.mjs` (`structure:layering`) enforces the import direction, feature isolation and the fixture import boundary.
 - `.dependency-cruiser.mjs` also keeps the main process and the preload from importing renderer code; a value both sides need lives in `src/shared/`.
+- ESLint (`lint`, `eslint.config.mjs`) refuses a stylesheet import that reaches another folder, outside a chunk root and `main.tsx`.
 - ESLint's restricted imports (`lint`, configured in `eslint.config.mjs`) keep the renderer from reaching `main/` or `preload/`, relatively or through `@main` and `@preload`, and from importing Electron, Node builtins or the daemon and control-plane packages.
 - knip (`structure:dead-code`, configured in the root `knip.json`) reports unused files and exports.
 
