@@ -600,12 +600,6 @@ export const WorkflowDefinitionImportRequestSchema: z.ZodType<
   })
   .strict();
 
-/** The `workflow.definitionImport` result: the created definition, as a create answers. */
-export type WorkflowDefinitionImportResponse = WorkflowDefinitionCreateResponse;
-/** Wire schema for {@link WorkflowDefinitionImportResponse}. */
-export const WorkflowDefinitionImportResponseSchema: z.ZodType<WorkflowDefinitionImportResponse> =
-  WorkflowDefinitionCreateResponseSchema;
-
 // --------------------------------------------------------------------------
 // workflow.versionDiffRead
 // --------------------------------------------------------------------------
@@ -700,7 +694,7 @@ export interface WorkflowDefinitionMethodDescriptors {
   readonly "workflow.definitionImport": MethodDescriptor<
     "workflow.definitionImport",
     WorkflowDefinitionImportRequest,
-    WorkflowDefinitionImportResponse
+    WorkflowDefinitionCreateResponse
   >;
   readonly "workflow.enabledSet": MethodDescriptor<
     "workflow.enabledSet",
@@ -813,7 +807,7 @@ export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDes
       procedureType: "mutation",
       mutating: true,
       requestSchema: WorkflowDefinitionImportRequestSchema,
-      responseSchema: WorkflowDefinitionImportResponseSchema,
+      responseSchema: WorkflowDefinitionCreateResponseSchema,
     },
     "workflow.enabledSet": {
       method: "workflow.enabledSet",

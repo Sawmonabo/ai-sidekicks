@@ -178,7 +178,7 @@ const ED25519_SIGNATURE_LENGTH = 64;
  * keys known only at run time. `purgedAt` and `summary` exist only inside these
  * bytes and have no scalar column; every other named member mirrors its column.
  */
-export type AuditStubProjection = {
+type AuditStubProjection = {
   id: string;
   sessionId: SessionId;
   sequence: number;

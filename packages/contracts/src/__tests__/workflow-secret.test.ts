@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   WorkflowSecretCreateRequestSchema,
-  WorkflowSecretCreateResponseSchema,
+  WorkflowSecretSummarySchema,
   WorkflowSecretNotFoundDetailsSchema,
   composeWorkflowSecretReference,
   isWorkflowSecretName,
@@ -100,9 +100,9 @@ describe("workflow.secretCreate", () => {
 
   it("answers with the record and refuses a reply that carries the value", () => {
     const record = { secretId: SECRET_ID, scope: "shared", name: "mail" };
-    expect(WorkflowSecretCreateResponseSchema.safeParse(record).success).toBe(true);
+    expect(WorkflowSecretSummarySchema.safeParse(record).success).toBe(true);
     expect(
-      WorkflowSecretCreateResponseSchema.safeParse({ ...record, secretValue: "hunter2" }).success,
+      WorkflowSecretSummarySchema.safeParse({ ...record, secretValue: "hunter2" }).success,
     ).toBe(false);
   });
 });

@@ -17,7 +17,11 @@ import type { WorkflowSecretId } from "@ai-sidekicks/contracts";
 
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./secret-keychain.js";
 
-/** The keychain service the workflow secrets' values are filed under. */
+/**
+ * The keychain service the workflow secrets' values are filed under.
+ *
+ * @consumedBy the daemon's start-up, when it builds the workflow secret store
+ */
 export const WORKFLOW_SECRET_KEYCHAIN_SERVICE = "ai-sidekicks-workflow-secrets";
 
 /** Seals, resolves and removes workflow secrets' values in the keychain. */

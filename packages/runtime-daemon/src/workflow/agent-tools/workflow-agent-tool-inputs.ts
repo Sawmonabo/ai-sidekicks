@@ -77,13 +77,19 @@ export const WorkflowListToolInputSchema: z.ZodType<WorkflowListToolInput, Workf
  * The `workflow_read` input: one version of a workflow, and with `diffFromVersion` its
  * changes since that version. It drives the definition read, the version read and the
  * version diff, each addressed by version number.
+ *
+ * @consumedBy the workflow agent tools, when the daemon serves them
  */
 export interface WorkflowReadToolInput {
   definitionId: WorkflowDefinitionId;
   version?: number | undefined;
   diffFromVersion?: number | undefined;
 }
-/** Schema for {@link WorkflowReadToolInput}. */
+/**
+ * Schema for {@link WorkflowReadToolInput}.
+ *
+ * @consumedBy the workflow agent tools, when the daemon serves them
+ */
 export const WorkflowReadToolInputSchema: z.ZodType<WorkflowReadToolInput, WorkflowReadToolInput> =
   z
     .object({
@@ -95,11 +101,17 @@ export const WorkflowReadToolInputSchema: z.ZodType<WorkflowReadToolInput, Workf
     })
     .strict();
 
-/** The `workflow_validate` input: a document checked as a save would check it, unsaved. */
+/** The `workflow_validate` input: a document checked as a save would check it, unsaved. *
+ * @consumedBy the workflow agent tools, when the daemon serves them
+ */
 export interface WorkflowValidateToolInput {
   document: WorkflowDraftDocument;
 }
-/** Schema for {@link WorkflowValidateToolInput}. */
+/**
+ * Schema for {@link WorkflowValidateToolInput}.
+ *
+ * @consumedBy the workflow agent tools, when the daemon serves them
+ */
 export const WorkflowValidateToolInputSchema: z.ZodType<
   WorkflowValidateToolInput,
   WorkflowValidateToolInput
@@ -142,6 +154,8 @@ export const WorkflowCreateToolInputSchema: z.ZodType<
  * The `workflow_schedule_set` input: a new schedule for a workflow's schedule trigger.
  * The tool reads the workflow and saves a new version, so it names the version it read
  * and is refused when another save came first.
+ *
+ * @consumedBy the workflow agent tools, when the daemon serves them
  */
 export interface WorkflowScheduleSetToolInput {
   definitionId: WorkflowDefinitionId;
@@ -149,7 +163,11 @@ export interface WorkflowScheduleSetToolInput {
   expression: string;
   timeZone: string;
 }
-/** Schema for {@link WorkflowScheduleSetToolInput}. */
+/**
+ * Schema for {@link WorkflowScheduleSetToolInput}.
+ *
+ * @consumedBy the workflow agent tools, when the daemon serves them
+ */
 export const WorkflowScheduleSetToolInputSchema: z.ZodType<
   WorkflowScheduleSetToolInput,
   WorkflowScheduleSetToolInput

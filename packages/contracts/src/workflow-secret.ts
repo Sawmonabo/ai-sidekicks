@@ -124,12 +124,6 @@ export const WorkflowSecretCreateRequestSchema: z.ZodType<
   z.object({ name: z.string(), secretValue: z.string().min(1), ...sharedPlaceShape }).strict(),
 ]);
 
-/** The `workflow.secretCreate` result: the new record, without its value. */
-export type WorkflowSecretCreateResponse = WorkflowSecretSummary;
-/** Wire schema for {@link WorkflowSecretCreateResponse}. */
-export const WorkflowSecretCreateResponseSchema: z.ZodType<WorkflowSecretCreateResponse> =
-  WorkflowSecretSummarySchema;
-
 /**
  * The `workflow.secretReplace` input: a new value for one secret, sealed before the
  * record's change is written.
@@ -276,7 +270,7 @@ export interface WorkflowSecretMethodDescriptors {
   readonly "workflow.secretCreate": MethodDescriptor<
     "workflow.secretCreate",
     WorkflowSecretCreateRequest,
-    WorkflowSecretCreateResponse
+    WorkflowSecretSummary
   >;
   readonly "workflow.secretReplace": MethodDescriptor<
     "workflow.secretReplace",
@@ -303,7 +297,7 @@ export const WORKFLOW_SECRET_METHOD_DESCRIPTORS: WorkflowSecretMethodDescriptors
       procedureType: "mutation",
       mutating: true,
       requestSchema: WorkflowSecretCreateRequestSchema,
-      responseSchema: WorkflowSecretCreateResponseSchema,
+      responseSchema: WorkflowSecretSummarySchema,
     },
     "workflow.secretReplace": {
       method: "workflow.secretReplace",
