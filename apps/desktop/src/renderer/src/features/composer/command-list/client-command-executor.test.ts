@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
 import {
   LINE_READING_COMMAND_IDS,

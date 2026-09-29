@@ -14,21 +14,8 @@
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
 import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import { type ReadPhase } from "@renderer/lib/read-phase.js";
 import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
-
-/**
- * Where one read has got to.
- *
- * Two arms because these are two different sentences and collapsing them is wrong: a
- * read is in flight, or a read answered (with however many rows, including none).
- */
-export type ReadPhase<TRow> =
-  | { readonly status: "loading" }
-  | {
-      readonly status: "answered";
-      readonly rows: readonly TRow[];
-      readonly unreadableCount: number;
-    };
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {

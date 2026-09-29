@@ -60,6 +60,8 @@ import {
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "../attachment-shapes.js";
 
+import "./attachments.css";
+
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";
 

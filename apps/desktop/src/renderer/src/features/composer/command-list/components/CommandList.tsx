@@ -70,12 +70,12 @@ import { composerDraftKey } from "../../draft-line/draft-key.js";
 import { composerCommandSurface } from "../composer-commands.js";
 import { useDirectiveLineDiscovery } from "../hooks/useCommandListTrigger.js";
 import { addressedProviderBinding } from "../command-list-entries.js";
-import {
-  useProviderCommandEnumeration,
-  type ProviderCommandEnumeration,
-} from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
+import { type ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import { CommandDiscoveryPopover } from "./CommandListPopover.js";
-import { useWorkflowStartPrefill } from "@renderer/shell/composer/commands/workflow-start/index.js";
+import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
+
+import "./CommandList.css";
 
 export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */

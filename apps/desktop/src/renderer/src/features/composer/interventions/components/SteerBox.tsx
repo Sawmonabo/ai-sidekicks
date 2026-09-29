@@ -43,12 +43,14 @@ import {
   readComposerSettlement,
 } from "../intervention-form-settlement.js";
 import type { ComposerSettlement } from "../intervention-form-settlement.js";
-import type { RunControlCommandRun } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
 import type {
   RunControlDispatcher,
   RunControlOutcome,
 } from "../../run-controls/services/run-control-dispatch.js";
-import type { RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import type { RunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
+
+import "./run-interventions.css";
 
 /** What the steer form is given: the run it addresses and the surface it dispatches through. */
 export interface RunInterventionComposerProps {

@@ -20,7 +20,7 @@
 // every run's history draws the same disclosure, so there is nothing to key it on.
 
 import { LoadedLazyBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
-import type { FileRestoreDisclosureProps } from "@renderer/console/primitives/index.js";
+import type { FileRestoreDisclosureProps } from "../components/FileRestoreDisclosure/FileRestoreDisclosure.js";
 
 /**
  * What a pending disclosure stamps, so a refused capture says WHICH body was loading.
@@ -30,7 +30,11 @@ import type { FileRestoreDisclosureProps } from "@renderer/console/primitives/in
  */
 const FILE_RESTORE_DISCLOSURE_PENDING_BODY = "file-restore-disclosure";
 
-/** The disclosure, mounted from its chunk. The rollback settlement's one reader. */
+/**
+ * The disclosure, mounted from its chunk. The rollback settlement's one reader.
+ *
+ * @consumedBy the composer's undo readout
+ */
 export const fileRestoreDisclosureMount: LoadedLazyBody<FileRestoreDisclosureProps> =
   new LoadedLazyBody(
     () => import("../components/FileRestoreDisclosure/file-restore-disclosure-body.js"),

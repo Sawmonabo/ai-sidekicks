@@ -23,6 +23,8 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  * landing the caret on an older card's button describes one request and hands over
  * another. Both the pane root and the record are named rather than assumed: a
  * document-wide query for the first action in DOM order answers with neither.
+ *
+ * @consumedBy the approval card's arrival focus
  */
 export function useArrivalAnnouncement(
   pending: readonly ApprovalRecord[],

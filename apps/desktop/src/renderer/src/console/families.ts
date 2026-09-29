@@ -42,7 +42,7 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
-import { registerComposerFamily } from "../shell/index.js";
+import { registerComposerFamily } from "@renderer/features/composer/contributions/composer-view.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
 import { registerLedger } from "./ledger/index.js";

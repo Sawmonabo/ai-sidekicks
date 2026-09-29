@@ -1,6 +1,6 @@
-// The token one admitted dispatch's record is held under.
+// The keys the run controls hold a dispatch under: the in-flight key and the record token.
 //
-// `run-control-surface.ts` mints the token when it admits a dispatch, and it is the
+// `hooks/useRunControlDispatch.ts` mints the token when it admits a dispatch, and it is the
 // record's own id: one admitted dispatch appends exactly one record, so the token
 // identifies the request and a form finds its own settlement by it rather than by
 // whichever record is newest. The run and the control ride it so a token is legible in
@@ -24,4 +24,9 @@ export function mintRunControlDispatchToken(
   dispatchOrdinal: number,
 ): string {
   return `${runId}${TOKEN_SEPARATOR}${control}${TOKEN_SEPARATOR}${String(dispatchOrdinal)}`;
+}
+
+/** The key one in-flight dispatch is held under. One control per run at a time. */
+export function inFlightKeyFor(runId: string, control: RunControl): string {
+  return `${runId}:${control}`;
 }

@@ -21,7 +21,7 @@ import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../../composer-bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
-import { composeDirectivePlaceholder } from "@renderer/shell/composer/router/directive-line.js";
+import { composeDirectivePlaceholder } from "../draft-line.js";
 import { composerDraftKey } from "../draft-key.js";
 
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */

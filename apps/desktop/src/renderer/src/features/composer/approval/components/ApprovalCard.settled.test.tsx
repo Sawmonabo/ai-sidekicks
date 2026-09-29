@@ -16,7 +16,7 @@ import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   approvalCommandRows,
   type ApprovalCommandInput,
-} from "@renderer/console/approvals/pane/approval-commands.js";
+} from "../contributions/approval-commands.js";
 import { pendingRecord, renderCard } from "./approval-card.test-support.js";
 
 const ALREADY_RESOLVED: ConsoleRefusal = refuse(

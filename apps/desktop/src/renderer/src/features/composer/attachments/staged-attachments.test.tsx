@@ -20,11 +20,11 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
+import { AttachmentCarrier } from "./staged-attachments.js";
 import {
-  AttachmentCarrier,
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
-} from "@renderer/console/repos/attachments/attachment-carrier.js";
+} from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { bridgeOnClock } from "@renderer/features/repos/repo-operations.test-support.js";
 import {

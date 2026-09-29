@@ -53,10 +53,7 @@ import {
   readQueueItemCreateRequest,
 } from "@renderer/services/daemon/wire-requests.js";
 import { readRunId, readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
-import type {
-  ComposerChannelTarget,
-  ComposerTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerChannelTarget, ComposerTarget } from "../composer-target.js";
 import { readDirectiveName } from "../slash-command-syntax.js";
 import type {
   ClientCommandPredicate,

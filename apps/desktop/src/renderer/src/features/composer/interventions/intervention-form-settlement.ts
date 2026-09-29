@@ -9,7 +9,7 @@
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
-import type { RunControlAdmissionRefusal } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunControlDispatch.js";
 
 /** The subsystem name every refusal this form raises carries. */
 export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";

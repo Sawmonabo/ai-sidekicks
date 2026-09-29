@@ -28,20 +28,13 @@
 // a hand-shaped read would take a number, an empty string, or a missing member as a
 // binding.
 
-import { useMemo } from "react";
 import { z } from "zod";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import {
-  useSessionPartition,
-  useSessionStore,
-} from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import {
   type ConsoleEntity,
   type ConsoleSessionEvent,
 } from "@renderer/console/store/entities/entities.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 
 /**
  * The one event kind that names an agent's driver.
@@ -61,11 +54,6 @@ const agentAttachPayloadSchema = z.object({
 
 /** The one member of a run's body this join reads. */
 const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
-
-/** The session timeline, selected once so every reader of it shares one function. */
-export function selectSessionTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
-  return state.timeline;
-}
 
 /**
  * Join the session's runs to their agents' declared drivers.
@@ -107,17 +95,4 @@ export function foldRunDriverBindings(
     driverNameByRunId.set(run.id, driverName);
   }
   return driverNameByRunId;
-}
-
-/**
- * One session's run-to-driver bindings, as its store currently has them.
- *
- * Folded once per change of either reading rather than at each render: the join
- * walks the timeline, and a render body that rebuilt it would do that on every
- * keystroke in the composer below the pane that reads it.
- */
-export function useRunDriverBindings(sessionStore: SessionStore): ReadonlyMap<string, string> {
-  const runs = useSessionPartition(sessionStore, "run");
-  const timeline = useSessionStore(sessionStore, selectSessionTimeline);
-  return useMemo(() => foldRunDriverBindings(runs, timeline), [runs, timeline]);
 }

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
 import type { CommandOutcome } from "../../types.js";
 import { CatalogGroup, type CatalogGroupRow } from "./CommandListGroup.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import { createClientCommandExecutor } from "../client-command-executor.js";
 import { noDirectiveLineHandlers } from "../composer-command-line-handlers.js";
 import { type ComposerCommandSurface } from "../composer-commands.js";
 import {
@@ -29,7 +29,7 @@ import {
   type AddressedProviderBinding,
   type CommandCatalogEntry,
 } from "../command-list-entries.js";
-import { useProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandReadState } from "../provider-command-read.js";
 import { EnumerationState } from "./EnumerationState.js";
 

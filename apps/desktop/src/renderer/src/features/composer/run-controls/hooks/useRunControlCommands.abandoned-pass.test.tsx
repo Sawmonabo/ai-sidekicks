@@ -25,11 +25,9 @@ import {
   recordingRunControlSurface,
   type RecordedRunControlCall,
 } from "../run-control-commands.test-support.js";
-import {
-  useRunControlCommands,
-  type RunControlCommandInput,
-} from "@renderer/console/runs/pane/controls/run-control-commands.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { type RunControlCommandInput } from "../contributions/run-control-commands.js";
+import { useRunControlCommands } from "./useRunControlCommands.js";
+import { type RunControlSurface } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${TARGET_RUN}`;
 

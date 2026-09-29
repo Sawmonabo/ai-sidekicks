@@ -13,7 +13,7 @@ import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { CHANNEL_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import { createClientCommandExecutor } from "../client-command-executor.js";
 import { recognizeClientCommand } from "../client-command-recognizer.js";
 import { composerCommandSurface } from "../composer-commands.js";
 import {
@@ -26,7 +26,7 @@ import {
   WORKFLOW_TEST_SESSION_ID,
 } from "./workflow-command.test-support.js";
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./workflow-command-grammar.js";
-import { startWorkflowFromLine } from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
+import { startWorkflowFromLine } from "./start-workflow-from-line.js";
 
 /** A dotted id that names no root, registered only as a foil. */
 const DOTTED_ID = "workflow.start";

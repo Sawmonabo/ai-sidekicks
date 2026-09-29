@@ -18,7 +18,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ComposerSeatProps, ConsolePaneAddress } from "@renderer/console/seats/index.js";
-import { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import { SESSION_ID, STEER_APPLIED } from "../send-router.test-support.js";
 import { ComposerSendBar } from "./DraftLine.js";
 import { SendButton } from "./SendButton.js";

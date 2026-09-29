@@ -5,9 +5,8 @@
  * Split out of the family sheet it grew inside: that file had reached 720 lines and
  * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
  * where a second treatment for one thing gets added without anybody noticing.
- * Imported from `primitives/index.ts` and from nowhere else, so a surface still
- * cannot render a primitive whose CSS did not arrive with it, and the bundler still
- * sees one edge per sheet rather than one per component.
+ * Imported by `accent-fill.ts`, which names the class, so a control that reads the
+ * name cannot render without these rules.
  *
  * Hand-authored, unlike `meridian.css` — that file is generated from
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION

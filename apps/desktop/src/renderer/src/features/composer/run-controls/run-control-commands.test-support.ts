@@ -6,13 +6,13 @@
 
 import type { InterventionRequestResponse, RunControlAck, RunState } from "@ai-sidekicks/contracts";
 
-import { type RunControlCommandRun } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import { type RunControlCommandRun } from "./contributions/run-control-commands.js";
 import {
   type RunControl,
   type RunControlDispatcher,
   type RunControlOutcome,
 } from "./services/run-control-dispatch.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { type RunControlSurface } from "./hooks/useRunControlDispatch.js";
 
 /** A run identifier the wire's own reader accepts, shared by the suites in this folder. */
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";

@@ -28,7 +28,7 @@
 // a live store, which module scope cannot reach, so `ConsoleRoot` registers them in an
 // effect and removes them on unmount.
 
-import { COMPOSER_FOCUS_CHORD } from "@shared/composer-chord.js";
+import { COMPOSER_FOCUS_CHORD } from "@renderer/features/composer/contributions/keybindings.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import {

@@ -1,7 +1,6 @@
 /* The execution posture card.
 
-   One sheet per primitive, imported once from this family's barrel — the rule
-   `apps/desktop/AGENTS.md` sets.
+   Imported by `ExecutionPostureCard.tsx`, the component it styles.
 
    Every value here is a Meridian token: no color literal, no font stack, and no
    spacing number. */

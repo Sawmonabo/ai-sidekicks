@@ -10,7 +10,7 @@ import { APPROVAL_FLOW_EVENT_KINDS } from "@renderer/store/session-events/approv
 import { APPROVALS_SCENARIO } from "@renderer/console/bridge/scenario/approvals/approvals.js";
 import { RUN_LIFECYCLE_EVENT_KINDS } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { registerComposerFamily } from "@renderer/shell/index.js";
+import { registerComposerFamily } from "@renderer/features/composer/contributions/composer-view.js";
 import {
   storeDrivenByScenario,
   storeOver,

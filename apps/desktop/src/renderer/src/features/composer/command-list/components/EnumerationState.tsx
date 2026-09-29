@@ -13,7 +13,7 @@ import {
   PartialRead,
   type ReadingState,
 } from "@renderer/console/primitives/index.js";
-import { useProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 
 /**
  * What the provider half of the list is, when it is not the whole list.

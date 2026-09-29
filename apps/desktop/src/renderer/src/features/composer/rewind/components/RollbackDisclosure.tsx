@@ -32,6 +32,8 @@ export interface RollbackDisclosureProps {
 
 /**
  * The settled rollback, as a sentence, a disposition, and the working tree's counts.
+ *
+ * @consumedBy the composer's undo readout
  */
 export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.Element {
   const { reading } = props;

@@ -19,12 +19,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";
-import { useComposerCommandZone } from "@renderer/shell/composer/commands/client-command-executor.js";
-import { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
-import type { WorkflowStartOperations } from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
-import { useWorkflowStartHandlers } from "@renderer/shell/composer/commands/workflow-start/index.js";
+import { useComposerCommandZone } from "./useCommandHandling.js";
+import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
+import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_DIRECTIVE_PREFILL,

@@ -12,9 +12,9 @@
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 import type { CommandExecutor } from "../types.js";
-import type { DirectiveCaret } from "@renderer/shell/composer/router/directive-line.js";
+import type { DirectiveCaret } from "./draft-line.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 

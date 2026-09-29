@@ -54,6 +54,8 @@ import {
   rememberedScopeFor,
 } from "./RememberDecision.js";
 
+import "./ApprovalCard.css";
+
 export interface ApprovalCardProps {
   readonly record: ApprovalRecord;
   /** True while this record's own resolve call is in flight. */

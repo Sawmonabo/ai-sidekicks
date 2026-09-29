@@ -18,7 +18,7 @@
 // no reader splits one — so the separator carries no escaping rule, and the fixed
 // leading discriminator is what keeps the two arms' key spaces disjoint.
 
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 
 /** Separates the discriminator from the wire-verbatim identifiers after it. */
 const DRAFT_KEY_SEPARATOR = "|";

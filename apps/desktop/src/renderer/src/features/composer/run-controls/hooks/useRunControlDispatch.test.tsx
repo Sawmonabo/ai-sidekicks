@@ -28,11 +28,8 @@ import {
   type RunControlCalls,
   type RunControlOutcome,
 } from "../services/run-control-dispatch.js";
-import {
-  inFlightKeyFor,
-  useRunControlSurface,
-  type RunControlAdmission,
-} from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { useRunControlSurface, type RunControlAdmission } from "./useRunControlDispatch.js";
+import { inFlightKeyFor } from "../run-control-keys.js";
 import {
   OTHER_RUN_ID,
   RUN_ID,

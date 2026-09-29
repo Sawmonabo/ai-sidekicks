@@ -42,6 +42,8 @@ import { PostureFacts } from "./PostureFacts.js";
 import { POSTURE_ABSENT_DETAIL, POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";
 import type { PostureReading } from "./posture-reading.js";
 
+import "./ExecutionPostureCard.css";
+
 /** What the card shows: a posture, and whether it was stamped on a run or is an intent. */
 export interface ExecutionPostureProps {
   readonly posture: WireExecutionPosture | undefined;

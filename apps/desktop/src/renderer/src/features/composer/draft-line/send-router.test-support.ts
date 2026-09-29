@@ -12,10 +12,7 @@
 import type { InterventionRequestResponse, QueueItemCreateResponse } from "@ai-sidekicks/contracts";
 import type { Mock } from "vitest";
 import type { RecordedDaemonCall } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import type {
-  ComposerChannelTarget,
-  ComposerRunTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerChannelTarget, ComposerRunTarget } from "../composer-target.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
 import { ComposerSendRouter } from "./send-router.js";
 

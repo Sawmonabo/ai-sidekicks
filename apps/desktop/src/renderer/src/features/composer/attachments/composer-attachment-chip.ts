@@ -18,16 +18,15 @@
 // the upload is still attempted, so a colour there would report a verdict the console
 // has not been given.
 
+import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachment-policy.js";
+import { isIngestStalled } from "./attachment-presentation.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
-  INGEST_ABANDON_COPY,
-  INGEST_DISPOSITION_COPY,
   attachmentMediaTypeReadings,
   attachmentNameReading,
-  exceedsAttachmentByteAllowance,
-  isIngestStalled,
-  type AttachmentIngestEntry,
-} from "@renderer/console/repos/index.js";
+} from "./attachment-provenance.js";
+import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 import { ATTACHMENT_BYTE_CAP_DEFAULT } from "./attachment-caps.js";
 import { formatByteQuantity, type ChipTone } from "@renderer/console/primitives/index.js";
 

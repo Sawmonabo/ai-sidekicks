@@ -9,7 +9,7 @@
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ComposerSendPath } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerSendPath } from "../composer-target.js";
 import type { ProviderCatalogEntry } from "../command-list/command-list-entries.js";
 
 /** The new-turn arm: a message addressed to the session. */

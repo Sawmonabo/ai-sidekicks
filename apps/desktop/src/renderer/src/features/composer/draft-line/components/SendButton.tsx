@@ -18,11 +18,11 @@
 import { useMemo } from "react";
 import { RemediedRefusal } from "@renderer/console/primitives/index.js";
 import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
-import { useRefusalBannerEscalation } from "@renderer/console/store/shell/refusal-escalation.js";
+import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
-import { useComposerCommandZone } from "@renderer/shell/composer/commands/client-command-executor.js";
+import { useComposerCommandZone } from "../../command-list/hooks/useCommandHandling.js";
 import { noDirectiveLineHandlers } from "../../command-list/composer-command-line-handlers.js";
-import type { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import type { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
 

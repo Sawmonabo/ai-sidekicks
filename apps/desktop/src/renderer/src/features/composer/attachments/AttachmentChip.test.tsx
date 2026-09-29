@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "@renderer/console/repos/index.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachment-policy.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";

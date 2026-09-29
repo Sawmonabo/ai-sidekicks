@@ -1,0 +1,48 @@
+/* The remembered rules' sheet: the standing permissions list, its rows and their
+   revoke confirmation.
+
+   Every color, space, and radius is a Meridian token. The revoke and cancel controls
+   share their treatment with other features' controls through the global rules in
+   `styles/action-buttons.css`. */
+
+.meridian-grants__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-grants__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-grants__line,
+.meridian-grants__detail,
+.meridian-grants__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.meridian-grants__detail,
+.meridian-grants__confirm-copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-grants__unreadable {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}

@@ -8,10 +8,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import {
-  ProviderCommandEnumeration,
-  useProviderCommandEnumeration,
-} from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { ProviderCommandEnumeration } from "./provider-command-enumeration.js";
+import { useProviderCommandEnumeration } from "./hooks/useProviderCommandEnumeration.js";
 import {
   ADDRESSED,
   FIRST_AGENT,

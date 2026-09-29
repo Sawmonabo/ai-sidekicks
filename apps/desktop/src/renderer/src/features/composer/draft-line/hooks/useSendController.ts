@@ -72,7 +72,7 @@ import { useComposerActState } from "./useComposerActState.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { useSettlementIdentities } from "./useSettlementIdentities.js";
 import { composerRefusal } from "../send-refusals.js";
-import { composeDirectivePlaceholder } from "@renderer/shell/composer/router/directive-line.js";
+import { composeDirectivePlaceholder } from "../draft-line.js";
 import { useDirectiveRecall } from "./useSentMessageRecall.js";
 import { addressedOperationKey } from "../send-settlement.js";
 import { ComposerSendRouter } from "../send-router.js";

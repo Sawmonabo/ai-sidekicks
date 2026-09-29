@@ -20,13 +20,8 @@
 import { useCallback, useState } from "react";
 
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import {
-  AddressedDirectiveHistories,
-  caretAtEnd,
-  caretAtStart,
-  DirectiveHistory,
-  type DirectiveCaret,
-} from "@renderer/shell/composer/router/directive-line.js";
+import { AddressedDirectiveHistories, DirectiveHistory } from "../sent-message-history.js";
+import { caretAtEnd, caretAtStart, type DirectiveCaret } from "../draft-line.js";
 
 /** The walk, and the record the dispatcher writes a sent body into. */
 export interface DirectiveRecall {

@@ -4,6 +4,8 @@ import { Chip, Glyph } from "@renderer/console/primitives/figures/index.js";
 import type { ChipTone } from "@renderer/console/primitives/figures/index.js";
 import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
+import "./FileRestoreDisclosure.css";
+
 /** The rollback results this disclosure draws, as the contract's own arms name them. */
 type DisclosedRollbackResult = RollbackAppliedResult | RollbackDegradedResult;
 

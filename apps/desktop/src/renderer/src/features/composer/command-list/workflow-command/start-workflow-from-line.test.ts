@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DirectiveLine } from "../../types.js";
-import { startWorkflowFromLine } from "@renderer/shell/composer/commands/workflow-start/start-dispatch.js";
+import { startWorkflowFromLine } from "./start-workflow-from-line.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,

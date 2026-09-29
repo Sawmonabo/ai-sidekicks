@@ -3,10 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
-import {
-  resolveComposerTarget,
-  type ComposerTargetInput,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import { resolveComposerTarget, type ComposerTargetInput } from "./composer-target.js";
 
 const AGENT: ConsoleEntity = {
   kind: "agent",

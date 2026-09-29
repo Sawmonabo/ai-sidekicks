@@ -14,7 +14,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
 import { RunInterventionComposer } from "./SteerBox.js";
-import { useRunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { useRunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
 import {
   APPLIED_STEER,
   bodyValue,

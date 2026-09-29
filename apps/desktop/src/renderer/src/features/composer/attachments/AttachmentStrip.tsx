@@ -13,13 +13,13 @@
 // strip holds that a message can reference.
 
 import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
-import {
-  attachmentCarrierFill,
-  type AttachmentCarrierBinding,
-} from "@renderer/console/repos/index.js";
+import { attachmentCarrierFill } from "./attachment-bounds.js";
+import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { sendAttachmentReference } from "./send-attachment-reference.js";
+
+import "./AttachmentStrip.css";
 
 /** What the strip reads: the session's attachment carrier, and whether a file is being dragged. */
 export interface ComposerAttachmentBarProps {

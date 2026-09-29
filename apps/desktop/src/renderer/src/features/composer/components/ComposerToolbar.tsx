@@ -15,6 +15,8 @@ import { useComposerAddress } from "../hooks/useComposerAddress.js";
 import { ContextMeter } from "../context-ring/ContextRing.js";
 import { newestContextWindowReading } from "../context-ring/context-window-reading.js";
 
+import "./ComposerToolbar.css";
+
 /**
  * The one selector, at module scope so its identity is stable across renders.
  *

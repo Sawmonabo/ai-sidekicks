@@ -11,7 +11,7 @@ import {
   type RecordedDaemonCall,
 } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 import { addressedProviderBinding, type AddressedProviderBinding } from "./command-list-entries.js";
 
 export const ENUMERATION_METHOD = "driver.listProviderCommands";

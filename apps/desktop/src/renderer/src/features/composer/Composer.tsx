@@ -46,10 +46,12 @@ import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
 } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
-import { ComposerAccessoryRail } from "@renderer/shell/composer/accessories/index.js";
-import { ProviderCommandAutocomplete } from "@renderer/shell/composer/commands/index.js";
-import { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { ComposerAccessoryRail } from "./components/ComposerToolbar.js";
+import { ProviderCommandAutocomplete } from "./command-list/components/CommandList.js";
+import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
 import { ComposerSendBar } from "./draft-line/components/DraftLine.js";
+
+import "./Composer.css";
 
 /** Declared rather than an arrow, so the resource holder is handed a stable pair. */
 function openEnumeration(): ProviderCommandEnumeration {

@@ -7,10 +7,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
-import {
-  ProviderCommandEnumeration,
-  useProviderCommandEnumeration,
-} from "@renderer/shell/composer/commands/provider-command-holder.js";
+import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import { useProviderCommandEnumeration } from "./useProviderCommandEnumeration.js";
 import {
   FIRST_AGENT,
   SECOND_AGENT,

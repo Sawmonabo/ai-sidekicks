@@ -7,14 +7,14 @@ import { describe, expect, it } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
-import { useRunControlCommands } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import { useRunControlCommands } from "./useRunControlCommands.js";
 import {
   RUN_ID,
   commandRun,
   recordingRunControlSurface,
   type RecordedRunControlCall,
 } from "../run-control-commands.test-support.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { type RunControlSurface } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${RUN_ID}`;
 

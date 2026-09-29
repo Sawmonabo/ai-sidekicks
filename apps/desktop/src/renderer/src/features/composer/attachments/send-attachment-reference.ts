@@ -9,7 +9,7 @@
 // to say how many settled artifacts are ready to reference; nothing here puts them on a
 // request.
 
-import type { AttachmentIngestEntry } from "@renderer/console/repos/index.js";
+import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /**
  * What this carrier would put on a send.

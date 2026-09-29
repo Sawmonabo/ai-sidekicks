@@ -17,10 +17,8 @@ import {
   inlineCardSeatRegistry,
   type AttachmentInlineCardProps,
 } from "@renderer/console/seats/index.js";
-import {
-  InlineAttachmentCard,
-  registerInlineAttachmentCardBody,
-} from "@renderer/console/repos/artifact-pane/InlineAttachmentCard.js";
+import { registerComposerInlineCards } from "../../contributions/inline-cards.js";
+import { InlineAttachmentCard } from "./InlineAttachmentCard.js";
 
 const CARD: AttachmentInlineCardProps = {
   kind: "attachment",
@@ -59,13 +57,13 @@ describe("inline attachment card — the seat", () => {
    */
   function fill(): InlineCardSeatRegistry {
     const seats = new InlineCardSeatRegistry();
-    registerInlineAttachmentCardBody(seats);
+    registerComposerInlineCards(seats);
     return seats;
   }
 
   it("fills the ledger's attachment card body", () => {
     const seats = fill();
-    expect(seats.bodyFor("attachment")?.owner).toBe("repos");
+    expect(seats.bodyFor("attachment")?.owner).toBe("composer");
     expect(seats.registeredCardKinds()).toContain("attachment");
   });
 

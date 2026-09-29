@@ -23,10 +23,8 @@ import {
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
-import {
-  useApprovalCommands,
-  type ApprovalCommandInput,
-} from "@renderer/console/approvals/pane/approval-commands.js";
+import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
+import { useApprovalCommands } from "./useApprovalCommands.js";
 
 const PENDING_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
 const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_REQUEST}`;

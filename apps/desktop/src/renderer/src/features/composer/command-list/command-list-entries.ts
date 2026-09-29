@@ -30,7 +30,7 @@
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "@renderer/console/palette/index.js";
-import type { ComposerTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerTarget } from "../composer-target.js";
 
 /** One act this console performs, offered where the composer is mounted. */
 export interface ConsoleCatalogEntry {

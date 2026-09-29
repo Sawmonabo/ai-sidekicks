@@ -92,7 +92,7 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
 export {
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
-} from "./attachments/attachment-carrier.js";
+} from "@renderer/features/composer/attachments/hooks/useStagedAttachments.js";
 
 // WHAT THE COMPOSER'S AFFORDANCE TAKES BESIDE THE BINDING, and why each of these and
 // nothing more. The composer renders attachment CHIPS — one line each, at the density

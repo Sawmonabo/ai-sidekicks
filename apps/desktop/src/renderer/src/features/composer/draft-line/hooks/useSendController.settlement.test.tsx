@@ -13,7 +13,7 @@ import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerRunTarget } from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerRunTarget } from "../../composer-target.js";
 import type { SendController } from "../send-controller-contract.js";
 import { useSendController } from "./useSendController.js";
 import { RUN_TARGET, STEER_APPLIED } from "../send-router.test-support.js";

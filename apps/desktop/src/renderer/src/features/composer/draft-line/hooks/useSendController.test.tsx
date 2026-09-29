@@ -15,8 +15,8 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persi
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerChannelTarget } from "@renderer/shell/composer/chips/chip-models.js";
-import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";
+import type { ComposerChannelTarget } from "../../composer-target.js";
+import { createClientCommandExecutor } from "../../command-list/client-command-executor.js";
 import {
   LINE_READING_COMMAND_IDS,
   noDirectiveLineHandlers,

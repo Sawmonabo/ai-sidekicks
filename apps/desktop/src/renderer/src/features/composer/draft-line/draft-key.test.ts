@@ -7,10 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ComposerChannelTarget,
-  ComposerRunTarget,
-} from "@renderer/shell/composer/chips/chip-models.js";
+import type { ComposerChannelTarget, ComposerRunTarget } from "../composer-target.js";
 import { composerDraftKey } from "./draft-key.js";
 
 /**

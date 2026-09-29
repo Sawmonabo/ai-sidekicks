@@ -18,8 +18,8 @@ import {
   runControlCommandRows,
   type RunControlCommandInput,
   type RunControlCommandRun,
-} from "@renderer/console/runs/pane/controls/run-control-commands.js";
-import { type RunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+} from "./run-control-commands.js";
+import { type RunControlSurface } from "../hooks/useRunControlDispatch.js";
 
 const CAPABLE = capabilityReadout(
   [["claude", ["steer"]]],

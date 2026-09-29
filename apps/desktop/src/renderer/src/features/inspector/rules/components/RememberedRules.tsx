@@ -49,6 +49,8 @@ import {
   useRevokeCommands,
 } from "@renderer/console/approvals/pane/grants/revoke-commands.js";
 
+import "./RememberedRules.css";
+
 export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];
   readonly unreadableCount: number;

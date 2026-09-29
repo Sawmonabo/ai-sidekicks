@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AttachmentCarrierBinding } from "@renderer/console/repos/index.js";
+import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
 import { ComposerAttachmentBar } from "./AttachmentStrip.js";
 import { sendingEntry } from "./ingest-entry.test-support.js";
 

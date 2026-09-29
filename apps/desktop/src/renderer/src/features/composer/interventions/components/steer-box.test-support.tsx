@@ -9,10 +9,10 @@ import { act, render } from "@testing-library/react";
 import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { RunInterventionComposer } from "./SteerBox.js";
-import type { RunControlCommandRun } from "@renderer/console/runs/pane/controls/run-control-commands.js";
+import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
 import { RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
-import { useRunControlSurface } from "@renderer/console/runs/pane/controls/run-control-surface.js";
+import { useRunControlSurface } from "../../run-controls/hooks/useRunControlDispatch.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,

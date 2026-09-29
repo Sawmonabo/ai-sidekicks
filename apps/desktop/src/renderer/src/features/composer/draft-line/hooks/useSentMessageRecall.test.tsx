@@ -1,18 +1,18 @@
 // The directive history hook builds its per-address map once per mount. Keeping each
-// address's sent messages apart is held by the history cases in `directive-line.test.ts`.
+// address's sent messages apart is held by the history cases in `sent-message-history.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { AddressedDirectiveHistories } from "@renderer/shell/composer/router/directive-line.js";
+import { AddressedDirectiveHistories } from "../sent-message-history.js";
 import { composerDraftKey } from "../draft-key.js";
 import { CHANNEL_TARGET } from "../send-router.test-support.js";
 import { useDirectiveRecall } from "./useSentMessageRecall.js";
 
 // The implementation is preserved — this counts constructions and changes nothing about
 // what it does.
-vi.mock(import("@renderer/shell/composer/router/directive-line.js"), { spy: true });
+vi.mock(import("../sent-message-history.js"), { spy: true });
 
 describe("useDirectiveRecall — the histories map is built once per mount", () => {
   function Probe(props: { readonly draftStore: DraftStore }): React.JSX.Element {
