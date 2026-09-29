@@ -55,7 +55,7 @@
 // a second authority that cannot see the inputs the first one had.
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/sessions-caps.js";
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { type AnsweredAttentionReading } from "@renderer/store/attention/attention-summary.js";
 
 /**

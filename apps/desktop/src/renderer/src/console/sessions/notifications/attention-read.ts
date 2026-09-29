@@ -51,7 +51,7 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
 import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";

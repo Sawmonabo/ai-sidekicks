@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { type AttentionSessionGroup } from "@renderer/store/attention/attention-summary.js";
 import { AttentionItemList } from "./NotificationEntryList.js";

@@ -30,7 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ScenarioEngine } from "./engine.fixture.js";
+import { SCENARIO_TICK_MS, ScenarioEngine } from "./engine.fixture.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -356,5 +356,11 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
 
     expect(secondInstant).toBe(firstInstant);
     expect(secondOrdinal).not.toBe(firstOrdinal);
+  });
+});
+
+describe("ScenarioEngine — the tick", () => {
+  it("is a whole number of milliseconds, because scripts are expressed in whole ticks", () => {
+    expect(Number.isInteger(SCENARIO_TICK_MS)).toBe(true);
   });
 });

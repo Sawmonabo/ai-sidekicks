@@ -128,9 +128,7 @@ export interface ScenarioComputedReply extends ScenarioReplyBase {
  * A canned reply for one request/response call the scenario expects.
  *
  * Exactly one of `result` / `refusal` / `resultFor`, enforced by the `?: never`
- * member on each arm rather than by independent optionals — the arm-union idiom the
- * corpus already uses for `AgentAttachRequest` in
- * `docs/architecture/contracts/api-payload-contracts.md`. Independent optionals would
+ * member on each arm rather than by independent optionals. Independent optionals would
  * admit two at once (a reply that resolves AND refuses) and none at all (a reply that
  * settles no way), which are the two shapes nothing can serve.
  */

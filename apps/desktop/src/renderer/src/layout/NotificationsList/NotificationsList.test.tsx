@@ -8,7 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";

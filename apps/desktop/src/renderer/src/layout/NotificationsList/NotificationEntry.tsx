@@ -1,6 +1,5 @@
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem, AttentionTrigger } from "@ai-sidekicks/contracts";
 import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
-import type { AttentionTrigger } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 
 /**
  * One item.

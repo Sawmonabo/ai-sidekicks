@@ -14,10 +14,7 @@ import {
   unreadableDeliveryReading,
   type ReadingState,
 } from "@renderer/console/primitives/index.js";
-import type {
-  AttentionItem,
-  AttentionSeverity,
-} from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem, AttentionSeverity } from "@ai-sidekicks/contracts";
 
 /** One session the projection read could not cover, with the refusal it answered with. */
 export interface RefusedAttentionSession {

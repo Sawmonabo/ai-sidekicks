@@ -51,7 +51,6 @@
 // `assistant.*` and `tool.*` do have one, and it is `.strict()`, so a member those
 // builders do not name is a member the wire rejects.
 
-import { parseInstant } from "@renderer/lib/instant.js";
 import type { ScenarioBeat } from "../scenario.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
@@ -85,7 +84,8 @@ export interface LedgerScriptOptions {
    * stopped carrying the real id goes unnoticed.
    */
   readonly eventIdStem: string;
-  readonly startedAtIso: string;
+  /** The instant tick zero stands for, in epoch milliseconds. */
+  readonly startedAtMs: number;
   readonly entries: readonly LedgerScriptEntry[];
 }
 
@@ -126,12 +126,6 @@ export interface RunTransitionInput {
  * measured against.
  */
 export function scriptLedgerBeats(options: LedgerScriptOptions): readonly ScenarioBeat[] {
-  const startedAt = parseInstant(options.startedAtIso);
-  if (startedAt.epochMilliseconds === undefined) {
-    throw new RangeError(
-      `a ledger script needs a parseable start instant; received "${options.startedAtIso}"`,
-    );
-  }
   let previousAtMs = 0;
   return options.entries.map((entry, entryIndex) => {
     if (entry.atMs < previousAtMs) {
@@ -149,7 +143,7 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
         kind: entry.kind,
-        occurredAt: new Date(startedAt.epochMilliseconds + entry.atMs).toISOString(),
+        occurredAt: new Date(options.startedAtMs + entry.atMs).toISOString(),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },

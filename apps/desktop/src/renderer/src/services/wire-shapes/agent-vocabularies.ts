@@ -1,4 +1,4 @@
-// The agent plane as this console NAMES it: the method strings it calls, the event
+// The agent reads as the renderer NAMES them: the method strings it calls, the event
 // kinds that refresh each read, and the closed vocabularies its renderers check a
 // value against.
 //
@@ -8,13 +8,11 @@
 // driver shape the two catalog reads answer with — `ListModelsResult`,
 // `ListCapabilitiesResult`, `ProviderModel`, `DriverCapabilityFlag`,
 // `ProviderOutputSpeedState`, `DeclaredLossKind`. What it does NOT register is the
-// roster reply, the config-update settlement, or the child-run link read, and a module
-// in a VIEW FAMILY is the wrong place to declare a wire shape. So those shapes are
-// `bridge/wire-shapes/agent-plane.ts` and this module consumes them like any other
-// caller.
+// roster reply, the config-update settlement, or the child-run link read; those shapes
+// are `agents.ts` next door.
 //
-// WHAT STAYS. Three things a family genuinely owns. The METHOD STRINGS, because which
-// call a surface makes is this family's decision. The EVENT KINDS each read refreshes
+// WHAT STAYS. Three things the renderer genuinely owns. The METHOD STRINGS, because which
+// call a surface makes is the renderer's decision. The EVENT KINDS each read refreshes
 // on, because that is a refresh story rather than a payload. And the CLOSED
 // VOCABULARIES, because they answer "is this a value I know how to render", which is a
 // different question from "what may the wire carry" — the reply shapes deliberately

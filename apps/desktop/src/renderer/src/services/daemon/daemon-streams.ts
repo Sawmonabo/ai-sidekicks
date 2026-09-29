@@ -32,10 +32,18 @@ import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 
-/** The queue's replay-then-tail stream. Session-scoped; the client fans out per run. */
+/**
+ * The queue's replay-then-tail stream. Session-scoped; the client fans out per run.
+ *
+ * @consumedBy the run queue's live feed
+ */
 export const QUEUE_SUBSCRIBE_STREAM = "run.subscribeQueue";
 
-/** The run-state stream, carrying `RunStateChangeEvent | RunRolledBackEvent`. */
+/**
+ * The run-state stream, carrying `RunStateChangeEvent | RunRolledBackEvent`.
+ *
+ * @consumedBy the run state's live feed
+ */
 export const RUN_STATE_SUBSCRIBE_STREAM = "run.subscribeState";
 
 /**
@@ -109,6 +117,8 @@ export function subscribeNodeDaemon(
  * The guard below is therefore about the CALLER, not about the wire: it refuses an
  * open that names no session so a feed can never reach the day the channel lands
  * with nothing to put on it.
+ *
+ * @consumedBy the run queue's and run state's live feeds
  */
 export function subscribeDaemon(
   bridge: ConsoleBridge,

@@ -63,6 +63,7 @@ import {
   USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
+  startedAtMs,
   attachedAtIso,
 } from "./ledger-cast.js";
 import { LEDGER_SCRIPT } from "./ledger-beats.js";
@@ -86,7 +87,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
-    startedAtIso: STARTED_AT_ISO,
+    startedAtMs,
     entries: LEDGER_SCRIPT,
   }),
   replies: [

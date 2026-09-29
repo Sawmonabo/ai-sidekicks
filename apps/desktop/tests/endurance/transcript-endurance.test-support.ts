@@ -222,7 +222,7 @@ export function createLedgerEnduranceScenario(
     beats: scriptLedgerBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
-      startedAtIso: STARTED_AT_ISO,
+      startedAtMs,
       entries,
     }),
     replies: [

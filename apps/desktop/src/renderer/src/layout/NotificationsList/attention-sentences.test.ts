@@ -7,8 +7,7 @@
 // coverage gap left out of a sentence that reported a count.
 
 import { describe, expect, it } from "vitest";
-
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { refuse } from "@renderer/lib/refusal.js";
 import {
   AttentionPlane,

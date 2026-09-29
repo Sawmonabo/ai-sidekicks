@@ -14,8 +14,7 @@
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";

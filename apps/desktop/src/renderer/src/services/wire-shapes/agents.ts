@@ -1,31 +1,20 @@
-// The agent plane as this console READS it: the reply shapes behind the four
-// `agent.*` verbs, the child-run link read, and the per-session peer-invocation
-// grant — declared here because no code package carries them.
+// The agent reads as the renderer takes them: the roster read, the configuration update,
+// and the child-run link read, declared here because no contracts module carries them yet.
 //
-// The agent and agent-definition designs register these operations and the
-// payload contracts register their payloads;
-// `packages/contracts` carries the agent lifecycle EVENT types and every driver
-// catalog shape, and none of the reply shapes below. A console that declared them
-// inside a view family would be putting a wire shape where no gate can see it, so
-// they are declared here, on the substrate.
+// `packages/contracts` carries the agent lifecycle EVENT types and every driver catalog
+// shape, and none of the reply shapes below. `agent-definition.ts` next door is the same
+// kind of module for the same reason.
 //
-// This is `agent-definition.ts`'s shape next door, for the same reason and with
-// the same obligation.
+// TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`, `reason`, and
+// `state` are typed `string` rather than as the closed vocabulary each is checked against,
+// because a later amendment's member must render as ITSELF rather than vanish: a settlement
+// never drops an unrecognized reason. The vocabularies themselves are in
+// `agent-vocabularies.ts`, beside the question of whether a value is one a renderer knows,
+// which is a different question from what the wire may carry.
 //
-// DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and its importers take them from the contracts package instead.
-//
-// TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`,
-// `reason`, and `state` are typed `string` rather than as the closed
-// vocabulary each is checked against, because a later amendment's member must render
-// as ITSELF rather than vanish: a settlement never drops an unrecognized reason.
-// The vocabularies themselves stay in
-// `agents/agent-wire.ts`, beside the renderers that ask whether a value is one they
-// know — which is a different question from what the wire may carry.
-//
-// EVERY FIELD THE CONSOLE HAS NO GUARANTEE OF IS OPTIONAL, and every surface renders
-// its absence rather than a blank. A roster reply that carries identity and lifecycle
-// and no binding is a real answer, and the card says which half it got.
+// EVERY FIELD THE RENDERER HAS NO GUARANTEE OF IS OPTIONAL, and every surface renders its
+// absence rather than a blank. A roster reply that carries identity and lifecycle and no
+// binding is a real answer, and the card says which half it got.
 
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts";
 
@@ -58,9 +47,9 @@ export interface AgentPendingSwitch {
 }
 
 /**
- * The configuration an attach resolved to, echoed back.
+ * The configuration the agent resolved to when it joined the session, echoed back.
  *
- * The four snapshot axes are stamped on the agent row at attach and are fixed for
+ * The four snapshot axes are stamped on the agent row when it joins and are fixed for
  * its life — `agent.configUpdate` carries no member for any of them — so this echo
  * and the `agent.attached` payload are the only reads. The registry row behind a
  * definition may already have moved, which is why re-reading it would be wrong.
@@ -115,14 +104,13 @@ export interface AgentSwitchSettlement {
   readonly replacedSwitchId?: string | undefined;
 }
 
+/**
+ * What a configuration update answers.
+ *
+ * @consumedBy the running agent's model, effort, speed and provider switch
+ */
 export interface AgentConfigUpdateReading {
   readonly switch?: AgentSwitchSettlement | undefined;
-}
-
-export interface AgentAttachReading {
-  readonly agentId: string;
-  readonly resolvedConfiguration?: AgentResolvedConfiguration | undefined;
-  readonly resolvedFromDefinitionId?: string | undefined;
 }
 
 /** One parent-to-child link. */
@@ -155,40 +143,14 @@ export interface ChildRunLinkReading {
   readonly rejectedCreates: readonly ChildRunRejection[];
 }
 
-/** The projected session-scoped grant. Absent is a third state, never `false`. */
-export interface PeerInvocationReading {
-  readonly enabled: boolean;
-}
-
-/**
- * What an attach sends: a definition reference, an inline configuration, or both.
- *
- * Every axis is optional because the registered request is a two-arm union — a
- * definition-only attach parses — and an explicitly-present member merges per field
- * over the definition it names. Requiring any one of them here would refuse an arm
- * the wire admits.
- *
- * DERIVED FROM THE ECHO RATHER THAN RESTATED. The configuration half of this request
- * is what {@link AgentResolvedConfiguration} describes — the same eight axes, which
- * is not a coincidence but the contract: what an attach may SEND is exactly what an
- * attach RESOLVES TO, and the daemon echoes the resolution back on the same seam.
- * Written out a second time, the two drifted the first time an axis landed on one
- * and not the other, and the compiler had nothing to say about it. What is stated
- * here is only the part that is NOT configuration: which session the agent joins,
- * which definition it resolves through, and what it is called.
- */
-export type AgentAttachRequest = {
-  readonly sessionId: string;
-  readonly definitionId?: string | undefined;
-  readonly name?: string | undefined;
-} & AgentResolvedConfiguration;
-
 /**
  * What a configuration update sends: the agent, the axes moved, and the boundary.
  *
  * `interruptAndSwitch` is a separate axis from the values because it decides WHEN a
  * switch lands rather than what it lands on, and folding it into the axis map would
  * make "interrupt" look like a sixth provider axis a driver could refuse.
+ *
+ * @consumedBy the running agent's model, effort, speed and provider switch
  */
 export interface AgentConfigUpdateRequest {
   readonly agentId: string;
@@ -200,23 +162,20 @@ export interface AgentConfigUpdateRequest {
   readonly outputSpeed?: string | undefined;
 }
 
-/** What a detach sends. The agent moves to `disabled`; re-attaching reverses it. */
-export interface AgentDetachRequest {
-  readonly agentId: string;
-}
-
-/** What one parent run's link read asks for. */
+/**
+ * What one parent run's link read asks for.
+ *
+ * @consumedBy the child-run tree's link read
+ */
 export interface ChildRunLinkReadRequest {
   readonly parentRunId: string;
 }
 
-/** What the roster read asks for. */
+/**
+ * What the roster read asks for.
+ *
+ * @consumedBy the agents pane's roster read
+ */
 export interface AgentListRequest {
   readonly sessionId: string;
-}
-
-/** What the peer-invocation grant sets, and for which session. */
-export interface PeerInvocationSetRequest {
-  readonly sessionId: string;
-  readonly enabled: boolean;
 }

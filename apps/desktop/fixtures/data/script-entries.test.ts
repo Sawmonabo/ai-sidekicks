@@ -23,7 +23,6 @@ import {
   EVENT_ID_STEM,
   RUN_IMPLEMENTER,
   SESSION_ID,
-  STARTED_AT_ISO,
   startedAtMs,
 } from "@renderer/console/bridge/scenario/ledger/ledger-cast.js";
 import {
@@ -45,7 +44,7 @@ function buildOrderedBeats(): ReturnType<typeof scriptLedgerBeats> {
   return scriptLedgerBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
-    startedAtIso: STARTED_AT_ISO,
+    startedAtMs,
     entries: ORDERED_SCRIPT,
   });
 }
@@ -65,7 +64,7 @@ describe("scriptLedgerBeats", () => {
     const [beat] = scriptLedgerBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
-      startedAtIso: STARTED_AT_ISO,
+      startedAtMs,
       entries: [
         { atMs: 0, kind: "user.message", actorId: RUN_IMPLEMENTER, payload: { note: "kept" } },
       ],
@@ -79,7 +78,7 @@ describe("scriptLedgerBeats", () => {
     const [beat] = scriptLedgerBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
-      startedAtIso: STARTED_AT_ISO,
+      startedAtMs,
       entries: [{ atMs: 0, kind: "run.starting" }],
     });
     expect(beat?.event).not.toHaveProperty("actorId");
@@ -90,7 +89,7 @@ describe("scriptLedgerBeats", () => {
       scriptLedgerBeats({
         sessionId: SESSION_ID,
         eventIdStem: EVENT_ID_STEM,
-        startedAtIso: STARTED_AT_ISO,
+        startedAtMs,
         entries: [
           { atMs: 100, kind: "run.starting" },
           { atMs: 40, kind: "run.running" },
@@ -107,24 +106,13 @@ describe("scriptLedgerBeats", () => {
       scriptLedgerBeats({
         sessionId: SESSION_ID,
         eventIdStem: EVENT_ID_STEM,
-        startedAtIso: STARTED_AT_ISO,
+        startedAtMs,
         entries: [
           { atMs: 40, kind: "run.starting" },
           { atMs: 40, kind: "run.running" },
         ],
       }),
     ).not.toThrow();
-  });
-
-  it("refuses a start instant it cannot parse", () => {
-    expect(() =>
-      scriptLedgerBeats({
-        sessionId: SESSION_ID,
-        eventIdStem: EVENT_ID_STEM,
-        startedAtIso: "the day before",
-        entries: [],
-      }),
-    ).toThrow(RangeError);
   });
 });
 

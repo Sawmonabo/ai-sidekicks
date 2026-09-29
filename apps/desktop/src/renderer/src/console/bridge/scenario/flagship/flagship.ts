@@ -90,6 +90,7 @@ import {
   USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
+  startedAtMs,
 } from "./flagship-cast.js";
 import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
 import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
@@ -122,7 +123,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
     eventIdStem: EVENT_ID_STEM,
-    startedAtIso: STARTED_AT_ISO,
+    startedAtMs,
     entries: FLAGSHIP_SCRIPT,
   }),
   replies: [

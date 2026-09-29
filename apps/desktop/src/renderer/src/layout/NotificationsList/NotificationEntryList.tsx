@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { AttentionRow } from "./NotificationEntry.js";
 
 /** Zero or more items as one list. Zero renders nothing, never an empty list. */

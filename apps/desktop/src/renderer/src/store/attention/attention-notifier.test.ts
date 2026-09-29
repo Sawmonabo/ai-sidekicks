@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/sessions-caps.js";
-import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { AttentionPlane, type AnsweredAttentionReading } from "./attention-summary.js";
 import { AttentionNotifier } from "@renderer/console/sessions/notifications/attention-notifier.js";
 
