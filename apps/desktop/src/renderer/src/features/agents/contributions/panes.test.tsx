@@ -22,7 +22,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { registerAgentConsolePane } from "./panes.js";
 import { settleReads } from "../pane/agents-pane.test-support.js";
 
@@ -40,7 +40,7 @@ const ADDRESSED_AGENT_ID = "agent-scout";
  * registry's method signature is the same contract with no tag on it.
  */
 type DeckPaneContext = Parameters<
-  NonNullable<ReturnType<ConsolePaneRegistry["descriptorFor"]>>["render"]
+  NonNullable<ReturnType<PaneRegistry["descriptorFor"]>>["render"]
 >[0];
 
 function fixtureBridge(): ConsoleBridge {
@@ -76,7 +76,7 @@ function deckPaneContext(agentId: string | undefined, bridge: ConsoleBridge): De
 
 /** Mount the deck's pane and let its reads settle. */
 async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement> {
-  const registry = new ConsolePaneRegistry();
+  const registry = new PaneRegistry();
   registerAgentConsolePane(registry);
   // The body is loader-backed, so it is fetched before the mount rather than during it —
   // which is what a window does too, through the idle warm after its first frame. Without

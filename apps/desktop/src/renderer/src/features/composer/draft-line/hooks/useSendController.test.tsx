@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerSessionTarget } from "../../composer-target.js";
@@ -151,12 +151,12 @@ describe("useSendController — an intercepted command awaits its executor", () 
 
 describe("useSendController — a command that reads its line and has no handler", () => {
   afterEach(() => {
-    consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+    commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
   it("leaves the line as typed, draws nothing, and records no history", async () => {
     const paletteAct = vi.fn();
-    consoleCommands.register({
+    commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
       title: "Start a workflow",
       group: "Workflow",

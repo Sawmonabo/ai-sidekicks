@@ -6,10 +6,10 @@ import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
-import { type TranscriptRowRenderer } from "../../viewport/components/VirtualRow.js";
+import { type ViewportRowRenderer } from "../../viewport/components/VirtualRow.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type TimelineRowRenderer } from "../../transcript-row-renderer.js";
+import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeedRow } from "../components/TranscriptFeedRow.js";
 import { densityFor } from "../run-group-fold.js";
 
@@ -21,7 +21,7 @@ export interface TranscriptRowRendererOptions {
   readonly toggleChapter: (chapter: RunGroup) => void;
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
-  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly renderTimelineRow: TranscriptRowRenderer;
 }
 
 /**
@@ -33,7 +33,7 @@ export interface TranscriptRowRendererOptions {
  */
 export function useTranscriptRowRenderer(
   options: TranscriptRowRendererOptions,
-): TranscriptRowRenderer {
+): ViewportRowRenderer {
   const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleChapter, rowLease } = options;
   const renderTimelineRow = options.renderTimelineRow;
   return useCallback(

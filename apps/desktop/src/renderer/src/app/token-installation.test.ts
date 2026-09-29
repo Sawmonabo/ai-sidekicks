@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import {
   MERIDIAN_STYLE_ELEMENT_ID,
-  applyConsoleScheme,
+  applyColorScheme,
   installMeridianTokens,
 } from "./token-installation.js";
 
@@ -60,13 +60,13 @@ describe("token installation — one sheet per document", () => {
 
 describe("token installation — applying a scheme choice", () => {
   it("stamps an explicit choice on the root", () => {
-    applyConsoleScheme(document, "dark");
+    applyColorScheme(document, "dark");
     expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
   });
 
   it("removes the attribute for `system` rather than resolving it", () => {
-    applyConsoleScheme(document, "dark");
-    applyConsoleScheme(document, "system");
+    applyColorScheme(document, "dark");
+    applyColorScheme(document, "system");
     // Not `"system"`, and not `"light"` — ABSENT. The sheet's middle layer is a
     // `prefers-color-scheme` block guarded on the attribute not being `light`, so
     // any written value stops the OS from deciding.

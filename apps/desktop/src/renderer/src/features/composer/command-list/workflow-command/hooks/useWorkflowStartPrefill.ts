@@ -21,8 +21,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { requestComposerFocus } from "@renderer/console/seats/index.js";
 import {
@@ -86,7 +86,7 @@ export function useWorkflowStartPrefill(options: {
     requestComposerFocus();
   }, [draftStore, draftKey]);
 
-  const commands = useMemo<readonly ConsoleCommand[]>(
+  const commands = useMemo<readonly CommandDefinition[]>(
     () => [
       {
         id: WORKFLOW_COMMAND_ROOT,
@@ -106,7 +106,7 @@ export function useWorkflowStartPrefill(options: {
     ],
     [draftStore, draftKey, writePrefill],
   );
-  useConsoleCommandSeat(WORKFLOW_START_COMMAND_OWNER, commands);
+  useRegisterCommands(WORKFLOW_START_COMMAND_OWNER, commands);
 
   const replaceLine = useCallback(() => {
     setDisplacedText(undefined);

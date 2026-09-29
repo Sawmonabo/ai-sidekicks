@@ -12,7 +12,7 @@ import { AgentsPane, AgentConsoleFrame } from "./AgentsPane.js";
 import {
   ConsolePaneChrome,
   paneBodyForKind,
-  type ConsolePaneContext,
+  type PaneContext,
   type PaneContextOf,
 } from "@renderer/console/seats/index.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
@@ -20,7 +20,7 @@ import type { AgentConsoleCalls } from "../agent-reads.js";
 /** The agent console pane body over the given reads. */
 export function agentConsolePaneBody(
   calls: AgentConsoleCalls,
-): (context: ConsolePaneContext) => React.ReactNode {
+): (context: PaneContext) => React.ReactNode {
   return paneBodyInChrome((context) =>
     createElement(AgentsPane, {
       agentId: context.entity?.id,
@@ -49,7 +49,7 @@ export function agentConsolePaneBody(
  */
 function paneBodyInChrome(
   renderBody: (context: PaneContextOf<"agent-console">) => React.ReactNode,
-): (context: ConsolePaneContext) => React.ReactNode {
+): (context: PaneContext) => React.ReactNode {
   return paneBodyForKind("agent-console", (context) =>
     createElement(ConsolePaneChrome, {
       kind: "agent-console",
@@ -62,6 +62,6 @@ function paneBodyInChrome(
 }
 
 /** The pane body the registry loads: the chrome and the body's frame, with no reads. */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyInChrome(() =>
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyInChrome(() =>
   createElement(AgentConsoleFrame),
 );

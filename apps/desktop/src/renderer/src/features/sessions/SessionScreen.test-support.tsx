@@ -21,7 +21,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { Workspace } from "./SessionScreen.js";
@@ -46,8 +46,8 @@ export interface WorkspaceSession {
 }
 
 /** A registry whose bodies say which kind they are, so a pane is identifiable. */
-export function testRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+export function testRegistry(): PaneRegistry {
+  const registry = new PaneRegistry();
   for (const kind of ["timeline", "runs"] as const) {
     registry.register({
       kind,

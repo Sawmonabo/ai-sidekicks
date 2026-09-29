@@ -16,7 +16,7 @@ import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import {
@@ -80,7 +80,7 @@ describe("the run-control palette rows dispatch through the committed render", (
     await abandonOneRenderPass(() => {
       readdress.current?.();
     });
-    consoleCommands.get(PAUSE_COMMAND_ID)?.run();
+    commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
     // The rows say the same thing in both passes, so the command object never
     // changed — only which surface it would reach. Dispatching through the abandoned
@@ -114,7 +114,7 @@ describe("the run-control palette rows dispatch through the committed render", (
         readdress={readdress}
       />,
     );
-    consoleCommands.get(PAUSE_COMMAND_ID)?.run();
+    commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
     expect(committed.calls).toStrictEqual([]);
     expect(later.calls.map((call) => call.verb)).toStrictEqual(["pause"]);

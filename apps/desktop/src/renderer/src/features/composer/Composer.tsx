@@ -41,7 +41,7 @@
 
 import { useId, useRef } from "react";
 
-import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/console/seats/index.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
@@ -83,7 +83,7 @@ const enumerationDisposal: SubjectScopedDisposal<ProviderCommandEnumeration> = {
  * announce identically in both. The label stays short for the sighted reader who
  * has the window's own chrome to tell them apart.
  */
-export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
+export function MessageComposer(props: ComposerProps): React.JSX.Element {
   const descriptionId = useId();
   const regionRef = useRef<HTMLElement | null>(null);
   // One per addressed composer, and its lifetime is that address's: the enumeration is

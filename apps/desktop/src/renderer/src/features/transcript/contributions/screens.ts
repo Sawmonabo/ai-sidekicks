@@ -4,10 +4,7 @@
 import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import {
-  type ConsoleSurfaceContext,
-  type ConsoleSurfaceRegistry,
-} from "@renderer/console/seats/index.js";
+import { type ScreenContext, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
 import { TranscriptSurface } from "../TranscriptSurface.js";
 
@@ -34,10 +31,7 @@ export interface TranscriptComposition {
  * own contribution, `registerTranscriptCommands`, which the composition root calls
  * beside this.
  */
-export function registerLedger(
-  registry: ConsoleSurfaceRegistry,
-  composition: TranscriptComposition,
-): void {
+export function registerLedger(registry: ScreenRegistry, composition: TranscriptComposition): void {
   registry.register({
     slot: "workspace",
     owner: TRANSCRIPT_OWNER,
@@ -64,7 +58,7 @@ export const TRANSCRIPT_OWNER = "ledger";
  * sessions reads the registry, and this one is handed the session it is a view of — and
  * `chooseScheme` because nothing in a session chooses the color scheme.
  */
-type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry" | "chooseScheme">;
+type WorkspaceMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
  * Mount the session workspace: the session header, the deck, and the composer's seat.
@@ -83,7 +77,7 @@ type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry" | 
  * written once per field and forgotten on the next one.
  */
 function mountWorkspace(
-  context: ConsoleSurfaceContext,
+  context: ScreenContext,
   Workspace: ComponentType<WorkspaceMountProps>,
 ): ReactNode {
   const sessionId = routeSessionId(context.route);

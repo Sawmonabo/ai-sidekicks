@@ -7,9 +7,9 @@
 // on the frame's banner rather than doing nothing. Every command closes over an act the
 // caller supplies and reaches no store, bridge or DOM, so invoking `run` is the test.
 
-import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import {
   mountedTranscript,
   type TranscriptActName,
@@ -33,7 +33,7 @@ export const TRANSCRIPT_COMMAND_GROUP = "Transcript";
  * A function of the acts rather than a constant, because every `run` closes over
  * one window's transcript.
  */
-export function createTranscriptCommands(acts: TranscriptActs): readonly ConsoleCommand[] {
+export function createTranscriptCommands(acts: TranscriptActs): readonly CommandDefinition[] {
   return [
     {
       id: "transcript.find",
@@ -92,7 +92,7 @@ export const TRANSCRIPT_COMMAND_OWNER = "ledger";
  * into a surface it owns.
  */
 export function registerTranscriptCommands(
-  surface: ConsoleCommandSurface,
+  surface: CommandContributionRegistry,
   seat: MountedTranscript = mountedTranscript,
 ): void {
   surface.contribute({
@@ -141,6 +141,6 @@ function actsOnTheMountedLedger(seat: MountedTranscript): TranscriptActs {
 function performOnMountedLedger(seat: MountedTranscript, act: TranscriptActName): void {
   const outcome = seat.perform(act);
   if (outcome.status === "refused") {
-    raiseConsoleActRefusal(outcome.refusal);
+    raiseCommandRefusal(outcome.refusal);
   }
 }

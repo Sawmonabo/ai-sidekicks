@@ -22,7 +22,7 @@
 
 import { createElement } from "react";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { registerFixtureShellRows } from "./timeline-rows.js";
 import { TimelinePane } from "../TranscriptPane.js";
 
@@ -45,7 +45,7 @@ registerFixtureShellRows();
  * rather than JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a
  * single PascalCase component per file.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "timeline",
   (context) => createElement(TimelinePane, { context }),
 );

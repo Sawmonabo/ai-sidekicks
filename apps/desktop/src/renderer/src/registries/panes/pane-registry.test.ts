@@ -16,14 +16,14 @@ import {
 } from "@renderer/routing/panes/pane-address.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 import {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
+  PaneRegistry,
+  paneRegistry,
   registeredPaneKinds,
-  type ConsolePaneDescriptor,
+  type PaneDescriptor,
 } from "./pane-registry.js";
 
 /** A descriptor whose render is never called: these cases are about the table. */
-function descriptor(kind: ConsolePaneDescriptor["kind"], owner: string): ConsolePaneDescriptor {
+function descriptor(kind: PaneDescriptor["kind"], owner: string): PaneDescriptor {
   return { kind, owner, render: () => null };
 }
 
@@ -32,7 +32,7 @@ describe("pane registry — one owner per kind", () => {
     // A hot reload re-runs a family's module. Refusing that would make the console
     // unreloadable; silently keeping the FIRST would leave the deck rendering the
     // pre-edit body, which reads as an edit that did nothing.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const beforeEdit = descriptor("diff", "repos-family");
     const afterEdit = descriptor("diff", "repos-family");
     registry.register(beforeEdit);
@@ -48,7 +48,7 @@ describe("pane registry — one owner per kind", () => {
   });
 
   it("refuses a second owner rather than swapping", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("timeline", "workspace-family"));
     expect(() => {
       registry.register(descriptor("timeline", "second-owner"));
@@ -58,7 +58,7 @@ describe("pane registry — one owner per kind", () => {
   });
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("runs", "composer-family"));
     expect(() => {
       registry.register(descriptor("runs", "workflows-family"));
@@ -68,7 +68,7 @@ describe("pane registry — one owner per kind", () => {
 
 describe("pane registry — declaration order, not registration order", () => {
   it("reports registered kinds in the spec's order", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     // Registered back to front, so an implementation that reported insertion
     // order rather than declaration order would answer differently.
     registry.register(descriptor("agent-console", "third"));
@@ -82,7 +82,7 @@ describe("pane registry — declaration order, not registration order", () => {
   });
 
   it("reports only kinds that were claimed", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("artifact", "repos-family"));
     for (const kind of PANE_KINDS) {
       expect(registry.registeredPaneKinds().includes(kind)).toBe(kind === "artifact");
@@ -90,7 +90,7 @@ describe("pane registry — declaration order, not registration order", () => {
   });
 
   it("forgets a kind once it is released", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("browser", "browser-terminal-family"));
     registry.unregister("browser");
     expect(registry.registeredPaneKinds()).toStrictEqual([]);
@@ -100,7 +100,7 @@ describe("pane registry — declaration order, not registration order", () => {
   it("negative control: a fresh registry claims nothing on its own", () => {
     // Every case above reads `registeredPaneKinds`, and all of them would pass
     // over a registry that reported kinds nobody registered.
-    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
+    expect(new PaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });
 
@@ -114,13 +114,11 @@ describe("pane registry — the module-scope door", () => {
     // family that called it would write into production from inside a composition
     // that had handed it another board.
     try {
-      consolePaneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
-      expect(consolePaneRegistry.descriptorFor("workflow-builder")?.owner).toBe(
-        "pane-registry-test",
-      );
+      paneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
+      expect(paneRegistry.descriptorFor("workflow-builder")?.owner).toBe("pane-registry-test");
       expect(registeredPaneKinds()).toContain("workflow-builder");
     } finally {
-      consolePaneRegistry.unregister("workflow-builder");
+      paneRegistry.unregister("workflow-builder");
     }
   });
 
@@ -128,7 +126,7 @@ describe("pane registry — the module-scope door", () => {
     // Without this the case above would pass against a registry that had been
     // holding the descriptor since some earlier file ran, and would keep passing if
     // `registeredPaneKinds` stopped reading the registry at all.
-    expect(consolePaneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
+    expect(paneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
     expect(registeredPaneKinds()).not.toContain("workflow-builder");
   });
 });

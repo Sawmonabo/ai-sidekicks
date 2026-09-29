@@ -274,7 +274,7 @@ export interface ConsolePaneLink {
  * function, so a pane opens in the deck that asked for it.
  *
  * The optional `link` is how a pane that opens another says which pane it is: the
- * deck copies it onto the new pane's `ConsolePaneContext.linkedSourcePaneId`.
+ * deck copies it onto the new pane's `PaneContext.linkedSourcePaneId`.
  * Optional because most opens have no source pane at all — a card and the
  * palette open from a list, not from a pane — and a required member would have both
  * of those inventing a value to pass.

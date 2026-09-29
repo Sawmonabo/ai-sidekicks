@@ -14,7 +14,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ComposerSeatProps, ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { ComposerProps, ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import { SESSION_ID, STEER_APPLIED } from "../send-router.test-support.js";
 import { DraftLine } from "./DraftLine.js";
@@ -109,7 +109,7 @@ function inertBridge(): ConsoleBridge {
 
 /** The line beside Send, over one draft store. */
 function LineAndSend(props: {
-  readonly seat: ComposerSeatProps;
+  readonly seat: ComposerProps;
   readonly calls: ComposerSendCalls;
   readonly commandEnumeration: ProviderCommandEnumeration;
 }): React.JSX.Element {

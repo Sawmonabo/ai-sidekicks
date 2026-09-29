@@ -21,9 +21,9 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import {
-  ConsolePaneRegistry,
-  type ConsolePaneContext,
-  type ConsoleSurfaceContext,
+  PaneRegistry,
+  type PaneContext,
+  type ScreenContext,
 } from "@renderer/console/seats/index.js";
 import { registerWorkflowPanes } from "./contributions/panes.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
@@ -45,8 +45,8 @@ export const SERVED_DIRECTORY: WorkflowRunDirectoryState = {
  * would make the second depend on whether the first had run.
  */
 export interface ComposedWindow {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly context: ScreenContext;
+  readonly paneRegistry: PaneRegistry;
 }
 
 /** The surface context the screen is handed, and this composition's own pane board. */
@@ -54,7 +54,7 @@ export function composeWindow(): ComposedWindow {
   const frameStore = new FrameStore();
   const committedRoute: ConsoleRoute = { kind: "workflows" };
   frameStore.navigate(committedRoute);
-  const paneRegistry = new ConsolePaneRegistry();
+  const paneRegistry = new PaneRegistry();
   registerWorkflowPanes(paneRegistry);
   return {
     paneRegistry,
@@ -64,7 +64,7 @@ export function composeWindow(): ComposedWindow {
       frameStore,
       sessionStore: undefined,
       paneRegistry,
-    } as unknown as ConsoleSurfaceContext,
+    } as unknown as ScreenContext,
   };
 }
 
@@ -80,7 +80,7 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
     context: {
       ...composed.context,
       bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
-    } as unknown as ConsoleSurfaceContext,
+    } as unknown as ScreenContext,
   };
 }
 
@@ -104,8 +104,8 @@ export function remountWorkflowsScreen(
  * the body on that composition's board, so nothing outside the case sees it and no
  * teardown is owed.
  */
-export function probeRunPane(paneRegistry: ConsolePaneRegistry): readonly ConsolePaneContext[] {
-  const mountedContexts: ConsolePaneContext[] = [];
+export function probeRunPane(paneRegistry: PaneRegistry): readonly PaneContext[] {
+  const mountedContexts: PaneContext[] = [];
   paneRegistry.unregister("workflow-run");
   paneRegistry.register({
     kind: "workflow-run",

@@ -25,7 +25,7 @@ import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingScreenBody } from "./PendingScreenBody.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import { type ConsoleSurfaceContext } from "./screen-context.js";
+import { type ScreenContext } from "./screen-context.js";
 
 /**
  * Every place a surface can be mounted. Closed; one per navigable destination.
@@ -37,7 +37,7 @@ import { type ConsoleSurfaceContext } from "./screen-context.js";
  * report, and one added to the array but not the union does not compile at the
  * array but does everywhere it is read back.
  */
-export const CONSOLE_SURFACE_SLOTS = [
+export const SCREEN_NAMES = [
   "sessions",
   "workspace",
   "workflows",
@@ -50,13 +50,13 @@ export const CONSOLE_SURFACE_SLOTS = [
   "pane-harness",
 ] as const;
 
-export type ConsoleSurfaceSlot = (typeof CONSOLE_SURFACE_SLOTS)[number];
+export type ScreenName = (typeof SCREEN_NAMES)[number];
 
-export interface ConsoleSurfaceDescriptor {
-  readonly slot: ConsoleSurfaceSlot;
+export interface ScreenDescriptor {
+  readonly slot: ScreenName;
   /** The task or family that owns it, so an unrendered slot names someone. */
   readonly owner: string;
-  readonly render: (context: ConsoleSurfaceContext) => React.ReactNode;
+  readonly render: (context: ScreenContext) => React.ReactNode;
 }
 
 /**
@@ -70,22 +70,22 @@ export interface ConsoleSurfaceDescriptor {
  * The rail's OWN destination is the case that decides itself: whichever surface the
  * console opens on is the flagship first paint and keeps `render`.
  */
-export type ConsoleSurfaceRegistration =
+export type ScreenRegistration =
   | (ConsoleSurfaceRegistrationBase & {
-      readonly render: (context: ConsoleSurfaceContext) => React.ReactNode;
+      readonly render: (context: ScreenContext) => React.ReactNode;
       readonly body?: never;
     })
   | (ConsoleSurfaceRegistrationBase & {
-      readonly body: LazyBodyLoader<ConsoleSurfaceContext>;
+      readonly body: LazyBodyLoader<ScreenContext>;
       readonly render?: never;
     });
 
-export class ConsoleSurfaceRegistry {
+export class ScreenRegistry {
   // `"owner-scoped"`: re-registering under the same owner replaces (a hot reload
   // re-runs a family's module), and a different owner claiming a taken slot is a
   // conflict rather than a swap, because which surface mounts would otherwise
   // depend on module import order.
-  readonly #descriptorsBySlot = new KeyedRegistry<ConsoleSurfaceSlot, ConsoleSurfaceDescriptor>({
+  readonly #descriptorsBySlot = new KeyedRegistry<ScreenName, ScreenDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "surface slot",
     ownerOf: (descriptor) => descriptor.owner,
@@ -98,13 +98,10 @@ export class ConsoleSurfaceRegistry {
    * the descriptor is what every MOUNT site reads and none of them has business knowing
    * whether the surface it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySlot = new Map<
-    ConsoleSurfaceSlot,
-    LoadedLazyBody<ConsoleSurfaceContext>
-  >();
+  readonly #loadedBodiesBySlot = new Map<ScreenName, LoadedLazyBody<ScreenContext>>();
 
   /** Claim a slot. A second claim by a different owner is an error, not a swap. */
-  public register(registration: ConsoleSurfaceRegistration): void {
+  public register(registration: ScreenRegistration): void {
     if (registration.body === undefined) {
       // Registered first and the loader table trimmed after, for the pane board's
       // measured reason: a refused re-registration must not strip the loader off the
@@ -120,7 +117,7 @@ export class ConsoleSurfaceRegistry {
     // The fallback is the route's own absence frame, empty. Supplied here rather than by
     // the generic machinery, because what a route reserves while it loads is a
     // route-shaped question.
-    const loadedBody = new LoadedLazyBody(registration.body, (context: ConsoleSurfaceContext) =>
+    const loadedBody = new LoadedLazyBody(registration.body, (context: ScreenContext) =>
       createElement(PendingScreenBody, { context }),
     );
     // Registered BEFORE the loader table is written, so a `register` the keyed registry
@@ -134,7 +131,7 @@ export class ConsoleSurfaceRegistry {
     this.#loadedBodiesBySlot.set(registration.slot, loadedBody);
   }
 
-  public unregister(slot: ConsoleSurfaceSlot): void {
+  public unregister(slot: ScreenName): void {
     this.#descriptorsBySlot.unregister(slot);
     this.#loadedBodiesBySlot.delete(slot);
   }
@@ -147,42 +144,40 @@ export class ConsoleSurfaceRegistry {
    * nothing to do, so a caller preloading a destination it has not opened never has to
    * ask first whether that slot is loader-backed.
    */
-  public async preload(slot: ConsoleSurfaceSlot): Promise<void> {
+  public async preload(slot: ScreenName): Promise<void> {
     await this.#loadedBodiesBySlot.get(slot)?.load();
   }
 
   /** Which registered slots have a surface still to load, in declaration order. */
-  public unloadedKeys(): readonly ConsoleSurfaceSlot[] {
-    return CONSOLE_SURFACE_SLOTS.filter(
-      (slot) => this.#loadedBodiesBySlot.get(slot)?.isResolved === false,
-    );
+  public unloadedKeys(): readonly ScreenName[] {
+    return SCREEN_NAMES.filter((slot) => this.#loadedBodiesBySlot.get(slot)?.isResolved === false);
   }
 
-  public descriptorFor(slot: ConsoleSurfaceSlot): ConsoleSurfaceDescriptor | undefined {
+  public descriptorFor(slot: ScreenName): ScreenDescriptor | undefined {
     return this.#descriptorsBySlot.get(slot);
   }
 
-  public registeredSlots(): readonly ConsoleSurfaceSlot[] {
-    return CONSOLE_SURFACE_SLOTS.filter((slot) => this.#descriptorsBySlot.has(slot));
+  public registeredSlots(): readonly ScreenName[] {
+    return SCREEN_NAMES.filter((slot) => this.#descriptorsBySlot.has(slot));
   }
 }
 
 /** What every registration carries, whichever form it takes. */
 interface ConsoleSurfaceRegistrationBase {
-  readonly slot: ConsoleSurfaceSlot;
+  readonly slot: ScreenName;
   readonly owner: string;
 }
 
 /** The process-wide registry the families call at module scope. */
-export const consoleSurfaceRegistry: ConsoleSurfaceRegistry = new ConsoleSurfaceRegistry();
+export const screenRegistry: ScreenRegistry = new ScreenRegistry();
 
 /** The call a 1C surface family makes to claim its slot, in either registration form. */
-export function registerScreen(registration: ConsoleSurfaceRegistration): void {
-  consoleSurfaceRegistry.register(registration);
+export function registerScreen(registration: ScreenRegistration): void {
+  screenRegistry.register(registration);
 }
 
 /** Which slot a route mounts. `undefined` for routes that mount no surface. */
-export function surfaceSlotFor(route: ConsoleRoute): ConsoleSurfaceSlot | undefined {
+export function findScreenNameForRoute(route: ConsoleRoute): ScreenName | undefined {
   switch (route.kind) {
     case "sessions":
       return "sessions";

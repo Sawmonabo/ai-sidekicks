@@ -6,14 +6,14 @@
 // effect and removed on unmount.
 
 import { CommandRegistry } from "./command-registry.js";
-import type { ConsoleCommand, KeyBinding } from "./command-types.js";
+import type { CommandDefinition, Keybinding } from "./command-types.js";
 
 /** This window's command registry. */
-export const consoleCommands: CommandRegistry = new CommandRegistry();
+export const commandRegistry: CommandRegistry = new CommandRegistry();
 
 /** Contribute several commands. Atomic: every id is validated before any is added. */
-export function registerCommands(commands: readonly ConsoleCommand[]): void {
-  consoleCommands.registerAll(commands);
+export function registerCommands(commands: readonly CommandDefinition[]): void {
+  commandRegistry.registerAll(commands);
 }
 
 /**
@@ -40,14 +40,14 @@ export type WhenClauseKey = (typeof WHEN_CLAUSE_KEYS)[number];
  *
  * Narrower than `WhenClauseContext`, which admits keys a feature publishes on its own.
  */
-export type ConsoleWhenClauseContext = Readonly<Record<WhenClauseKey, boolean>>;
+export type WindowWhenClauseContext = Readonly<Record<WhenClauseKey, boolean>>;
 
 /** A command the window itself contributes; its `when` is the window's vocabulary. */
-export type FrameCommand = Omit<ConsoleCommand, "when"> & {
+export type FrameCommand = Omit<CommandDefinition, "when"> & {
   readonly when?: WhenClauseKey;
 };
 
 /** A chord the window itself binds, scoped to the same vocabulary. */
-export type FrameKeybinding = Omit<KeyBinding, "when"> & {
+export type FrameKeybinding = Omit<Keybinding, "when"> & {
   readonly when?: WhenClauseKey;
 };

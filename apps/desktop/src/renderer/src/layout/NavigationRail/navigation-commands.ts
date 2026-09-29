@@ -6,12 +6,12 @@
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import type { FrameStore } from "@renderer/store/window/window-store.js";
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type {
   FrameCommand,
   FrameKeybinding,
 } from "@renderer/registries/commands/window-command-registry.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./rail-navigation.js";
 
@@ -59,7 +59,7 @@ export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.ma
  * phase and the first match wins. The commands they run close over a window's store,
  * so the window registers those when it mounts.
  */
-export function registerNavigationKeybindings(contributions: ConsoleCommandSurface): void {
+export function registerNavigationKeybindings(contributions: CommandContributionRegistry): void {
   contributions.contribute({
     owner: NAVIGATION_COMMAND_OWNER,
     commands: [],
@@ -76,7 +76,7 @@ export function registerNavigationKeybindings(contributions: ConsoleCommandSurfa
  */
 export function buildNavigationCommands(
   frameStore: FrameStore,
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  surfaceRegistry: ScreenRegistry,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,

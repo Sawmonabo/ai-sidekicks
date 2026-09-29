@@ -23,16 +23,16 @@ import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { countingLoader, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
-import { type ConsolePaneContext } from "./pane-context.js";
-import { ConsolePaneRegistry } from "./pane-registry.js";
+import { type PaneContext } from "./pane-context.js";
+import { PaneRegistry } from "./pane-registry.js";
 import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 /** A pane body of the shape a converted family ships: its own chrome around its content. */
 function chromedBody(
-  kind: ConsolePaneContext["kind"],
+  kind: PaneContext["kind"],
   text: string,
-): (context: ConsolePaneContext) => React.ReactNode {
-  return (context: ConsolePaneContext): React.ReactNode =>
+): (context: PaneContext) => React.ReactNode {
+  return (context: PaneContext): React.ReactNode =>
     createElement(ConsolePaneChrome, {
       kind,
       sessionId: undefined,
@@ -43,7 +43,7 @@ function chromedBody(
 
 describe("the deck's board — a loader-form registration", () => {
   it("resolves to the same descriptor shape a component form does", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
@@ -58,7 +58,7 @@ describe("the deck's board — a loader-form registration", () => {
   });
 
   it("mounts the pane's own chrome first, then the body", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
@@ -82,7 +82,7 @@ describe("the deck's board — a loader-form registration", () => {
   });
 
   it("reserves the same box the loaded body draws", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "artifact",
       owner: "repos-family",
@@ -113,11 +113,11 @@ describe("the deck's board — a loader-form registration", () => {
     // Without this, "renders the fallback then the body" would also be satisfied by a
     // host that rendered the body immediately and the fallback never — and the marker
     // the screenshot tier refuses on would then never appear at all.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "browser",
       owner: "browser-terminal-family",
-      body: () => new Promise<LazyBodyModule<ConsolePaneContext>>(() => undefined),
+      body: () => new Promise<LazyBodyModule<PaneContext>>(() => undefined),
     });
     const { container } = render(
       <>{registry.descriptorFor("browser")?.render(syntheticPaneContextAt("browser"))}</>,
@@ -131,7 +131,7 @@ describe("the deck's board — one fetch per registration", () => {
   it("mounts a preloaded body without ever committing the pending marker", async () => {
     // The pane board's half of the same claim, and the one the screenshot tier depends
     // on: a mount that begins after a completed preload must not photograph the marker.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
@@ -153,7 +153,7 @@ describe("the deck's board — one fetch per registration", () => {
     // component-form claim by a second owner threw with the first owner's descriptor
     // still admitted and its loader gone: the pane stayed mounted and stopped being
     // warmable, with no error naming why.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = countingLoader(chromedBody("diff", "the diff body"));
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
     expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
@@ -169,8 +169,8 @@ describe("the deck's board — one fetch per registration", () => {
   });
 
   it("loads once however many callers ask", async () => {
-    const registry = new ConsolePaneRegistry();
-    const loader = countingLoader<ConsolePaneContext>(() => null);
+    const registry = new PaneRegistry();
+    const loader = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
     // The palette highlighting an entry, an address about to open, and the idle warm all
@@ -185,7 +185,7 @@ describe("the deck's board — one fetch per registration", () => {
   });
 
   it("does not re-fetch when the pane then mounts", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = countingLoader(chromedBody("diff", "the diff body"));
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
@@ -202,11 +202,11 @@ describe("the deck's board — one fetch per registration", () => {
     // A `lazy()` minted per render is a new component TYPE, and React unmounts and
     // remounts a body whose type changed — which would throw away the pane's scroll
     // position and every piece of state inside it on any host re-render.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
-      body: countingLoader<ConsolePaneContext>(() => null).load,
+      body: countingLoader<PaneContext>(() => null).load,
     });
     const descriptor = registry.descriptorFor("diff");
     const first = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
@@ -221,7 +221,7 @@ describe("the deck's board — one fetch per registration", () => {
   it("settles with nothing to do for a component form and for an unclaimed kind", async () => {
     // A caller preloading an address it has not opened must not have to ask first
     // whether the kind is loader-backed, or every call site carries that question.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
     await expect(registry.preload("timeline")).resolves.toBeUndefined();
     await expect(registry.preload("workflow-builder")).resolves.toBeUndefined();
@@ -230,30 +230,30 @@ describe("the deck's board — one fetch per registration", () => {
 
 describe("the deck's board — what the warm walk is offered", () => {
   it("reports unloaded loader-backed kinds in declaration order", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     // Registered back to front, and with a component form among them, so an
     // implementation reporting insertion order or reporting every registered kind would
     // answer differently.
     registry.register({
       kind: "agent-console",
       owner: "agents-family",
-      body: countingLoader<ConsolePaneContext>(() => null).load,
+      body: countingLoader<PaneContext>(() => null).load,
     });
     registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
     registry.register({
       kind: "diff",
       owner: "repos-family",
-      body: countingLoader<ConsolePaneContext>(() => null).load,
+      body: countingLoader<PaneContext>(() => null).load,
     });
     expect(registry.unloadedKeys()).toStrictEqual(["diff", "agent-console"]);
   });
 
   it("drops a kind from the walk once its body is asked for", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
-      body: countingLoader<ConsolePaneContext>(() => null).load,
+      body: countingLoader<PaneContext>(() => null).load,
     });
     await registry.preload("diff");
     // Read the memo rather than the settled value: a walk that re-entered a resolved
@@ -262,7 +262,7 @@ describe("the deck's board — what the warm walk is offered", () => {
   });
 
   it("negative control: a board of component-form bodies offers the walk nothing", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({ kind: "timeline", owner: "workspace-family", render: () => null });
     expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
     expect(registry.unloadedKeys()).toStrictEqual([]);
@@ -271,9 +271,9 @@ describe("the deck's board — what the warm walk is offered", () => {
 
 describe("the deck's board — a loader survives the duplicate policy", () => {
   it("leaves no loader behind when a second owner is refused", async () => {
-    const registry = new ConsolePaneRegistry();
-    const admitted = countingLoader<ConsolePaneContext>(() => null);
-    const refused = countingLoader<ConsolePaneContext>(() => null);
+    const registry = new PaneRegistry();
+    const admitted = countingLoader<PaneContext>(() => null);
+    const refused = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos-family", body: admitted.load });
     expect(() => {
       registry.register({ kind: "diff", owner: "another-family", body: refused.load });
@@ -290,9 +290,9 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
   it("replaces the loader when the same owner re-claims", async () => {
     // A hot reload re-runs a family's module. Keeping the first loader would leave the
     // deck fetching the pre-edit chunk, which reads as an edit that did nothing.
-    const registry = new ConsolePaneRegistry();
-    const beforeEdit = countingLoader<ConsolePaneContext>(() => null);
-    const afterEdit = countingLoader<ConsolePaneContext>(() => null);
+    const registry = new PaneRegistry();
+    const beforeEdit = countingLoader<PaneContext>(() => null);
+    const afterEdit = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos-family", body: beforeEdit.load });
     registry.register({ kind: "diff", owner: "repos-family", body: afterEdit.load });
     await registry.preload("diff");
@@ -311,7 +311,7 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
     //
     // Driven through ONE host re-rendered, rather than two renders, because rendering
     // twice would mount a fresh `LazyBody` each time and pass over a stale pin.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
       owner: "repos-family",
@@ -339,8 +339,8 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
   });
 
   it("forgets the loader once the kind is released", async () => {
-    const registry = new ConsolePaneRegistry();
-    const loader = countingLoader<ConsolePaneContext>(() => null);
+    const registry = new PaneRegistry();
+    const loader = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
     registry.unregister("diff");
     await registry.preload("diff");
@@ -349,8 +349,8 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
   });
 
   it("replaces a component form with a loader form, and back", async () => {
-    const registry = new ConsolePaneRegistry();
-    const loader = countingLoader<ConsolePaneContext>(() => null);
+    const registry = new PaneRegistry();
+    const loader = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos-family", render: () => null });
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
     expect(registry.unloadedKeys()).toStrictEqual(["diff"]);

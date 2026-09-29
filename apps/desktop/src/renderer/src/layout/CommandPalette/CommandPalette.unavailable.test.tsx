@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
@@ -42,7 +42,7 @@ const CLOSED_SENTENCE =
   "The local runtime has been stopped, so run controls cannot be sent until it is running again.";
 
 /** The row, offered here, closed or open depending on what its owner supplied. */
-function pauseCommand(ran: string[], unavailable: string | undefined): ConsoleCommand {
+function pauseCommand(ran: string[], unavailable: string | undefined): CommandDefinition {
   return {
     id: COMMAND_ID,
     title: COMMAND_TITLE,
@@ -55,7 +55,7 @@ function pauseCommand(ran: string[], unavailable: string | undefined): ConsoleCo
   };
 }
 
-function openPaletteOver(command: ConsoleCommand): void {
+function openPaletteOver(command: CommandDefinition): void {
   const registry = new CommandRegistry();
   registry.register(command);
   render(

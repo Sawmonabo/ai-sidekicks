@@ -3,13 +3,13 @@
 // Two declarations and nothing else — no store, no parser, no matcher. They live
 // together and below everything because they are the family's two INPUT types, and
 // every module here is either a consumer of them (`CommandRegistry`,
-// `KeyBindingTable`) or a decision procedure over them (`command-ranking.ts`,
+// `KeybindingTable`) or a decision procedure over them (`command-ranking.ts`,
 // `palette/keybindings/keybinding-conflicts.ts`).
 //
 // WHY THEY ARE NOT DECLARED BESIDE THEIR CONSUMERS. They were, and it closed two
 // cycles: `command-registry.ts` reached down to `command-ranking.ts` for the order
 // while `command-ranking.ts` reached back up for what a command IS, and the
-// keybinding pair did the same over `KeyBinding`. Both back-edges were `import
+// keybinding pair did the same over `Keybinding`. Both back-edges were `import
 // type` and therefore erased at runtime, which is exactly what makes the shape
 // worth naming: it is invisible to a bundler and to every reader who assumes
 // erasure settles it, and the layering gate counts type edges (`tsPreCompilationDeps`)
@@ -20,7 +20,7 @@
 // it a floor rather than one more node in the graph.
 
 /** One act the console offers. */
-export interface ConsoleCommand {
+export interface CommandDefinition {
   /** Stable, unique, namespaced by owning family — `session.rename`, not `rename`. */
   readonly id: string;
   /** Sentence case, no trailing punctuation, names the act — console copy rules. */
@@ -73,7 +73,7 @@ export interface ConsoleCommand {
 }
 
 /** One chord bound to one command, optionally scoped. */
-export interface KeyBinding {
+export interface Keybinding {
   /** tinykeys syntax, single press, `$mod` for Cmd on macOS and Ctrl elsewhere. */
   readonly chord: string;
   readonly commandId: string;

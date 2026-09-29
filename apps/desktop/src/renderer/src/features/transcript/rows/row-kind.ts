@@ -22,7 +22,7 @@
 // declares it.
 //
 // THE INLINE CARDS ARE NOT A FAMILY HERE. A diff, an attachment, and an artifact are
-// bodies the repos family owns behind `InlineCardSeatProps`, and a row carries one
+// bodies the repos family owns behind `InlineCardProps`, and a row carries one
 // where its own content says so — which is a question about a row's attachments, not
 // about which card it is. `MessageRow` renders the seat; this table does not know it
 // exists.

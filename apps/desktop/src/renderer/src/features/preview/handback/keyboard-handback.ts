@@ -61,7 +61,7 @@
 // is built from, and the REPLAY a claimed chord arrives at — and names no method
 // string. The projection is deliberately handed a chord LIST rather than reading one
 // itself, and the list its binding supplies is the palette's OWN effective table —
-// `useKeybindingSurface`'s `bindings`, the shipped chords with this window's overrides
+// `useKeybindingSnapshot`'s `bindings`, the shipped chords with this window's overrides
 // applied, which the palette and the keyboard page both read. So the mirror is a
 // projection of one table rather than a second list, which is the drift the third rule
 // forbids. Reading it here instead of taking it as an argument is what would make this

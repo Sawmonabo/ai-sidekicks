@@ -8,7 +8,7 @@
 // the reserved `/` prefix a prefix that reserves nothing, which is the state this
 // module ends.
 //
-// WHERE THE REGISTRY COMES FROM. `consoleCommands` is the window-scoped registry in
+// WHERE THE REGISTRY COMES FROM. `commandRegistry` is the window-scoped registry in
 // `registries/commands/`, the one the palette reads. A second registry here would give a
 // person's `/frame.goToSettings` a list the palette has never heard of.
 //
@@ -16,26 +16,17 @@
 // a `when` clause over `CONSOLE_WHEN_CLAUSE_KEYS`, and a clause naming a key the
 // context does not carry evaluates FALSE. So a composer that hand-wrote five of six
 // keys would silently hide whichever command used the sixth. The context below is
-// typed as `ConsoleWhenClauseContext`, which is derived from that tuple — a key added
+// typed as `WindowWhenClauseContext`, which is derived from that tuple — a key added
 // to the frame's vocabulary is a compile error here rather than a command that
 // quietly stops being offered.
 
 import {
-  consoleCommands,
-  type ConsoleWhenClauseContext,
+  commandRegistry,
+  type WindowWhenClauseContext,
 } from "@renderer/registries/commands/window-command-registry.js";
-import { type CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandInvocationOutcome } from "@renderer/registries/commands/command-registry.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
-
-/**
- * What the registry answers when a caller asks it to run something.
- *
- * Derived from the registry's own method rather than restated: the three arms are
- * the registry's closed vocabulary, and a fourth added there would reach every
- * consumer of this type as a compile error instead of an unhandled arm.
- */
-export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke"]>;
 
 /**
  * The narrow face of the console's command list the composer reads and acts through.
@@ -52,11 +43,11 @@ export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke
  */
 export interface ComposerCommands {
   /** Every command offered where this composer is, ordered by group then title. */
-  readonly offeredCommands: readonly ConsoleCommand[];
+  readonly offeredCommands: readonly CommandDefinition[];
   /** Every command this window has registered, in registration order, visible or not. */
   readonly registeredCommandIds: readonly string[];
   /** Run one by id, fail-closed on visibility. Never awaits the command itself. */
-  invoke(commandId: string): ConsoleCommandInvocationOutcome;
+  invoke(commandId: string): CommandInvocationOutcome;
 }
 
 /**
@@ -70,9 +61,9 @@ export interface ComposerCommands {
 export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
   return {
-    offeredCommands: consoleCommands.commandsFor(whenContext),
-    registeredCommandIds: consoleCommands.all().map((command) => command.id),
-    invoke: (commandId: string) => consoleCommands.invoke(commandId, whenContext),
+    offeredCommands: commandRegistry.commandsFor(whenContext),
+    registeredCommandIds: commandRegistry.all().map((command) => command.id),
+    invoke: (commandId: string) => commandRegistry.invoke(commandId, whenContext),
   };
 }
 
@@ -89,7 +80,7 @@ export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
  * composer is mounted under the workspace deck and does not render on the sessions
  * list, the workflows builder, or the settings pages.
  */
-function composerWhenContext(route: ConsoleRoute): ConsoleWhenClauseContext {
+function composerWhenContext(route: ConsoleRoute): WindowWhenClauseContext {
   return {
     sessionActive: true,
     onSessions: false,

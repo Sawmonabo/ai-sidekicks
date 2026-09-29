@@ -55,11 +55,11 @@ import type { SessionPane } from "./pane-layout/pane-layout.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import {
-  composerSeatRenderer,
+  findComposerRenderer,
   parseConsolePaneAddress,
   useSessionScopedState,
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
+  type PaneContext,
+  type PaneRegistry,
 } from "@renderer/console/seats/index.js";
 import {
   NO_SESSION_BANNERS,
@@ -79,12 +79,12 @@ export interface SessionScreenProps {
   readonly draftStore: DraftStore;
   readonly route: ConsoleRoute;
   /**
-   * The pane board THIS composition filled, the same fact `ConsoleSurfaceContext`
+   * The pane board THIS composition filled, the same fact `ScreenContext`
    * carries and on the same terms: required rather than defaulted to the process-wide
    * singleton, because a default is the same hard-coding one parameter along and a
    * caller that forgets it still mounts production's bodies into a composed window.
    */
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly paneRegistry: PaneRegistry;
 }
 
 /** The session workspace: header, deck of panes, composer seat, and the banner column. */
@@ -134,7 +134,7 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
   });
 
   const paneContextFor = useCallback(
-    (pane: SessionPane): ConsolePaneContext | ConsoleRefusal => {
+    (pane: SessionPane): PaneContext | ConsoleRefusal => {
       // The kind and the entity arrived as a loose pair — off a restored snapshot, or
       // off a route somebody typed — so they become an ADDRESS here or they become a
       // refusal here. The seat owns that rule and this surface applies it; deciding it
@@ -164,7 +164,7 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
-  const composer = composerSeatRenderer();
+  const composer = findComposerRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
 
   return (

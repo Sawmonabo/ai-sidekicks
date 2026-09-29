@@ -20,15 +20,15 @@ import { settle } from "@test/helpers/settle.js";
 import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { PaneControlsContext } from "@renderer/components/PaneFrame/pane-controls.js";
-import { type ConsolePaneContext } from "./pane-context.js";
-import { ConsolePaneRegistry } from "./pane-registry.js";
+import { type PaneContext } from "./pane-context.js";
+import { PaneRegistry } from "./pane-registry.js";
 
 /** The chrome's own label for its close control, which is the identity being matched. */
 const CLOSE_CONTROL_LABEL = "Close this pane";
 
 /** A pane body of the shape every converted family ships: its own chrome around content. */
-function chromedBody(text: string): (context: ConsolePaneContext) => React.ReactNode {
-  return (context: ConsolePaneContext): React.ReactNode =>
+function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
+  return (context: PaneContext): React.ReactNode =>
     createElement(ConsolePaneChrome, {
       kind: "diff",
       sessionId: undefined,
@@ -45,11 +45,11 @@ function chromedBody(text: string): (context: ConsolePaneContext) => React.React
  * chrome draw the SAME control strip, which is the premise the transfer rests on.
  */
 function mountDeferredPane(): {
-  readonly arrive: (Body: (context: ConsolePaneContext) => React.ReactNode) => void;
+  readonly arrive: (Body: (context: PaneContext) => React.ReactNode) => void;
   readonly container: HTMLElement;
 } {
-  const deferred = deferredBodyModule<ConsolePaneContext>();
-  const registry = new ConsolePaneRegistry();
+  const deferred = deferredBodyModule<PaneContext>();
+  const registry = new PaneRegistry();
   registry.register({ kind: "diff", owner: "repos-family", body: deferred.load });
   const { container } = render(
     <PaneControlsContext.Provider value={{ onClose: () => undefined }}>

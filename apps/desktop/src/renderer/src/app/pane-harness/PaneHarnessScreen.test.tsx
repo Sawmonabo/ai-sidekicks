@@ -28,18 +28,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import {
-  ConsolePaneRegistry,
-  type ConsolePaneContext,
-  type PaneKind,
-} from "@renderer/console/seats/index.js";
+import { PaneRegistry, type PaneContext, type PaneKind } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 import { AppRouter } from "../router.js";
-import {
-  consoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
 import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
@@ -73,20 +66,20 @@ const mountedPaneLifecycle: string[] = [];
 /**
  * A stub body for one kind, reporting what it was handed and when it came and went.
  *
- * The REAL `ConsolePaneRegistry`, because the harness's resolve is the subject: a
+ * The REAL `PaneRegistry`, because the harness's resolve is the subject: a
  * hand-rolled lookup here would prove the test's lookup works. What is a stub is the
  * BODY, which reports the paneId and the bridge identity it was handed so the cases
  * below can read them off the tree.
  */
-function registerStubBody(registry: ConsolePaneRegistry, kind: PaneKind): void {
+function registerStubBody(registry: PaneRegistry, kind: PaneKind): void {
   registry.register({
     kind,
     owner: "pane-harness-test",
-    render: (context: ConsolePaneContext) => <StubPaneBody paneContext={context} />,
+    render: (context: PaneContext) => <StubPaneBody paneContext={context} />,
   });
 }
 
-function StubPaneBody(props: { readonly paneContext: ConsolePaneContext }): React.JSX.Element {
+function StubPaneBody(props: { readonly paneContext: PaneContext }): React.JSX.Element {
   const { paneId, sessionStore } = props.paneContext;
   useEffect(() => {
     mountedPaneLifecycle.push(`mounted ${paneId}`);
@@ -102,15 +95,15 @@ function StubPaneBody(props: { readonly paneContext: ConsolePaneContext }): Reac
   );
 }
 
-function boardWithStubBody(kind: PaneKind): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function boardWithStubBody(kind: PaneKind): PaneRegistry {
+  const registry = new PaneRegistry();
   registerStubBody(registry, kind);
   return registry;
 }
 
 /** A board carrying a body for both kinds the route-keying cases address. */
-function boardWithBothStubBodies(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function boardWithBothStubBodies(): PaneRegistry {
+  const registry = new PaneRegistry();
   registerStubBody(registry, "terminal");
   registerStubBody(registry, "browser");
   return registry;
@@ -124,7 +117,7 @@ function boardWithBothStubBodies(): ConsolePaneRegistry {
  * constructing them opens a database to hand a surface that only passes them
  * through — `app/router.test.tsx` casts for the same reason.
  */
-function surfaceContextFor(route: ConsoleRoute): ConsoleSurfaceContext {
+function surfaceContextFor(route: ConsoleRoute): ScreenContext {
   return {
     route,
     bridge: {},
@@ -136,7 +129,7 @@ function surfaceContextFor(route: ConsoleRoute): ConsoleSurfaceContext {
     sessionStoreRegistry: {},
     uiStateStore: {},
     draftStore: {},
-  } as unknown as ConsoleSurfaceContext;
+  } as unknown as ScreenContext;
 }
 
 function mountedPaneIds(): readonly string[] {
@@ -258,14 +251,14 @@ describe("the fixture pane harness", () => {
 
   it("negative control: it resolves out of the board it was handed, not a singleton", async () => {
     // Every case above reads bodies out of a board built here. Without this one
-    // they would all pass over a harness that reached for `consolePaneRegistry` —
+    // they would all pass over a harness that reached for `paneRegistry` —
     // which the composition root fills with the production families, so `terminal`
     // would resolve and the assertions would still be green while the parameter
     // was doing nothing.
     render(
       <PaneHarnessScreen
         context={surfaceContextFor(harnessRoute("terminal"))}
-        paneRegistry={new ConsolePaneRegistry()}
+        paneRegistry={new PaneRegistry()}
       />,
     );
     await pressControl("Open a pane");
@@ -306,11 +299,11 @@ describe("the harness across a route change", () => {
   });
 
   afterEach(() => {
-    consoleSurfaceRegistry.unregister("pane-harness");
+    screenRegistry.unregister("pane-harness");
   });
 
   /** Claim the slot the way the fixture registration does, out of a board here. */
-  function registerHarnessSlot(paneRegistry: ConsolePaneRegistry): void {
+  function registerHarnessSlot(paneRegistry: PaneRegistry): void {
     registerScreen({
       slot: "pane-harness",
       owner: HARNESS_OWNER,

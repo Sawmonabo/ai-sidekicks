@@ -19,7 +19,7 @@ import {
   TERMINAL_SCENARIO,
   TERMINAL_SCENARIO_ID,
 } from "../../../../../../fixtures/scenarios/terminal-lease.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
@@ -34,7 +34,7 @@ function leaseTransitionReasons(): readonly unknown[] {
 
 describe("terminal family — claiming the deck's terminal pane", () => {
   it("claims the terminal kind on terms the deck can hold it by", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerTerminalPanes(registry);
     const descriptor = registry.descriptorFor("terminal");
     expect(descriptor?.kind).toBe("terminal");
@@ -44,13 +44,13 @@ describe("terminal family — claiming the deck's terminal pane", () => {
   });
 
   it("claims exactly one kind — V1 has one terminal per session", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerTerminalPanes(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["terminal"]);
   });
 
   it("negative control: a second owner claiming the kind is refused, not swapped", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerTerminalPanes(registry);
     expect(() => {
       registry.register({

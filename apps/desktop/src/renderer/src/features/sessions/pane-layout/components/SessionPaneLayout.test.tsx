@@ -15,7 +15,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { ConsolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
 import { PaneLayoutStore } from "../pane-layout-store.js";
 import type { SessionPane } from "../pane-layout.js";
@@ -34,19 +34,19 @@ function emptyLayout(): PaneLayoutStore {
  * the setup the subject. `TimelinePane.test.tsx` makes the same trade for the same
  * reason.
  */
-function paneContextFor(pane: SessionPane): ConsolePaneContext {
+function paneContextFor(pane: SessionPane): PaneContext {
   return {
     kind: pane.kind,
     entity: pane.entity,
     paneId: pane.paneId,
-  } as unknown as ConsolePaneContext;
+  } as unknown as PaneContext;
 }
 
 /** A registry whose bodies say which pane they are, and nothing else. */
 function registryWith(
   ...descriptors: readonly { kind: SessionPane["kind"]; owner?: string }[]
-): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+): PaneRegistry {
+  const registry = new PaneRegistry();
   for (const descriptor of descriptors) {
     registry.register({
       kind: descriptor.kind,
@@ -84,7 +84,7 @@ function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.El
   );
 }
 
-function renderDeck(layout: PaneLayoutStore, registry: ConsolePaneRegistry): HTMLElement {
+function renderDeck(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElement {
   const { container } = render(
     <DeckWindow>
       <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />

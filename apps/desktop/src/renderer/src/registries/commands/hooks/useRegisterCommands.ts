@@ -37,8 +37,8 @@
 
 import { useEffect } from "react";
 
-import { consoleCommandSurface } from "../command-contributions.js";
-import type { ConsoleCommand } from "../command-types.js";
+import { commandContributionRegistry } from "../command-contributions.js";
+import type { CommandDefinition } from "../command-types.js";
 
 /** No chords, always. Frozen so a caller cannot make this the exception. */
 const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
@@ -53,14 +53,14 @@ const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
  * signature of what the rows SAY and read everything that moves underneath them
  * through a ref, so a run version advancing does not rewrite the palette.
  */
-export function useConsoleCommandSeat(owner: string, commands: readonly ConsoleCommand[]): void {
+export function useRegisterCommands(owner: string, commands: readonly CommandDefinition[]): void {
   useEffect(
     // The release IS the cleanup, and it withdraws this contribution alone. A mount
     // React has already replaced — a second pane of this kind, a development-mode
     // remount — tears down after the one that superseded it and takes nothing off the
     // registry; and a mount torn down while an earlier one is still on screen hands
     // the rows back to it rather than emptying the owner underneath it.
-    () => consoleCommandSurface.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS }),
+    () => commandContributionRegistry.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS }),
     [owner, commands],
   );
 }

@@ -7,7 +7,7 @@
 // a feed whose rows are mounted and unmounted under the reader, a control that is
 // revealed on hover and therefore easy to ship without a name.
 //
-// WHY THE PANE IS MOUNTED DIRECTLY AND NOT THROUGH `ConsoleRoot`
+// WHY THE PANE IS MOUNTED DIRECTLY AND NOT THROUGH `AppProviders`
 //
 // The frame's own case next door mounts the root, which is right for the frame. The
 // ledger needs a session with CONTENT in it, and content reaches a store either from

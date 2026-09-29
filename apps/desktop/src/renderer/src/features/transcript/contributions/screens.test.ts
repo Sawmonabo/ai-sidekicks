@@ -7,11 +7,7 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import {
-  ConsolePaneRegistry,
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { PaneRegistry, ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 import { TranscriptSurface } from "../TranscriptSurface.js";
 import { registerLedger } from "./screens.js";
 
@@ -23,7 +19,7 @@ import { registerLedger } from "./screens.js";
  * building all of that to hand a handful of fields to a function that copies them
  * would make the setup the subject.
  */
-function surfaceContext(sessionId = "session-7"): ConsoleSurfaceContext {
+function surfaceContext(sessionId = "session-7"): ScreenContext {
   return {
     route: { kind: "workspace", sessionId },
     bridge: { source: "fixture" },
@@ -31,8 +27,8 @@ function surfaceContext(sessionId = "session-7"): ConsoleSurfaceContext {
     sessionStore: undefined,
     uiStateStore: {},
     draftStore: {},
-    paneRegistry: new ConsolePaneRegistry(),
-  } as unknown as ConsoleSurfaceContext;
+    paneRegistry: new PaneRegistry(),
+  } as unknown as ScreenContext;
 }
 
 /**
@@ -47,8 +43,8 @@ function TestWorkspaceBody(): null {
   return null;
 }
 
-function registeredLedger(): ConsoleSurfaceRegistry {
-  const registry = new ConsoleSurfaceRegistry();
+function registeredLedger(): ScreenRegistry {
+  const registry = new ScreenRegistry();
   registerLedger(registry, { workspace: TestWorkspaceBody });
   return registry;
 }
@@ -95,7 +91,7 @@ describe("the ledger — which slots it holds", () => {
   it("negative control: a fresh registry claims nothing on its own", () => {
     // The case above reads `registeredSlots`, and would pass over a registry that
     // reported slots nobody registered.
-    expect(new ConsoleSurfaceRegistry().registeredSlots()).toStrictEqual([]);
+    expect(new ScreenRegistry().registeredSlots()).toStrictEqual([]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
@@ -154,7 +150,7 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
       registry.descriptorFor("workspace")?.render({
         ...surfaceContext(),
         route: { kind: "settings" },
-      } as unknown as ConsoleSurfaceContext),
+      } as unknown as ScreenContext),
     );
     expect(workspaceBodyIn(shell).key).toBe("no-session");
   });

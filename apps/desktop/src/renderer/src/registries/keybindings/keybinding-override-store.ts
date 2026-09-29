@@ -6,7 +6,7 @@
 // carry it:
 //
 //   • **One accessor, never the raw table.** The frame's key dispatch and the
-//     Keyboard page both read `surface.bindings`. A consumer reading the shipped table
+//     Keyboard page both read `snapshot.bindings`. A consumer reading the shipped table
 //     directly would install, or print, the chords a person replaced — and the two
 //     surfaces would then disagree about which keyboard this window has, which is the
 //     exact defect a person cannot debug. The page needs the SHIPPED table too, to say
@@ -44,7 +44,7 @@ import {
   contributedKeybindings,
   subscribeToCommandContributions,
 } from "../commands/command-contributions.js";
-import { type KeyBinding } from "../commands/command-types.js";
+import { type Keybinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
@@ -83,7 +83,7 @@ const HYDRATION_KEY = "hydrate";
  * the state has one owner.
  */
 export class KeybindingOverrideStore {
-  readonly #readDefaults: () => readonly KeyBinding[];
+  readonly #readDefaults: () => readonly Keybinding[];
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeybindingOverrideMap = {};
@@ -122,7 +122,7 @@ export class KeybindingOverrideStore {
   }
 
   /** What to install and what to draw. One object, stable between changes. */
-  public get surface(): KeybindingSnapshot {
+  public get snapshot(): KeybindingSnapshot {
     const shippedBindings = this.#snapshot === undefined ? this.#readDefaults() : [];
     this.#snapshot ??= {
       bindings: composeEffectiveBindings(shippedBindings, this.#overrides),
@@ -325,7 +325,7 @@ export class KeybindingOverrideStore {
  * reaches the seam the frame installs from without a store threaded through a page
  * contract that deliberately carries none.
  */
-export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
+export const keybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
   defaults: contributedKeybindings,
   subscribeToDefaults: subscribeToCommandContributions,
 });

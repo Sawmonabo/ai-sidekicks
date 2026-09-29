@@ -21,7 +21,7 @@
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { surfaceSlotFor, type ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { findScreenNameForRoute, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**
@@ -67,7 +67,7 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
  * would otherwise show is one a person never sees.
  *
  * ONE FUNCTION AND NOT TWO CALL SITES' WORTH, because the destination-to-slot step is
- * the thing that could go wrong twice: `surfaceSlotFor` is the map, and a second
+ * the thing that could go wrong twice: `findScreenNameForRoute` is the map, and a second
  * open-coded reading of it would drift the first time a destination changed slots.
  *
  * A destination whose surface is component-form, or not registered at all, settles
@@ -75,7 +75,7 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
  * about to open is loader-backed.
  */
 export function warmDestination(
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  surfaceRegistry: ScreenRegistry,
   destination: RailDestination,
 ): void {
   // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
@@ -99,10 +99,10 @@ export function warmDestination(
  * is loader-backed.
  */
 async function warmRouteScreen(
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  surfaceRegistry: ScreenRegistry,
   route: ConsoleRoute,
 ): Promise<void> {
-  const slot = surfaceSlotFor(route);
+  const slot = findScreenNameForRoute(route);
   if (slot === undefined) {
     return;
   }

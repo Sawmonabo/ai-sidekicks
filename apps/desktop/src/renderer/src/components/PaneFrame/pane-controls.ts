@@ -2,7 +2,7 @@
 //
 // `ConsolePaneChrome.tsx` puts close on the pane's head, and it is the HOST's act: the
 // deck owns which panes exist. But a pane body is mounted through `pane-registry.ts`,
-// whose `render(context)` takes a `ConsolePaneContext` and nothing else — that contract
+// whose `render(context)` takes a `PaneContext` and nothing else — that contract
 // is shared by six view families and widening it to carry callbacks would be six
 // branches changing one merged file.
 //

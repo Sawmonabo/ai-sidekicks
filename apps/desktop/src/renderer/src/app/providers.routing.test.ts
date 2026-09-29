@@ -6,7 +6,7 @@
 // workspace sitting under the sessions destination rather than under an icon that is
 // not drawn.
 //
-// Every case drives the real `ConsoleRoot` against the fixture bridge the
+// Every case drives the real `AppProviders` against the fixture bridge the
 // `console-unit` project compiles in. What the composition root wires beyond the
 // rail is `providers.test.ts`; the token sheet is
 // `AppBootstrap.tokens.test.ts`.
@@ -41,7 +41,7 @@ function currentRailDestination(mounted: RenderResult): string | null {
   return current === null ? null : current.getAttribute("aria-label");
 }
 
-describe("ConsoleRoot — the rail's three destinations, and where the window is", () => {
+describe("AppProviders — the rail's three destinations, and where the window is", () => {
   beforeEach(() => {
     window.location.hash = WORKSPACE_HASH;
   });

@@ -6,7 +6,7 @@
 // all — is on the tokens, and the frame below the gate does not install a second
 // copy for every window that works.
 //
-// Both cases drive the real `ConsoleRoot`. The one instrument is a spy on the REAL
+// Both cases drive the real `AppProviders`. The one instrument is a spy on the REAL
 // bridge barrel, and it is a spy rather than a replacement: `resolveBridge` answers
 // `unavailable` only when no bridge is supplied AND fixtures are compiled out, and
 // this tier compiles them in — so without it the branch that renders the recovery
@@ -26,7 +26,7 @@ import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
 // missing-preload resolution can state it for that case alone.
 vi.mock(import("@renderer/services/platform/hooks/useBridgeResolution.js"), { spy: true });
 
-describe("ConsoleRoot — every state it can render sits on the Meridian tokens", () => {
+describe("AppProviders — every state it can render sits on the Meridian tokens", () => {
   // The tokens are installed on the DOCUMENT, so they outlive `cleanup()` and
   // every case here would otherwise read a sheet an earlier one left behind.
   // Removing it first is what makes the assertions about THIS render.

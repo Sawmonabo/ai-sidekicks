@@ -31,7 +31,7 @@ import {
   shippedScreenRender,
   windowAt,
 } from "./SettingsScreen.test-support.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 // The settings chunk, warmed in a hook rather than inside whichever case reached it
 // first — the reason the holder it goes through records.
@@ -89,7 +89,7 @@ function registeredProbePage(): SettingsPageRegistry {
 }
 
 /** The four fields this surface reads, and nothing else. */
-function contextFor(page: string | undefined): ConsoleSurfaceContext {
+function contextFor(page: string | undefined): ScreenContext {
   return windowAt(page).context;
 }
 

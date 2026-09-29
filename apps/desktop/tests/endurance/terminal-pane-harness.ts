@@ -16,7 +16,7 @@
 // the `terminal` kind, and `app/pane-harness/` is the smallest honest door — a fixture
 // surface the fixture launch registers, reached at
 // `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
-// `ConsolePaneRegistry` and mounts one more of it per press. It is deliberately not
+// `PaneRegistry` and mounts one more of it per press. It is deliberately not
 // a deck: a reading taken inside one would fold the deck's tab strip, layout, and
 // drag machinery into a figure the row scopes to a pane INSTANCE, and would report
 // a pane over budget for the deck's own cost. The deck's absence from the subject

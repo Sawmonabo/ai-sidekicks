@@ -74,9 +74,9 @@ export interface TimelineRowSlotProps {
 }
 
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
-export type TimelineRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
+export type TranscriptRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
 
-const timelineRowSeat = new SingleSlotSeat<TimelineRowRenderer>(
+const timelineRowSeat = new SingleSlotSeat<TranscriptRowRenderer>(
   "timeline row",
   "the fixture shell is REPLACED by the timeline subtree, not registered beside it — delete the shell in the PR that registers the real row",
 );
@@ -89,7 +89,7 @@ const timelineRowSeat = new SingleSlotSeat<TimelineRowRenderer>(
  * the deletion loud — a second owner is refused by name rather than winning or
  * losing by import order.
  */
-export function registerTimelineRowRenderer(owner: string, render: TimelineRowRenderer): void {
+export function registerTimelineRowRenderer(owner: string, render: TranscriptRowRenderer): void {
   timelineRowSeat.register({ owner, render });
 }
 
@@ -105,6 +105,6 @@ export function unregisterTimelineRowRenderer(): void {
 }
 
 /** The row body, or `undefined` while the seat is empty. */
-export function timelineRowRenderer(): TimelineRowRenderer | undefined {
+export function timelineRowRenderer(): TranscriptRowRenderer | undefined {
   return timelineRowSeat.renderer();
 }

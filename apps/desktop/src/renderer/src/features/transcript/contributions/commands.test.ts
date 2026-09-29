@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
-import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import {
   TRANSCRIPT_COMMAND_GROUP,
@@ -32,7 +32,7 @@ function recordingActs(fired: string[]): TranscriptActs {
   };
 }
 
-function commandById(commands: readonly ConsoleCommand[], commandId: string): ConsoleCommand {
+function commandById(commands: readonly CommandDefinition[], commandId: string): CommandDefinition {
   const command = commands.find((candidate) => candidate.id === commandId);
   if (command === undefined) {
     throw new Error(`the builder produced no command named ${commandId}`);
@@ -129,7 +129,7 @@ describe("ledger commands — the rows themselves", () => {
 describe("ledger commands — the contribution reaches the palette and the keyboard", () => {
   /** Contributing an empty set is how a window is left with none of this family's rows. */
   function withdrawLedgerContribution(): void {
-    consoleCommandSurface.contribute({
+    commandContributionRegistry.contribute({
       owner: TRANSCRIPT_COMMAND_OWNER,
       commands: [],
       keyBindings: [],
@@ -141,12 +141,12 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   });
 
   /** A table over the window's real registry and its real chord list. */
-  function keyBindingTable(): KeyBindingTable {
-    const table = new KeyBindingTable({
-      registry: consoleCommands,
+  function keyBindingTable(): KeybindingTable {
+    const table = new KeybindingTable({
+      registry: commandRegistry,
       readContext: () => ({ sessionActive: true }),
     });
-    table.setBindings(consoleKeybindingOverrides.surface.bindings);
+    table.setBindings(keybindingOverrides.snapshot.bindings);
     return table;
   }
 
@@ -155,7 +155,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
    * not care which host it is running on, so the other modifier is tried only when
    * the first press was not consumed.
    */
-  function pressModifiedKey(table: KeyBindingTable, key: string): boolean {
+  function pressModifiedKey(table: KeybindingTable, key: string): boolean {
     return (
       table.handleKeyDown(new KeyboardEvent("keydown", { key, ctrlKey: true })) ||
       table.handleKeyDown(new KeyboardEvent("keydown", { key, metaKey: true }))
@@ -163,8 +163,8 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   }
 
   it("puts every act in the window's palette once the family is composed", () => {
-    registerTranscriptCommands(consoleCommandSurface);
-    const offered = consoleCommands
+    registerTranscriptCommands(commandContributionRegistry);
+    const offered = commandRegistry
       .commandsFor({ sessionActive: true })
       .map((command) => command.id);
     for (const command of createTranscriptCommands(recordingActs([]))) {
@@ -176,7 +176,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     // The whole seam in one case: contributed at composition, resolved at press.
     const fired: string[] = [];
     const seat = new MountedTranscript();
-    registerTranscriptCommands(consoleCommandSurface, seat);
+    registerTranscriptCommands(commandContributionRegistry, seat);
     const release = seat.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
@@ -186,7 +186,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   it("walks forward through the matches from the keyboard", () => {
     const fired: string[] = [];
     const seat = new MountedTranscript();
-    registerTranscriptCommands(consoleCommandSurface, seat);
+    registerTranscriptCommands(commandContributionRegistry, seat);
     const release = seat.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "g")).toBe(true);
     expect(fired).toStrictEqual(["stepFindNext"]);
@@ -197,8 +197,8 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     // Not a silent press: the act has no surface of its own, so it takes rule 9's
     // banner — which is exactly what a ledger chord from the settings page needs.
     const raised: ConsoleRefusal[] = [];
-    const withdrawSink = publishConsoleActRefusalSink((refusal) => raised.push(refusal));
-    registerTranscriptCommands(consoleCommandSurface, new MountedTranscript());
+    const withdrawSink = publishCommandRefusalSink((refusal) => raised.push(refusal));
+    registerTranscriptCommands(commandContributionRegistry, new MountedTranscript());
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(raised).toHaveLength(1);
     expect(raised[0]?.code).toBe("transcript.no_mounted_transcript");
@@ -209,22 +209,22 @@ describe("ledger commands — the contribution reaches the palette and the keybo
   it("replaces its own rows when the console is composed twice", () => {
     // Composition runs at module scope in production and repeatedly in a test, and
     // the command registry refuses a duplicate id — so a second pass must replace.
-    registerTranscriptCommands(consoleCommandSurface);
-    const afterFirst = consoleCommands.size;
+    registerTranscriptCommands(commandContributionRegistry);
+    const afterFirst = commandRegistry.size;
     expect(() => {
-      registerTranscriptCommands(consoleCommandSurface);
+      registerTranscriptCommands(commandContributionRegistry);
     }).not.toThrow();
-    expect(consoleCommands.size).toBe(afterFirst);
+    expect(commandRegistry.size).toBe(afterFirst);
   });
 
   it("negative control: nothing of this family is offered or bound before it composes", () => {
     // Every case above passes over a console that had these rows all along, which is
     // precisely what this family did NOT have.
     withdrawLedgerContribution();
-    expect(consoleCommands.has("transcript.find")).toBe(false);
-    expect(
-      consoleKeybindingOverrides.surface.bindings.map((binding) => binding.commandId),
-    ).not.toContain("transcript.find");
+    expect(commandRegistry.has("transcript.find")).toBe(false);
+    expect(keybindingOverrides.snapshot.bindings.map((binding) => binding.commandId)).not.toContain(
+      "transcript.find",
+    );
     const fired: string[] = [];
     const seat = new MountedTranscript();
     seat.adopt(recordingActs(fired));

@@ -8,7 +8,7 @@ import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
 import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
-import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { type PaneContext } from "@renderer/console/seats/index.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
@@ -51,7 +51,7 @@ function terminalSessionStore(): SessionStore {
  */
 export async function mountTerminalPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  const TerminalPaneBody: FunctionComponent<ConsolePaneContext> = await resolvedPaneBody(
+  const TerminalPaneBody: FunctionComponent<PaneContext> = await resolvedPaneBody(
     "terminal",
     registerTerminalPanes,
   );

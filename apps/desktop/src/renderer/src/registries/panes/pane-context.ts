@@ -29,10 +29,10 @@ import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js
  * context on its `kind` narrows its `entity` with it — the property the union
  * exists for, carried through to every registered body.
  */
-export type ConsolePaneContext = ConsolePaneAddress & ConsolePaneBinding;
+export type PaneContext = ConsolePaneAddress & PaneBinding;
 
 /** What a pane is bound to, beside the address it was opened at. */
-interface ConsolePaneBinding {
+interface PaneBinding {
   /** This pane's identity in the deck, stable across a layout restore. */
   readonly paneId: string;
   readonly bridge: ConsoleBridge;

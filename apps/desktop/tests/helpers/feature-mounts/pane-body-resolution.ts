@@ -24,16 +24,16 @@ import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 
 import {
-  ConsolePaneRegistry,
-  ConsoleSurfaceRegistry,
-  type ConsolePaneContext,
-  type ConsoleSurfaceContext,
+  PaneRegistry,
+  ScreenRegistry,
+  type PaneContext,
+  type ScreenContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
-// The LEAF for this one name: `ConsoleSurfaceSlot` is deliberately off the seats door,
+// The LEAF for this one name: `ScreenName` is deliberately off the seats door,
 // which that door's own header states — no production module reaches it through one, and
 // the barrel census fails a line like that.
-import { type ConsoleSurfaceSlot } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenName } from "@renderer/registries/screens/screen-registry.js";
 
 /**
  * The body the deck holds for a kind, with its module already loaded.
@@ -53,9 +53,9 @@ import { type ConsoleSurfaceSlot } from "@renderer/registries/screens/screen-reg
  */
 export async function resolvedPaneBody(
   kind: PaneKind,
-  registerPane: (registry: ConsolePaneRegistry) => void,
-): Promise<(context: ConsolePaneContext) => ReactNode> {
-  const registry = new ConsolePaneRegistry();
+  registerPane: (registry: PaneRegistry) => void,
+): Promise<(context: PaneContext) => ReactNode> {
+  const registry = new PaneRegistry();
   registerPane(registry);
   await registry.preload(kind);
   const descriptor = registry.descriptorFor(kind);
@@ -79,10 +79,10 @@ export async function resolvedPaneBody(
  * window rather than one pane inside a settled frame.
  */
 export async function resolvedScreenBody(
-  slot: ConsoleSurfaceSlot,
-  registerSurface: (registry: ConsoleSurfaceRegistry) => void,
-): Promise<(context: ConsoleSurfaceContext) => ReactNode> {
-  const registry = new ConsoleSurfaceRegistry();
+  slot: ScreenName,
+  registerSurface: (registry: ScreenRegistry) => void,
+): Promise<(context: ScreenContext) => ReactNode> {
+  const registry = new ScreenRegistry();
   registerSurface(registry);
   await registry.preload(slot);
   const descriptor = registry.descriptorFor(slot);
@@ -99,8 +99,8 @@ export async function resolvedScreenBody(
  * mounted is also named; this supplies the binding every arm of the union shares.
  */
 export function paneBinding(
-  overrides: Pick<ConsolePaneContext, "paneId" | "bridge" | "sessionStore">,
-): Omit<ConsolePaneContext, "kind"> {
+  overrides: Pick<PaneContext, "paneId" | "bridge" | "sessionStore">,
+): Omit<PaneContext, "kind"> {
   return {
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),

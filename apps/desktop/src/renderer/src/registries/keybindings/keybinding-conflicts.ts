@@ -2,18 +2,18 @@
 //
 // Two questions, and they are the same pass: which rows are well formed at all,
 // and which surviving pairs could fire on one keystroke. Both are answered here
-// rather than inside `KeyBindingTable` because the Keyboard settings page needs
-// them without committing — `KeyBindingTable.conflictsIn` is a pre-flight check,
+// rather than inside `KeybindingTable` because the Keyboard settings page needs
+// them without committing — `KeybindingTable.conflictsIn` is a pre-flight check,
 // and asking by catching the throw from `setBindings` would mean the table had
 // already been half-replaced.
 //
-// The `KeyBinding` type this module validates is declared in `commands/command-types.ts`
+// The `Keybinding` type this module validates is declared in `commands/command-types.ts`
 // and installed by `keybinding-table.ts`. The import below is type-only and erased, so the
 // runtime edge runs one way: the table reaches down here, and nothing here
 // reaches back.
 
 import type { KeybindingPress } from "tinykeys";
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 import { normalizePressForComparison, parseChord } from "./keybinding-chord.js";
 import {
   collectWhenClauseIdentifiers,
@@ -39,14 +39,14 @@ export interface KeybindingConflict {
 
 /** A binding that was dropped rather than installed, with the reason. */
 export interface KeybindingDiagnostic {
-  readonly binding: KeyBinding;
+  readonly binding: Keybinding;
   readonly reason: "chord-unparseable" | "when-unparseable";
   readonly detail: string;
 }
 
 /** A binding that survived validation, with its clause and chord already parsed. */
 export interface PreparedBinding {
-  readonly binding: KeyBinding;
+  readonly binding: Keybinding;
   readonly press: KeybindingPress;
   readonly whenAst: WhenClauseNode | undefined;
   /** Registration order, the last stable key in the dispatch ordering. */
@@ -69,7 +69,7 @@ export interface PreparedBindingSet {
  * well formed — a preview that validated differently from the commit would be a
  * second source of truth for the same question.
  */
-export function prepareBindings(bindings: readonly KeyBinding[]): PreparedBindingSet {
+export function prepareBindings(bindings: readonly Keybinding[]): PreparedBindingSet {
   const prepared: PreparedBinding[] = [];
   const diagnostics: KeybindingDiagnostic[] = [];
 

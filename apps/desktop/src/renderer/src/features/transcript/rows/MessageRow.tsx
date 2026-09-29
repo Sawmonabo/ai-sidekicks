@@ -40,7 +40,7 @@
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
-import { type InlineCardSeatProps } from "@renderer/console/seats/index.js";
+import { type InlineCardProps } from "@renderer/console/seats/index.js";
 import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
@@ -62,7 +62,7 @@ export interface MessageRowProps extends HydratedRowProps {
    * member of any registered payload — `SteerPayload.attachments` is `unknown[]` by
    * contract — so a card that built these from the wire would be inventing the wire.
    */
-  readonly inlineCards?: readonly InlineCardSeatProps[] | undefined;
+  readonly inlineCards?: readonly InlineCardProps[] | undefined;
   /**
    * The edit affordance, or `undefined` while none is supplied.
    *

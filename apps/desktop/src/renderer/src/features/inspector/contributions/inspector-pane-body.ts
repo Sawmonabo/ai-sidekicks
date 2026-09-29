@@ -8,7 +8,7 @@
 
 import { createElement } from "react";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { InspectorPane } from "../InspectorPane.js";
 
 /**
@@ -19,7 +19,7 @@ import { InspectorPane } from "../InspectorPane.js";
  * a `.ts` module, and the naming rule reserves `.tsx` for a single PascalCase component
  * per file.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "inspector",
   (context) => createElement(InspectorPane, context),
 );

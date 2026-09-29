@@ -14,7 +14,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent, EntityProjectorRegistry } from "../entities/entities.js";
+import type { ConsoleSessionEvent, EntityProjectorTable } from "../entities/entities.js";
 import { useSessionEntity, useSessionPartition } from "./useOpenSessionStore.js";
 import { type SessionSnapshotReader } from "../open-session-entry.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
@@ -28,7 +28,7 @@ function runIdOf(event: ConsoleSessionEvent): string {
   return typeof raw === "string" ? raw : "unknown-run";
 }
 
-const projectors: EntityProjectorRegistry = {
+const projectors: EntityProjectorTable = {
   "run.starting": (event) => [
     {
       operation: "upsert",

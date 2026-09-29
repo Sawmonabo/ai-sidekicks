@@ -82,24 +82,24 @@
 // `@consumedBy` claims: the frame and the composition root read these today.
 //
 // Four names are deliberately absent, each because no PRODUCTION module reaches it
-// through this door and the barrel census fails a line like that. `ConsoleSurfaceSlot`
-// is reached through the descriptor a family fills in. `CONSOLE_SURFACE_SLOTS`'s only
+// through this door and the barrel census fails a line like that. `ScreenName`
+// is reached through the descriptor a family fills in. `SCREEN_NAMES`'s only
 // reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
 // plan-owned subtree mounting into the console would call — has no caller outside this
 // family yet; the family that lands the first one adds the line in its own diff. And
-// `ConsoleSurfaceDescriptor` joined them when the last pre-console slot claim was
+// `ScreenDescriptor` joined them when the last pre-console slot claim was
 // retired: every surviving registrar hands `register` an object literal or a
-// `ConsoleSurfaceRegistration` row and names the descriptor type nowhere, so the line
+// `ScreenRegistration` row and names the descriptor type nowhere, so the line
 // had only a test harness left reading it, and that harness takes the declaring module.
 export {
-  ConsoleSurfaceRegistry,
-  consoleSurfaceRegistry,
-  surfaceSlotFor,
+  ScreenRegistry,
+  screenRegistry,
+  findScreenNameForRoute,
   // What a family hands `register`, published for the same reason
-  // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
+  // `PaneRegistration` is: a family claiming more than one slot keeps its
   // claims in a table, and a table needs the type its rows are. The workflows family
   // is the first with two — the rail's destination and the phase deep link.
-  type ConsoleSurfaceRegistration,
+  type ScreenRegistration,
 } from "@renderer/registries/screens/screen-registry.js";
 
 // The two contexts come off their own modules rather than off the boards that hand them
@@ -107,8 +107,8 @@ export {
 // mounts while a loader-backed body is in flight, and that frame names the context — and
 // re-exporting them from the boards here would put this door's readers back on a
 // specifier the declaration no longer lives at.
-export type { ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
-export type { ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
+export type { PaneContext } from "@renderer/registries/panes/pane-context.js";
+export type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 // `PANE_KINDS` and `EPHEMERAL_PANE_KINDS` are deliberately absent: every reader of
 // either SET is inside this family or is a suite that drives the kinds directly, and
@@ -135,12 +135,12 @@ export {
 export { parseConsolePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 
 export {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
+  PaneRegistry,
+  paneRegistry,
   /** @consumedBy a view family that has not landed yet */
   registeredPaneKinds,
-  type ConsolePaneDescriptor,
-  type ConsolePaneRegistration,
+  type PaneDescriptor,
+  type PaneRegistration,
 } from "@renderer/registries/panes/pane-registry.js";
 
 // The idle warm and its scheduler. Published because the composition that owns a
@@ -190,13 +190,13 @@ export {
 export { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 
 export {
-  composerSeatRenderer,
-  registerComposerSeat,
+  findComposerRenderer,
+  registerComposer,
   /** @consumedBy a view family that has not landed yet */
-  unregisterComposerSeat,
-  type ComposerSeatProps,
+  unregisterComposer,
+  type ComposerProps,
   /** @consumedBy a view family that has not landed yet */
-  type ComposerSeatRenderer,
+  type ComposerRenderer,
 } from "@renderer/registries/composer/composer-registry.js";
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
@@ -212,7 +212,7 @@ export {
   registerTimelineRowRenderer,
   timelineRowRenderer,
   type TimelineRowDensity,
-  type TimelineRowRenderer,
+  type TranscriptRowRenderer,
   type TimelineRowSlotProps,
 } from "@renderer/features/transcript/transcript-row-renderer.js";
 
@@ -222,9 +222,9 @@ export {
 export {
   /** @consumedBy a view family that has not landed yet */
   INLINE_CARD_KINDS,
-  InlineCardSeatRegistry,
+  InlineCardRegistry,
   inlineCardBody,
-  inlineCardSeatRegistry,
+  inlineCardRegistry,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
@@ -234,7 +234,7 @@ export {
   type InlineCardKind,
   /** @consumedBy a view family that has not landed yet */
   type InlineCardPropsByKind,
-  type InlineCardSeatProps,
+  type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
 
 // The pane chrome and the seam its host control travels on. No marker on any of

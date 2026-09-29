@@ -17,14 +17,11 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import { SettingsScreen } from "./SettingsScreen.js";
 import { registerSettingsSurface } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The descriptor type by its own specifier: no production module names it, so the
 // seats door publishes no line for it and the barrel census would fail one written
 // for this harness alone.
-import type { ConsoleSurfaceDescriptor } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenDescriptor } from "@renderer/registries/screens/screen-registry.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar itself.
@@ -37,8 +34,8 @@ import type { ConsoleSurfaceDescriptor } from "@renderer/registries/screens/scre
  * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
  * fails here rather than rendering an empty rail.
  */
-async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
-  const surfaces = new ConsoleSurfaceRegistry();
+async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
+  const surfaces = new ScreenRegistry();
   registerSettingsSurface(surfaces);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
   // this board after the first frame, and the rail's press warms the destination before
@@ -71,9 +68,9 @@ async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["ren
  * `apps/desktop/AGENTS.md`.
  */
 class ShippedSurfaceRenderHolder {
-  #fetched: Promise<ConsoleSurfaceDescriptor["render"]> | undefined;
+  #fetched: Promise<ScreenDescriptor["render"]> | undefined;
 
-  public fetch(): Promise<ConsoleSurfaceDescriptor["render"]> {
+  public fetch(): Promise<ScreenDescriptor["render"]> {
     this.#fetched ??= loadShippedSurfaceRender();
     return this.#fetched;
   }
@@ -82,7 +79,7 @@ class ShippedSurfaceRenderHolder {
 const shippedSurfaceRenderHolder = new ShippedSurfaceRenderHolder();
 
 /** The shipped render, fetched on the first ask and handed back on every one after it. */
-export function shippedScreenRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+export function shippedScreenRender(): Promise<ScreenDescriptor["render"]> {
   return shippedSurfaceRenderHolder.fetch();
 }
 
@@ -99,7 +96,7 @@ export const CHUNK_WARM_TIMEOUT_MS = 120_000;
 
 /** A window parked on a settings address, plus the store that remembers where it has been. */
 export interface SettingsWindow {
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
   readonly frameStore: FrameStore;
 }
 
@@ -133,7 +130,7 @@ export function windowAt(
       // the one this harness renders.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
       chooseScheme: () => undefined,
-    } as unknown as ConsoleSurfaceContext,
+    } as unknown as ScreenContext,
   };
 }
 
@@ -156,7 +153,7 @@ export function windowAt(
  * waited for, and the case then reports the absence of a rail that was still in flight.
  */
 export async function renderSurface(
-  context: ConsoleSurfaceContext,
+  context: ScreenContext,
   pages?: SettingsPageRegistry,
 ): Promise<ReturnType<typeof render>> {
   const surface =

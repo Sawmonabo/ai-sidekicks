@@ -7,7 +7,7 @@
 // The main process has already checked the launch against the catalog, so a scenario or
 // session named here exists.
 
-import { consolePaneRegistry, consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { ScenarioFixtureControl } from "@renderer/services/daemon/selection.fixture.js";
@@ -20,7 +20,7 @@ import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
 } from "./fixture-global-names.js";
-import { registerPaneHarnessSurface } from "./pane-harness/register-pane-harness-screen.js";
+import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-screen.js";
 
 /**
  * The composition this window's launch asks for, or `undefined` for a normal launch.
@@ -38,7 +38,7 @@ export function composeFixtureLaunch(): BridgeComposition | undefined {
   if (launch.sessionId !== undefined) {
     history.replaceState(null, "", formatRoute({ kind: "workspace", sessionId: launch.sessionId }));
   }
-  registerPaneHarnessSurface(consoleSurfaceRegistry, consolePaneRegistry);
+  registerPaneHarnessScreen(screenRegistry, paneRegistry);
   return createFixtureComposition(launch.scenarioId);
 }
 

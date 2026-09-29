@@ -15,13 +15,13 @@
 // fixture proving the fixture. The cast says so where a reader meets it rather than
 // hiding behind a builder that looks complete and is not.
 
-import { type ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
-import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /** A pane context carrying only what a loader-form case and its fallback reach. */
-export function syntheticPaneContextAt(kind: ConsolePaneContext["kind"]): ConsolePaneContext {
-  return { kind, sessionStore: undefined, focusHue: undefined } as unknown as ConsolePaneContext;
+export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {
+  return { kind, sessionStore: undefined, focusHue: undefined } as unknown as PaneContext;
 }
 
 /**
@@ -30,8 +30,8 @@ export function syntheticPaneContextAt(kind: ConsolePaneContext["kind"]): Consol
  * The route is real because the surface's reserved region names the destination it is
  * waiting for, exactly as the pane's names its kind.
  */
-export function syntheticSurfaceContext(): ConsoleSurfaceContext {
-  return { route: { kind: "settings", page: undefined } } as unknown as ConsoleSurfaceContext;
+export function syntheticSurfaceContext(): ScreenContext {
+  return { route: { kind: "settings", page: undefined } } as unknown as ScreenContext;
 }
 
 /**

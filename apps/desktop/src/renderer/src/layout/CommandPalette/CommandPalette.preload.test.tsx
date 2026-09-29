@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
@@ -35,8 +35,8 @@ interface WarmLedger {
   readonly ran: string[];
 }
 
-function commandsUnder(ledger: WarmLedger): readonly ConsoleCommand[] {
-  const declare = (id: string, title: string, withPreload: boolean): ConsoleCommand => ({
+function commandsUnder(ledger: WarmLedger): readonly CommandDefinition[] {
+  const declare = (id: string, title: string, withPreload: boolean): CommandDefinition => ({
     id,
     title,
     group: "Navigate",

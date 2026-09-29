@@ -120,7 +120,7 @@ import type {
   ConsoleSessionEvent,
   EntityMutation,
   EntityProjector,
-  EntityProjectorRegistry,
+  EntityProjectorTable,
 } from "../session/entities/entities.js";
 import { readRunEntityBody } from "./run-entity-body.js";
 
@@ -185,7 +185,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
  * the fold is the same for all thirteen, and thirteen near-copies is how the
  * fourteenth gets a subtly different one.
  */
-export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorRegistry = buildRunLifecycleProjectors();
+export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorTable = buildRunLifecycleProjectors();
 
 /**
  * The owner the run-lifecycle kinds are registered under, so a conflicting claim names
@@ -194,7 +194,7 @@ export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorRegistry = buildRunLifecyc
  */
 export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session-events";
 
-function buildRunLifecycleProjectors(): EntityProjectorRegistry {
+function buildRunLifecycleProjectors(): EntityProjectorTable {
   const projectors: Record<string, EntityProjector> = {};
   for (const eventKind of RUN_LIFECYCLE_EVENT_KINDS) {
     projectors[eventKind] = projectRunLifecycleEvent;

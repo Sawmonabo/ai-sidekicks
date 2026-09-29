@@ -9,7 +9,7 @@
 
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Why a bridge-backed command could not complete. */
@@ -36,7 +36,7 @@ export type BridgeCommandRefusalSink = (refusal: ConsoleRefusal) => void;
 export function buildBridgeCommands(
   bridge: ConsoleBridge,
   onRefusal: BridgeCommandRefusalSink,
-): readonly ConsoleCommand[] {
+): readonly CommandDefinition[] {
   return [
     {
       id: "bridge.copyBuildDetails",
@@ -82,7 +82,7 @@ export function buildBridgeCommands(
 export function buildColorSchemeCommand(
   readScheme: () => SchemePreference,
   chooseScheme: (preference: SchemePreference) => void,
-): ConsoleCommand {
+): CommandDefinition {
   return {
     id: "settings.cycleColorScheme",
     title: "Color scheme",

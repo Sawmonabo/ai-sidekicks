@@ -10,7 +10,7 @@ import type { SchemePreference } from "@renderer/styles/tokens.js";
 /**
  * Everything a settings page is handed.
  *
- * Deliberately narrower than `ConsoleSurfaceContext`: a page reads its own wire and
+ * Deliberately narrower than `ScreenContext`: a page reads its own wire and
  * navigates the rail, and handing it the session stores would invite a page to hold
  * session state the settings surface has no session for.
  */

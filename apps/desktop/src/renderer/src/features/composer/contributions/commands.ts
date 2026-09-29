@@ -10,8 +10,8 @@
 // is true and no composer is drawn, it would be exactly wrong. An ask nobody is
 // listening for is dropped.
 
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { requestComposerFocus } from "../composer-focus-requests.js";
 
 /**
@@ -27,7 +27,7 @@ export const COMPOSER_FOCUS_COMMAND_ID = "frame.focusComposer";
 const COMPOSER_COMMAND_OWNER = "composer-commands";
 
 /** The chord's act, and the palette row for people who do not know the chord. */
-const FOCUS_COMPOSER_COMMAND: ConsoleCommand = {
+const FOCUS_COMPOSER_COMMAND: CommandDefinition = {
   id: COMPOSER_FOCUS_COMMAND_ID,
   title: "Focus the composer",
   group: "Compose",
@@ -43,7 +43,7 @@ const FOCUS_COMPOSER_COMMAND: ConsoleCommand = {
  * Takes the surface rather than reaching for the module-scope one, so a test contributes
  * into a surface it owns.
  */
-export function registerComposerCommands(surface: ConsoleCommandSurface): void {
+export function registerComposerCommands(surface: CommandContributionRegistry): void {
   surface.contribute({
     owner: COMPOSER_COMMAND_OWNER,
     commands: [FOCUS_COMPOSER_COMMAND],

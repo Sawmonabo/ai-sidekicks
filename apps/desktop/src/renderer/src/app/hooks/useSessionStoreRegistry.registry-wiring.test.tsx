@@ -18,7 +18,7 @@ import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
@@ -200,7 +200,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     // partition by reading the wire a second time, beside the store rather than in
     // it. Here the fold is claimed on a board the window is handed, and the store the
     // window opens folds with it.
-    const projectorRegistry = new ConsoleEntityProjectorRegistry();
+    const projectorRegistry = new EntityProjectorRegistry();
     projectorRegistry.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
     projectorRegistry.register(
       FAMILY_EVENT_KIND,

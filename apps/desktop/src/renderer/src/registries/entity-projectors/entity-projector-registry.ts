@@ -1,6 +1,6 @@
 // One owner per event kind: the door a family projects its own events through.
 //
-// WHY THIS EXISTS. `SessionStoreRegistry` takes an `EntityProjectorRegistry` at
+// WHY THIS EXISTS. `SessionStoreRegistry` takes an `EntityProjectorTable` at
 // construction and the composition root supplied a CONSTANT — the frame's own
 // run-lifecycle table. Every other partition `entities.ts` declares (`approval`,
 // `workflow-run`, `browser-page`, `artifact`, and the rest) was therefore
@@ -33,10 +33,10 @@
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import type {
   EntityProjector,
-  EntityProjectorRegistry,
+  EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
 
-export class ConsoleEntityProjectorRegistry {
+export class EntityProjectorRegistry {
   readonly #claimsByEventKind = new KeyedRegistry<string, EntityProjectorClaim>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "event kind",
@@ -57,7 +57,7 @@ export class ConsoleEntityProjectorRegistry {
    * any of it: a family whose table collides half way through leaves the registry as
    * it was, rather than half-claimed in a state no caller unwinds.
    */
-  public registerAll(projectors: EntityProjectorRegistry, owner: string): void {
+  public registerAll(projectors: EntityProjectorTable, owner: string): void {
     this.#claimsByEventKind.registerAll(
       Object.entries(projectors).map((entry) => [entry[0], { project: entry[1], owner }] as const),
     );
@@ -72,7 +72,7 @@ export class ConsoleEntityProjectorRegistry {
    * inside one session. Freezing says so at runtime, where a `Readonly` type says
    * nothing at all.
    */
-  public snapshot(): EntityProjectorRegistry {
+  public snapshot(): EntityProjectorTable {
     const projectors: Record<string, EntityProjector> = {};
     for (const eventKind of this.#claimsByEventKind.keys()) {
       const claim = this.#claimsByEventKind.get(eventKind);
@@ -103,5 +103,4 @@ interface EntityProjectorClaim {
  * `app/providers.tsx` hands this instance, the same way it hands the screen and pane
  * registries rather than letting the composition reach for them.
  */
-export const consoleEntityProjectorRegistry: ConsoleEntityProjectorRegistry =
-  new ConsoleEntityProjectorRegistry();
+export const entityProjectorRegistry: EntityProjectorRegistry = new EntityProjectorRegistry();

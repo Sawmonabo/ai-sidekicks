@@ -22,7 +22,7 @@ import "../components/WorkflowStateStrip.css";
 import { createElement } from "react";
 
 import { RunPage } from "./RunPage.js";
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 
 /**
  * The run pane, at an address the deck resolved.
@@ -32,7 +32,7 @@ import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seat
  * `.ts` module, and the naming rule reserves `.tsx` for a single PascalCase component per
  * file.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "workflow-run",
   (context) => createElement(RunPage, { context }),
 );

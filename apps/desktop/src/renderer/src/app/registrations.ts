@@ -10,11 +10,11 @@
 // Nothing here runs on import. `providers.tsx` calls it once with the window's registries;
 // a test calls it with registries of its own.
 
-import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import type { InlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import type { ConsolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import type { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
@@ -60,11 +60,11 @@ import {
 
 /** The registries a composition writes into. */
 export interface ContributionRegistries {
-  readonly commands: ConsoleCommandSurface;
-  readonly projectors: ConsoleEntityProjectorRegistry;
-  readonly surfaces: ConsoleSurfaceRegistry;
-  readonly panes: ConsolePaneRegistry;
-  readonly inlineCards: InlineCardSeatRegistry;
+  readonly commands: CommandContributionRegistry;
+  readonly projectors: EntityProjectorRegistry;
+  readonly surfaces: ScreenRegistry;
+  readonly panes: PaneRegistry;
+  readonly inlineCards: InlineCardRegistry;
 }
 
 /**

@@ -4,16 +4,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  consoleCommandSurface,
+  commandContributionRegistry,
   contributedKeybindings,
   subscribeToCommandContributions,
   type CommandContributionRelease,
 } from "./command-contributions.js";
-import type { ConsoleCommand, KeyBinding } from "./command-types.js";
-import { consoleCommands } from "./window-command-registry.js";
+import type { CommandDefinition, Keybinding } from "./command-types.js";
+import { commandRegistry } from "./window-command-registry.js";
 
 /** One act, named by its id and doing nothing — the cases are about the wiring. */
-function inertCommand(id: string): ConsoleCommand {
+function inertCommand(id: string): CommandDefinition {
   return { id, title: id, group: "Test", run: () => undefined };
 }
 
@@ -33,13 +33,13 @@ function releaseAll(...releases: readonly CommandContributionRelease[]): void {
 
 describe("command contributions — one owner's whole set, contributed together", () => {
   it("registers the commands and publishes the chords together", () => {
-    const release = consoleCommandSurface.contribute({
+    const release = commandContributionRegistry.contribute({
       owner: "contribution-test-alone",
       commands: [inertCommand("contribution-test.act")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
     });
     try {
-      expect(consoleCommands.has("contribution-test.act")).toBe(true);
+      expect(commandRegistry.has("contribution-test.act")).toBe(true);
       expect(contributedKeybindings()).toStrictEqual([
         { chord: "$mod+Shift+7", commandId: "contribution-test.act" },
       ]);
@@ -52,12 +52,12 @@ describe("command contributions — one owner's whole set, contributed together"
     // Composition is idempotent everywhere else in the console, and this door is
     // run again by a hot reload and by every test that composes the families. An
     // additive door would raise on the second pass instead.
-    const releaseNeighbour = consoleCommandSurface.contribute({
+    const releaseNeighbour = commandContributionRegistry.contribute({
       owner: "contribution-test-neighbour",
       commands: [inertCommand("contribution-test.kept")],
       keyBindings: [{ chord: "$mod+Shift+8", commandId: "contribution-test.kept" }],
     });
-    const releaseFirst = consoleCommandSurface.contribute({
+    const releaseFirst = commandContributionRegistry.contribute({
       owner: "contribution-test-replaced",
       commands: [inertCommand("contribution-test.first")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.first" }],
@@ -66,15 +66,15 @@ describe("command contributions — one owner's whole set, contributed together"
     // previous effect's cleanup runs before the new one contributes, so the owner
     // holds one live entry and this is a replace rather than a supersede.
     releaseFirst();
-    const releaseSecond = consoleCommandSurface.contribute({
+    const releaseSecond = commandContributionRegistry.contribute({
       owner: "contribution-test-replaced",
       commands: [inertCommand("contribution-test.second")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.second" }],
     });
     try {
-      expect(consoleCommands.has("contribution-test.first")).toBe(false);
-      expect(consoleCommands.has("contribution-test.second")).toBe(true);
-      expect(consoleCommands.has("contribution-test.kept")).toBe(true);
+      expect(commandRegistry.has("contribution-test.first")).toBe(false);
+      expect(commandRegistry.has("contribution-test.second")).toBe(true);
+      expect(commandRegistry.has("contribution-test.kept")).toBe(true);
       // The replacing family keeps the slot its FIRST contribution gave it, so a
       // re-composition cannot reorder the window's chords under a sibling.
       expect(contributedKeybindings().map((binding) => binding.commandId)).toStrictEqual([
@@ -95,7 +95,7 @@ describe("command contributions — one owner's whole set, contributed together"
       signalCount += 1;
     });
 
-    const release = consoleCommandSurface.contribute({
+    const release = commandContributionRegistry.contribute({
       owner: "contribution-test-signal",
       commands: [inertCommand("contribution-test.act")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
@@ -117,12 +117,12 @@ describe("command contributions — one owner's whole set, contributed together"
     // Negative control for the emit's POSITION. A signal raised before the map is
     // written hands the listener the previous table, and every assertion above
     // still passes — the listener is the only thing that can tell.
-    let chordsSeenByListener: readonly KeyBinding[] = [];
+    let chordsSeenByListener: readonly Keybinding[] = [];
     const stopWatching = subscribeToCommandContributions(() => {
       chordsSeenByListener = contributedKeybindings();
     });
 
-    const release = consoleCommandSurface.contribute({
+    const release = commandContributionRegistry.contribute({
       owner: "contribution-test-late-read",
       commands: [inertCommand("contribution-test.act")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
@@ -141,7 +141,7 @@ describe("command contributions — one owner's whole set, contributed together"
     // Without this every case above would pass against a door whose withdrawal did
     // nothing, and the ordering assertion would be reading the case before it.
     expect(contributedKeybindings()).toStrictEqual([]);
-    expect(consoleCommands.has("contribution-test.act")).toBe(false);
-    expect(consoleCommands.has("contribution-test.kept")).toBe(false);
+    expect(commandRegistry.has("contribution-test.act")).toBe(false);
+    expect(commandRegistry.has("contribution-test.kept")).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
 import { useBridgeCommands } from "../hooks/useBridgeCommands.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
@@ -23,7 +23,7 @@ function fixtureBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
 }
 
-function commandById(commands: readonly ConsoleCommand[], commandId: string): ConsoleCommand {
+function commandById(commands: readonly CommandDefinition[], commandId: string): CommandDefinition {
   const command = commands.find((candidate) => candidate.id === commandId);
   if (command === undefined) {
     throw new Error(`the builder produced no command named ${commandId}`);
@@ -123,7 +123,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
 
 describe("palette bridge commands — the hook reaches the bridge through the provider", () => {
   it("builds its commands from the bridge the provider resolved", async () => {
-    let seen: readonly ConsoleCommand[] = [];
+    let seen: readonly CommandDefinition[] = [];
 
     function CommandProbe(): React.JSX.Element {
       seen = useBridgeCommands(() => undefined);

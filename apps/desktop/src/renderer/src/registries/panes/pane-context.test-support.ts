@@ -25,7 +25,7 @@
 // — runs, approvals, inspector, browser, terminal — and a sibling may not import a
 // sibling. `console-view-family-isolation` says where a contract those siblings
 // share belongs, and this is the contract `seats/pane/pane-registry.ts` declares: a
-// builder for `ConsolePaneContext` beside the type it builds.
+// builder for `PaneContext` beside the type it builds.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -33,7 +33,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneContext } from "./pane-context.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
@@ -133,4 +133,4 @@ type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { reado
  * every pane is bound with. Naming an arm here would have made one pane kind's shape
  * the definition of every other one's.
  */
-type PaneBindingMembers = Omit<ConsolePaneContext, "kind">;
+type PaneBindingMembers = Omit<PaneContext, "kind">;

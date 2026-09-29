@@ -2,7 +2,7 @@
 //
 // The feature's door publishes the registrar below and `app/registrations.ts` calls it.
 
-import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/console/seats/index.js";
 
 /** The owner string this body's claim carries, so a hot reload replaces. */
 const AGENT_CONSOLE_OWNER = "agent-console";
@@ -30,7 +30,7 @@ const AGENT_CONSOLE_OWNER = "agent-console";
  * context that arrived at the wrong door renders a named refusal instead of throwing
  * inside the deck.
  */
-export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
+export function registerAgentConsolePane(registry: PaneRegistry): void {
   registry.register({
     kind: "agent-console",
     owner: AGENT_CONSOLE_OWNER,

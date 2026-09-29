@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { ConsolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
 import { paneContext } from "../pane-context.test-support.js";
 import { registerReposPanes } from "./panes.js";
 
@@ -17,7 +17,7 @@ const REPOS_PANE_KINDS = ["diff"] as const;
  *
  * The diff pane reads only its address, so no bridge or store is supplied.
  */
-function contextForPane(): ConsolePaneContext {
+function contextForPane(): PaneContext {
   return paneContext({
     address: { kind: "diff", entity: { kind: "workspace", id: "workspace-sidekicks" } },
     paneId: "pane-diff",
@@ -26,7 +26,7 @@ function contextForPane(): ConsolePaneContext {
 
 describe("repos — the pane kinds", () => {
   it("claims the diff pane", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerReposPanes(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual([...REPOS_PANE_KINDS]);
   });
@@ -35,14 +35,14 @@ describe("repos — the pane kinds", () => {
     // The door takes a registry rather than reaching for the module-scope
     // singleton. A registrar that reached for the singleton would leave this one
     // empty while still appearing to work in the case above.
-    const claimed = new ConsolePaneRegistry();
-    const untouched = new ConsolePaneRegistry();
+    const claimed = new PaneRegistry();
+    const untouched = new PaneRegistry();
     registerReposPanes(claimed);
     expect(untouched.registeredPaneKinds()).toStrictEqual([]);
   });
 
   it("mounts a named region for the diff pane", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerReposPanes(registry);
     const descriptor = registry.descriptorFor("diff");
     expect(descriptor?.owner).toBe("repos");

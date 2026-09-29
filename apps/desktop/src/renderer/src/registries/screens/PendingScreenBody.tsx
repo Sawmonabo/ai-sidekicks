@@ -17,12 +17,12 @@
 // layout is nothing.
 
 import { SurfaceAbsence } from "@renderer/console/primitives/index.js";
-import type { ConsoleSurfaceContext } from "./screen-context.js";
+import type { ScreenContext } from "./screen-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingScreenBodyProps {
   /** The route and bindings this surface was mounted at. */
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
 }
 
 /**

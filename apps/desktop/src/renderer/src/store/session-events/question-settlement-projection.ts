@@ -25,7 +25,7 @@ import type {
   ConsoleEntity,
   ConsoleSessionEvent,
   EntityMutation,
-  EntityProjectorRegistry,
+  EntityProjectorTable,
 } from "../session/entities/entities.js";
 import { driverAskIdentitySegments } from "../session/waiting-on-person/driver-ask-identity.js";
 import {
@@ -57,7 +57,7 @@ const SETTLED_QUESTION_STATES: readonly SettledQuestionState[] = [
  *
  * The request kind is not claimed, so an open question reaches no entity.
  */
-export const QUESTION_SETTLEMENT_PROJECTORS: EntityProjectorRegistry = Object.fromEntries(
+export const QUESTION_SETTLEMENT_PROJECTORS: EntityProjectorTable = Object.fromEntries(
   QUESTION_EVENT_TYPES.filter((eventType) => eventType !== "driver_ask.requested").map(
     (eventType) => [eventType, projectQuestionSettlement],
   ),

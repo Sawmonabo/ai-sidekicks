@@ -13,10 +13,10 @@ import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
-import type { ConsolePaneRegistry } from "../panes/pane-registry.js";
+import type { PaneRegistry } from "../panes/pane-registry.js";
 
 /** Everything a surface is handed. Nothing here is global; all of it is per window. */
-export interface ConsoleSurfaceContext {
+export interface ScreenContext {
   readonly route: ConsoleRoute;
   readonly bridge: ConsoleBridge;
   readonly frameStore: FrameStore;
@@ -43,7 +43,7 @@ export interface ConsoleSurfaceContext {
    * rule: a default is the same hard-coding one parameter along, and a caller that
    * forgets it still reads production.
    */
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly paneRegistry: PaneRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
   /**

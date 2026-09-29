@@ -3,13 +3,13 @@
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneContext } from "./pane-context.js";
 
 /** The subsystem a pane-composition refusal names as its author. */
 const PANE_COMPOSITION_ORIGIN = "pane-composition";
 
 /** The context a body of one pane kind is handed, narrowed to that kind's arm. */
-export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, { kind: TKind }>;
+export type PaneContextOf<TKind extends PaneKind> = Extract<PaneContext, { kind: TKind }>;
 
 /**
  * What a body that does not take its own kind's context resolves to.
@@ -24,7 +24,7 @@ declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
 /**
  * Adapt a body written for ONE pane kind into the render the registry stores.
  *
- * `ConsolePaneDescriptor.render` takes the whole `ConsolePaneContext` union, because
+ * `PaneDescriptor.render` takes the whole `PaneContext` union, because
  * one registry holds every kind. A body does not: an inspector reads an entity the
  * runs pane's arm does not carry, which is the property the kind-scoped address union
  * exists to hold. So the narrowing happens once, here, rather than six times in six
@@ -44,7 +44,7 @@ export function paneBodyForKind<
 >(
   kind: TKind,
   renderBody: TBody & ExactPaneBody<TKind, TBody>,
-): (context: ConsolePaneContext) => React.ReactNode {
+): (context: PaneContext) => React.ReactNode {
   return (context) =>
     context.kind === kind ? (
       renderBody(context as PaneContextOf<TKind>)

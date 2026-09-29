@@ -64,7 +64,7 @@ import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridg
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { type EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { SessionEventBinder } from "@renderer/services/session-events/session-event-subscriber.js";
 
@@ -95,7 +95,7 @@ import { SessionEventBinder } from "@renderer/services/session-events/session-ev
  * attach or dispose it out from under this window.
  */
 export function useSessionStoreRegistry(
-  projectorRegistry: ConsoleEntityProjectorRegistry,
+  projectorRegistry: EntityProjectorRegistry,
   readSession: SessionSnapshotReader,
 ): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
@@ -155,7 +155,7 @@ interface WindowSessionPlumbing {
  */
 function createWindowSessionPlumbing(
   bridge: ConsoleBridge,
-  projectorRegistry: ConsoleEntityProjectorRegistry,
+  projectorRegistry: EntityProjectorRegistry,
   readSession: SessionSnapshotReader,
 ): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({

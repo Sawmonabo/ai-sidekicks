@@ -19,7 +19,7 @@ import "./WorkflowsScreen.css";
 
 import { useCallback } from "react";
 
-import type { ConsolePaneAddress, ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ConsolePaneAddress, ScreenContext } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { OpenPaneBody } from "./components/OpenPaneBody.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
@@ -34,7 +34,7 @@ export interface WorkflowsScreenProps {
    * A pane body is handed a bridge, both stores, the window store and its own address, and
    * composing that from a few inputs would mean the seat passing six.
    */
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
   /**
    * Where the run enumeration stands. `undefined` when the mount supplies none, and then
    * the runs section is not drawn.

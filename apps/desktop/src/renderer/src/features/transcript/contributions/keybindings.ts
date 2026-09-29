@@ -1,6 +1,6 @@
 // The chords the transcript claims in the keybinding table.
 
-import { type KeyBinding } from "@renderer/registries/commands/command-types.js";
+import { type Keybinding } from "@renderer/registries/commands/command-types.js";
 
 /**
  * The `when` clause every transcript command and chord carries.
@@ -20,7 +20,7 @@ export const WHEN_SESSION_ACTIVE = "sessionActive";
  * binding type names — a wrongly-firing chord destroys text, a wrongly-declining
  * one costs a menu — decides it.
  */
-export const TRANSCRIPT_KEY_BINDINGS: readonly KeyBinding[] = [
+export const TRANSCRIPT_KEY_BINDINGS: readonly Keybinding[] = [
   { chord: "$mod+f", commandId: "transcript.find", when: WHEN_SESSION_ACTIVE },
   { chord: "$mod+g", commandId: "transcript.findNext", when: WHEN_SESSION_ACTIVE },
 ];

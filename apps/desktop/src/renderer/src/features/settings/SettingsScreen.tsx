@@ -25,7 +25,7 @@ import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useShellState } from "@renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
@@ -36,7 +36,7 @@ import { SettingsSearchResults } from "./components/SettingsSearchResults.js";
 import { SettingsPane } from "./components/SettingsPane.js";
 
 export interface SettingsScreenProps {
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
   /**
    * The pages this pane may render.
    *

@@ -17,7 +17,7 @@ import "./pane.css";
 import "../lease/lease.css";
 import "../emulator/emulator.css";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { TerminalPane } from "./components/TerminalPane.js";
 
 /**
@@ -37,7 +37,7 @@ import { TerminalPane } from "./components/TerminalPane.js";
  * one shared shell, so a mount at another kind's address would put a second surface on
  * that shell rather than merely drawing the wrong head.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "terminal",
   TerminalPane,
 );

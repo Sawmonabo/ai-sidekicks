@@ -14,7 +14,7 @@
 // here rather than the fixture launch's, so what is asserted is the provider's contract
 // with any composition: build once, install once, take both down.
 //
-// `ConsoleRoot` states the same rule one family up — "one store per window,
+// `AppProviders` states the same rule one family up — "one store per window,
 // created once; `useRef` rather than `useMemo`, because a memo may be discarded
 // and recomputed and store identity is correctness" — and `app/hooks/useSessionStoreRegistry.ts`
 // is where the re-mint arm this file's last case drives comes from.

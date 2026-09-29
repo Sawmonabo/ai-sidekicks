@@ -42,7 +42,7 @@ import { WindowAbsences } from "@renderer/console/primitives/index.js";
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
 import { TranscriptErrors } from "./TranscriptErrors.js";
-import { VirtualRow, type TranscriptRowRenderer } from "./VirtualRow.js";
+import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
@@ -61,7 +61,7 @@ export interface TranscriptViewportProps {
    */
   readonly binding: TranscriptViewportBinding;
   /** STABLE across renders, or the memoized rows below re-render with it. */
-  readonly renderRow: TranscriptRowRenderer;
+  readonly renderRow: ViewportRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /**

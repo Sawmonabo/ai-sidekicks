@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { SESSION_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
@@ -35,7 +35,7 @@ const registeredIds: string[] = [];
 
 /** Register one id into the real console registry, with an act that does nothing. */
 function registerRoot(commandId: string): void {
-  consoleCommands.register({
+  commandRegistry.register({
     id: commandId,
     title: "Start a workflow",
     group: "Workflow",
@@ -57,7 +57,7 @@ function routerOverRegistry(): ComposerSendRouter {
 
 afterEach(() => {
   for (const commandId of registeredIds.splice(0)) {
-    consoleCommands.unregister(commandId);
+    commandRegistry.unregister(commandId);
   }
 });
 

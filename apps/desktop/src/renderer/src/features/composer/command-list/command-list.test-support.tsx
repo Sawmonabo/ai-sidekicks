@@ -19,7 +19,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -327,6 +327,6 @@ export function activeRow(container: HTMLElement, list: HTMLElement): HTMLElemen
 
 afterEach(() => {
   for (const commandId of registeredIds.splice(0)) {
-    consoleCommands.unregister(commandId);
+    commandRegistry.unregister(commandId);
   }
 });

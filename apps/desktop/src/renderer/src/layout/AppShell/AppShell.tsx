@@ -11,8 +11,8 @@ import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
 import { railDestinationFor } from "@renderer/routing/route-readers.js";
 import type { FrameStore } from "@renderer/store/window/window-store.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import { describePaletteScope } from "../CommandPalette/describe-palette-scope.js";
 import type { CommandPaletteProps } from "../CommandPalette/hooks/useCommandPalette.js";
@@ -27,7 +27,7 @@ import { AppFrame } from "./AppFrame.js";
 export interface AppShellProps {
   readonly frameStore: FrameStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
-  readonly surfaceRegistry: ConsoleSurfaceRegistry;
+  readonly surfaceRegistry: ScreenRegistry;
   /** The palette's window-owned props: its `when` context, bindings, open state and revision. */
   readonly palette: Pick<
     CommandPaletteProps,
@@ -64,7 +64,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       overlays={
         <CommandPalette
           {...palette}
-          registry={consoleCommands}
+          registry={commandRegistry}
           platform={HOST_CHORD_PLATFORM}
           scopeLabel={describePaletteScope(route)}
         />

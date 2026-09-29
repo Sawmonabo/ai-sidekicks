@@ -1,7 +1,7 @@
 // The pane's two boundary absences, its registration, and the claim that neither
 // absence is the record's.
 //
-// The pane is rendered through the real `ConsolePaneContext` shape rather than a
+// The pane is rendered through the real `PaneContext` shape rather than a
 // props object of its own, because the two questions under test — was an entity
 // addressed, and is there a session to read it from — are answered off that
 // contract and nowhere else.
@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
 import { type PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
@@ -171,13 +171,13 @@ describe("a linked inspector says which pane opened it", () => {
 
 describe("the pane's registration", () => {
   it("claims the inspector kind", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerInspectorPane(registry);
     expect(registry.descriptorFor("inspector")?.owner).toBe("inspector-pane");
   });
 
   it("negative control: it claims nothing else", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerInspectorPane(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["inspector"]);
   });

@@ -22,7 +22,7 @@
 // Every class in this feature's three sheets carries the `meridian-browser-` prefix, and
 // no other feature's sheet declares one of them.
 
-import type { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/console/seats/index.js";
 
 export {
   /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
@@ -40,7 +40,7 @@ export {
  * `registerFeatureContributions`' reason: a test composes into a registry it owns, and an
  * auxiliary window composes a different subset without a second code path.
  */
-export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
+export function registerBrowserPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "browser",
     owner: "browser",

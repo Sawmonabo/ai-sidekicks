@@ -20,7 +20,7 @@
 // `keybinding-override-store.ts`.
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
@@ -63,7 +63,7 @@ export interface KeybindingOverrideRefusal extends ConsoleRefusal {
 /** What deciding a candidate chord needs beyond the chord and the command. */
 export interface CandidateChordInput {
   /** The chords the console ships. Overrides are composed onto this table. */
-  readonly defaults: readonly KeyBinding[];
+  readonly defaults: readonly Keybinding[];
   /** The overrides already held. The candidate is judged against them. */
   readonly overrides: KeybindingOverrideMap;
   readonly commandId: string;
@@ -82,10 +82,10 @@ export interface CandidateChordInput {
  * same table in the same order.
  */
 export function composeEffectiveBindings(
-  defaults: readonly KeyBinding[],
+  defaults: readonly Keybinding[],
   overrides: KeybindingOverrideMap,
-): readonly KeyBinding[] {
-  const effective: KeyBinding[] = [];
+): readonly Keybinding[] {
+  const effective: Keybinding[] = [];
   const boundByDefault = new Set<string>();
   for (const binding of defaults) {
     boundByDefault.add(binding.commandId);

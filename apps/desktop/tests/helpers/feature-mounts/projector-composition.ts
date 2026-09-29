@@ -40,11 +40,11 @@
 import { registerFeatureContributions } from "@renderer/app/registrations.js";
 import { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { InlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { ConsolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { type EntityProjectorRegistry } from "@renderer/store/session/entities/entities.js";
+import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type EntityProjectorTable } from "@renderer/store/session/entities/entities.js";
 
 /**
  * The event-kind fold the console's own composition claims, frozen.
@@ -52,7 +52,7 @@ import { type EntityProjectorRegistry } from "@renderer/store/session/entities/e
  * Handed to every `SessionStore` and `SessionStoreRegistry` a surface mount opens, so
  * a tier reads the partitions a person's window would have.
  */
-export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorRegistry = composeConsoleProjectors();
+export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorTable = composeEntityProjectors();
 
 /**
  * Run the window's composition into registries this module owns, and keep the fold.
@@ -64,14 +64,14 @@ export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorRegistry = composeConsol
  * that cannot work that way — a partition is read by whichever surface names it, so
  * the table a store opens with has to be the whole one.
  */
-function composeConsoleProjectors(): EntityProjectorRegistry {
-  const projectors = new ConsoleEntityProjectorRegistry();
+function composeEntityProjectors(): EntityProjectorTable {
+  const projectors = new EntityProjectorRegistry();
   registerFeatureContributions({
     commands: new CommandContributionRegistry(new CommandRegistry()),
     projectors,
-    surfaces: new ConsoleSurfaceRegistry(),
-    panes: new ConsolePaneRegistry(),
-    inlineCards: new InlineCardSeatRegistry(),
+    surfaces: new ScreenRegistry(),
+    panes: new PaneRegistry(),
+    inlineCards: new InlineCardRegistry(),
   });
   return projectors.snapshot();
 }

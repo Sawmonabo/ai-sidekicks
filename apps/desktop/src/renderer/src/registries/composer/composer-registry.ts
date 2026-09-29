@@ -3,7 +3,7 @@
 // The composer is the shell chrome every session view already contains. Two
 // families meet on it: the workspace mounts it under the deck, and the composer
 // family fills it. Neither imports the other — the workspace reads
-// `composerSeatRenderer()` and renders whatever is there, and an empty seat renders
+// `findComposerRenderer()` and renders whatever is there, and an empty seat renders
 // nothing rather than a placeholder that looks broken.
 //
 // WHY THE PROPS ARE A CONTRACT AND NOT AN ARGUMENT THE MOUNT INVENTS
@@ -22,7 +22,7 @@ import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js
 import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
 
 /** What the workspace hands the composer on every render. */
-export interface ComposerSeatProps {
+export interface ComposerProps {
   /** The session the composer is addressed within. */
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
@@ -61,15 +61,15 @@ export interface ComposerSeatProps {
 }
 
 /** The composer body. Returns `React.ReactNode` so the mount can render it directly. */
-export type ComposerSeatRenderer = (props: ComposerSeatProps) => React.ReactNode;
+export type ComposerRenderer = (props: ComposerProps) => React.ReactNode;
 
-const composerSeat = new SingleSlotSeat<ComposerSeatRenderer>(
+const composerSeat = new SingleSlotSeat<ComposerRenderer>(
   "composer",
   "the session view mounts one composer; a second owner would make which one renders depend on import order",
 );
 
 /** The call the composer family makes to fill the seat. */
-export function registerComposerSeat(owner: string, render: ComposerSeatRenderer): void {
+export function registerComposer(owner: string, render: ComposerRenderer): void {
   composerSeat.register({ owner, render });
 }
 
@@ -81,11 +81,11 @@ export function registerComposerSeat(owner: string, render: ComposerSeatRenderer
  * seat — a family that registered and then withdrew would leave the workspace
  * rendering nothing with no owner to name.
  */
-export function unregisterComposerSeat(): void {
+export function unregisterComposer(): void {
   composerSeat.unregister();
 }
 
 /** The composer body, or `undefined` while the seat is empty. */
-export function composerSeatRenderer(): ComposerSeatRenderer | undefined {
+export function findComposerRenderer(): ComposerRenderer | undefined {
   return composerSeat.renderer();
 }

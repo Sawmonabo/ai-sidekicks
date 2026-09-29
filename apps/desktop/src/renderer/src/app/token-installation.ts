@@ -63,7 +63,7 @@ export function installMeridianTokens(targetDocument: Document): boolean {
  * and keeps deciding — a resolved value written once would freeze the window at
  * whatever the OS was doing at mount and stop following a later change.
  */
-export function applyConsoleScheme(targetDocument: Document, scheme: SchemePreference): void {
+export function applyColorScheme(targetDocument: Document, scheme: SchemePreference): void {
   const root = targetDocument.documentElement;
   if (scheme === "system") {
     root.removeAttribute(SCHEME_ATTRIBUTE);

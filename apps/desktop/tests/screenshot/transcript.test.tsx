@@ -36,7 +36,7 @@ import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clo
 import { requireCapturedElement } from "./captured-element.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
@@ -70,7 +70,7 @@ interface LedgerMount {
  * Open one fixture session at its own route and wait for it to finish arriving.
  *
  * The hash is assigned BEFORE the render rather than navigated to afterwards,
- * because `ConsoleRoot`'s frame store is born on the hash the window opened with —
+ * because `AppProviders`'s frame store is born on the hash the window opened with —
  * a store that started on the default route publishes that default back over the
  * address on its first pass, which is a navigation this file would then be
  * photographing the tail end of.
@@ -85,7 +85,7 @@ interface LedgerMount {
 async function openLedgerSession(scenarioId: string, sessionId: string): Promise<LedgerMount> {
   document.location.hash = formatRoute({ kind: "workspace", sessionId });
   const { container } = await renderSettled(
-    <ConsoleRoot composition={createFixtureComposition(scenarioId)} />,
+    <AppProviders composition={createFixtureComposition(scenarioId)} />,
   );
   expect(requireScenarioControl().scenarioId).toBe(scenarioId);
 
@@ -208,7 +208,7 @@ describe("the ledger mount wait", () => {
   it("refuses a route that mounts no ledger body, on the deadline rather than on a turn count", async () => {
     document.location.hash = formatRoute({ kind: "sessions" });
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />,
     );
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),

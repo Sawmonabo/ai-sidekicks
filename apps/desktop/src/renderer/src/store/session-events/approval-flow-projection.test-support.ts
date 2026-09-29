@@ -10,7 +10,7 @@ import { APPROVALS_SCENARIO } from "../../../../../fixtures/scenarios/approval-r
 import { SessionStore } from "../session/session-store.js";
 import {
   type ConsoleSessionEvent,
-  type EntityProjectorRegistry,
+  type EntityProjectorTable,
 } from "../session/entities/entities.js";
 
 export const SESSION_ID: string = APPROVALS_SCENARIO.sessionId;
@@ -31,7 +31,7 @@ export function storeDrivenByScenario(): SessionStore {
  * its own copy of them is a suite that will disagree with the store about a gap.
  */
 export function storeOver(
-  projectors: EntityProjectorRegistry | undefined,
+  projectors: EntityProjectorTable | undefined,
   extraEvents: readonly ConsoleSessionEvent[] = [],
 ): SessionStore {
   const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);

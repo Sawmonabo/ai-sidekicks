@@ -34,9 +34,9 @@
 // what this file adds: the same five acts, discoverable by name, reachable from
 // anywhere in the session, and refusing out loud when there is no deck to act on.
 
-import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
 import {
   mountedPaneLayouts,
@@ -69,7 +69,7 @@ const WHEN_SESSION_ACTIVE = "sessionActive";
 export const PANE_LAYOUT_COMMAND_OWNER = "workspace-deck";
 
 /** Build the palette commands, given the acts each one performs. */
-export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly ConsoleCommand[] {
+export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly CommandDefinition[] {
   return [
     {
       id: "paneLayout.focusNextPane",
@@ -121,7 +121,7 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Consol
  * `registerTranscriptCommands`' reason: a test contributes into a surface it owns.
  */
 export function registerPaneLayoutCommands(
-  surface: ConsoleCommandSurface,
+  surface: CommandContributionRegistry,
   seat: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
   surface.contribute({
@@ -165,6 +165,6 @@ function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
 function performOnMountedDeck(seat: MountedPaneLayouts, act: PaneLayoutActName): void {
   const outcome = seat.perform(act);
   if (outcome.status === "refused") {
-    raiseConsoleActRefusal(outcome.refusal);
+    raiseCommandRefusal(outcome.refusal);
   }
 }

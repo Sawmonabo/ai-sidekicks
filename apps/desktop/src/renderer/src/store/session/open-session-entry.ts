@@ -65,7 +65,7 @@
 // root, which is what keeps this family below `bridge/` in the console's DAG.
 
 import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
-import type { EntityProjectorRegistry } from "./entities/entities.js";
+import type { EntityProjectorTable } from "./entities/entities.js";
 // Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
 // back into `session/` is why: that door is an edge to the trigger surface, which reads
 // the session door, which publishes the hooks that reach this directory's registry — so a
@@ -137,7 +137,7 @@ export interface OpenSessionEntryOptions {
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   readonly clock?: ConsoleClock;
   /** Event-kind projectors handed to each store opened. */
-  readonly projectors?: EntityProjectorRegistry;
+  readonly projectors?: EntityProjectorTable;
   /** Timeline rows each store retains. */
   readonly timelineCap?: number;
   /** Apply-queue coalescing window. `0` means one drain per paint. */

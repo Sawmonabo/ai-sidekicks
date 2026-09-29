@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   activeRow,
   agentPane,
@@ -27,7 +27,7 @@ const GROUPED_COMMAND_ID = "composer-discovery-groups.act";
 
 /** Register one console command, so both groups have something in them. */
 function registerConsoleCommand(): void {
-  consoleCommands.register({
+  commandRegistry.register({
     id: GROUPED_COMMAND_ID,
     title: "A console act",
     group: "Test",

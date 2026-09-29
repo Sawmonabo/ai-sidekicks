@@ -21,8 +21,8 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry, ScreenRegistry } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionSnapshot } from "@renderer/store/session/session-state.js";
 import { registerLedger } from "../contributions/screens.js";
@@ -81,7 +81,7 @@ async function renderWorkspaceSurface(input: {
     },
   });
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
-  const surfaces = new ConsoleSurfaceRegistry();
+  const surfaces = new ScreenRegistry();
   registerLedger(surfaces, { workspace: () => <div data-testid="workspace-body" /> });
   const descriptor = surfaces.descriptorFor("workspace");
   if (descriptor === undefined) {
@@ -110,8 +110,8 @@ async function renderWorkspaceSurface(input: {
         sessionStoreRegistry,
         uiStateStore: {},
         draftStore: {},
-        paneRegistry: new ConsolePaneRegistry(),
-      } as unknown as ConsoleSurfaceContext)}
+        paneRegistry: new PaneRegistry(),
+      } as unknown as ScreenContext)}
     </DesktopBridgeProvider>,
   );
   await settleReactWork();

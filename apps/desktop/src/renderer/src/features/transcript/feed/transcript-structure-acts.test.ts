@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { emptyFindResult } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {
@@ -84,7 +84,7 @@ function collectRaisedRefusals(): {
   readonly withdraw: () => void;
 } {
   const raised: ConsoleRefusal[] = [];
-  const withdraw = publishConsoleActRefusalSink((refusal) => {
+  const withdraw = publishCommandRefusalSink((refusal) => {
     raised.push(refusal);
   });
   return { raised, withdraw };

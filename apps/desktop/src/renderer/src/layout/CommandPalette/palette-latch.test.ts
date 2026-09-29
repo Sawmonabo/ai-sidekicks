@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { PALETTE_INVOCATION_REFUSAL_ORIGIN, runLatchedCommand } from "./palette-latch.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
@@ -22,7 +22,7 @@ const ON_WORKSPACE: WhenClauseContext = { onWorkspace: true, onSettings: false }
 const COMMAND_ID = "test.interruptTheRun";
 
 /** A command offered exactly where the reading below says it is. */
-function commandOfferedOnWorkspace(ran: string[]): ConsoleCommand {
+function commandOfferedOnWorkspace(ran: string[]): CommandDefinition {
   return {
     id: COMMAND_ID,
     title: "Interrupt the run",

@@ -59,10 +59,7 @@ import {
   isEditableTarget,
   useAnnounce,
 } from "@renderer/console/primitives/index.js";
-import {
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
-} from "@renderer/console/seats/index.js";
+import { type PaneContext, type PaneRegistry } from "@renderer/console/seats/index.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneLayoutActsOn } from "../pane-layout-acts.js";
@@ -87,9 +84,9 @@ import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBou
 export interface SessionPaneLayoutProps {
   readonly layout: PaneLayoutStore;
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
-  readonly registry: ConsolePaneRegistry;
+  readonly registry: PaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
-  readonly paneContextFor: (pane: SessionPane) => ConsolePaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => PaneContext | ConsoleRefusal;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
   /** Where measured pane rects go, for a body that hosts a native view.

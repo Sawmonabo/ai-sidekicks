@@ -6,10 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { AppRouter } from "./router.js";
-import {
-  consoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
 import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
@@ -25,12 +22,12 @@ const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
  * never touches it — the same reason `app/pane-harness/PaneHarnessScreen.test.tsx`
  * casts.
  */
-function contextFor(route: ConsoleRoute): ConsoleSurfaceContext {
+function contextFor(route: ConsoleRoute): ScreenContext {
   return {
     route,
     frameStore: new FrameStore({ initialRoute: route }),
     sessionStore: undefined,
-  } as unknown as ConsoleSurfaceContext;
+  } as unknown as ScreenContext;
 }
 
 describe("AppRouter — a registered slot", () => {
@@ -53,7 +50,7 @@ describe("AppRouter — a registered slot", () => {
       expect(container.textContent).toContain("the workflow builder rendered");
       expect(container.querySelector(".meridian-surface-absence")).toBeNull();
     } finally {
-      consoleSurfaceRegistry.unregister("workflows");
+      screenRegistry.unregister("workflows");
     }
   });
 });

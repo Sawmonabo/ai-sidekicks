@@ -12,7 +12,7 @@
 // the pane is loader-backed, so `pane/inspector-pane-body.ts` is the directory carrying
 // the chunk and therefore the sheet's owner.
 
-import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * Claim the `inspector` kind.
@@ -21,7 +21,7 @@ import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
  * the one answer, read off the window model rather than advertised here, and the
  * inspector is not among the kinds it admits.
  */
-export function registerInspectorPane(registry: ConsolePaneRegistry): void {
+export function registerInspectorPane(registry: PaneRegistry): void {
   registry.register({
     kind: "inspector",
     owner: "inspector-pane",

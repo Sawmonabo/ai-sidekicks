@@ -8,7 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   EMPTY_STATE_SENTENCE,
   TEST_COMMAND_ID,
@@ -166,7 +166,7 @@ describe("CommandList", () => {
   });
 
   it("renders the console half beside the note that the provider half is still being read", async () => {
-    consoleCommands.register({
+    commandRegistry.register({
       id: TEST_COMMAND_ID,
       title: "A console act",
       group: "Test",
@@ -206,7 +206,7 @@ describe("CommandList", () => {
 
   it("offers the console's own act, and running it performs it", async () => {
     let ranCount = 0;
-    consoleCommands.register({
+    commandRegistry.register({
       id: TEST_COMMAND_ID,
       title: "A console act",
       group: "Test",
@@ -241,7 +241,7 @@ describe("CommandList", () => {
 
     // Registered AFTER the mount, exactly as the frame registers this window's own
     // commands: from an effect that runs once the tree is up.
-    consoleCommands.register({
+    commandRegistry.register({
       id: TEST_COMMAND_ID,
       title: "A late console act",
       group: "Test",

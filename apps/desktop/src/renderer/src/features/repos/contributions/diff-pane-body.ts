@@ -18,7 +18,7 @@
 import { createElement } from "react";
 
 import { DiffPane } from "../diff/components/DiffPane.js";
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 
 /**
  * The diff pane, at an address the deck resolved to this kind.
@@ -29,7 +29,6 @@ import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seat
  * question, and a mismatch is a rendered refusal rather than a throw because one bad
  * layout row must lose that row and not the deck.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
-  "diff",
-  (context) => createElement(DiffPane, { context }),
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind("diff", (context) =>
+  createElement(DiffPane, { context }),
 );

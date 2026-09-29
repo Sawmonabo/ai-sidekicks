@@ -10,9 +10,9 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
-import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { KeyboardPage } from "./KeyboardPage.js";
@@ -82,10 +82,10 @@ export async function recordChordOnto(
 
 // The rail's shipped chords, contributed the way the window's composition contributes them,
 // so the page reads the same shipped table a window has.
-registerNavigationKeybindings(consoleCommandSurface);
+registerNavigationKeybindings(commandContributionRegistry);
 
 beforeEach(() => {
-  consoleCommands.registerAll([
+  commandRegistry.registerAll([
     {
       id: "frame.goToSessions",
       title: "Go to sessions",
@@ -110,9 +110,9 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   for (const commandId of TEST_COMMAND_IDS) {
-    consoleCommands.unregister(commandId);
+    commandRegistry.unregister(commandId);
   }
   // The seam is this window's, so one case's rebinding would otherwise be the next
   // case's starting keyboard.
-  await consoleKeybindingOverrides.resetAll();
+  await keybindingOverrides.resetAll();
 });

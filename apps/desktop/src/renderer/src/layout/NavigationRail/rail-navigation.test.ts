@@ -24,10 +24,7 @@ import {
   railDestinationFor,
   type RailDestination,
 } from "@renderer/routing/route-readers.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntryTemplate } from "./NavigationRail.js";
 import { RAIL_ENTRIES, routeForDestination, warmDestination } from "./rail-navigation.js";
 
@@ -97,18 +94,18 @@ describe("the rail and the router answer from one set", () => {
 describe("warmDestination — the surface a press is about to mount", () => {
   /** A board of loader-backed surfaces, and a record of which chunks were asked for. */
   function boardOverDestinations(): {
-    readonly surfaceRegistry: ConsoleSurfaceRegistry;
+    readonly surfaceRegistry: ScreenRegistry;
     readonly loaded: string[];
   } {
     const loaded: string[] = [];
-    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    const surfaceRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
       surfaceRegistry.register({
         slot: destination,
         owner: `${destination}-family`,
         body: () => {
           loaded.push(destination);
-          return Promise.resolve<{ Body: (context: ConsoleSurfaceContext) => React.ReactNode }>({
+          return Promise.resolve<{ Body: (context: ScreenContext) => React.ReactNode }>({
             Body: () => null,
           });
         },
@@ -119,7 +116,7 @@ describe("warmDestination — the surface a press is about to mount", () => {
 
   it("resolves each destination through the route table to its own slot", async () => {
     // The step that could go wrong twice: a second open-coded reading of
-    // `surfaceSlotFor` would drift the first time a destination changed slots, so the
+    // `findScreenNameForRoute` would drift the first time a destination changed slots, so the
     // walk holds every destination to the slot its own route resolves to.
     for (const destination of RAIL_DESTINATIONS) {
       const { surfaceRegistry, loaded } = boardOverDestinations();
@@ -151,7 +148,7 @@ describe("warmDestination — the surface a press is about to mount", () => {
   it("does nothing for a destination whose surface is component-form", () => {
     // A caller must not have to ask first whether what it is about to open is
     // loader-backed, or every call site carries a copy of that question.
-    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    const surfaceRegistry = new ScreenRegistry();
     surfaceRegistry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
     expect(() => {
       warmDestination(surfaceRegistry, "sessions");
@@ -164,7 +161,7 @@ describe("warmDestination — the surface a press is about to mount", () => {
     // damaged install, and the honest surface for that is the mount, where the console's
     // error boundary can say so. An unhandled rejection from a hover would be a crash
     // report for a destination nobody entered.
-    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    const surfaceRegistry = new ScreenRegistry();
     surfaceRegistry.register({
       slot: "workflows",
       owner: "workflows-family",
@@ -180,7 +177,7 @@ describe("warmDestination — the surface a press is about to mount", () => {
   it("negative control: an empty board is warmed without complaint and stays empty", () => {
     // Without this, the cases above would pass over a `warmDestination` that registered
     // something of its own on the way past.
-    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    const surfaceRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
       warmDestination(surfaceRegistry, destination);
     }

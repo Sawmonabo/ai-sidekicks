@@ -9,8 +9,8 @@
 
 import type {
   ConsolePaneAddress,
-  ConsolePaneContext,
-  ConsoleSurfaceContext,
+  PaneContext,
+  ScreenContext,
 } from "@renderer/console/seats/index.js";
 
 /**
@@ -22,7 +22,7 @@ import type {
  */
 export function OpenPaneBody(props: {
   readonly address: ConsolePaneAddress;
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
 }): React.JSX.Element {
   const { address, context } = props;
   const descriptor = context.paneRegistry.descriptorFor(address.kind);
@@ -33,7 +33,7 @@ export function OpenPaneBody(props: {
   // union, so a session-scoped arm carries no entity to name a pane after and a bare
   // arm carries none yet.
   const addressedEntityId = "entity" in address ? address.entity?.id : undefined;
-  const paneContext: ConsolePaneContext = {
+  const paneContext: PaneContext = {
     ...address,
     // Deterministic in the address rather than minted, so re-opening the same subject
     // is the same pane and React keeps whatever state its body holds.

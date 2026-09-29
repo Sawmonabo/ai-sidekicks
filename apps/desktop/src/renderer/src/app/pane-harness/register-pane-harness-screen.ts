@@ -2,10 +2,7 @@
 
 import { createElement } from "react";
 
-import {
-  type ConsolePaneRegistry,
-  type ConsoleSurfaceRegistry,
-} from "@renderer/console/seats/index.js";
+import { type PaneRegistry, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 
 /**
@@ -14,9 +11,9 @@ import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
  * Both registries are parameters, so a composition that owns its own boards registers
  * into them and resolves pane bodies from them, never from the production singletons.
  */
-export function registerPaneHarnessSurface(
-  surfaceRegistry: ConsoleSurfaceRegistry,
-  paneRegistry: ConsolePaneRegistry,
+export function registerPaneHarnessScreen(
+  surfaceRegistry: ScreenRegistry,
+  paneRegistry: PaneRegistry,
 ): void {
   surfaceRegistry.register({
     slot: "pane-harness",

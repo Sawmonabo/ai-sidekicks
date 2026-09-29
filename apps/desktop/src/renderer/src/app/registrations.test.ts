@@ -13,21 +13,15 @@ import {
 } from "@renderer/registries/commands/command-contributions.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import {
-  ConsoleEntityProjectorRegistry,
-  consoleEntityProjectorRegistry,
+  EntityProjectorRegistry,
+  entityProjectorRegistry,
 } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import {
-  InlineCardSeatRegistry,
-  inlineCardSeatRegistry,
+  InlineCardRegistry,
+  inlineCardRegistry,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
-} from "@renderer/registries/panes/pane-registry.js";
-import {
-  ConsoleSurfaceRegistry,
-  consoleSurfaceRegistry,
-} from "@renderer/registries/screens/screen-registry.js";
+import { PaneRegistry, paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
   APPROVAL_FLOW_PROJECTORS,
@@ -45,17 +39,17 @@ import { registerFeatureContributions } from "./registrations.js";
 /** Registries a case owns outright, with the command registry the surface writes into. */
 function ownedRegistries(): {
   readonly commands: CommandContributionRegistry;
-  readonly projectors: ConsoleEntityProjectorRegistry;
-  readonly surfaces: ConsoleSurfaceRegistry;
-  readonly panes: ConsolePaneRegistry;
-  readonly inlineCards: InlineCardSeatRegistry;
+  readonly projectors: EntityProjectorRegistry;
+  readonly surfaces: ScreenRegistry;
+  readonly panes: PaneRegistry;
+  readonly inlineCards: InlineCardRegistry;
 } {
   return {
     commands: new CommandContributionRegistry(new CommandRegistry()),
-    projectors: new ConsoleEntityProjectorRegistry(),
-    surfaces: new ConsoleSurfaceRegistry(),
-    panes: new ConsolePaneRegistry(),
-    inlineCards: new InlineCardSeatRegistry(),
+    projectors: new EntityProjectorRegistry(),
+    surfaces: new ScreenRegistry(),
+    panes: new PaneRegistry(),
+    inlineCards: new InlineCardRegistry(),
   };
 }
 
@@ -93,10 +87,10 @@ describe("registerFeatureContributions", () => {
     });
     expect({
       keyBindings: contributedKeybindings(),
-      projectors: consoleEntityProjectorRegistry.snapshot(),
-      surfaces: consoleSurfaceRegistry.registeredSlots(),
-      panes: consolePaneRegistry.registeredPaneKinds(),
-      inlineCards: inlineCardSeatRegistry.registeredCardKinds(),
+      projectors: entityProjectorRegistry.snapshot(),
+      surfaces: screenRegistry.registeredSlots(),
+      panes: paneRegistry.registeredPaneKinds(),
+      inlineCards: inlineCardRegistry.registeredCardKinds(),
     }).toStrictEqual({ keyBindings: [], projectors: {}, surfaces: [], panes: [], inlineCards: [] });
   });
 

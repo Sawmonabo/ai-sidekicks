@@ -9,8 +9,8 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  InlineCardSeatRegistry,
-  inlineCardSeatRegistry,
+  InlineCardRegistry,
+  inlineCardRegistry,
   type DiffInlineCardProps,
 } from "@renderer/console/seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
@@ -67,8 +67,8 @@ describe("inline diff card — the seat", () => {
    * `afterEach` unregistering the kind by hand, where a case that forgot made the
    * next one pass for its neighbour's reason.
    */
-  function fill(): InlineCardSeatRegistry {
-    const seats = new InlineCardSeatRegistry();
+  function fill(): InlineCardRegistry {
+    const seats = new InlineCardRegistry();
     registerRepos(seats);
     return seats;
   }
@@ -88,14 +88,14 @@ describe("inline diff card — the seat", () => {
   it("negative control: an unfilled board answers nothing", () => {
     // Without this, the two cases above would pass over a board that answered from
     // somewhere else entirely, and the registration call would be doing nothing.
-    expect(new InlineCardSeatRegistry().bodyFor("diff")).toBeUndefined();
+    expect(new InlineCardRegistry().bodyFor("diff")).toBeUndefined();
   });
 
   it("writes the board it is given and never the process-wide one", () => {
     // The registrar closes over no singleton. A body that reached one would render
     // correctly in every case above and still leak into the running console.
     fill();
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
+    expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

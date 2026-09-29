@@ -26,7 +26,7 @@ export const PANE_LAYOUT_TOTAL_PERMILLE = 1000;
 
 /** One pane in the deck. Immutable; every mutation produces a new one. */
 export interface SessionPane {
-  /** Stable across a layout restore — the identity `ConsolePaneContext` carries. */
+  /** Stable across a layout restore — the identity `PaneContext` carries. */
   readonly paneId: string;
   readonly kind: PaneKind;
   /** The entity this pane is a view of, or `undefined` for a session-scoped pane. */

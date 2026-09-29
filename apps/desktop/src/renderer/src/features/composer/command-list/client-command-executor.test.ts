@@ -1,6 +1,6 @@
 // That a recognised command actually PERFORMS its act, and that the composer waits.
 //
-// Driven through the real registry — `consoleCommands`, the one the palette and the
+// Driven through the real registry — `commandRegistry`, the one the palette and the
 // chord table read — rather than a stand-in, so the claim is about the surface a
 // person's `/name` really reaches. A local registry would prove the executor talks to
 // a registry and nothing about which.
@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
@@ -33,7 +33,7 @@ function registerCommand(command: {
   readonly when?: string;
   readonly run: () => void | Promise<void>;
 }): void {
-  consoleCommands.register({
+  commandRegistry.register({
     id: command.id,
     title: "Executor test command",
     group: "Test",
@@ -60,7 +60,7 @@ function directiveLine(commandName: string) {
 
 afterEach(() => {
   for (const commandId of registeredIds.splice(0)) {
-    consoleCommands.unregister(commandId);
+    commandRegistry.unregister(commandId);
   }
 });
 
@@ -79,7 +79,7 @@ describe("createClientCommandExecutor", () => {
 
     expect(outcome).toEqual({ status: "applied" });
     expect(ranCount).toBe(1);
-    expect(consoleCommands.recentCommandIds()).toContain(RAN_COMMAND_ID);
+    expect(commandRegistry.recentCommandIds()).toContain(RAN_COMMAND_ID);
   });
 
   it("waits for the command's own completion before reporting it applied", async () => {

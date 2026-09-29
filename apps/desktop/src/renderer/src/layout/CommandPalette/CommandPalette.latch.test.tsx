@@ -29,7 +29,7 @@ import {
   type CommandInvocationOutcome,
   CommandRegistry,
 } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
@@ -60,7 +60,7 @@ interface RunLedger {
 }
 
 /** The command the palette opens over. Its own factory, so a case can re-register it. */
-function workspaceCommand(ledger: RunLedger): ConsoleCommand {
+function workspaceCommand(ledger: RunLedger): CommandDefinition {
   return {
     id: WORKSPACE_COMMAND_ID,
     title: WORKSPACE_COMMAND_TITLE,
@@ -78,7 +78,7 @@ function workspaceCommand(ledger: RunLedger): ConsoleCommand {
  * Non-overlapping on purpose: every assertion here is about WHICH reading was used, and
  * a command offered under both contexts would render identically either way.
  */
-function settingsCommand(ledger: RunLedger): ConsoleCommand {
+function settingsCommand(ledger: RunLedger): CommandDefinition {
   return {
     id: SETTINGS_COMMAND_ID,
     title: SETTINGS_COMMAND_TITLE,

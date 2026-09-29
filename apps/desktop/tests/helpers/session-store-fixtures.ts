@@ -20,7 +20,7 @@
 
 import type {
   ConsoleSessionEvent,
-  EntityProjectorRegistry,
+  EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
 import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { eventOfKind } from "./session-events.js";
@@ -35,7 +35,7 @@ function runIdOf(event: ConsoleSessionEvent): string {
 }
 
 /** One projector, so an applied event is observable as an entity rather than a count. */
-export const projectors: EntityProjectorRegistry = {
+export const projectors: EntityProjectorTable = {
   "run.starting": (event) => [
     {
       operation: "upsert",

@@ -6,7 +6,7 @@
 // entity contribution and nothing else — never the batch, never the process, and
 // never half a partition.
 
-import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
+import type { ConsoleSessionEvent, EntityProjectorTable } from "./entities.js";
 import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
 
 /**
@@ -18,9 +18,9 @@ import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./entity-part
  * projection path with no way to tell it apart from the first.
  */
 export class EntityProjectionRunner {
-  readonly #projectors: EntityProjectorRegistry;
+  readonly #projectors: EntityProjectorTable;
 
-  public constructor(projectors: EntityProjectorRegistry) {
+  public constructor(projectors: EntityProjectorTable) {
     this.#projectors = projectors;
   }
 

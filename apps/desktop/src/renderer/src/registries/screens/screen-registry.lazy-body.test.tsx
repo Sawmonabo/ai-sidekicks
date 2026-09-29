@@ -2,8 +2,8 @@
 //
 // Split from `pane-registry.lazy-body.test.tsx` on the boundary the two boards already are. That file
 // makes the deck's claims — registration shape, reserved chrome, one fetch per
-// registration, and survival of the duplicate policy — over `ConsolePaneRegistry`; these
-// three make the same claims over `ConsoleSurfaceRegistry`, whose key is a slot rather
+// registration, and survival of the duplicate policy — over `PaneRegistry`; these
+// three make the same claims over `ScreenRegistry`, whose key is a slot rather
 // than a pane kind. Reading either half no longer means holding the other's registry.
 //
 // The loader itself is shared and is therefore not written twice: `countingLoader` lives
@@ -16,18 +16,17 @@ import { describe, expect, it } from "vitest";
 import { settle } from "@test/helpers/settle.js";
 import { countingLoader, syntheticSurfaceContext } from "@test/helpers/lazy-body-contexts.js";
 import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
-import { type ConsoleSurfaceContext } from "./screen-context.js";
-import { ConsoleSurfaceRegistry } from "./screen-registry.js";
+import { type ScreenContext } from "./screen-context.js";
+import { ScreenRegistry } from "./screen-registry.js";
 
 describe("the frame's board — the same mechanism, keyed by slot", () => {
   it("registers, mounts an absence frame, then the surface", async () => {
-    const registry = new ConsoleSurfaceRegistry();
+    const registry = new ScreenRegistry();
     registry.register({
       slot: "settings",
       owner: "settings-family",
-      body: countingLoader<ConsoleSurfaceContext>(() =>
-        createElement("p", null, "the settings surface"),
-      ).load,
+      body: countingLoader<ScreenContext>(() => createElement("p", null, "the settings surface"))
+        .load,
     });
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
 
@@ -45,11 +44,11 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     // `lazy` calls its initializer on the first render and learns the value a microtask
     // later however warm the promise is, so the reserved frame committed for one frame
     // on exactly the path that had done the work to avoid it.
-    const registry = new ConsoleSurfaceRegistry();
+    const registry = new ScreenRegistry();
     registry.register({
       slot: "workflows",
       owner: "workflows-family",
-      body: countingLoader<ConsoleSurfaceContext>(() =>
+      body: countingLoader<ScreenContext>(() =>
         createElement("p", null, "the workflows destination"),
       ).load,
     });
@@ -66,8 +65,8 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
   });
 
   it("loads once however many callers ask, and offers the walk only what is unloaded", async () => {
-    const registry = new ConsoleSurfaceRegistry();
-    const loader = countingLoader<ConsoleSurfaceContext>(() => null);
+    const registry = new ScreenRegistry();
+    const loader = countingLoader<ScreenContext>(() => null);
     registry.register({ slot: "settings", owner: "settings-family", body: loader.load });
     registry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
     expect(registry.unloadedKeys()).toStrictEqual(["settings"]);

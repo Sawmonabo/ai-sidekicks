@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type ConsoleCommand,
-  type KeyBinding,
+  type CommandDefinition,
+  type Keybinding,
 } from "@renderer/registries/commands/command-types.js";
 import {
   composeKeybindingRows,
@@ -16,7 +16,7 @@ import {
   type ChordRecording,
 } from "./keybinding-map.js";
 
-function command(id: string, title: string, group = "Navigation"): ConsoleCommand {
+function command(id: string, title: string, group = "Navigation"): CommandDefinition {
   return { id, title, group, run: () => undefined };
 }
 
@@ -43,7 +43,7 @@ describe("composing rows", () => {
     command("frame.goToSessions", "Go to sessions"),
     command("app.checkForUpdates", "Check for updates", "Application"),
   ];
-  const bindings: readonly KeyBinding[] = [
+  const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions" },
     { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
   ];
@@ -266,7 +266,7 @@ describe("reading what is held right now", () => {
 });
 
 describe("filtering rows", () => {
-  const bindings: readonly KeyBinding[] = [
+  const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions", when: "sessionActive" },
   ];
   const rows = composeKeybindingRows({

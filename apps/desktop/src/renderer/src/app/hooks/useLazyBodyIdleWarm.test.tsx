@@ -11,10 +11,10 @@ import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
-  ConsolePaneRegistry,
-  ConsoleSurfaceRegistry,
-  type ConsolePaneContext,
-  type ConsoleSurfaceContext,
+  PaneRegistry,
+  ScreenRegistry,
+  type PaneContext,
+  type ScreenContext,
 } from "@renderer/console/seats/index.js";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
@@ -23,27 +23,27 @@ import { useLazyBodyIdleWarm } from "./useLazyBodyIdleWarm.js";
 
 /** A window's two boards, each holding one loader-backed body that records its load. */
 function composeBoards(loaded: string[]): {
-  readonly paneRegistry: ConsolePaneRegistry;
-  readonly surfaceRegistry: ConsoleSurfaceRegistry;
+  readonly paneRegistry: PaneRegistry;
+  readonly surfaceRegistry: ScreenRegistry;
 } {
-  const paneRegistry = new ConsolePaneRegistry();
+  const paneRegistry = new PaneRegistry();
   paneRegistry.register({
     kind: "diff",
     owner: "repos-family",
     body: () => {
       loaded.push("pane:diff");
-      return Promise.resolve<{ Body: (context: ConsolePaneContext) => React.ReactNode }>({
+      return Promise.resolve<{ Body: (context: PaneContext) => React.ReactNode }>({
         Body: () => null,
       });
     },
   });
-  const surfaceRegistry = new ConsoleSurfaceRegistry();
+  const surfaceRegistry = new ScreenRegistry();
   surfaceRegistry.register({
     slot: "settings",
     owner: "settings-family",
     body: () => {
       loaded.push("surface:settings");
-      return Promise.resolve<{ Body: (context: ConsoleSurfaceContext) => React.ReactNode }>({
+      return Promise.resolve<{ Body: (context: ScreenContext) => React.ReactNode }>({
         Body: () => null,
       });
     },
@@ -53,8 +53,8 @@ function composeBoards(loaded: string[]): {
 
 /** A frame that does nothing but hold the binding, so the effect is the subject. */
 function WarmingFrame(props: {
-  readonly paneRegistry: ConsolePaneRegistry;
-  readonly surfaceRegistry: ConsoleSurfaceRegistry;
+  readonly paneRegistry: PaneRegistry;
+  readonly surfaceRegistry: ScreenRegistry;
   readonly scheduler: ManualIdleWarmScheduler;
 }): React.JSX.Element {
   useLazyBodyIdleWarm(props.paneRegistry, props.surfaceRegistry, props.scheduler);

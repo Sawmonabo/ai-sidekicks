@@ -37,7 +37,7 @@ import type { ViewportRow } from "../viewport-snapshot.js";
 const LEDGER_ROW_ROLE = "article" as const;
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
-export type TranscriptRowRenderer = (row: ViewportRow) => React.ReactNode;
+export type ViewportRowRenderer = (row: ViewportRow) => React.ReactNode;
 
 export interface VirtualRowProps {
   /** The virtualizer reads this back off the element to identify the row. */
@@ -45,7 +45,7 @@ export interface VirtualRowProps {
   /** How long the whole log is — not how many rows are mounted. */
   readonly totalRowCount: number;
   readonly row: ViewportRow;
-  readonly renderRow: TranscriptRowRenderer;
+  readonly renderRow: ViewportRowRenderer;
   readonly attachRow: (element: HTMLElement | null) => void;
 }
 

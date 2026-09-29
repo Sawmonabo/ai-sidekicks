@@ -24,7 +24,7 @@
 //
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through
-// `ConsolePaneRegistry` and the destination through `ConsoleSurfaceRegistry`, each
+// `PaneRegistry` and the destination through `ScreenRegistry`, each
 // after the family registers into it — so a tier renders what the deck and the rail
 // would actually mount rather than a component that happens to sit beside them, and
 // the family's stylesheets arrive on the edges its own modules already own, which is
@@ -61,7 +61,7 @@ import {
 import { RunPhaseGraph } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
-import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -74,9 +74,9 @@ import {
   registerWorkflowSurfaces,
 } from "@renderer/features/workflows/index.js";
 import {
-  ConsolePaneRegistry,
+  PaneRegistry,
   type ConsolePaneAddress,
-  type ConsolePaneContext,
+  type PaneContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
@@ -90,8 +90,8 @@ import { type MountedView } from "./mount-queries.js";
  * tiers holding one instance would make the second tier's mount depend on whether
  * the first had run.
  */
-function familyPaneRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function familyPaneRegistry(): PaneRegistry {
+  const registry = new PaneRegistry();
   registerWorkflowPanes(registry);
   return registry;
 }
@@ -105,7 +105,7 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  */
 async function paneBodyComponent(
   kind: PaneKind,
-): Promise<FunctionComponent<{ context: ConsolePaneContext }>> {
+): Promise<FunctionComponent<{ context: PaneContext }>> {
   const render = await resolvedPaneBody(kind, registerWorkflowPanes);
   return ({ context }) => render(context);
 }
@@ -121,7 +121,7 @@ async function paneBodyComponent(
 function paneContext(
   address: ConsolePaneAddress & { readonly paneId: string },
   bridge: ConsoleBridge,
-): ConsolePaneContext {
+): PaneContext {
   return {
     ...address,
     frameStore: new FrameStore(),
@@ -175,9 +175,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * message names the slot — instead of rendering nothing and letting a tier compare an
  * empty box against a baseline.
  */
-async function surfaceBodyComponent(): Promise<
-  FunctionComponent<{ context: ConsoleSurfaceContext }>
-> {
+async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
   const render = await resolvedScreenBody("workflows", registerWorkflowSurfaces);
   return ({ context }) => render(context);
 }
@@ -192,7 +190,7 @@ async function surfaceBodyComponent(): Promise<
  * empty: this window has opened nothing, which is the ordinary case for a person who
  * reached the rail from a session the route has since left.
  */
-function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
+function surfaceContext(bridge: ConsoleBridge): ScreenContext {
   const frameStore = new FrameStore({
     initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
   });

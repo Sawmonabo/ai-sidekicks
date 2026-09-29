@@ -1,6 +1,6 @@
 // A family composed after the window installed its chord table still gets its chords.
 //
-// The frame installs one `KeyBindingTable` on `window` from an effect, and the
+// The frame installs one `KeybindingTable` on `window` from an effect, and the
 // families contribute at composition time. Those two moments are not ordered: a
 // family composed later — a lazily-loaded chunk, a second composition into a window
 // that is already open — binds its chords into a list the table would never read
@@ -17,8 +17,8 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { mountConsole } from "@test/helpers/mount-app.js";
 
 /** The family this file composes as, so its rows are withdrawn by owner. */
@@ -44,7 +44,7 @@ describe("frame command surface — chords contributed after the table was insta
   // unregisters the command this file added, so the module-scoped registry is left
   // as it was found.
   afterEach(() => {
-    consoleCommandSurface.contribute({
+    commandContributionRegistry.contribute({
       owner: CONTRIBUTING_OWNER,
       commands: [],
       keyBindings: [],
@@ -53,7 +53,7 @@ describe("frame command surface — chords contributed after the table was insta
 
   it("reaches the installed table, and did not before the contribution", async () => {
     let runCount = 0;
-    const contributedCommand: ConsoleCommand = {
+    const contributedCommand: CommandDefinition = {
       id: CONTRIBUTED_COMMAND_ID,
       title: "The act a late family contributed",
       group: "Test",
@@ -70,7 +70,7 @@ describe("frame command surface — chords contributed after the table was insta
     const runsBeforeContribution = runCount;
 
     await act(async () => {
-      consoleCommandSurface.contribute({
+      commandContributionRegistry.contribute({
         owner: CONTRIBUTING_OWNER,
         commands: [contributedCommand],
         keyBindings: [{ chord: CONTRIBUTED_CHORD, commandId: CONTRIBUTED_COMMAND_ID }],
@@ -98,7 +98,7 @@ describe("frame command surface — chords contributed after the table was insta
       mounted.unmount();
     });
 
-    consoleCommandSurface.contribute({
+    commandContributionRegistry.contribute({
       owner: CONTRIBUTING_OWNER,
       commands: [
         {

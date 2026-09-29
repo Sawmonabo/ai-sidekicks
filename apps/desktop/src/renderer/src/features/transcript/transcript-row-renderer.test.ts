@@ -15,11 +15,11 @@ import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
   unregisterTimelineRowRenderer,
-  type TimelineRowRenderer,
+  type TranscriptRowRenderer,
 } from "./transcript-row-renderer.js";
 
 /** A row body whose props are never read: these cases are about the seat. */
-const fixtureShellRow: TimelineRowRenderer = () => null;
+const fixtureShellRow: TranscriptRowRenderer = () => null;
 
 afterEach(() => {
   unregisterTimelineRowRenderer();
@@ -43,7 +43,7 @@ describe("timeline row slot — the absorb-by-import handover", () => {
   });
 
   it("admits the real row once the shell's registration is gone", () => {
-    const realRow: TimelineRowRenderer = () => null;
+    const realRow: TranscriptRowRenderer = () => null;
     registerTimelineRowRenderer("workspace-fixture-shell", fixtureShellRow);
     unregisterTimelineRowRenderer();
     registerTimelineRowRenderer("timeline-subtree", realRow);
@@ -51,7 +51,7 @@ describe("timeline row slot — the absorb-by-import handover", () => {
   });
 
   it("replaces when the same owner re-registers, as a hot reload does it", () => {
-    const reloaded: TimelineRowRenderer = () => null;
+    const reloaded: TranscriptRowRenderer = () => null;
     registerTimelineRowRenderer("timeline-subtree", fixtureShellRow);
     registerTimelineRowRenderer("timeline-subtree", reloaded);
     expect(timelineRowRenderer()).toBe(reloaded);

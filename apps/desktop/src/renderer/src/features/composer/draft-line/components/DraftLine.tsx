@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "@renderer/console/primitives/index.js";
-import { subscribeToComposerFocus, type ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { subscribeToComposerFocus, type ComposerProps } from "@renderer/console/seats/index.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../composer-bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";
@@ -25,7 +25,7 @@ import { composeDraftPlaceholder } from "../draft-line.js";
 import { composerDraftKey } from "../draft-key.js";
 
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */
-export function DraftLine(props: ComposerSeatProps): React.JSX.Element {
+export function DraftLine(props: ComposerProps): React.JSX.Element {
   const { draftStore } = props;
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   const draftKey = composerDraftKey(address.target);

@@ -23,7 +23,7 @@
 // PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
 // links two panes when one opens the other — an inspector opened from a ledger row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
-// mount (`ConsolePaneContext.linkedSourcePaneId`), never as a handle held. That is
+// mount (`PaneContext.linkedSourcePaneId`), never as a handle held. That is
 // the design's independence rule made structural: a linked pane is still moved
 // and closed on its own, because the only thing it has of its source is a
 // string, and a string cannot be dereferenced into a body.
@@ -33,15 +33,15 @@ import { createElement } from "react";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingPaneBody } from "./PendingPaneBody.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
 /** What a family registers to claim a pane kind. */
-export interface ConsolePaneDescriptor {
+export interface PaneDescriptor {
   readonly kind: PaneKind;
   /** The task or family that owns it, so an unrendered kind names someone. */
   readonly owner: string;
-  readonly render: (context: ConsolePaneContext) => React.ReactNode;
+  readonly render: (context: PaneContext) => React.ReactNode;
 }
 
 /**
@@ -60,22 +60,22 @@ export interface ConsolePaneDescriptor {
  * time by a registry that cannot know which the family meant. The `never` arms are what
  * make the compiler refuse a registration carrying both.
  */
-export type ConsolePaneRegistration =
+export type PaneRegistration =
   | (ConsolePaneRegistrationBase & {
-      readonly render: (context: ConsolePaneContext) => React.ReactNode;
+      readonly render: (context: PaneContext) => React.ReactNode;
       readonly body?: never;
     })
   | (ConsolePaneRegistrationBase & {
-      readonly body: LazyBodyLoader<ConsolePaneContext>;
+      readonly body: LazyBodyLoader<PaneContext>;
       readonly render?: never;
     });
 
-export class ConsolePaneRegistry {
+export class PaneRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: re-registering
   // under the same owner replaces (a hot reload re-runs a family's module), and a
   // different owner claiming a taken kind is a conflict rather than a swap,
   // because which body mounts would otherwise depend on module import order.
-  readonly #descriptorsByKind = new KeyedRegistry<PaneKind, ConsolePaneDescriptor>({
+  readonly #descriptorsByKind = new KeyedRegistry<PaneKind, PaneDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "pane kind",
     ownerOf: (descriptor) => descriptor.owner,
@@ -90,7 +90,7 @@ export class ConsolePaneRegistry {
    * body it is about to render arrived as a chunk. Keeping the two apart is what lets
    * both registration forms produce one resolved descriptor shape.
    */
-  readonly #loadedBodiesByKind = new Map<PaneKind, LoadedLazyBody<ConsolePaneContext>>();
+  readonly #loadedBodiesByKind = new Map<PaneKind, LoadedLazyBody<PaneContext>>();
 
   /**
    * Claim a pane kind. A second claim by a different owner is an error, not a swap.
@@ -100,7 +100,7 @@ export class ConsolePaneRegistry {
    * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
    * shape for both forms, and nothing downstream branches on how a body was registered.
    */
-  public register(registration: ConsolePaneRegistration): void {
+  public register(registration: PaneRegistration): void {
     if (registration.body === undefined) {
       // REGISTERED FIRST, THEN THE LOADER TABLE IS TRIMMED, which is the loader arm's
       // ordering read from the other side. Deleting first meant a refused registration —
@@ -118,7 +118,7 @@ export class ConsolePaneRegistry {
     }
     // The fallback is the pane's own empty chrome, supplied here rather than by the
     // generic machinery: what a pane reserves while it loads is a pane-shaped question.
-    const loadedBody = new LoadedLazyBody(registration.body, (context: ConsolePaneContext) =>
+    const loadedBody = new LoadedLazyBody(registration.body, (context: PaneContext) =>
       createElement(PendingPaneBody, { context }),
     );
     // Registered BEFORE the descriptor, so a `register` the keyed registry refuses —
@@ -167,7 +167,7 @@ export class ConsolePaneRegistry {
     return PANE_KINDS.filter((kind) => this.#loadedBodiesByKind.get(kind)?.isResolved === false);
   }
 
-  public descriptorFor(kind: PaneKind): ConsolePaneDescriptor | undefined {
+  public descriptorFor(kind: PaneKind): PaneDescriptor | undefined {
     return this.#descriptorsByKind.get(kind);
   }
 
@@ -190,9 +190,9 @@ interface ConsolePaneRegistrationBase {
 }
 
 /** The process-wide registry the view families call at module scope. */
-export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
+export const paneRegistry: PaneRegistry = new PaneRegistry();
 
 /** Which pane kinds the process-wide registry has a body for. */
 export function registeredPaneKinds(): readonly PaneKind[] {
-  return consolePaneRegistry.registeredPaneKinds();
+  return paneRegistry.registeredPaneKinds();
 }

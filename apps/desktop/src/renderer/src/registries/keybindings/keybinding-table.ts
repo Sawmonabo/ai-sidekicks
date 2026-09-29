@@ -35,7 +35,7 @@
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { isTextEntryTarget } from "@renderer/console/primitives/index.js";
 import type { CommandInvocationOutcome, CommandRegistry } from "../commands/command-registry.js";
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 import { chordMatchesEvent } from "./keybinding-chord.js";
 import {
   detectConflicts,
@@ -132,7 +132,7 @@ export class KeybindingConflictError extends ConsoleRefusalError {
  * "exactly one listener" guarantee are invariants over that state, and they are
  * only checkable if the state has one owner.
  */
-export class KeyBindingTable {
+export class KeybindingTable {
   readonly #registry: CommandRegistry;
   readonly #readContext: () => WhenClauseContext;
   readonly #onDispatch: ((dispatch: KeybindingDispatch) => void) | undefined;
@@ -158,7 +158,7 @@ export class KeyBindingTable {
    * settings file), and one bad row must not take the whole keyboard down. Each
    * drop is reported through `diagnostics()`, so the Keyboard page can render it.
    */
-  public setBindings(bindings: readonly KeyBinding[]): void {
+  public setBindings(bindings: readonly Keybinding[]): void {
     const { prepared, diagnostics } = prepareBindings(bindings);
 
     const conflicts = detectConflicts(prepared);
@@ -182,7 +182,7 @@ export class KeyBindingTable {
    * needs the answer before it commits — asking by catching the throw from
    * `setBindings` would mean the table had already been half-replaced.
    */
-  public static conflictsIn(bindings: readonly KeyBinding[]): readonly KeybindingConflict[] {
+  public static conflictsIn(bindings: readonly Keybinding[]): readonly KeybindingConflict[] {
     return detectConflicts(prepareBindings(bindings).prepared);
   }
 
@@ -192,7 +192,7 @@ export class KeyBindingTable {
   }
 
   /** Every installed binding for a command, in dispatch order. */
-  public bindingsFor(commandId: string): readonly KeyBinding[] {
+  public bindingsFor(commandId: string): readonly Keybinding[] {
     return this.#preparedBindings
       .filter((prepared) => prepared.binding.commandId === commandId)
       .map((prepared) => prepared.binding);
@@ -235,7 +235,7 @@ export class KeyBindingTable {
   public install(target: KeybindingTarget): () => void {
     if (this.#detachListener !== undefined) {
       throw new Error(
-        "this KeyBindingTable is already installed; dispose the previous installation before installing again",
+        "this KeybindingTable is already installed; dispose the previous installation before installing again",
       );
     }
     const listener = (event: Event): void => {

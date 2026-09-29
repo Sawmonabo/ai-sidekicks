@@ -7,7 +7,7 @@
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
 import { LiveAnnouncerProvider, formatCount } from "@renderer/console/primitives/index.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
 import { KeyboardPage } from "./KeyboardPage.js";
@@ -25,11 +25,11 @@ describe("keyboard page — what it changes", () => {
     await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
     });
     // The seam the FRAME installs from, not a copy the page keeps.
     expect(
-      consoleKeybindingOverrides.surface.bindings.find(
+      keybindingOverrides.snapshot.bindings.find(
         (binding) => binding.commandId === "app.checkForUpdates",
       )?.chord,
     ).toBe("Alt+KeyJ");
@@ -60,7 +60,7 @@ describe("keyboard page — what it changes", () => {
     const { container } = renderKeyboardPage();
     await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
     await waitFor(() => {
-      expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
     });
 
     await recordChordOnto(container, "frame.goToSessions", RECORDED_PRESS);
@@ -72,7 +72,7 @@ describe("keyboard page — what it changes", () => {
       "app.checkForUpdates",
     );
     // Refused before anything moved.
-    expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
   });
 
   it("resets a row back to the chord the console ships, and announces that once", async () => {
@@ -80,9 +80,9 @@ describe("keyboard page — what it changes", () => {
     // the reset is the only act this case performs and the only thing spoken. The
     // announcer holds a standing message and queues the next, which is its own
     // contract (`live-announcer.ts`) and not this page's to drive.
-    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await keybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
     const { container } = renderKeyboardPage();
-    expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
+    expect(keybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
 
     const reset = rowOf(container, "frame.goToSessions").querySelector(".meridian-keymap__reset");
     expect(reset).not.toBeNull();
@@ -92,7 +92,7 @@ describe("keyboard page — what it changes", () => {
     });
 
     await waitFor(() => {
-      expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
+      expect(keybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
     });
     expect(politeText(container)).toContain("back to the chord the console ships");
   });
@@ -105,7 +105,7 @@ describe("keyboard page — what it changes", () => {
 
     await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
     await waitFor(() => {
-      expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
     });
     expect(
       rowOf(container, "app.checkForUpdates")
@@ -136,7 +136,7 @@ describe("keyboard page — what it changes", () => {
       altKey: true,
     });
 
-    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
     // Still armed, so the next press is the chord.
     expect(recorderOf(container, "app.checkForUpdates").getAttribute("aria-pressed")).toBe("true");
     expect(politeText(container)).toBe("");
@@ -162,7 +162,7 @@ describe("keyboard page — what it changes", () => {
     expect(rowText).toContain("Holding");
     expect(rowText).toContain("the chord is not complete");
     // And nothing was bound: the hint is a reading of an unfinished press.
-    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
   });
 
   it("stops saying a modifier is held once the person has released it", async () => {
@@ -193,7 +193,7 @@ describe("keyboard page — what it changes", () => {
     // Still armed, so the release is a correction to the hint and not an end to the
     // recording: the next press is still the chord.
     expect(recorder.getAttribute("aria-pressed")).toBe("true");
-    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
   });
 
   it("keeps the modifiers still down when one of several is released", async () => {
@@ -232,7 +232,7 @@ describe("keyboard page — what it changes", () => {
     const { container } = renderKeyboardPage();
     await recordChordOnto(container, "frame.goToSessions", RECORDED_PRESS);
     await waitFor(() => {
-      expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
     });
 
     const reset = rowOf(container, "frame.goToSessions").querySelector(".meridian-keymap__reset");
@@ -244,8 +244,8 @@ describe("keyboard page — what it changes", () => {
   });
 
   it("names each default the reset-all control restores, beside the control", async () => {
-    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
-    await consoleKeybindingOverrides.bind("app.checkForUpdates", "Alt+KeyK");
+    await keybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await keybindingOverrides.bind("app.checkForUpdates", "Alt+KeyK");
     const { container } = renderKeyboardPage();
 
     const block = container.querySelector(".meridian-keymap__reset-all-block");
@@ -274,8 +274,8 @@ describe("the changed-chord count", () => {
   it("reads the changed rows through the console's own figure formatter", async () => {
     // Two rows rather than one: the singular arm renders a different noun, so a
     // count assertion on one row would be asserting the noun as much as the figure.
-    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
-    await consoleKeybindingOverrides.bind("frame.goToWorkflows", "Alt+KeyK");
+    await keybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await keybindingOverrides.bind("frame.goToWorkflows", "Alt+KeyK");
     const { container } = renderKeyboardPage();
 
     expect(resetAllLabel(container)).toBe(`Reset all ${formatCount(2)} changed chords`);

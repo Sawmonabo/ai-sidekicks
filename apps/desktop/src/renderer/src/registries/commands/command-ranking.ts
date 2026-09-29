@@ -8,17 +8,17 @@
 // rule and this is a pure function of a command list, a query, and a recents
 // list: no state, nothing to own.
 //
-// The `ConsoleCommand` type ranked here is declared in `command-types.ts`. The import
+// The `CommandDefinition` type ranked here is declared in `command-types.ts`. The import
 // below is type-only and erased, so the runtime edge runs one way: the registry
 // reaches down here, and nothing here reaches back.
 
 import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
-import type { ConsoleCommand } from "./command-types.js";
+import type { CommandDefinition } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
 /** One ranked row. */
 export interface CommandSearchResult {
-  readonly command: ConsoleCommand;
+  readonly command: CommandDefinition;
   /** Higher is better. Comparable only within one `search` call. */
   readonly score: number;
   /**
@@ -71,7 +71,10 @@ export const COMMAND_RECENCY_BONUS = 12;
  * about category order would reshuffle the palette between an empty query and a
  * cleared one.
  */
-export function compareCommandsForDisplay(left: ConsoleCommand, right: ConsoleCommand): number {
+export function compareCommandsForDisplay(
+  left: CommandDefinition,
+  right: CommandDefinition,
+): number {
   return (
     compareStrings(left.group, right.group) ||
     compareStrings(left.title, right.title) ||
@@ -85,7 +88,7 @@ export function compareCommandsForDisplay(left: ConsoleCommand, right: ConsoleCo
  * is adding it to a figure the fields are already comparable on.
  */
 export function scoreCommandAgainstQuery(
-  command: ConsoleCommand,
+  command: CommandDefinition,
   query: string,
 ): CommandFieldMatch | undefined {
   const titleMatch = scoreSubsequence(command.title, query);
@@ -140,7 +143,7 @@ export function compareCommandSearchResults(
  * function decides rank only — it never decides what is offered.
  */
 export function rankCommandsForQuery(
-  visibleCommands: readonly ConsoleCommand[],
+  visibleCommands: readonly CommandDefinition[],
   query: string,
   recentRankById: ReadonlyMap<string, number>,
 ): readonly CommandSearchResult[] {
@@ -172,7 +175,7 @@ export function rankCommandsForQuery(
  * is why it has its own function rather than a special case inside the scorer.
  */
 export function rankCommandsForEmptyQuery(
-  visibleCommands: readonly ConsoleCommand[],
+  visibleCommands: readonly CommandDefinition[],
   recentRankById: ReadonlyMap<string, number>,
 ): readonly CommandSearchResult[] {
   const recentResults: CommandSearchResult[] = [];

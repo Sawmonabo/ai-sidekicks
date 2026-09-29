@@ -28,7 +28,7 @@
 // composition ever produces.
 
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type ConsolePaneRegistry } from "./pane-registry.js";
+import { type PaneRegistry } from "./pane-registry.js";
 
 /**
  * The first pane kind `claimed` does not hold, in declaration order.
@@ -49,7 +49,7 @@ export function firstFreePaneKind(claimed: readonly PaneKind[]): PaneKind | unde
  * caller asserts over them exactly as it would over the body this registers.
  */
 export function registerFreePaneKindProbe(
-  registry: ConsolePaneRegistry,
+  registry: PaneRegistry,
   owner: string,
 ): PaneKind | undefined {
   const kind = firstFreePaneKind(registry.registeredPaneKinds());

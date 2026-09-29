@@ -1,9 +1,6 @@
 // The workflows feature's pane kinds, `workflow-run` and `workflow-builder`.
 
-import {
-  type ConsolePaneRegistration,
-  type ConsolePaneRegistry,
-} from "@renderer/console/seats/index.js";
+import { type PaneRegistration, type PaneRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * The feature's owner string, as the pane and screen registries' duplicate policy reads it.
@@ -28,7 +25,7 @@ export const WORKFLOWS_OWNER = "workflows";
  * this table names rather than here, since a loader-form registration carries a
  * specifier and not a render.
  */
-const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
+const WORKFLOW_PANES: readonly PaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
@@ -59,7 +56,7 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
  * owns, and an auxiliary window composes a different subset without a second code
  * path.
  */
-export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
+export function registerWorkflowPanes(registry: PaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {
     registry.register(descriptor);
   }

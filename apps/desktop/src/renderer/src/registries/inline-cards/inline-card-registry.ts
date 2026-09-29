@@ -141,7 +141,7 @@ export interface ArtifactInlineCardProps {
 /**
  * The props each card kind's body receives, declared once and indexed by kind.
  *
- * A map rather than three parallel declarations, so `InlineCardSeatProps` below
+ * A map rather than three parallel declarations, so `InlineCardProps` below
  * and every per-kind signature in this file are derived from one place. A kind
  * added to `INLINE_CARD_KINDS` without an entry here fails to compile at this
  * type, which is the reminder that a card kind without props is a kind nothing
@@ -154,7 +154,7 @@ export interface InlineCardPropsByKind {
 }
 
 /** The discriminated union of every card's props. Narrow on `kind`. */
-export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
+export type InlineCardProps = InlineCardPropsByKind[InlineCardKind];
 
 /** What a family registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
@@ -163,7 +163,7 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
-export class InlineCardSeatRegistry {
+export class InlineCardRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
   // card kind is a conflict rather than a swap decided by import order.
@@ -231,15 +231,15 @@ export class InlineCardSeatRegistry {
    * unfilled kind from a body that rendered nothing asks `bodyFor` instead, which
    * is the "reserved, not stubbed" question and has its own answer.
    */
-  public render(props: InlineCardSeatProps): React.ReactNode {
+  public render(props: InlineCardProps): React.ReactNode {
     return this.#bodiesByKind.get(props.kind)?.render(props);
   }
 }
 
 /** The process-wide registry the repos family calls at module scope. */
-export const inlineCardSeatRegistry: InlineCardSeatRegistry = new InlineCardSeatRegistry();
+export const inlineCardRegistry: InlineCardRegistry = new InlineCardRegistry();
 
 /** One card kind's body, or `undefined` while nobody has filled it. */
 export function inlineCardBody(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
-  return inlineCardSeatRegistry.bodyFor(kind);
+  return inlineCardRegistry.bodyFor(kind);
 }

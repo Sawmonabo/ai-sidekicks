@@ -23,8 +23,8 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   TRANSCRIPT_COMMAND_OWNER,
   registerTranscriptCommands,
@@ -125,12 +125,12 @@ export function LeasingRowBody(props: TimelineRowSlotProps): React.JSX.Element {
  * later. A test-owned surface would prove the acts fire and nothing about that.
  */
 export function contributeTranscriptCommands(): void {
-  registerTranscriptCommands(consoleCommandSurface);
+  registerTranscriptCommands(commandContributionRegistry);
 }
 
 /** Leave the window with none of this family's rows, so cases do not leak into each other. */
 export function withdrawTranscriptCommands(): void {
-  consoleCommandSurface.contribute({
+  commandContributionRegistry.contribute({
     owner: TRANSCRIPT_COMMAND_OWNER,
     commands: [],
     keyBindings: [],
@@ -139,7 +139,7 @@ export function withdrawTranscriptCommands(): void {
 
 /** Run one contributed command by id, the way the palette does. */
 export function dispatchCommand(commandId: string): void {
-  const command = consoleCommands
+  const command = commandRegistry
     .commandsFor({ sessionActive: true })
     .find((candidate) => candidate.id === commandId);
   if (command === undefined) {

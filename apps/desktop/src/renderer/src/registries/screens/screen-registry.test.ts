@@ -17,19 +17,16 @@ import { describe, expect, it } from "vitest";
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import {
-  CONSOLE_SURFACE_SLOTS,
-  ConsoleSurfaceRegistry,
-  consoleSurfaceRegistry,
+  SCREEN_NAMES,
+  ScreenRegistry,
+  screenRegistry,
   registerScreen,
-  surfaceSlotFor,
-  type ConsoleSurfaceDescriptor,
+  findScreenNameForRoute,
+  type ScreenDescriptor,
 } from "./screen-registry.js";
 
 /** A descriptor whose render is never called: these cases are about the table. */
-function descriptor(
-  slot: ConsoleSurfaceDescriptor["slot"],
-  owner: string,
-): ConsoleSurfaceDescriptor {
+function descriptor(slot: ScreenDescriptor["slot"], owner: string): ScreenDescriptor {
   return { slot, owner, render: () => null };
 }
 
@@ -39,12 +36,10 @@ describe("surface registry — the module-scope door", () => {
     // case is about the door rather than about who got there first.
     try {
       registerScreen(descriptor("pane-harness", "surface-registry-test"));
-      expect(consoleSurfaceRegistry.descriptorFor("pane-harness")?.owner).toBe(
-        "surface-registry-test",
-      );
-      expect(consoleSurfaceRegistry.registeredSlots()).toContain("pane-harness");
+      expect(screenRegistry.descriptorFor("pane-harness")?.owner).toBe("surface-registry-test");
+      expect(screenRegistry.registeredSlots()).toContain("pane-harness");
     } finally {
-      consoleSurfaceRegistry.unregister("pane-harness");
+      screenRegistry.unregister("pane-harness");
     }
   });
 
@@ -52,8 +47,8 @@ describe("surface registry — the module-scope door", () => {
     // Without this the case above would pass against a registry that had been
     // holding the descriptor since some earlier file ran, and would keep passing
     // if `registerScreen` stopped registering anything at all.
-    expect(consoleSurfaceRegistry.descriptorFor("pane-harness")).toBeUndefined();
-    expect(consoleSurfaceRegistry.registeredSlots()).not.toContain("pane-harness");
+    expect(screenRegistry.descriptorFor("pane-harness")).toBeUndefined();
+    expect(screenRegistry.registeredSlots()).not.toContain("pane-harness");
   });
 });
 
@@ -62,14 +57,14 @@ describe("surface registry — one owner per slot", () => {
     // A hot reload re-runs a family's module. Refusing that would make the
     // console unreloadable; silently keeping the FIRST would leave the window
     // rendering the pre-edit surface, which reads as an edit that did nothing.
-    const registry = new ConsoleSurfaceRegistry();
+    const registry = new ScreenRegistry();
     registry.register(descriptor("settings", "settings-family"));
     registry.register(descriptor("settings", "settings-family"));
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
   });
 
   it("refuses a second owner rather than swapping", () => {
-    const registry = new ConsoleSurfaceRegistry();
+    const registry = new ScreenRegistry();
     registry.register(descriptor("settings", "settings-family"));
     expect(() => {
       registry.register(descriptor("settings", "another-family"));
@@ -79,7 +74,7 @@ describe("surface registry — one owner per slot", () => {
 
 describe("surface registry — the slot set is one declaration", () => {
   it("reports slots in the declared order, and only registered ones", () => {
-    const registry = new ConsoleSurfaceRegistry();
+    const registry = new ScreenRegistry();
     // Registered back to front, so an implementation that reported insertion
     // order rather than declaration order would answer differently.
     registry.register(descriptor("settings", "third"));
@@ -97,18 +92,18 @@ describe("surface registry — the slot set is one declaration", () => {
       { kind: "settings", page: undefined },
       { kind: "pane-harness", paneKind: "terminal", sessionId: "s-1" },
     ];
-    const slots = routes.map((route) => surfaceSlotFor(route));
+    const slots = routes.map((route) => findScreenNameForRoute(route));
     expect(slots).toStrictEqual(["sessions", "workspace", "workflows", "settings", "pane-harness"]);
     for (const slot of slots) {
-      expect(CONSOLE_SURFACE_SLOTS).toContain(slot);
+      expect(SCREEN_NAMES).toContain(slot);
     }
   });
 
   it("negative control: a route that names nothing resolves to no slot", () => {
     // The loop above would be vacuous over an empty list and would pass over a
-    // `surfaceSlotFor` that answered `"sessions"` for everything, so the case
+    // `findScreenNameForRoute` that answered `"sessions"` for everything, so the case
     // that must NOT produce a slot is asserted separately.
-    expect(surfaceSlotFor({ kind: "not-found", attempted: "#/nowhere" })).toBeUndefined();
-    expect(CONSOLE_SURFACE_SLOTS).not.toContain("not-found");
+    expect(findScreenNameForRoute({ kind: "not-found", attempted: "#/nowhere" })).toBeUndefined();
+    expect(SCREEN_NAMES).not.toContain("not-found");
   });
 });

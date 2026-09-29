@@ -67,7 +67,7 @@ import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../session-degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
-import { type ConsoleSessionEvent, type EntityProjectorRegistry } from "./entities/entities.js";
+import { type ConsoleSessionEvent, type EntityProjectorTable } from "./entities/entities.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
@@ -102,7 +102,7 @@ export type { EarlierWindowMerge } from "./earlier-window.js";
 export interface SessionStoreOptions {
   readonly sessionId: string;
   /** Event-kind to projector. A kind with no projector contributes no entity. */
-  readonly projectors?: EntityProjectorRegistry;
+  readonly projectors?: EntityProjectorTable;
   /** Timeline rows retained. Unbounded when omitted; the ledger sets its own cap. */
   readonly timelineCap?: number;
 }

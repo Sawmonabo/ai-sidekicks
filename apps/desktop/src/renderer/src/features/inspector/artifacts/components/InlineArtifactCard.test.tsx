@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ArtifactManifestRow } from "../artifact-model.js";
 import {
-  InlineCardSeatRegistry,
-  inlineCardSeatRegistry,
+  InlineCardRegistry,
+  inlineCardRegistry,
   type ArtifactInlineCardProps,
 } from "@renderer/console/seats/index.js";
 import { registerInspectorInlineCards } from "../../contributions/inline-cards.js";
@@ -34,8 +34,8 @@ const MANIFEST: ArtifactManifestRow = {
 
 describe("inline artifact card — the seat", () => {
   /** A board this case owns; the registrar writes only what it is handed. */
-  function fill(): InlineCardSeatRegistry {
-    const seats = new InlineCardSeatRegistry();
+  function fill(): InlineCardRegistry {
+    const seats = new InlineCardRegistry();
     registerInspectorInlineCards(seats);
     return seats;
   }
@@ -55,14 +55,14 @@ describe("inline artifact card — the seat", () => {
   it("negative control: an unfilled board answers nothing", () => {
     // Without this, the two cases above would pass over a board that answered from
     // somewhere else entirely, and the registration call would be doing nothing.
-    expect(new InlineCardSeatRegistry().bodyFor("artifact")).toBeUndefined();
+    expect(new InlineCardRegistry().bodyFor("artifact")).toBeUndefined();
   });
 
   it("writes the board it is given and never the process-wide one", () => {
     // The registrar closes over no singleton. A body that reached one would render
     // correctly in every case above and still leak into the running console.
     fill();
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
+    expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

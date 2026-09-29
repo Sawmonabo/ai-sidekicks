@@ -131,7 +131,7 @@ export interface ConsoleSessionEvent {
 export type EntityProjector = (event: ConsoleSessionEvent) => readonly EntityMutation[];
 
 /** The projector registry: event kind to the projector that claims it. */
-export type EntityProjectorRegistry = Readonly<Record<string, EntityProjector>>;
+export type EntityProjectorTable = Readonly<Record<string, EntityProjector>>;
 
 /** An empty partition set, one map per kind. */
 export function emptyPartitions(): Record<

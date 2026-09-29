@@ -31,7 +31,7 @@ import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 /**
  * Where a pane is, as far as its address reaches.
  *
- * Every member is REQUIRED and may be `undefined`, on `ConsolePaneContext`'s
+ * Every member is REQUIRED and may be `undefined`, on `PaneContext`'s
  * precedent: an optional member reads identically whether the deck decided the pane is
  * scoped to no run or forgot to resolve one, and only one of those is an answer.
  */

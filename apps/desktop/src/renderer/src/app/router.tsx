@@ -37,13 +37,13 @@ import { Fragment } from "react";
 import { Nothing, SurfaceAbsence } from "@renderer/console/primitives/index.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import {
-  consoleSurfaceRegistry,
-  surfaceSlotFor,
-  type ConsoleSurfaceContext,
+  screenRegistry,
+  findScreenNameForRoute,
+  type ScreenContext,
 } from "@renderer/console/seats/index.js";
 
 export interface AppRouterProps {
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
 }
 
 /** Resolve a route to a surface. */
@@ -67,8 +67,8 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     );
   }
 
-  const slot = surfaceSlotFor(route);
-  const descriptor = slot === undefined ? undefined : consoleSurfaceRegistry.descriptorFor(slot);
+  const slot = findScreenNameForRoute(route);
+  const descriptor = slot === undefined ? undefined : screenRegistry.descriptorFor(slot);
   if (descriptor === undefined) {
     if (route.kind === "pane-harness") {
       return <AddressNamesNothing attempted={formatRoute(route)} />;

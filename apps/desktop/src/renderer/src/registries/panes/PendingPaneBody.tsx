@@ -24,12 +24,12 @@
 // the screenshot tier can refuse to photograph this frame.
 
 import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
-import type { ConsolePaneContext } from "./pane-context.js";
+import type { PaneContext } from "./pane-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingPaneBodyProps {
   /** The address and bindings the deck opened this pane at. */
-  readonly context: ConsolePaneContext;
+  readonly context: PaneContext;
 }
 
 /**

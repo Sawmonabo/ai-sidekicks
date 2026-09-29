@@ -1,6 +1,6 @@
 // The terminal's pane registration: one kind, loaded as its own chunk.
 
-import type { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * Claim the terminal family's pane kinds.
@@ -9,7 +9,7 @@ import type { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
  * deck's single mount door makes a second claim on this kind an error rather than a
  * swap.
  */
-export function registerTerminalPanes(registry: ConsolePaneRegistry): void {
+export function registerTerminalPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "terminal",
     owner: "terminal",

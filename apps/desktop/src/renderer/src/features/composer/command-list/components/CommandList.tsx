@@ -64,7 +64,7 @@
 // own subject and not the send bar's.
 
 import { useCallback, useMemo } from "react";
-import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/console/seats/index.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
 import { readComposerCommands } from "../composer-commands.js";
@@ -77,7 +77,7 @@ import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowSt
 
 import "./CommandList.css";
 
-export type CommandListProps = ComposerSeatProps & {
+export type CommandListProps = ComposerProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /**

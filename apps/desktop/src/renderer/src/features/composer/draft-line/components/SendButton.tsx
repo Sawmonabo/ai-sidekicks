@@ -17,7 +17,7 @@
 
 import { useMemo } from "react";
 import { RemediedRefusal } from "@renderer/console/primitives/index.js";
-import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
+import type { ComposerProps } from "@renderer/console/seats/index.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
@@ -27,7 +27,7 @@ import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
 
 /** What Send is handed beyond the seat's own props. */
-export type SendButtonProps = ComposerSeatProps & {
+export type SendButtonProps = ComposerProps & {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
   /**

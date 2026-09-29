@@ -30,8 +30,8 @@ import { useEffect, useState } from "react";
 import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
-  type ConsolePaneRegistry,
-  type ConsoleSurfaceRegistry,
+  type PaneRegistry,
+  type ScreenRegistry,
   type IdleWarmScheduler,
 } from "@renderer/console/seats/index.js";
 
@@ -46,8 +46,8 @@ import {
  * and the default is the feature-detected one, which is what a window wants.
  */
 export function useLazyBodyIdleWarm(
-  paneRegistry: ConsolePaneRegistry,
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  paneRegistry: PaneRegistry,
+  surfaceRegistry: ScreenRegistry,
   scheduler: IdleWarmScheduler = idleWarmScheduler(),
 ): void {
   // PINNED, and this is the one thing that must not move into the effect. The default

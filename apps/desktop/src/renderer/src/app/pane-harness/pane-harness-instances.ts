@@ -9,24 +9,24 @@
 // rule and a context-composition rule are both testable without a DOM, and neither
 // needs React to state. The second is the rule the harness itself rests on — the
 // thing being measured is what the DECK would mount, which is the descriptor a family
-// registered, so this module takes `ConsolePaneDescriptor` and never a pane component,
+// registered, so this module takes `PaneDescriptor` and never a pane component,
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
 
 import type {
   ConsolePaneAddress,
-  ConsolePaneContext,
-  ConsolePaneDescriptor,
+  PaneContext,
+  PaneDescriptor,
 } from "@renderer/console/seats/index.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
 export interface PaneHarnessInstance {
   /** React's reconciliation identity for this instance. */
   readonly key: string;
   /** The registered body, named so the caller's element reads as a component. */
-  readonly PaneBody: ConsolePaneDescriptor["render"];
-  readonly context: ConsolePaneContext;
+  readonly PaneBody: PaneDescriptor["render"];
+  readonly context: PaneContext;
 }
 
 /**
@@ -59,14 +59,14 @@ export function paneInstanceId(
  * five a deck would hand it. The two members a deck decides and this harness does
  * not are passed absent rather than invented: nothing opened this pane from another
  * pane, and no actor is attributed to it, which is the neutral answer
- * `ConsolePaneContext` documents for both.
+ * `PaneContext` documents for both.
  */
 export function paneContextFor(
-  context: ConsoleSurfaceContext,
+  context: ScreenContext,
   address: ConsolePaneAddress,
   sessionId: string,
   instanceIndex: number,
-): ConsolePaneContext {
+): PaneContext {
   return {
     ...address,
     paneId: paneInstanceId(address, sessionId, instanceIndex),
@@ -89,8 +89,8 @@ export function paneContextFor(
  * guard would take the window's error boundary for an arithmetic slip.
  */
 export function paneHarnessInstances(
-  descriptor: ConsolePaneDescriptor,
-  context: ConsoleSurfaceContext,
+  descriptor: PaneDescriptor,
+  context: ScreenContext,
   address: ConsolePaneAddress,
   sessionId: string,
   openInstanceCount: number,

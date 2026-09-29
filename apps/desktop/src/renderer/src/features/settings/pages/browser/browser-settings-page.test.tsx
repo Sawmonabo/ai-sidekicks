@@ -19,10 +19,7 @@ import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { registerSettingsSurface } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The pending marker's reader by its own leaf specifier: the seats door publishes the
 // ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
 // directory are tests.
@@ -41,7 +38,7 @@ afterEach(() => {
  * holds the page registry the surface composed and no suite may reach for it.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
-  const surfaces = new ConsoleSurfaceRegistry();
+  const surfaces = new ScreenRegistry();
   registerSettingsSurface(surfaces);
   await surfaces.preload("settings");
   const descriptor = surfaces.descriptorFor("settings");
@@ -56,7 +53,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
     frameStore,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
     chooseScheme: () => undefined,
-  } as unknown as ConsoleSurfaceContext;
+  } as unknown as ScreenContext;
   const { container } = render(
     <LiveAnnouncerProvider>{descriptor.render(context)}</LiveAnnouncerProvider>,
   );

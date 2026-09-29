@@ -16,8 +16,8 @@ import { Panel } from "react-resizable-panels";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   PaneControlsContext,
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
+  type PaneContext,
+  type PaneRegistry,
   type PaneControls,
 } from "@renderer/console/seats/index.js";
 import { PaneBody } from "./PaneBody.js";
@@ -32,7 +32,7 @@ export interface SessionPaneSlotProps {
   readonly pane: SessionPane;
   readonly isFocused: boolean;
   readonly density: PaneLayoutDensity;
-  readonly registry: ConsolePaneRegistry;
+  readonly registry: PaneRegistry;
   /**
    * What this pane's body is handed, or why its address cannot be served.
    *
@@ -42,7 +42,7 @@ export interface SessionPaneSlotProps {
    * take the whole deck down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
-  readonly paneContextFor: (pane: SessionPane) => ConsolePaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => PaneContext | ConsoleRefusal;
   readonly dragCoordinator: PaneLayoutDragCoordinator;
   /** The edge a drop would land on, when a drag is currently over this pane. */
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;

@@ -17,7 +17,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { paneBodyForKind, type PaneContextOf } from "./pane-body-for-kind.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneContext } from "./pane-context.js";
 
 describe("paneBodyForKind — a mismatched address is refused, not thrown", () => {
   /**
@@ -28,8 +28,8 @@ describe("paneBodyForKind — a mismatched address is refused, not thrown", () =
    * string comparison would be a fixture testing the fixture, and the cast is what says
    * so out loud rather than hiding behind a builder.
    */
-  function addressedAt(kind: ConsolePaneContext["kind"]): ConsolePaneContext {
-    return { kind } as unknown as ConsolePaneContext;
+  function addressedAt(kind: PaneContext["kind"]): PaneContext {
+    return { kind } as unknown as PaneContext;
   }
 
   it("renders the body when the address is the kind it was written for", () => {

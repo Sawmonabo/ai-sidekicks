@@ -14,7 +14,7 @@ import "./components/WorkflowStateStrip.css";
 
 import { createElement } from "react";
 
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
@@ -22,5 +22,5 @@ import { WorkflowsScreen } from "./WorkflowsScreen.js";
  * because a pane body is composed from it: a bridge, both stores, the window store and the
  * pane's own address.
  */
-export const Body: (context: ConsoleSurfaceContext) => React.ReactNode = (context) =>
+export const Body: (context: ScreenContext) => React.ReactNode = (context) =>
   createElement(WorkflowsScreen, { context });

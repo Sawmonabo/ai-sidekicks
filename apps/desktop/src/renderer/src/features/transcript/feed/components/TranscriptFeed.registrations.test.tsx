@@ -11,7 +11,7 @@ import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridg
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
   TRANSCRIPT_FIXTURE_PANE_ID,
@@ -69,7 +69,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // than doing nothing.
     contributeTranscriptCommands();
     const raised: ConsoleRefusal[] = [];
-    const withdrawSink = publishConsoleActRefusalSink((refusal) => {
+    const withdrawSink = publishCommandRefusalSink((refusal) => {
       raised.push(refusal);
     });
     dispatchCommand("transcript.find");
@@ -85,7 +85,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     withLaidOutViewport();
     contributeTranscriptCommands();
     const raisedWhileMounted: ConsoleRefusal[] = [];
-    const withdrawSink = publishConsoleActRefusalSink((refusal) => {
+    const withdrawSink = publishCommandRefusalSink((refusal) => {
       raisedWhileMounted.push(refusal);
     });
     const mounted = render(

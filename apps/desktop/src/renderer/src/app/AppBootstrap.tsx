@@ -61,7 +61,7 @@ export function AppBootstrap(): React.JSX.Element {
  *
  * The scheme ATTRIBUTE deliberately does not ride here. It is a projection of a
  * preference read back from the durable store, which only a window with a bridge
- * has; and `applyConsoleScheme` writes the attribute for an explicit choice and
+ * has; and `applyColorScheme` writes the attribute for an explicit choice and
  * REMOVES it for `"system"`, so applying a default here would be a no-op on the
  * one arm this hoist exists for and a clobber of the frame's own value on the
  * other — React runs a child's layout effect before its parent's, so the parent

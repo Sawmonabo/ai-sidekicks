@@ -1,4 +1,4 @@
-import { type ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/console/seats/index.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
@@ -10,7 +10,7 @@ import { TRANSCRIPT_OWNER } from "./screens.js";
  * chrome through the host context the deck provides, and a control whose act nobody can
  * perform is left out rather than drawn disabled.
  */
-export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
+export function registerLedgerPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "timeline",
     owner: TRANSCRIPT_OWNER,

@@ -18,7 +18,7 @@
 // components import theirs.
 import "./controls.css";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { PreviewPane } from "./PreviewPane.js";
 
 /**
@@ -51,7 +51,7 @@ import { PreviewPane } from "./PreviewPane.js";
  * the trail, and the focus hue that attributes the pane — so no argument is
  * rebuilt here.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "browser",
   PreviewPane,
 );

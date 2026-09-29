@@ -7,7 +7,7 @@
 // the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
-import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
+import type { ComposerProps } from "@renderer/console/seats/index.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
@@ -28,7 +28,7 @@ import "./ComposerToolbar.css";
 const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[] => state.timeline;
 
 /** The composer's trailing rail: how full the conversation is. */
-export function ComposerToolbar(props: ComposerSeatProps): React.JSX.Element {
+export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   // Folded AFTER the address, because the address is an input: the reading this

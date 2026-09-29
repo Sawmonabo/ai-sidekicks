@@ -37,7 +37,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { type PaneContext } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
@@ -69,7 +69,7 @@ function requireRendered(root: ParentNode, selector: string): HTMLElement {
 const renderAgentConsolePane = agentConsolePaneBody(AGENT_CONSOLE_CALLS);
 
 /** The pane body as a component, because bodies hold hooks and must be mounted, not called. */
-function AgentConsolePaneBody(props: { readonly context: ConsolePaneContext }): ReactNode {
+function AgentConsolePaneBody(props: { readonly context: PaneContext }): ReactNode {
   return renderAgentConsolePane(props.context);
 }
 
@@ -78,7 +78,7 @@ function paneContext(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
   agentId: string,
-): ConsolePaneContext {
+): PaneContext {
   return {
     kind: "agent-console",
     paneId: "pane-agent-console-surface",

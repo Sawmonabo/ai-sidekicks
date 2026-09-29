@@ -8,7 +8,7 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   type MountedComposer,
   NOT_RUNNABLE_FRAGMENT,
@@ -85,7 +85,7 @@ describe("CommandList — the list activates its active row", () => {
   /** Registers the console act these cases activate, and counts what it ran. */
   function registerCountedConsoleCommand(): { runCount: () => number } {
     let ranCount = 0;
-    consoleCommands.register({
+    commandRegistry.register({
       id: TEST_COMMAND_ID,
       title: "A console act",
       group: "Test",

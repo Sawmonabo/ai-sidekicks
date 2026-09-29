@@ -64,7 +64,7 @@ import { TranscriptWindowNotices } from "../../window/components/TranscriptWindo
 import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";
+import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
@@ -80,7 +80,7 @@ export interface TranscriptFeedProps {
    */
   readonly paneId: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
-  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly renderTimelineRow: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */

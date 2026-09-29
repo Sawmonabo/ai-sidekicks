@@ -13,7 +13,7 @@
 // WHY IT RESOLVES THROUGH THE REGISTRY AND NEVER IMPORTS A PANE. The thing being
 // measured is what the DECK would mount, which is the descriptor a family
 // registered — the one the terminal feature's `registerTerminalPanes` declares,
-// reached by `ConsolePaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
+// reached by `PaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
 // directly would measure a component that happens to sit beside the registration,
 // and would keep measuring it on the day the registration changed.
 //
@@ -54,16 +54,13 @@ import { useState } from "react";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
 import { paneHarnessInstances } from "./pane-harness-instances.js";
-import {
-  parseConsolePaneAddress,
-  type ConsolePaneRegistry,
-} from "@renderer/console/seats/index.js";
-import { type ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import { parseConsolePaneAddress, type PaneRegistry } from "@renderer/console/seats/index.js";
+import { type ScreenContext } from "@renderer/console/seats/index.js";
 
 /** The harness screen's inputs: the route's context and the pane board it resolves from. */
 export interface PaneHarnessScreenProps {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly context: ScreenContext;
+  readonly paneRegistry: PaneRegistry;
 }
 
 /**
@@ -78,7 +75,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
   const { route } = context;
 
   if (route.kind !== "pane-harness") {
-    // Unreachable through `surfaceSlotFor`, which maps this slot from this arm
+    // Unreachable through `findScreenNameForRoute`, which maps this slot from this arm
     // alone. Rendered rather than thrown because a surface that throws takes the
     // window's error boundary and reports a crash for what is a composition
     // mistake with a name.

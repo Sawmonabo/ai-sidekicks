@@ -5,7 +5,7 @@
 // way. A per-tier copy of this would be three chances to mount it differently and
 // then compare results as if they were comparable.
 //
-// The one thing it does beyond `render` is WAIT. `ConsoleRoot` starts async work
+// The one thing it does beyond `render` is WAIT. `AppProviders` starts async work
 // on mount — the durable persistence adapter is opened and the store is upgraded
 // from the in-memory one when it settles, deliberately, so first paint never waits
 // on a database. A test that asserts immediately after `render` therefore asserts
@@ -32,7 +32,7 @@ import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { CONSOLE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { consolePaneRegistry, consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
 import { type ConsoleScheme } from "@renderer/styles/tokens.js";
 
 /**
@@ -40,7 +40,7 @@ import { type ConsoleScheme } from "@renderer/styles/tokens.js";
  *
  * WHY THE MOUNT DOES THIS AND NOT THE TIER. A loader-backed body arrives on its own
  * chunk, and a dynamic import needs more than the one macrotask a render settle
- * crosses — so a tier mounting `ConsoleRoot` at an address whose surface or pane is
+ * crosses — so a tier mounting `AppProviders` at an address whose surface or pane is
  * deferred settles onto the reserved region and reads, audits, or PHOTOGRAPHS that.
  * Waiting for it in each spec is the shape that fails: three specs that wait and a
  * fourth that races look identical in a diff, and the fourth is green.
@@ -51,7 +51,7 @@ import { type ConsoleScheme } from "@renderer/styles/tokens.js";
  * has to be loaded is whatever the doors this file's importer pulled in registered.
  * Nothing here enumerates kinds: both boards report their own registered keys.
  *
- * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `ConsoleRoot.test-support.tsx`'s rule,
+ * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `mount-app.tsx`'s rule,
  * and this file needed it for a reason that one does not have. `unloadedKeys()` reports
  * the keys nothing has ASKED for yet, and mounting IS an ask: a tier that mounts
  * directly at a lazy address — which the accessibility and screenshot tiers do — has
@@ -65,12 +65,8 @@ import { type ConsoleScheme } from "@renderer/styles/tokens.js";
  */
 async function loadRegisteredBodies(): Promise<void> {
   await Promise.all([
-    ...consolePaneRegistry
-      .registeredPaneKinds()
-      .map(async (kind) => consolePaneRegistry.preload(kind)),
-    ...consoleSurfaceRegistry
-      .registeredSlots()
-      .map(async (slot) => consoleSurfaceRegistry.preload(slot)),
+    ...paneRegistry.registeredPaneKinds().map(async (kind) => paneRegistry.preload(kind)),
+    ...screenRegistry.registeredSlots().map(async (slot) => screenRegistry.preload(slot)),
   ]);
 }
 
@@ -91,7 +87,7 @@ export async function pressKeys(sequence: string): Promise<void> {
 /**
  * Put the page in a scheme the way a person's operating system does.
  *
- * NOT by stamping the scheme attribute: `ConsoleRoot` owns that attribute and
+ * NOT by stamping the scheme attribute: `AppProviders` owns that attribute and
  * writes its own store's preference into it in a layout effect, so a test that
  * set it before mounting would have it overwritten with the default `"system"`
  * on the first paint — which is exactly how the first dark-scheme screenshot
@@ -143,7 +139,7 @@ interface AppMount {
  * this function's: a surface built over a fixture scenario schedules its reads on that
  * scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is
  * what advances one. A caller holding a bridge settles both
- * (`surfaces/composer.tsx`); a caller mounting `ConsoleRoot`, which builds its own
+ * (`surfaces/composer.tsx`); a caller mounting `AppProviders`, which builds its own
  * bridge, has only this.
  */
 export async function renderSettled(element: ReactElement): Promise<AppMount> {
@@ -208,7 +204,7 @@ export const SESSION_ROUTE_BODY_SELECTOR: string =
  *
  * A DEADLINE, and it replaced a fixed count of forty settle turns on 2026-09-02. That
  * count was a wait measured in the wrong unit: a mount is not one turn of work —
- * `ConsoleRoot` opens a durable persistence adapter, the session registry opens a
+ * `AppProviders` opens a durable persistence adapter, the session registry opens a
  * store, and the store initialises from the bridge's own session read, each resolving
  * a promise whose continuation schedules the next — and how many turns those take is a
  * property of the machine, not of the console. Forty of them are about 190 ms, which

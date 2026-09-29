@@ -16,8 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme, pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
-import { applyConsoleScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
+import { AppProviders } from "@renderer/app/providers.js";
+import { applyColorScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { ATTRIBUTION_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
@@ -55,11 +55,11 @@ function tokenValue(tokenName: string): string {
 beforeEach(() => {
   document.location.hash = "";
   installMeridianTokens(document);
-  applyConsoleScheme(document, "light");
+  applyColorScheme(document, "light");
 });
 
 afterEach(async () => {
-  applyConsoleScheme(document, "system");
+  applyColorScheme(document, "system");
   // Leave the emulated system preference where the page found it, so a later case
   // is not measured under whichever scheme this one finished in.
   await emulateSystemScheme("light");
@@ -87,10 +87,10 @@ describe("browser — the token sheet reaches the cascade", () => {
 
   it("swaps the palette when the scheme attribute flips, in both directions", () => {
     const light = tokenValue("ground");
-    applyConsoleScheme(document, "dark");
+    applyColorScheme(document, "dark");
     const dark = tokenValue("ground");
     expect(dark).not.toBe(light);
-    applyConsoleScheme(document, "light");
+    applyColorScheme(document, "light");
     expect(tokenValue("ground")).toBe(light);
   });
 
@@ -105,16 +105,16 @@ describe("browser — the token sheet reaches the cascade", () => {
     // left in force the document paints light and Chromium paints its own UI dark
     // inside it. The mirror mismatch is reachable the same way.
     await emulateSystemScheme("dark");
-    applyConsoleScheme(document, "light");
+    applyColorScheme(document, "light");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("light");
 
     await emulateSystemScheme("light");
-    applyConsoleScheme(document, "dark");
+    applyColorScheme(document, "dark");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("dark");
 
     // Negative control: with no choice expressed the root keeps offering both, so
     // a system-scheme window still follows the OS rather than being pinned light.
-    applyConsoleScheme(document, "system");
+    applyColorScheme(document, "system");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("light dark");
   });
 });
@@ -122,7 +122,7 @@ describe("browser — the token sheet reaches the cascade", () => {
 describe("browser — the frame lays out", () => {
   it("gives the rail a real width and the surface the rest of the row", async () => {
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
 
     const rail = container.querySelector(".meridian-rail");
@@ -149,7 +149,7 @@ describe("browser — the frame lays out", () => {
     // than by setting state proves the whole path — the chord listener, the
     // registry, the `when` evaluation, and the overlay's portal.
     await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
 
     expect(document.querySelector("[role='dialog']")).toBeNull();
@@ -171,7 +171,7 @@ describe("browser — the frame lays out", () => {
 
   it("does not scroll the frame horizontally at a narrow window", async () => {
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
     const frame = container.querySelector(".meridian-frame");
     expect(frame).not.toBeNull();
