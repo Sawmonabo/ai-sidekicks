@@ -76,7 +76,7 @@ export function registerNavigationKeybindings(contributions: CommandContribution
  */
 export function buildNavigationCommands(
   frameStore: WindowStore,
-  surfaceRegistry: ScreenRegistry,
+  screenRegistry: ScreenRegistry,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
@@ -84,11 +84,11 @@ export function buildNavigationCommands(
     group: "Navigate",
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
-      warmDestination(surfaceRegistry, destination);
+      warmDestination(screenRegistry, destination);
       frameStore.navigate(routeForDestination(destination));
     },
     preload: () => {
-      warmDestination(surfaceRegistry, destination);
+      warmDestination(screenRegistry, destination);
     },
   }));
 }

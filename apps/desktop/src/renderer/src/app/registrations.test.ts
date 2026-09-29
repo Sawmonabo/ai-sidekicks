@@ -40,14 +40,14 @@ import { registerFeatureContributions } from "./registrations.js";
 function ownedRegistries(): {
   readonly commands: CommandContributionRegistry;
   readonly projectors: EntityProjectorRegistry;
-  readonly surfaces: ScreenRegistry;
+  readonly screens: ScreenRegistry;
   readonly panes: PaneRegistry;
   readonly inlineCards: InlineCardRegistry;
 } {
   return {
     commands: new CommandContributionRegistry(new CommandRegistry()),
     projectors: new EntityProjectorRegistry(),
-    surfaces: new ScreenRegistry(),
+    screens: new ScreenRegistry(),
     panes: new PaneRegistry(),
     inlineCards: new InlineCardRegistry(),
   };
@@ -58,12 +58,12 @@ describe("registerFeatureContributions", () => {
     // A second owner on one slot, pane kind, card kind, chord or event kind throws.
     const registries = ownedRegistries();
     registerFeatureContributions(registries);
-    const firstSlots = registries.surfaces.registeredSlots();
+    const firstSlots = registries.screens.registeredSlots();
     const firstPaneKinds = registries.panes.registeredPaneKinds();
 
     registerFeatureContributions(registries);
 
-    expect(registries.surfaces.registeredSlots()).toStrictEqual(firstSlots);
+    expect(registries.screens.registeredSlots()).toStrictEqual(firstSlots);
     expect(registries.panes.registeredPaneKinds()).toStrictEqual(firstPaneKinds);
   });
 
@@ -75,23 +75,23 @@ describe("registerFeatureContributions", () => {
     expect({
       keyBindings: registries.commands.keyBindings().length > 0,
       projectors: Object.keys(registries.projectors.snapshot()).length > 0,
-      surfaces: registries.surfaces.registeredSlots().length > 0,
+      screens: registries.screens.registeredSlots().length > 0,
       panes: registries.panes.registeredPaneKinds().length > 0,
       inlineCards: registries.inlineCards.registeredCardKinds().length > 0,
     }).toStrictEqual({
       keyBindings: true,
       projectors: true,
-      surfaces: true,
+      screens: true,
       panes: true,
       inlineCards: true,
     });
     expect({
       keyBindings: contributedKeybindings(),
       projectors: entityProjectorRegistry.snapshot(),
-      surfaces: screenRegistry.registeredSlots(),
+      screens: screenRegistry.registeredSlots(),
       panes: paneRegistry.registeredPaneKinds(),
       inlineCards: inlineCardRegistry.registeredCardKinds(),
-    }).toStrictEqual({ keyBindings: [], projectors: {}, surfaces: [], panes: [], inlineCards: [] });
+    }).toStrictEqual({ keyBindings: [], projectors: {}, screens: [], panes: [], inlineCards: [] });
   });
 
   it.each([

@@ -46,7 +46,7 @@ import { type ColorScheme } from "@renderer/styles/tokens.js";
  * fourth that races look identical in a diff, and the fourth is green.
  *
  * THE PROCESS-WIDE BOARDS AND NOT A FAMILY'S. A family mount builds its own registry
- * and resolves one body through `surfaces/pane-body-resolution.ts`; this is the other
+ * and resolves one body through `feature-mounts/pane-body-resolution.ts`; this is the other
  * path — a route commits, the frame opens whatever the address resolves to, and what
  * has to be loaded is whatever the doors this file's importer pulled in registered.
  * Nothing here enumerates kinds: both boards report their own registered keys.
@@ -139,7 +139,7 @@ interface AppMount {
  * this function's: a surface built over a fixture scenario schedules its reads on that
  * scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is
  * what advances one. A caller holding a bridge settles both
- * (`surfaces/composer.tsx`); a caller mounting `AppProviders`, which builds its own
+ * (`feature-mounts/composer.tsx`); a caller mounting `AppProviders`, which builds its own
  * bridge, has only this.
  */
 export async function renderSettled(element: ReactElement): Promise<AppMount> {

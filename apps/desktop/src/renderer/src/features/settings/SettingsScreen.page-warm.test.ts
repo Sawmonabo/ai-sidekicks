@@ -6,7 +6,7 @@ import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
-import { renderSurface, windowAt } from "./SettingsScreen.test-support.js";
+import { renderSettingsScreen, windowAt } from "./SettingsScreen.test-support.js";
 import { SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
 
@@ -61,7 +61,7 @@ describe("the settings mount's idle walk", () => {
     // deferred page's chunk is charged to.
     const settingsWindow = windowAt(undefined);
     const probe = deferredPageProbe();
-    await renderSurface(settingsWindow.context, probe.pages);
+    await renderSettingsScreen(settingsWindow.context, probe.pages);
 
     expect(pinnedIdleHost.pendingCount).toBe(1);
     pinnedIdleHost.runToQuiescence();

@@ -12,10 +12,10 @@ import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
  * into them and resolves pane bodies from them, never from the production singletons.
  */
 export function registerPaneHarnessScreen(
-  surfaceRegistry: ScreenRegistry,
+  screenRegistry: ScreenRegistry,
   paneRegistry: PaneRegistry,
 ): void {
-  surfaceRegistry.register({
+  screenRegistry.register({
     slot: "pane-harness",
     owner: "pane-harness",
     render: (context) => createElement(PaneHarnessScreen, { context, paneRegistry }),

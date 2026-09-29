@@ -8,7 +8,7 @@ import type { ScreenContext } from "@renderer/console/seats/index.js";
 /**
  * The fields the acts read, and nothing else.
  *
- * Cast rather than fully constructed, for `RouteSurface.test.tsx`'s reason: a real
+ * Cast rather than fully constructed, for `app/router.test.tsx`'s reason: a real
  * context carries three stores, one of which opens a database on construction, and
  * building all of that to hand two members to code that reads two would make the setup
  * the subject.

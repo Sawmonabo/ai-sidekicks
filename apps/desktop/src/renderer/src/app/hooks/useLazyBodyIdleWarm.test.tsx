@@ -24,7 +24,7 @@ import { useLazyBodyIdleWarm } from "./useLazyBodyIdleWarm.js";
 /** A window's two boards, each holding one loader-backed body that records its load. */
 function composeBoards(loaded: string[]): {
   readonly paneRegistry: PaneRegistry;
-  readonly surfaceRegistry: ScreenRegistry;
+  readonly screenRegistry: ScreenRegistry;
 } {
   const paneRegistry = new PaneRegistry();
   paneRegistry.register({
@@ -37,8 +37,8 @@ function composeBoards(loaded: string[]): {
       });
     },
   });
-  const surfaceRegistry = new ScreenRegistry();
-  surfaceRegistry.register({
+  const screenRegistry = new ScreenRegistry();
+  screenRegistry.register({
     slot: "settings",
     owner: "settings-family",
     body: () => {
@@ -48,16 +48,16 @@ function composeBoards(loaded: string[]): {
       });
     },
   });
-  return { paneRegistry, surfaceRegistry };
+  return { paneRegistry, screenRegistry };
 }
 
 /** A frame that does nothing but hold the binding, so the effect is the subject. */
 function WarmingFrame(props: {
   readonly paneRegistry: PaneRegistry;
-  readonly surfaceRegistry: ScreenRegistry;
+  readonly screenRegistry: ScreenRegistry;
   readonly scheduler: ManualIdleWarmScheduler;
 }): React.JSX.Element {
-  useLazyBodyIdleWarm(props.paneRegistry, props.surfaceRegistry, props.scheduler);
+  useLazyBodyIdleWarm(props.paneRegistry, props.screenRegistry, props.scheduler);
   return <div />;
 }
 
@@ -84,7 +84,7 @@ describe("the window's idle warm", () => {
 
     expect([...loaded].sort()).toStrictEqual(["pane:diff", "surface:settings"]);
     expect(boards.paneRegistry.unloadedKeys()).toStrictEqual([]);
-    expect(boards.surfaceRegistry.unloadedKeys()).toStrictEqual([]);
+    expect(boards.screenRegistry.unloadedKeys()).toStrictEqual([]);
   });
 
   it("does not re-arm when the frame re-renders", () => {
@@ -146,7 +146,7 @@ describe("the window's idle warm", () => {
 
     expect([...loaded].sort()).toStrictEqual(["pane:diff", "surface:settings"]);
     expect(boards.paneRegistry.unloadedKeys()).toStrictEqual([]);
-    expect(boards.surfaceRegistry.unloadedKeys()).toStrictEqual([]);
+    expect(boards.screenRegistry.unloadedKeys()).toStrictEqual([]);
   });
 
   it("releases the replayed pair when the window goes away", () => {
@@ -179,6 +179,6 @@ describe("the window's idle warm", () => {
     scheduler.runToQuiescence();
     expect(loaded).toStrictEqual([]);
     expect(boards.paneRegistry.unloadedKeys()).toStrictEqual(["diff"]);
-    expect(boards.surfaceRegistry.unloadedKeys()).toStrictEqual(["settings"]);
+    expect(boards.screenRegistry.unloadedKeys()).toStrictEqual(["settings"]);
   });
 });

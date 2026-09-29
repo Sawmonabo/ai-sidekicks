@@ -81,11 +81,11 @@ async function renderSessionScreen(input: {
     },
   });
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
-  const surfaces = new ScreenRegistry();
-  registerTranscriptScreens(surfaces, {
+  const screens = new ScreenRegistry();
+  registerTranscriptScreens(screens, {
     sessionScreen: () => <div data-testid="session-screen-body" />,
   });
-  const descriptor = surfaces.descriptorFor("session");
+  const descriptor = screens.descriptorFor("session");
   if (descriptor === undefined) {
     throw new Error("the transcript family registered no session screen");
   }

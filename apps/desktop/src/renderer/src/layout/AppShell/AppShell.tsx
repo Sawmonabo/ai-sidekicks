@@ -27,7 +27,7 @@ import { AppFrame } from "./AppFrame.js";
 export interface AppShellProps {
   readonly frameStore: WindowStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
-  readonly surfaceRegistry: ScreenRegistry;
+  readonly screenRegistry: ScreenRegistry;
   /** The palette's window-owned props: its `when` context, bindings, open state and revision. */
   readonly palette: Pick<
     CommandPaletteProps,
@@ -39,7 +39,7 @@ export interface AppShellProps {
 
 /** The window's chrome around the routed screen. */
 export function AppShell(props: AppShellProps): React.JSX.Element {
-  const { frameStore, surfaceRegistry, palette } = props;
+  const { frameStore, screenRegistry, palette } = props;
   const route = useWindowStore(frameStore, (state) => state.route);
   const banners = useWindowStore(frameStore, (state) => state.banners);
   // A boolean, so a window with no card up re-renders on nothing.
@@ -53,7 +53,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       onSelectDestination={(destination) => {
         // Warmed before navigating: `navigate` commits synchronously and the screen
         // mounts on the next commit, so the fetch is already in flight when it asks.
-        warmDestination(surfaceRegistry, destination);
+        warmDestination(screenRegistry, destination);
         frameStore.navigate(routeForDestination(destination));
       }}
       modalOverlayOpen={palette.open || isModalDialogOpen}

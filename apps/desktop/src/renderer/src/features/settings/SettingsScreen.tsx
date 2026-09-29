@@ -15,7 +15,7 @@
 //     value. Which section is open lives in the ROUTE, so a deep link and a rail
 //     click are the same act and the back button works.
 //
-// The pane's own resolution happens during render, for `frame/composition/RouteSurface.tsx`'s
+// The pane's own resolution happens during render, for `app/router.tsx`'s
 // reason: the registry is composed at module scope, so a page is there to be looked
 // up on the first pass, and resolving in an effect would mean the first paint has
 // already said the page is missing.

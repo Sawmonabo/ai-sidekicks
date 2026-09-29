@@ -42,7 +42,7 @@ routeWindowTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
 registerFeatureContributions({
   commands: commandContributionRegistry,
   projectors: entityProjectorRegistry,
-  surfaces: screenRegistry,
+  screens: screenRegistry,
   panes: paneRegistry,
   inlineCards: inlineCardRegistry,
 });

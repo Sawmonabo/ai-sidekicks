@@ -80,14 +80,14 @@ export async function resolvedPaneBody(
  */
 export async function resolvedScreenBody(
   slot: ScreenName,
-  registerSurface: (registry: ScreenRegistry) => void,
+  registerScreens: (registry: ScreenRegistry) => void,
 ): Promise<(context: ScreenContext) => ReactNode> {
   const registry = new ScreenRegistry();
-  registerSurface(registry);
+  registerScreens(registry);
   await registry.preload(slot);
   const descriptor = registry.descriptorFor(slot);
   if (descriptor === undefined) {
-    throw new Error(`no console surface is registered for the \`${slot}\` slot`);
+    throw new Error(`no screen is registered for the \`${slot}\` slot`);
   }
   return descriptor.render;
 }

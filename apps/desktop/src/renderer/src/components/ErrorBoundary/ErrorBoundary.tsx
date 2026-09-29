@@ -26,13 +26,13 @@ export interface ErrorBoundaryProps {
 }
 
 /** Catches a render failure in its subtree, reports it, and offers a retry in place. */
-export class ErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { error: undefined, attempt: 0 };
   }
 
-  public static getDerivedStateFromError(error: unknown): Partial<SurfaceErrorBoundaryState> {
+  public static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
     return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 
@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBou
   }
 }
 
-interface SurfaceErrorBoundaryState {
+interface ErrorBoundaryState {
   readonly error: Error | undefined;
   /** Bumped by `retry`, remounting the subtree so a transient failure can clear. */
   readonly attempt: number;

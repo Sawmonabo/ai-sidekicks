@@ -47,7 +47,7 @@ import {
  */
 export function useLazyBodyIdleWarm(
   paneRegistry: PaneRegistry,
-  surfaceRegistry: ScreenRegistry,
+  screenRegistry: ScreenRegistry,
   scheduler: IdleWarmScheduler = idleWarmScheduler(),
 ): void {
   // PINNED, and this is the one thing that must not move into the effect. The default
@@ -59,7 +59,7 @@ export function useLazyBodyIdleWarm(
   useEffect(() => {
     const walks = [
       new LazyBodyIdleWarm(paneRegistry, warmScheduler),
-      new LazyBodyIdleWarm(surfaceRegistry, warmScheduler),
+      new LazyBodyIdleWarm(screenRegistry, warmScheduler),
     ];
     for (const walk of walks) {
       walk.start();
@@ -69,5 +69,5 @@ export function useLazyBodyIdleWarm(
         walk.cancel();
       }
     };
-  }, [paneRegistry, surfaceRegistry, warmScheduler]);
+  }, [paneRegistry, screenRegistry, warmScheduler]);
 }

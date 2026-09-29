@@ -75,7 +75,7 @@ export function routeForDestination(destination: RailDestination): AppRoute {
  * about to open is loader-backed.
  */
 export function warmDestination(
-  surfaceRegistry: ScreenRegistry,
+  screenRegistry: ScreenRegistry,
   destination: RailDestination,
 ): void {
   // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
@@ -83,7 +83,7 @@ export function warmDestination(
   // damaged install whose honest surface is the mount, where the console's error
   // boundary can say so. A rail press has a painted surface under it already, so waiting
   // here would be a stall where the reserved frame is the honest thing to show.
-  void warmRouteScreen(surfaceRegistry, routeForDestination(destination));
+  void warmRouteScreen(screenRegistry, routeForDestination(destination));
 }
 
 /**
@@ -98,10 +98,10 @@ export function warmDestination(
  * with nothing done, so no caller has to ask first whether the thing it is about to open
  * is loader-backed.
  */
-async function warmRouteScreen(surfaceRegistry: ScreenRegistry, route: AppRoute): Promise<void> {
+async function warmRouteScreen(screenRegistry: ScreenRegistry, route: AppRoute): Promise<void> {
   const slot = findScreenNameForRoute(route);
   if (slot === undefined) {
     return;
   }
-  await surfaceRegistry.preload(slot).catch(() => undefined);
+  await screenRegistry.preload(slot).catch(() => undefined);
 }

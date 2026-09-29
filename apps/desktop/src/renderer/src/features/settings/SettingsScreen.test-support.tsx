@@ -1,9 +1,9 @@
 // How a case drives the settings screen: the window it is parked in, the mount, and a
 // keystroke into its search field.
 //
-// HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsSurface.test.tsx`
+// HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsScreen.test.tsx`
 // holds the four rules the surface is the enforcement of, and
-// `SettingsSurface.page-warm.test.tsx` holds when this board's deferred pages are
+// `SettingsScreen.page-warm.test.ts` holds when this board's deferred pages are
 // fetched — two disjoint claims about one surface, and both need the same window, the
 // same mount, and the same way of typing into the field. Written twice they would drift
 // the first time either grew a member.
@@ -35,15 +35,15 @@ import type { ScreenDescriptor } from "@renderer/registries/screens/screen-regis
  * fails here rather than rendering an empty rail.
  */
 async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
-  const surfaces = new ScreenRegistry();
-  registerSettingsScreen(surfaces);
+  const screens = new ScreenRegistry();
+  registerSettingsScreen(screens);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
   // this board after the first frame, and the rail's press warms the destination before
   // the route commits. Awaiting the same `preload` here is what makes the cases that
   // follow assertions about the RAIL rather than about how many turns a dynamic import
   // takes.
-  await surfaces.preload("settings");
-  const descriptor = surfaces.descriptorFor("settings");
+  await screens.preload("settings");
+  const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
     throw new Error("the settings registrar claimed no screen slot");
   }
@@ -152,7 +152,7 @@ export function windowAt(
  * `core/settle.test-support.ts` records: a chain that grows one link deeper stops being
  * waited for, and the case then reports the absence of a rail that was still in flight.
  */
-export async function renderSurface(
+export async function renderSettingsScreen(
   context: ScreenContext,
   pages?: SettingsPageRegistry,
 ): Promise<ReturnType<typeof render>> {

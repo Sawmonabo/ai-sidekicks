@@ -9,7 +9,7 @@
 //     asked it instead — so opening a session and then going to Settings made a
 //     session that was still open unreachable. The two answers are kept apart here
 //     rather than reconciled at each caller, and the control below is the one that
-//     matters: the route projection must NOT go sticky, because `RouteSurface`
+//     matters: the route projection must NOT go sticky, because `AppRouter`
 //     renders "this session is opening" off exactly that projection.
 //   • **The banner key.** A refusal keyed on its code alone was unambiguous while
 //     one producer raised banners. It stopped being unambiguous when a second one
@@ -88,7 +88,7 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   });
 
   it("control: the route projection does NOT go sticky", () => {
-    // `RouteSurface` renders "this session is opening" whenever the projection
+    // `AppRouter` renders "this session is opening" whenever the projection
     // names a session and its store is absent. A projection that retained the
     // session would put that message over Settings for as long as the window lived.
     const store = new WindowStore();

@@ -13,7 +13,7 @@
 // It changes ONCE, here, rather than per family and rather than per board. A family
 // supplies a `body` loader instead of a `render` function; the board normalises it into
 // the same resolved descriptor every mount site already reads. That is what keeps
-// `PaneHarnessSurface`'s claim true — the thing it measures is what the PANE LAYOUT would
+// `PaneHarnessScreen`'s claim true — the thing it measures is what the PANE LAYOUT would
 // mount — and what lets a family that has not landed yet take this form verbatim.
 //
 // WHY PRELOAD RATHER THAN A STATIC IMPORT

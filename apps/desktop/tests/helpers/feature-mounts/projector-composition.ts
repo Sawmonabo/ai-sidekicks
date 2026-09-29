@@ -20,7 +20,7 @@
 // SO THE MOUNTS TAKE THE PRODUCTION COMPOSITION RATHER THAN A LIST. What is exported
 // is the snapshot `registerFeatureContributions` produces, so a family that claims a new
 // event kind is folded by every capture and every audit on the day it lands, with no
-// surfaces file edited and none forgotten. Review is what keeps it that way: no module
+// feature-mounts file edited and none forgotten. Review is what keeps it that way: no module
 // under this directory may reach a projector registrar directly, and every store either
 // mount opens names this constant.
 //
@@ -58,7 +58,7 @@ export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorTable = composeEntityPro
  * Run the window's composition into registries this module owns, and keep the fold.
  *
  * The other registries are built here and never read: they are what the composition
- * writes its commands, surfaces, panes and inline cards into, and a mount resolves
+ * writes its commands, screens, panes and inline cards into, and a mount resolves
  * each of those through its own family-scoped registry (`pane-body-resolution.ts`)
  * because a mount composes exactly the body it captures. The fold is the one registry
  * that cannot work that way — a partition is read by whichever surface names it, so
@@ -69,7 +69,7 @@ function composeEntityProjectors(): EntityProjectorTable {
   registerFeatureContributions({
     commands: new CommandContributionRegistry(new CommandRegistry()),
     projectors,
-    surfaces: new ScreenRegistry(),
+    screens: new ScreenRegistry(),
     panes: new PaneRegistry(),
     inlineCards: new InlineCardRegistry(),
   });

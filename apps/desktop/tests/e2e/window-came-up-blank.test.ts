@@ -96,14 +96,14 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // named: there is no slot left to be told to reserve.
       //
       // What replaces it is an absence a family can never claim away, because it does
-      // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
+      // not fire on a pane kind at all: `PaneHarnessScreen` holds the address segment
       // to `parsePaneAddress`, the console's one admission point for an address
       // that arrived untyped, and a segment that names no kind is refused there. That
       // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
       // a shipped build can only reach through its own composition mistake, while a
       // mistyped hash is a thing a person actually does. The reserved arms themselves
       // stay pinned where they can be driven directly, with a registry that holds no
-      // descriptor: `PaneHarnessSurface.test.tsx` for this one and `RouteSurface.test.tsx`
+      // descriptor: `PaneHarnessScreen.test.tsx` for this one and `app/router.test.tsx`
       // for the slot layer above it. Point this back at a reserved arm the day a kind is
       // declared in `PANE_KINDS` ahead of the family that renders it.
       //

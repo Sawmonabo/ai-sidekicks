@@ -62,7 +62,7 @@ import {
 export interface ContributionRegistries {
   readonly commands: CommandContributionRegistry;
   readonly projectors: EntityProjectorRegistry;
-  readonly surfaces: ScreenRegistry;
+  readonly screens: ScreenRegistry;
   readonly panes: PaneRegistry;
   readonly inlineCards: InlineCardRegistry;
 }
@@ -74,7 +74,7 @@ export interface ContributionRegistries {
  * claim replaces its first.
  */
 export function registerFeatureContributions(registries: ContributionRegistries): void {
-  const { commands, projectors, surfaces, panes, inlineCards } = registries;
+  const { commands, projectors, screens, panes, inlineCards } = registries;
 
   // The rail's chords first: the chord table's first match wins, so a feature registered
   // earlier could take `$mod+1` from the rail.
@@ -88,10 +88,10 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
-  registerTranscriptScreens(surfaces, { sessionScreen: SessionScreen });
-  registerSessionsFlyout(surfaces);
-  registerSettingsScreen(surfaces);
-  registerWorkflowScreens(surfaces);
+  registerTranscriptScreens(screens, { sessionScreen: SessionScreen });
+  registerSessionsFlyout(screens);
+  registerSettingsScreen(screens);
+  registerWorkflowScreens(screens);
 
   registerTranscriptPanes(panes);
   registerInspectorPane(panes);

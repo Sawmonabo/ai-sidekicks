@@ -48,7 +48,7 @@ export interface WindowCommandsInput {
   /** This window's act for choosing a color scheme, which the `Color scheme` row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
   /** The screen registry this window mounts through, for the destinations' own warm-up. */
-  readonly surfaceRegistry: ScreenRegistry;
+  readonly screenRegistry: ScreenRegistry;
 }
 
 /**
@@ -59,7 +59,7 @@ export interface WindowCommandsInput {
 export function useWindowCommands(
   input: WindowCommandsInput,
 ): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const { route, lastOpenedSessionId, windowStore, uiStateStore, chooseScheme, surfaceRegistry } =
+  const { route, lastOpenedSessionId, windowStore, uiStateStore, chooseScheme, screenRegistry } =
     input;
 
   // Derived from the route rather than stored, so the palette cannot disagree with the
@@ -113,7 +113,7 @@ export function useWindowCommands(
   // duplicate adds none of the list and the cleanup cannot remove another mount's command.
   useEffect(() => {
     const windowCommands: readonly CommandDefinition[] = [
-      ...buildNavigationCommands(windowStore, surfaceRegistry),
+      ...buildNavigationCommands(windowStore, screenRegistry),
       buildColorSchemeCommand(() => windowStore.getState().schemePreference, chooseScheme),
       ...bridgeCommands,
     ];
@@ -134,7 +134,7 @@ export function useWindowCommands(
         commandRegistry.unregister(command.id);
       }
     };
-  }, [bridgeCommands, windowStore, raiseRefusalBanner, surfaceRegistry, chooseScheme]);
+  }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseScheme]);
 
   // The overrides a person authored, read back once per window. Not awaited:
   // `hydrateFrom` absorbs a failed read, so a rejection escaping here is a defect.

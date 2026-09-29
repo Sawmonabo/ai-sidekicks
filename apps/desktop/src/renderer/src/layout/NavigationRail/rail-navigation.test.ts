@@ -94,13 +94,13 @@ describe("the rail and the router answer from one set", () => {
 describe("warmDestination — the surface a press is about to mount", () => {
   /** A board of loader-backed surfaces, and a record of which chunks were asked for. */
   function boardOverDestinations(): {
-    readonly surfaceRegistry: ScreenRegistry;
+    readonly screenRegistry: ScreenRegistry;
     readonly loaded: string[];
   } {
     const loaded: string[] = [];
-    const surfaceRegistry = new ScreenRegistry();
+    const screenRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
-      surfaceRegistry.register({
+      screenRegistry.register({
         slot: destination,
         owner: `${destination}-family`,
         body: () => {
@@ -111,7 +111,7 @@ describe("warmDestination — the surface a press is about to mount", () => {
         },
       });
     }
-    return { surfaceRegistry, loaded };
+    return { screenRegistry, loaded };
   }
 
   it("resolves each destination through the route table to its own slot", async () => {
@@ -119,28 +119,28 @@ describe("warmDestination — the surface a press is about to mount", () => {
     // `findScreenNameForRoute` would drift the first time a destination changed slots, so the
     // walk holds every destination to the slot its own route resolves to.
     for (const destination of RAIL_DESTINATIONS) {
-      const { surfaceRegistry, loaded } = boardOverDestinations();
-      warmDestination(surfaceRegistry, destination);
+      const { screenRegistry, loaded } = boardOverDestinations();
+      warmDestination(screenRegistry, destination);
       await Promise.resolve();
       expect(loaded, destination).toStrictEqual([destination]);
     }
   });
 
   it("warms one destination and not the board", async () => {
-    const { surfaceRegistry, loaded } = boardOverDestinations();
-    warmDestination(surfaceRegistry, "workflows");
+    const { screenRegistry, loaded } = boardOverDestinations();
+    warmDestination(screenRegistry, "workflows");
     await Promise.resolve();
     expect(loaded).toStrictEqual(["workflows"]);
-    expect(surfaceRegistry.unloadedKeys()).toStrictEqual(["sessions", "settings"]);
+    expect(screenRegistry.unloadedKeys()).toStrictEqual(["sessions", "settings"]);
   });
 
   it("costs one fetch however often a person passes over the same entry", async () => {
     // Highlight moves with every arrow key and a press follows a hover, so this runs
     // far more often than a navigation does.
-    const { surfaceRegistry, loaded } = boardOverDestinations();
-    warmDestination(surfaceRegistry, "settings");
-    warmDestination(surfaceRegistry, "settings");
-    warmDestination(surfaceRegistry, "settings");
+    const { screenRegistry, loaded } = boardOverDestinations();
+    warmDestination(screenRegistry, "settings");
+    warmDestination(screenRegistry, "settings");
+    warmDestination(screenRegistry, "settings");
     await Promise.resolve();
     expect(loaded).toStrictEqual(["settings"]);
   });
@@ -148,12 +148,12 @@ describe("warmDestination — the surface a press is about to mount", () => {
   it("does nothing for a destination whose surface is component-form", () => {
     // A caller must not have to ask first whether what it is about to open is
     // loader-backed, or every call site carries a copy of that question.
-    const surfaceRegistry = new ScreenRegistry();
-    surfaceRegistry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
+    const screenRegistry = new ScreenRegistry();
+    screenRegistry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
     expect(() => {
-      warmDestination(surfaceRegistry, "sessions");
+      warmDestination(screenRegistry, "sessions");
     }).not.toThrow();
-    expect(surfaceRegistry.unloadedKeys()).toStrictEqual([]);
+    expect(screenRegistry.unloadedKeys()).toStrictEqual([]);
   });
 
   it("swallows a chunk that will not load rather than raising it here", async () => {
@@ -161,14 +161,14 @@ describe("warmDestination — the surface a press is about to mount", () => {
     // damaged install, and the honest surface for that is the mount, where the console's
     // error boundary can say so. An unhandled rejection from a hover would be a crash
     // report for a destination nobody entered.
-    const surfaceRegistry = new ScreenRegistry();
-    surfaceRegistry.register({
+    const screenRegistry = new ScreenRegistry();
+    screenRegistry.register({
       slot: "workflows",
       owner: "workflows-family",
       body: () => Promise.reject(new Error("chunk unavailable")),
     });
     expect(() => {
-      warmDestination(surfaceRegistry, "workflows");
+      warmDestination(screenRegistry, "workflows");
     }).not.toThrow();
     await Promise.resolve();
     await Promise.resolve();
@@ -177,10 +177,10 @@ describe("warmDestination — the surface a press is about to mount", () => {
   it("negative control: an empty board is warmed without complaint and stays empty", () => {
     // Without this, the cases above would pass over a `warmDestination` that registered
     // something of its own on the way past.
-    const surfaceRegistry = new ScreenRegistry();
+    const screenRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
-      warmDestination(surfaceRegistry, destination);
+      warmDestination(screenRegistry, destination);
     }
-    expect(surfaceRegistry.registeredSlots()).toStrictEqual([]);
+    expect(screenRegistry.registeredSlots()).toStrictEqual([]);
   });
 });

@@ -38,10 +38,10 @@ afterEach(() => {
  * holds the page registry the surface composed and no suite may reach for it.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
-  const surfaces = new ScreenRegistry();
-  registerSettingsScreen(surfaces);
-  await surfaces.preload("settings");
-  const descriptor = surfaces.descriptorFor("settings");
+  const screens = new ScreenRegistry();
+  registerSettingsScreen(screens);
+  await screens.preload("settings");
+  const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
     throw new Error("the settings registrar claimed no screen slot");
   }

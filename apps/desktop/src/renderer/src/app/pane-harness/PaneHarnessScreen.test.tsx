@@ -117,7 +117,7 @@ function boardWithBothStubBodies(): PaneRegistry {
  * constructing them opens a database to hand a surface that only passes them
  * through — `app/router.test.tsx` casts for the same reason.
  */
-function surfaceContextFor(route: AppRoute): ScreenContext {
+function screenContextFor(route: AppRoute): ScreenContext {
   return {
     route,
     bridge: {},
@@ -158,7 +158,7 @@ describe("the fixture pane harness", () => {
   it("mounts nothing until it is asked to, and one body per ask", async () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
     );
@@ -177,7 +177,7 @@ describe("the fixture pane harness", () => {
   it("leaves the earlier instances mounted when another is opened", async () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
     );
@@ -200,7 +200,7 @@ describe("the fixture pane harness", () => {
   it("hands each instance the window's own session store", async () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
     );
@@ -220,7 +220,7 @@ describe("the fixture pane harness", () => {
   it("refuses an address that names no pane kind, by the parser's own code", () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("not-a-pane-kind"))}
+        context={screenContextFor(harnessRoute("not-a-pane-kind"))}
         paneRegistry={boardWithStubBody("terminal")}
       />,
     );
@@ -235,7 +235,7 @@ describe("the fixture pane harness", () => {
   it("says a pane kind is reserved rather than stubbed when no family registered it", async () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         // A real board that claims a DIFFERENT kind: `terminal` is a pane kind and
         // this composition has no body for it.
         paneRegistry={boardWithStubBody("browser")}
@@ -257,7 +257,7 @@ describe("the fixture pane harness", () => {
     // was doing nothing.
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         paneRegistry={new PaneRegistry()}
       />,
     );
@@ -269,7 +269,7 @@ describe("the fixture pane harness", () => {
   it("says so when it is mounted on an address it does not serve", () => {
     render(
       <PaneHarnessScreen
-        context={surfaceContextFor({ kind: "workflows" })}
+        context={screenContextFor({ kind: "workflows" })}
         paneRegistry={boardWithStubBody("terminal")}
       />,
     );
@@ -311,17 +311,17 @@ describe("the harness across a route change", () => {
     });
   }
 
-  function surfaceAt(route: AppRoute): React.JSX.Element {
-    return <AppRouter context={surfaceContextFor(route)} />;
+  function screenAt(route: AppRoute): React.JSX.Element {
+    return <AppRouter context={screenContextFor(route)} />;
   }
 
   it("mounts no pane when the addressed pane kind changes", async () => {
     registerHarnessSlot(boardWithBothStubBodies());
-    const view = render(surfaceAt(harnessRoute("terminal")));
+    const view = render(screenAt(harnessRoute("terminal")));
     await pressControl("Open a pane", 2);
     expect(mountedPaneIds()).toHaveLength(2);
 
-    view.rerender(surfaceAt(harnessRoute("browser")));
+    view.rerender(screenAt(harnessRoute("browser")));
 
     // A fresh harness on the new address, not the old one's count applied to it.
     expect(mountedPaneIds()).toStrictEqual([]);
@@ -330,11 +330,11 @@ describe("the harness across a route change", () => {
 
   it("mounts no pane, and reuses no instance, when the session changes", async () => {
     registerHarnessSlot(boardWithBothStubBodies());
-    const view = render(surfaceAt(harnessRoute("terminal", "session-one")));
+    const view = render(screenAt(harnessRoute("terminal", "session-one")));
     await pressControl("Open a pane");
     expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0, "session-one")]);
 
-    view.rerender(surfaceAt(harnessRoute("terminal", "session-two")));
+    view.rerender(screenAt(harnessRoute("terminal", "session-two")));
 
     expect(mountedPaneIds()).toStrictEqual([]);
     expect(screen.getByText("terminal panes open: 0")).toBeTruthy();
@@ -353,10 +353,10 @@ describe("the harness across a route change", () => {
     // count and the instance stand. Without this the two cases above would pass
     // against a harness that rebuilt itself on every pass and could hold nothing.
     registerHarnessSlot(boardWithBothStubBodies());
-    const view = render(surfaceAt(harnessRoute("terminal")));
+    const view = render(screenAt(harnessRoute("terminal")));
     await pressControl("Open a pane");
 
-    view.rerender(surfaceAt(harnessRoute("terminal")));
+    view.rerender(screenAt(harnessRoute("terminal")));
 
     expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0)]);
     expect(mountedPaneLifecycle).toStrictEqual([`mounted ${paneInstanceId(0)}`]);
@@ -371,7 +371,7 @@ describe("the harness across a route change", () => {
     const paneRegistry = boardWithBothStubBodies();
     const view = render(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("terminal"))}
+        context={screenContextFor(harnessRoute("terminal"))}
         paneRegistry={paneRegistry}
       />,
     );
@@ -379,7 +379,7 @@ describe("the harness across a route change", () => {
 
     view.rerender(
       <PaneHarnessScreen
-        context={surfaceContextFor(harnessRoute("browser"))}
+        context={screenContextFor(harnessRoute("browser"))}
         paneRegistry={paneRegistry}
       />,
     );
