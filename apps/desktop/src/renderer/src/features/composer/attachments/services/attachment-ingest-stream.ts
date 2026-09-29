@@ -61,7 +61,7 @@ export interface AttachmentIngestStreamDriverOptions {
  * One attachment's stream, from Init to Complete, driven on demand.
  *
  * THE RUNNING SET IS RE-ENTRANCY AND NOT SUPERSESSION, which is why it is a set here
- * rather than a key taken from `store/read/generation-latch.ts`. Supersession in this family
+ * rather than a key taken from `lib/reads/generation-latch.ts`. Supersession in this family
  * is the ledger's stamp, which that register already supplies; what this one answers is
  * whether a second `drive` for the same attachment would put a second Init on the wire —
  * and the caller has to be able to ASK, because a retry offered while a stream is

@@ -125,6 +125,29 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter
 export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
 
 /**
+ * One pane kind's address arm, entity member and all.
+ *
+ * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
+ * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
+ * takes an OPTIONAL one. The third arm used to be written as a required member whose
+ * value may be undefined, which is not the same claim: a typed caller could not write
+ * the documented bare `{ kind: "workflow-builder" }` at all, while
+ * {@link parsePaneAddress} returned exactly that object through a cast — so the
+ * static contract and the runtime contract disagreed, and the cast is what hid it.
+ *
+ * The optional arm keeps `| undefined` in its member type rather than stripping it to
+ * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
+ * it the only admitted spelling would be the ABSENT key, and every existing caller
+ * that writes the equally honest `entity: undefined` would stop compiling. Both
+ * spellings mean the same thing here, and both are admitted.
+ */
+export type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
+  ? { readonly kind: TKind }
+  : EntityRequired<TKind> extends true
+    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
+    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
+
+/**
  * What each pane kind is a view of. THE declaration.
  *
  * `never` where the pane is session-scoped and takes no entity; `| undefined`
@@ -165,29 +188,6 @@ interface PaneEntityScopeByKind {
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
   readonly agents: ScopedEntityRef<"agent"> | undefined;
 }
-
-/**
- * One pane kind's address arm, entity member and all.
- *
- * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
- * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
- * takes an OPTIONAL one. The third arm used to be written as a required member whose
- * value may be undefined, which is not the same claim: a typed caller could not write
- * the documented bare `{ kind: "workflow-builder" }` at all, while
- * {@link parsePaneAddress} returned exactly that object through a cast — so the
- * static contract and the runtime contract disagreed, and the cast is what hid it.
- *
- * The optional arm keeps `| undefined` in its member type rather than stripping it to
- * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
- * it the only admitted spelling would be the ABSENT key, and every existing caller
- * that writes the equally honest `entity: undefined` would stop compiling. Both
- * spellings mean the same thing here, and both are admitted.
- */
-type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
-  ? { readonly kind: TKind }
-  : EntityRequired<TKind> extends true
-    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
-    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 /** The entity kinds one pane kind admits, read off the declaration. */
 type AdmittedEntityKind<TKind extends PaneKind> = NonNullable<PaneEntityScopeByKind[TKind]>["kind"];

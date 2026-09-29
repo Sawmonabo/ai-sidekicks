@@ -6,7 +6,7 @@
 // frame, a keyboard activation racing the commit that disabled it.
 //
 // EVERY CASE DRIVES THE REAL `SignInPlane` over the real `startSignIn` and `cancelSignIn`
-// with stub calls. The single-flight guard under test is `store/read/generation-latch.ts`,
+// with stub calls. The single-flight guard under test is `lib/reads/generation-latch.ts`,
 // reached exactly as the shipped module reaches it, so a case here fails if that
 // register's refusal contract changes.
 

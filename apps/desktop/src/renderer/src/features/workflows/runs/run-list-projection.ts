@@ -123,7 +123,7 @@ export type OpenRun = (row: WorkflowRunListRow) => void;
  * caller memoizes the INSTANCE against its input and every read after that is free.
  *
  * It holds no subscription, no timer, and no store. A run list that refreshed itself
- * would be a second scheduler beside `store/read/refresh-scheduler.ts`; this projects what it is
+ * would be a second scheduler beside `lib/reads/refresh-scheduler.ts`; this projects what it is
  * given and nothing more.
  */
 export class RunListProjection {

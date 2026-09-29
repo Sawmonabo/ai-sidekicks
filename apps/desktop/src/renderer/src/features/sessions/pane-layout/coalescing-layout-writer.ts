@@ -4,7 +4,7 @@
 // pointer move, so a naive "save on change" writes sixty records a second to a
 // database that only needs to hold the last one.
 //
-// WHY THIS IS NOT A DEBOUNCE, AND NOT `store/read/refresh-scheduler.ts`. The obvious answer is
+// WHY THIS IS NOT A DEBOUNCE, AND NOT `lib/reads/refresh-scheduler.ts`. The obvious answer is
 // a trailing debounce, and the console already owns one — `RefreshScheduler`. It is
 // the wrong tool twice over: its own header says the session-store registry is what
 // constructs it and nothing else in the tree may arm a timer, and its

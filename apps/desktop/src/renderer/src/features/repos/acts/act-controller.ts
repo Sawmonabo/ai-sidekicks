@@ -21,7 +21,7 @@
 // returns them, and a late answer landing under a newer question is the one state that
 // would let a consent be given for the wrong tree.
 //
-// SUPERSESSION IS `store/read/generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. The act
+// SUPERSESSION IS `lib/reads/generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. The act
 // half takes a key with `claim`, so a second press while one call is on the wire sends
 // nothing rather than being queued or superseding the first. The read half rides the
 // scheduler's round instead, which is a latch claim and an `AbortSignal` as one value, so

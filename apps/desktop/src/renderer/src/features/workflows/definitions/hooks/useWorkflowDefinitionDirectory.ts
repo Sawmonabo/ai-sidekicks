@@ -71,7 +71,7 @@ export type WorkflowDefinitionContinuation =
  * What the list knows about the definitions visible from here, at one moment.
  *
  * Three states and no others, and the two unsettled ones come from the shared shape in
- * `store/read/subject-read-start.ts` — the rule this hook established and the runs
+ * `features/workflows/subject-read-start.ts` — the rule this hook established and the runs
  * directory and the run snapshot now hold to as well, written once so the three
  * cannot drift about which frame is allowed to claim nobody asked, or about which
  * frame is allowed to hold the previous call's answer.

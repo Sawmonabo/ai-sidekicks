@@ -94,7 +94,7 @@ export class KeybindingOverrideStore {
   /**
    * The rounds this store's overrides have moved through.
    *
-   * TWO ROLES, ONE GENERATION, which is the shape `store/read/generation-latch.ts`
+   * TWO ROLES, ONE GENERATION, which is the shape `lib/reads/generation-latch.ts`
    * describes — a monotonic serial, so a superseded settlement is IGNORED rather than
    * claimed to have been stopped — and which
    * `features/settings/machine-settings/machine-settings-store.ts` takes the same way:

@@ -215,26 +215,25 @@ describe("standing in for the list's density decision", () => {
   });
 });
 
-describe("claiming the seat", () => {
-  it("fills it under the shell's own owner", () => {
+describe("registering the transcript row renderer", () => {
+  it("registers it under the transcript's own owner", () => {
     expect(findTranscriptRowRenderer()).toBeUndefined();
     registerTranscriptRows();
     expect(findTranscriptRowRenderer()).toBe(TranscriptRow);
   });
 
-  it("refuses a second owner rather than replacing the shell", () => {
-    // The property the deletion obligation rests on: a change that registered the
-    // timeline's own row without deleting this shell stops the timeline rendering at
-    // import time, by name, instead of picking a winner by import order.
+  it("refuses a second owner rather than replacing the transcript's renderer", () => {
+    // A second owner is refused at import time, by name, instead of a winner being
+    // picked by import order.
     registerTranscriptRows();
     expect(() => {
-      registerTranscriptRowRenderer("the timeline subtree", () => null);
-    }).toThrow(/timeline row/);
+      registerTranscriptRowRenderer("another owner", () => null);
+    }).toThrow(/transcript row seat/);
   });
 
   it("negative control: the same owner may re-register", () => {
     // A hot reload re-runs the owning module, so an unconditional refusal would make
-    // the shell undevelopable.
+    // the transcript undevelopable.
     registerTranscriptRows();
     expect(() => {
       registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);

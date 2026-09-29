@@ -34,7 +34,7 @@
 //
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
-// coalesce through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
+// coalesce through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
 // reply wins, and never return a loaded surface to its loading shape. A second read
 // engine written here would be a second answer to all five of those questions; a
 // stream of settling events therefore costs one read rather than one read per event.
@@ -144,7 +144,7 @@ export function useAttentionProjection(
  * for the ones this window has open, the bridge for every session it can name — and
  * a window that took only the first went permanently quiet about a directory session
  * it never opened. Both are opaque, both call the same handler, and the read they
- * wake coalesces through `store/read/refresh-scheduler.ts`, so a change the two happen to report
+ * wake coalesces through `lib/reads/refresh-scheduler.ts`, so a change the two happen to report
  * together still costs one read rather than two.
  *
  * Released in the order they were taken, and every one of them: a partial teardown

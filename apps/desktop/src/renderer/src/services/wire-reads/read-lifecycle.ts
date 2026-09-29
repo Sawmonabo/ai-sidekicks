@@ -24,7 +24,7 @@
 // and neither leaves a read reachable without the tail it depends on.
 //
 // WHAT THIS IS NOT. It is not the scheduler: when a re-read is asked for is
-// `store/read/refresh-scheduler.ts`'s, and which moments ask is `store/read/read-triggers.ts`'s. It
+// `lib/reads/refresh-scheduler.ts`'s, and which moments ask is `store/reads/read-triggers.ts`'s. It
 // holds no bridge, opens no stream, and publishes nothing — the reading that owns it
 // does all three, and calls one method here per outcome so that the outcome and the
 // state it leaves behind cannot be spelled two ways.

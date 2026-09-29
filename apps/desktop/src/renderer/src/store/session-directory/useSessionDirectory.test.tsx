@@ -132,7 +132,7 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
     // The frame-lifetime case, stated as a person meets it: a session created on this
     // node by another window after this one mounted. Nothing in this window's own
     // stream says so, and the window coming back to the front is the moment
-    // `store/read/read-triggers.ts` names for a node-scoped reading.
+    // `store/reads/read-triggers.ts` names for a node-scoped reading.
     const counted = countedDirectoryCall();
     const observed = observeDirectory(counted.read);
     await settleReactWork();
