@@ -96,7 +96,7 @@ export { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
 export { observeElementResize } from "@renderer/lib/element-resize.js";
 
 // The console's ONE clipping-ancestor walk, for the reason above and against the same
-// two families: the deck intersects what it finds, the browser collects rects from it.
+// two families: the pane layout intersects what it finds, the browser collects rects from it.
 export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 
 // One boundary per surface, so a pane's render throw does not blank the window. It
@@ -106,7 +106,7 @@ export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 export { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
-// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// `chord-format.js` is here: the keybinding table and the pane layout both ask it, both sit
 // above this family, and a second copy in either would be the drift this rule exists
 // to prevent.
 export { isEditableTarget, isTextEntryTarget } from "@renderer/lib/editable-target.js";
@@ -147,7 +147,7 @@ export { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js"
 export { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 export { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 // The sink's own type, for a surface that settles an outcome somewhere other than
-// where it read the context — the deck reads `useAnnounce` in its component and
+// where it read the context — the pane layout reads `useAnnounce` in its component and
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
 export type {
   Announce,

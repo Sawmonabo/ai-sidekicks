@@ -1,37 +1,37 @@
-// What a deck is made of: the pane shape, the state shape, and the arithmetic that
-// keeps a row of panes summing to a whole deck.
+// What a pane layout is made of: the pane shape, the state shape, and the arithmetic that
+// keeps a row of panes summing to a whole pane layout.
 //
-// Split out of `deck-layout.ts` because that file was doing three jobs — these
+// Split out of `pane-layout-store.ts` because that file was doing three jobs — these
 // shapes, the persisted grammar, and the live store — and the three have different
-// readers. This one is the vocabulary layer of the deck: it holds no state, touches
+// readers. This one is the vocabulary layer of the pane layout: it holds no state, touches
 // no React, and every function in it is pure, so the width arithmetic can be
 // checked without constructing a layout at all.
 //
-// The dependency runs one way and only one way: `deck-model` → `deck-snapshot` →
-// `deck-layout`. Nothing here imports either of the other two.
+// The dependency runs one way and only one way: `pane-layout` → `pane-layout-snapshot` →
+// `pane-layout-store`. Nothing here imports either of the other two.
 
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneKind } from "@renderer/console/seats/index.js";
 import type { PaneLayoutDensity } from "./pane-layout-measures.js";
 
 /**
- * Pane widths are carried as permille of the deck, summing to this.
+ * Pane widths are carried as permille of the pane layout, summing to this.
  *
  * Integers rather than fractions because the value is persisted, and a float that
  * round-trips through JSON reintroduces the accumulation error the normalization
- * step exists to remove. Permille rather than percent so a five-pane deck divides
+ * step exists to remove. Permille rather than percent so a pane layout of five panes divides
  * evenly.
  */
 export const PANE_LAYOUT_TOTAL_PERMILLE = 1000;
 
-/** One pane in the deck. Immutable; every mutation produces a new one. */
+/** One pane in the pane layout. Immutable; every mutation produces a new one. */
 export interface SessionPane {
   /** Stable across a layout restore — the identity `PaneContext` carries. */
   readonly paneId: string;
   readonly kind: PaneKind;
   /** The entity this pane is a view of, or `undefined` for a session-scoped pane. */
   readonly entity: EntityRef | undefined;
-  /** This pane's share of the deck, in permille. */
+  /** This pane's share of the pane layout, in permille. */
   readonly sizePermille: number;
   /** True for a pane that is never persisted and cascades closed with its source. */
   readonly isEphemeral: boolean;
@@ -59,7 +59,7 @@ export interface PaneLayoutState {
 const ADDRESS_KEY_SEPARATOR = "\u001f";
 
 /**
- * One deck address, rendered as a string that equals another exactly when the two
+ * One pane layout address, rendered as a string that equals another exactly when the two
  * name the same thing.
  *
  * Kind PLUS entity, because the same run legitimately appears in a `runs` pane and
@@ -88,7 +88,7 @@ export function paneAddressKey(address: Pick<SessionPane, "kind" | "entity">): s
  * Whether an open pane is already the pane an address asks for.
  *
  * Expressed through {@link paneAddressKey} rather than beside it: two copies of one
- * equality rule drift, and the drift is invisible — the deck would go on focusing
+ * equality rule drift, and the drift is invisible — the pane layout would go on focusing
  * the right pane while a restore adopted the same one twice.
  */
 export function addressesMatch(
@@ -128,7 +128,7 @@ export function distributeEvenly(panes: readonly SessionPane[]): readonly Sessio
 }
 
 /**
- * Permille per percent — the whole of the translation between the deck's grammar
+ * Permille per percent — the whole of the translation between the pane layout's grammar
  * and `react-resizable-panels`' one.
  *
  * The library speaks percentages of the group as floats (0..100); the persisted
@@ -153,10 +153,10 @@ export function toPaneSizePercentages(panes: readonly SessionPane[]): PaneSizePe
 }
 
 /**
- * Adopt a layout the panel group settled on, held above the deck's own floor.
+ * Adopt a layout the panel group settled on, held above the pane layout's own floor.
  *
  * THE FLOOR IS APPLIED HERE AND NOT LEFT TO THE LIBRARY. The panels library clamps
- * its own drag against each panel's `minSize`, and the deck hands it the same
+ * its own drag against each panel's `minSize`, and the pane layout hands it the same
  * number, so in practice the two agree. They are still two clamps: the library's
  * runs over measured pixels in the DOM, and this one runs over the value that gets
  * persisted. A width below the floor reaching the store would be written to disk and
@@ -168,7 +168,7 @@ export function toPaneSizePercentages(panes: readonly SessionPane[]): PaneSizePe
  *
  * The floor is capped at an equal share, because a floor that cannot be met by
  * every pane at once has no solution and silently discarding it would leave the
- * deck summing to something other than a whole.
+ * pane layout summing to something other than a whole.
  */
 export function applyPaneSizePercentages(
   panes: readonly SessionPane[],
@@ -206,7 +206,7 @@ export function sizesAreEqual(
 }
 
 /**
- * Make a clamped row sum to the whole deck again, without breaking the floor.
+ * Make a clamped row sum to the whole pane layout again, without breaking the floor.
  *
  * `normalise` cannot do this job: it rescales every pane by one ratio, which pulls
  * a pane that was just raised to the floor straight back under it. So the drift is
@@ -249,22 +249,22 @@ const MINIMUM_NORMALISED_PERMILLE = 1;
  * Seat arriving panes in front of an arrangement a person already made.
  *
  * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
- * whole point: equalising a deck that already holds panes destroys the drag the person
+ * whole point: equalising a pane layout that already holds panes destroys the drag the person
  * finished while the record was being read, which is exactly the work
  * `PaneLayoutStore.adoptBeneath` exists to protect.
  *
  * HOW THE REMAINDER IS CARVED WHEN THE LIVE PANES ALREADY FILL THE TOTAL, which they
  * always do — every commit leaves the row summing to {@link PANE_LAYOUT_TOTAL_PERMILLE}, so
  * there is no unclaimed space for an arriving pane to take. Each arriving pane takes the
- * equal share it would have been given had the whole deck opened at once, and the live
+ * equal share it would have been given had the whole pane layout opened at once, and the live
  * row is rescaled INTO what is left, in proportion to the widths it already carried. So
- * the live panes keep their arrangement — a seventy-thirty deck stays seventy-thirty
+ * the live panes keep their arrangement — a seventy-thirty pane layout stays seventy-thirty
  * across the space it still holds — while an adopted pane arrives at an ordinary width
  * rather than at whatever a subtraction happened to leave it.
  *
  * The sum is settled by {@link settleToTotal}, the same pass `normalise` and
  * `applyPaneSizePercentages` run, so one rule decides where a rounding remainder goes
- * and the row sums to a whole deck on every path.
+ * and the row sums to a whole pane layout on every path.
  */
 export function distributeAdoptedBeneath(
   adopted: readonly SessionPane[],
@@ -351,10 +351,10 @@ export function highestOrdinal(panes: readonly SessionPane[]): number {
  * Seat an arriving pane by halving ONE pane's share, leaving every other alone.
  *
  * THE SPLIT ACT'S WIDTH RULE, and the whole difference between splitting a pane and
- * opening one. {@link distributeEvenly} re-divides the deck, which is right for a pane
+ * opening one. {@link distributeEvenly} re-divides the pane layout, which is right for a pane
  * that arrives at the end and wrong for one arriving INSIDE an arrangement a person
  * made: splitting the third of four panes would resize the other three, and somebody
- * who asked for a companion to one pane would get a deck they had to rebuild.
+ * who asked for a companion to one pane would get a pane layout they had to rebuild.
  *
  * So the arriving pane takes half the source's share and the source keeps the rest,
  * remainder included — an odd share leaves the pane that was already there the wider

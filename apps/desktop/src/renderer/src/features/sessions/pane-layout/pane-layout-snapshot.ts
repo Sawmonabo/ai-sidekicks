@@ -1,7 +1,7 @@
-// The deck's persisted grammar: what a saved layout looks like, and what a restore
+// The pane layout's persisted grammar: what a saved layout looks like, and what a restore
 // refuses to believe.
 //
-// This module holds three of the deck's five rules, and each one is a decision rather
+// This module holds three of the pane layout's five rules, and each one is a decision rather
 // than a mechanism. The first two are the console's stated grammar — a layout snapshot
 // of an unknown version is discarded whole, an unknown pane kind is dropped and
 // reported, and an entity id that fails validation is rejected — and the third is this
@@ -9,16 +9,16 @@
 //
 //   • **A snapshot of an unknown version is discarded WHOLE.** Not repaired, not
 //     partially adopted: a grammar this build does not know is a grammar whose
-//     members it cannot interpret, and a half-restored deck is worse than an empty
+//     members it cannot interpret, and a half-restored pane layout is worse than an empty
 //     one because the person cannot tell which half is missing.
 //   • **An unknown pane kind is dropped and REPORTED.** Version skew is ordinary —
 //     a snapshot written by a newer build names kinds this one has not got — so the
-//     drop is a typed refusal the deck renders, never a thrown tripwire.
+//     drop is a typed refusal the pane layout renders, never a thrown tripwire.
 //   • **The restore count is capped.** A snapshot is untrusted input the moment it
 //     is on disk; without a cap a corrupted or hand-edited record mounts an
 //     unbounded number of panes before anything can say no.
 //
-// AND ONE THE DECK'S OWN STORE STATES AND THIS FILE HAS TO HONOUR: **one entity,
+// AND ONE THE PANE LAYOUT'S OWN STORE STATES AND THIS FILE HAS TO HONOUR: **one entity,
 // one pane**. `open()` enforces it by focusing the pane that already shows an
 // address, which repairs nothing it did not create — a record holding two pane ids
 // at one address would mount both bodies, consume two cap slots, and be written
@@ -33,7 +33,7 @@
 // each one names a DEFECT; a tripwire throws in a development build, which is
 // exactly right for a store mutated outside its chokepoint and exactly wrong for a
 // snapshot written by last week's build. So decoding answers with typed
-// `Refusal`s — the console's one refusal shape — which the deck renders
+// `Refusal`s — the console's one refusal shape — which the pane layout renders
 // through `primitives/Refusal`. The drop is loud, counted, and on screen; it is not
 // a crash.
 //
@@ -175,7 +175,7 @@ export function decodePaneLayoutSnapshot(
   const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
   if (!isWireRecord(header) || header["version"] !== PANE_LAYOUT_SNAPSHOT_VERSION) {
     // Discarded WHOLE. A grammar this build does not know is a grammar whose
-    // members it cannot interpret, and a partly-adopted deck hides which part
+    // members it cannot interpret, and a partly-adopted pane layout hides which part
     // went missing.
     return emptyDecode(
       refusePaneLayoutRestore(

@@ -232,7 +232,7 @@ describe("PaneBreadcrumb — the trail", () => {
     const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Runs");
     expect(crumbs.id).toBe(CRUMBS_ID);
     // The whole trail is the name. An id on the last crumb alone would name every runs
-    // pane in a deck "Runs".
+    // pane in a pane layout "Runs".
     expect(crumbs.textContent).toContain("session-1");
     expect(crumbs.textContent).toContain("Runs");
   });

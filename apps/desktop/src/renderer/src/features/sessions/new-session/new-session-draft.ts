@@ -36,7 +36,7 @@
 // looking at. The same argument applies one leg down, which is why the memory is
 // per-leg rather than one flag — a retry that re-queued the turn would send their
 // words twice. So this class coalesces rather than
-// refuses, on the deck writer's idiom: a send while one is in flight yields THAT send,
+// refuses, on the pane layout writer's idiom: a send while one is in flight yields THAT send,
 // and a later send resumes at the first call that has not been made. The invariant is
 // scoped to the object, so closing the draft — which drops it — is what makes the next
 // "+ New" a genuinely new session.

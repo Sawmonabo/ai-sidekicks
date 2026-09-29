@@ -19,7 +19,7 @@ function commandById(commands: readonly CommandDefinition[], id: string): Comman
   return command as CommandDefinition;
 }
 
-describe("the deck's palette rows", () => {
+describe("the pane layout's palette rows", () => {
   it("offers all five pane acts, each scoped to a window with a session", () => {
     const commands = paneLayoutPaletteCommands(createSpyingPaneLayoutActs());
     expect(commands.map((command) => command.id)).toStrictEqual([
@@ -49,10 +49,10 @@ describe("the deck's palette rows", () => {
     expect(paneLayoutActs.moveFocusedPaneRight).toHaveBeenCalledTimes(1);
   });
 
-  it("claims no chord, because the deck binds these five on its own element", () => {
+  it("claims no chord, because the pane layout binds these five on its own element", () => {
     // The module's own reasoning, pinned: a window-table binding installs in the
     // capture phase and consumes any press whose command ran, so it would preempt the
-    // deck's wide editable-target guard and eat a listbox's arrow keys.
+    // pane layout's wide editable-target guard and eat a listbox's arrow keys.
     const commands = new CommandRegistry();
     const contributions = new CommandContributionRegistry(commands);
     registerPaneLayoutCommands(contributions, new MountedPaneLayouts());

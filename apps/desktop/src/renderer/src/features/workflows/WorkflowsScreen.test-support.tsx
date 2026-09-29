@@ -8,7 +8,7 @@
 // `RouteSurface.test.tsx`'s reason: constructing them opens a database to hand a branch that
 // never touches it. The session store is `undefined` because `#/workflows` names no session.
 // The bodies reach the board through `registerWorkflowPanes`, the family's own registration
-// call, rather than a hand-built table: the screen's claim is that it mounts what the deck
+// call, rather than a hand-built table: the screen's claim is that it mounts what the pane layout
 // would mount.
 //
 // THE SCREEN IS MOUNTED WITH A SERVED RUN DIRECTORY, so a suite opens a run by pressing a

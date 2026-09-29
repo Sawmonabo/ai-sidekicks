@@ -194,7 +194,7 @@ const isIdentifierString: ShapeValidator = (value) =>
  */
 const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = {
   /**
-   * A deck layout: pane ids to a record of numbers (sizes, order) and booleans
+   * A pane layout: pane ids to a record of numbers (sizes, order) and booleans
    * (collapsed). Deliberately no free-form member — a layout that needed one
    * would be carrying something that is not layout.
    */

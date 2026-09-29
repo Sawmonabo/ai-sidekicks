@@ -30,15 +30,15 @@ export function agentsPaneBody(calls: AgentsPaneCalls): (context: PaneContext) =
 }
 
 /**
- * A pane body wearing the console's chrome, at an address the deck resolved.
+ * A pane body wearing the console's chrome, at an address the pane layout resolved.
  *
  * THE CHROME IS COMPOSED HERE RATHER THAN INSIDE THE BODY, so the body draws no frame of
  * its own. Everything the chrome is handed is read off the pane's address: the session
  * the pane's store is open on, the agent reference the address carries, and the hue the
- * deck attributed the pane with. It is handed no `actions` — this kind has no head
+ * pane layout attributed the pane with. It is handed no `actions` — this kind has no head
  * control of its own today, and an empty strip is what that honestly renders as — and
- * neither host control, because closing a pane and tearing one off are the DECK's acts
- * and reach the chrome through the context the deck provides around every pane it lays
+ * neither host control, because closing a pane and tearing one off are the PANE LAYOUT's acts
+ * and reach the chrome through the context the pane layout provides around every pane it lays
  * out.
  *
  * `children` is passed as a PROP rather than as `createElement`'s third argument: the

@@ -32,7 +32,7 @@ import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
  * Where a pane is, as far as its address reaches.
  *
  * Every member is REQUIRED and may be `undefined`, on `PaneContext`'s
- * precedent: an optional member reads identically whether the deck decided the pane is
+ * precedent: an optional member reads identically whether the pane layout decided the pane is
  * scoped to no run or forgot to resolve one, and only one of those is an answer.
  */
 export interface PaneScopeAddress {
@@ -92,7 +92,7 @@ export interface PaneBreadcrumbProps extends PaneScopeAddress {
    * The id the pane's `<section>` points its `aria-labelledby` at.
    *
    * It lands on the crumb LIST rather than on the last crumb, because the pane's name
-   * is the whole trail: two `runs` panes in one deck are told apart by the session and
+   * is the whole trail: two `runs` panes in one pane layout are told apart by the session and
    * the run they are scoped to, and a name of "Runs" twice over tells a reader
    * navigating regions nothing at all.
    */

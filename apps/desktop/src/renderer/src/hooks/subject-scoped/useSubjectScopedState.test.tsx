@@ -20,7 +20,7 @@
 // is eventually right; it is that the pass which first sees a new subject already
 // reads that subject's own seed. A holder that reached the same value by discarding a
 // render pass would satisfy every value assertion and cost a frame per re-address on
-// a surface the deck re-addresses on every pane move.
+// a surface the pane layout re-addresses on every pane move.
 
 import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";

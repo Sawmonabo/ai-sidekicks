@@ -1,8 +1,8 @@
-// The deck's width arithmetic and its address identity, checked without
+// The pane layout's width arithmetic and its address identity, checked without
 // constructing a layout.
 //
 // The claim under test is the one `normalise` makes in its own name: whatever was on
-// disk, the row it returns sums to a whole deck. Rounding each pane independently
+// disk, the row it returns sums to a whole pane layout. Rounding each pane independently
 // does not give that — three equal saved widths round to `333 + 333 + 333 = 999` —
 // and the widths come from the explicitly untrusted persisted snapshot, so the
 // shortfall reaches the panel group as an incomplete layout rather than staying
@@ -76,7 +76,7 @@ describe("normalise", () => {
 
   // The negative control: a row whose rounding already lands on the total is
   // returned untouched. Without it the cases above would pass over a settle pass
-  // that redistributed every deck it saw, which would move panes a person had
+  // that redistributed every pane layout it saw, which would move panes a person had
   // arranged deliberately.
   it("negative control: leaves an already-exact row alone", () => {
     expect(widthsOf(normalize(panesWithWidths([500, 500])))).toStrictEqual([500, 500]);
@@ -91,7 +91,7 @@ describe("normalise", () => {
   });
 });
 
-// The address key is the deck's ONE definition of "the same thing". Two callers ask
+// The address key is the pane layout's ONE definition of "the same thing". Two callers ask
 // two questions of it — the store asks whether an open pane is the pane it wants,
 // the snapshot decoder asks whether it has already adopted an address — and the
 // cases below assert they cannot answer differently.
@@ -173,7 +173,7 @@ describe("carveSplitFrom", () => {
   };
 
   it("takes the arriving pane's width from the source alone", () => {
-    // The claim the split act rests on: splitting the middle of a deck a person
+    // The claim the split act rests on: splitting the middle of a pane layout a person
     // arranged leaves the panes on either side of it exactly as they were. The rule
     // `distributeEvenly` applies — equalise everything — would answer [333,333,333,
     // 333] here and destroy the arrangement while the sum stayed right, so the sum
@@ -199,9 +199,9 @@ describe("carveSplitFrom", () => {
     expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  it("refuses a source too narrow to halve, and an index the deck does not hold", () => {
+  it("refuses a source too narrow to halve, and an index the pane layout does not hold", () => {
     // Both arms answer `undefined` rather than a row: a half of nothing is a column
-    // the panel group cannot grab, and a position outside the deck names no source.
+    // the panel group cannot grab, and a position outside the pane layout names no source.
     expect(carveSplitFrom(panesWithWidths([1, 999]), 0, arriving)).toBeUndefined();
     expect(carveSplitFrom(panesWithWidths([500, 500]), 5, arriving)).toBeUndefined();
   });

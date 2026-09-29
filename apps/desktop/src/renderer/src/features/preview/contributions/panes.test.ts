@@ -1,4 +1,4 @@
-// The preview pane's registration terms: the deck holds the pane on the terms the
+// The preview pane's registration terms: the pane layout holds the pane on the terms the
 // descriptor states.
 
 import { describe, expect, it } from "vitest";
@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { registerPreviewPanes } from "./panes.js";
 
-describe("preview — claiming the deck's browser pane", () => {
-  it("claims the browser kind on terms the deck can hold it by", () => {
+describe("preview — claiming the pane layout's browser pane", () => {
+  it("claims the browser kind on terms the pane layout can hold it by", () => {
     const registry = new PaneRegistry();
     registerPreviewPanes(registry);
     const descriptor = registry.descriptorFor("browser");

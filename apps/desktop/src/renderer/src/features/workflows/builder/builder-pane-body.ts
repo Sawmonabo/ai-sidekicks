@@ -1,4 +1,4 @@
-// The workflow builder pane's body, as the deck's registry loads it.
+// The workflow builder pane's body, as the pane layout's registry loads it.
 //
 // A loader-backed body for `workflow-run-pane-body.ts`'s reason, and the case is
 // stronger here: the builder is the console's authoring surface, reached from the rail's

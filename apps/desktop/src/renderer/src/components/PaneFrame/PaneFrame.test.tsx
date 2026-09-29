@@ -2,7 +2,7 @@
 //
 // The claims worth a unit are the ones a screenshot cannot make: that the glyph and the
 // title tables answer for EVERY member of the closed pane-kind set (a lookup that fell
-// through would render a nameless frame in whichever deck first opened that kind), that a
+// through would render a nameless frame in whichever pane layout first opened that kind), that a
 // pane is named by its whole trail so two panes of one kind are told apart, that an
 // unattributed pane takes the neutral ring instead of borrowing a hue, and that a
 // pane-level key claim is heard on the HEAD as well as on the body.
@@ -80,7 +80,7 @@ describe("PaneFrame — how the pane names itself", () => {
 
   it("negative control: two runs panes at different addresses are named differently", () => {
     // Without this the case above would pass over a chrome named by its title alone,
-    // which is the state a deck full of `runs` panes is unnavigable in.
+    // which is the state a pane layout full of `runs` panes is unnavigable in.
     const first = renderPaneFrame(
       <PaneFrame kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
@@ -119,7 +119,7 @@ describe("PaneFrame — how the pane names itself", () => {
   });
 
   it("negative control: two minted ids do not collide", () => {
-    // Two panes of one kind in one deck is the common case, and a literal id would
+    // Two panes of one kind in one pane layout is the common case, and a literal id would
     // point both `aria-labelledby` references at whichever element rendered first.
     const { container } = render(
       <>
@@ -149,7 +149,7 @@ describe("PaneFrame — the focus treatments are attributed or neutral, never gu
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("var(--meridian-actor-hue-3)");
   });
 
-  it("sets no hue at all when the deck has nobody to attribute the pane to", () => {
+  it("sets no hue at all when the pane layout has nobody to attribute the pane to", () => {
     // Fail-closed: the stylesheet's own fallbacks are the neutral ring and the neutral
     // boundary, and an unattributed pane must reach them by carrying NO custom property
     // rather than by carrying someone else's.

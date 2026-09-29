@@ -1,12 +1,12 @@
 // The inspector pane: one entity's own record, whichever kind of entity it is.
 //
-// The pane is addressed by `PaneAddress.entity`, and a deck may open it with
+// The pane is addressed by `PaneAddress.entity`, and a pane layout may open it with
 // no entity at all, so the frame answers two boundary questions before any read
 // happens and the body answers the rest.
 //
 // TWO ABSENCES THAT ARE NOT THE SAME SENTENCE, and neither is "empty".
 //
-//   • **Opened with no entity.** The deck addressed an inspector at nothing. There
+//   • **Opened with no entity.** The pane layout addressed an inspector at nothing. There
 //     is no read to make and no record to wait for.
 //   • **Opened outside a session.** There is an entity to inspect and no store to
 //     read it from — a bare route holds none.

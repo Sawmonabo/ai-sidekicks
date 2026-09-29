@@ -1,13 +1,13 @@
-// One pane's frame, and the body the deck resolves for it.
+// One pane's frame, and the body the pane layout resolves for it.
 //
-// ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT. `Deck.tsx` decides which panes
+// ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT. `SessionPaneLayout.tsx` decides which panes
 // exist, in what order, at what widths, and which one has focus — questions about
 // the SET. This file answers one question about a SINGLE member: given a pane and
 // the registry, what is drawn, and what is drawn when nothing is registered for its
 // kind. Neither half reads the other's state, which is why the cut is here and not
 // at a line count.
 //
-// Nothing here leaves the family: both symbols are reached only from `Deck.tsx`,
+// Nothing here leaves the family: both symbols are reached only from `SessionPaneLayout.tsx`,
 // so the workspace door carries neither.
 
 import { memo, useCallback, useMemo, useState } from "react";
@@ -39,7 +39,7 @@ export interface SessionPaneSlotProps {
    * A pane's kind and its entity reference come off a restored snapshot or a route,
    * so the pair is not known to be an address any body admits until it is parsed. The
    * refusal arm is what a slot draws instead of a body — never a throw, which would
-   * take the whole deck down for one pane, and never a body handed an address it
+   * take the whole pane layout down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
@@ -53,7 +53,7 @@ export interface SessionPaneSlotProps {
 }
 
 /**
- * One pane's frame, and the body resolved through the deck's single mount door.
+ * One pane's frame, and the body resolved through the pane layout's single mount door.
  *
  * Memoised on purpose: the console's frame budgets are written against a four-lane
  * streaming session, and an unmemoised map re-renders four pane bodies for every

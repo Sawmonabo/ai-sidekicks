@@ -64,13 +64,13 @@ export const TRANSCRIPT_OWNER = "transcript";
 type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
- * Mount the session screen: the session header, the deck, and the composer's seat.
+ * Mount the session screen: the session header, the pane layout, and the composer's seat.
  *
- * The wrapper keeps the surface's full-height grid, which is what lets the deck
+ * The wrapper keeps the surface's full-height grid, which is what lets the pane layout
  * inside it be the thing that scrolls rather than the window.
  *
  * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The workspace holds per-session
- * state that nothing else resets: the deck's arrangement, and the record of which
+ * state that nothing else resets: the pane layout's arrangement, and the record of which
  * panes are showing in windows of their own. The shell deliberately OPENS session
  * stores and never closes them on navigation, so moving from one already-open session
  * to another re-renders this position rather than unmounting it — and every one of

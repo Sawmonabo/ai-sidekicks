@@ -1,8 +1,8 @@
-// The transcript pane's body, as the deck's registry loads it, and the root of its chunk.
+// The transcript pane's body, as the pane layout's registry loads it, and the root of its chunk.
 //
 // A LOADER-BACKED BODY, because nothing in it is painted before a person acts: the window
 // opens on the `sessions` destination (`routing/routes.ts`' `DEFAULT_ROUTE`), so every pane
-// in the deck — this one included — is reached by opening a session. The pane, its feed,
+// in the pane layout — this one included — is reached by opening a session. The pane, its feed,
 // its window and structure derivations, the rows and the markdown and ANSI renderers
 // behind them are the largest single block of the renderer, and a chunk keeps them off the
 // initial import graph.
@@ -36,12 +36,12 @@ import "../run-groups/components/run-groups.css";
 registerTranscriptRows();
 
 /**
- * The ledger, at an address the deck resolved to this kind.
+ * The ledger, at an address the pane layout resolved to this kind.
  *
  * The narrowing and the mismatch refusal are `paneBodyForKind`'s, for the reason every
  * other pane body gives about them: six families writing that comparison themselves is
  * six answers to one question, and a mismatched arm is a rendered refusal rather than a
- * throw because one bad layout row must lose that row and not the deck. `createElement`
+ * throw because one bad layout row must lose that row and not the pane layout. `createElement`
  * rather than JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a
  * single PascalCase component per file.
  */

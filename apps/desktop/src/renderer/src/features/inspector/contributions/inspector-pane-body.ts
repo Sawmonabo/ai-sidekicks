@@ -12,7 +12,7 @@ import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index
 import { InspectorPane } from "../InspectorPane.js";
 
 /**
- * The inspector, at an address the deck resolved.
+ * The inspector, at an address the pane layout resolved.
  *
  * Narrowed to this kind's own address arm before the body sees it, so the body reads
  * the entity its kind admits and nothing else. `createElement` rather than JSX: this is

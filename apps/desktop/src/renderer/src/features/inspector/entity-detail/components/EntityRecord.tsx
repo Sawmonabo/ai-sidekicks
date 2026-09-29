@@ -47,7 +47,7 @@ export interface EntityRecordProps {
   readonly glyph: GlyphName;
   /** What this kind is called, in the console's own words — "Run", "Workflow run". */
   readonly heading: string;
-  /** The identifier the deck addressed, wire-verbatim. */
+  /** The identifier the pane layout addressed, wire-verbatim. */
   readonly entityId: string;
   /** The record's headline state, wire-verbatim, where the projection carries one. */
   readonly state: string | undefined;

@@ -1,10 +1,10 @@
-// What the deck's density presets MEAN, over the bounds that declare them.
+// What the pane layout's density presets MEAN, over the bounds that declare them.
 //
-// THIS DECK'S OWN RULE, because no committed document states it: three density presets
+// THIS PANE LAYOUT'S OWN RULE, because no committed document states it: three density presets
 // (comfortable, standard, compact) as minimum pane widths from the type scale, chosen
 // in Settings › Appearance. A preset is therefore NOT a spacing theme and not a
 // row-collapse state — it is one number per preset, the narrowest a pane may be
-// squeezed to before the deck refuses to take more width from it.
+// squeezed to before the pane layout refuses to take more width from it.
 //
 // WHY A MINIMUM WIDTH AND NOT A SCALE FACTOR. The thing a person is choosing is how
 // many panes fit side by side. A scale factor would express that indirectly and would
@@ -16,7 +16,7 @@
 // which is this family's one home for a bound. What is here is the three readings of
 // them: whether a persisted string names a preset, what one preset's floor is, and how
 // many panes of it fit. This module is deliberately DOM-free and React-free — it is
-// read by the layout class, by the deck's separator maths, and by a test that asserts
+// read by the layout class, by the pane layout's separator maths, and by a test that asserts
 // the ordering, and none of those has a document.
 
 import {
@@ -45,7 +45,7 @@ export function minimumPaneWidthPx(density: PaneLayoutDensity): number {
 /**
  * How many panes of `density` fit in `availableWidthPx`, at least one.
  *
- * At least one because a deck that answered zero would have nowhere to put the pane
+ * At least one because a pane layout that answered zero would have nowhere to put the pane
  * a person just opened, and a pane below its floor is a legibility problem the
  * person can fix by resizing the window — an invisible pane is not.
  */

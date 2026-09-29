@@ -1,6 +1,6 @@
 // The Suspense boundary one loader-backed body mounts inside.
 //
-// ONE BOUNDARY PER REGISTRATION, WHICH IS THE POINT. A boundary around the whole deck
+// ONE BOUNDARY PER REGISTRATION, WHICH IS THE POINT. A boundary around the whole pane layout
 // would blank every open pane the moment any one of them started loading; a boundary
 // around this body replaces this body and leaves the rest of the window painted. That is
 // also why the fallback comes from the board rather than from here: the reserved region

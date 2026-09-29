@@ -89,7 +89,7 @@ describe("a surface's command seat", () => {
 
   it("leaves a live surface's rows alone when a superseded mount tears down", () => {
     // Two mounts of one surface, the second arriving before the first goes: the
-    // deck can hold two panes of a kind, and development-mode React remounts one.
+    // pane layout can hold two panes of a kind, and development-mode React remounts one.
     // Owner-scoped replace means the second owns the rows, so the FIRST one's
     // cleanup must not take them — which is what a plain effect does, leaving a
     // living pane whose commands have silently left the palette.

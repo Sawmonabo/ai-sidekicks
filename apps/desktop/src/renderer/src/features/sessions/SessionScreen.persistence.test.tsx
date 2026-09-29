@@ -3,8 +3,8 @@
 //
 // The persistence pair is the risky half and it fails quietly in both directions — a
 // restore that never ran leaves a person's arrangement on disk and invisible, and a
-// save that runs before the restore OVERWRITES it with an empty deck. Both look like
-// "the deck opened with one pane", which is also what success looks like the first
+// save that runs before the restore OVERWRITES it with an empty pane layout. Both look like
+// "the pane layout opened with one pane", which is also what success looks like the first
 // time.
 //
 // Navigating between two open sessions is that same failure with a second partition in
@@ -31,7 +31,7 @@ import {
   type SessionWithStore,
 } from "./SessionScreen.test-support.js";
 
-/** How many panes a saved deck record holds. Its one non-pane key is `$paneLayout`. */
+/** How many panes a saved pane layout record holds. Its one non-pane key is `$paneLayout`. */
 function panesInRecord(value: unknown): number {
   return Object.keys(value as Record<string, unknown>).length - 1;
 }
@@ -68,9 +68,9 @@ describe("Workspace — the saved arrangement", () => {
     });
   });
 
-  it("does not overwrite a saved arrangement with an empty deck", async () => {
+  it("does not overwrite a saved arrangement with an empty pane layout", async () => {
     // The ordering failure this file exists for: a save that fired before the
-    // restore completed would replace two panes with none, and the deck would look
+    // restore completed would replace two panes with none, and the pane layout would look
     // exactly like a first run.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
@@ -83,7 +83,7 @@ describe("Workspace — the saved arrangement", () => {
     expect(Object.keys(value ?? {}).length).toBeGreaterThan(2);
   });
 
-  it("renders what a restore refused inside the deck", async () => {
+  it("renders what a restore refused inside the pane layout", async () => {
     const store = memoryStore();
     await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
       $paneLayout: { version: 99, density: "standard" },
@@ -91,20 +91,20 @@ describe("Workspace — the saved arrangement", () => {
     });
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
-      // Scoped to the deck's own refusal strip: the announcer's polite region
+      // Scoped to the pane layout's own refusal strip: the announcer's polite region
       // carries `role="status"` too and renders above every surface.
       expect(
         container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
       ).toContain("written by a different version");
     });
-    // Discarded WHOLE: the deck falls back to the ledger rather than adopting the
+    // Discarded WHOLE: the pane layout falls back to the ledger rather than adopting the
     // pane the unknown record happened to name.
     expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });
 });
 
 describe("SessionScreen — navigating between two sessions the shell already has open", () => {
-  /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
+  /** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
   function cyclePaneFocus(container: HTMLElement): void {
     const paneLayoutElement = container.querySelector(".meridian-pane-layout");
     expect(paneLayoutElement).not.toBeNull();
@@ -117,7 +117,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     // The defect: sessions are opened and never closed, so navigating straight from
     // one to another re-renders this component rather than remounting it. With the
     // writer's partition read at write time, the first session's queued arrangement
-    // was filed under the second session's partition and overwrote its saved deck.
+    // was filed under the second session's partition and overwrote its saved pane layout.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
@@ -159,7 +159,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     expect(filedUnderSecond.map((write) => panesInRecord(write.value))).not.toContain(2);
   });
 
-  it("starts the second session's deck from its own record, not the first one's panes", async () => {
+  it("starts the second session's pane layout from its own record, not the first one's panes", async () => {
     // The half with no race in it at all: the restore replaces wholesale but only
     // runs where a record exists, so a session with none used to inherit whatever
     // panes were already on screen — and then have them written under its own name.
@@ -179,7 +179,7 @@ describe("SessionScreen — navigating between two sessions the shell already ha
     expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("transcript");
   });
 
-  it("negative control: without the key the second session inherits the first one's deck", async () => {
+  it("negative control: without the key the second session inherits the first one's pane layout", async () => {
     // Mounted at a stable position with no key, the subtree survives the navigation
     // and carries the arrangement with it. This is the case that makes the key above
     // an instrument rather than a decoration.

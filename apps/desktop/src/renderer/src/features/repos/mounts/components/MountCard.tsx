@@ -207,7 +207,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 }}
               />
               {/* Beside the card and not inside it: a card renders what its own read
-                  said, and opening a pane is the deck's act rather than a column. */}
+                  said, and opening a pane is the pane layout's act rather than a column. */}
               <OpenDiffControl
                 subject={{ kind: "workspace", id: workspace.id }}
                 onOpenDiff={props.onOpenDiff}

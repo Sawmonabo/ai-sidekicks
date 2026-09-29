@@ -7,7 +7,7 @@
 // component's markup would skip.
 //
 // A BINDING OUTLIVES ITS SUBJECT. React keeps a pane instance while the window hands
-// it a different bridge or the deck hands it a different pane, so every rule here is
+// it a different bridge or the pane layout hands it a different pane, so every rule here is
 // about the pass where the state still holds the PREVIOUS binding.
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
@@ -92,7 +92,7 @@ export interface BoundGeometryPublisher extends PaneSubject {
  *
  * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER. A binding
  * outlives its subject: React keeps the instance while the window hands it a different
- * bridge or the deck hands it a different pane. The three arms that follow are the
+ * bridge or the pane layout hands it a different pane. The three arms that follow are the
  * holder's:
  *
  *   • A CHANGED SUBJECT (another bridge, pane or view host) opens its own binding

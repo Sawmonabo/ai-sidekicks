@@ -54,7 +54,7 @@ export function fixtureBrowserBridge(): PlatformBridge {
 }
 
 /**
- * The context the deck hands this pane, over the shared builder.
+ * The context the pane layout hands this pane, over the shared builder.
  *
  * Exported because a second suite mounts the pane itself rather than through the
  * mounts below — the geometry binding's double-mount case needs the tree inside
@@ -118,7 +118,7 @@ export function chromeFor(
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
- * The swap a mounted pane can be put through without being remounted: a deck moves a
+ * The swap a mounted pane can be put through without being remounted: a pane layout moves a
  * slot to another pane. The pane's state has to say whose it is against it, and a suite
  * that could only mount a fresh tree could not reach the stale-subject case.
  */
@@ -129,7 +129,7 @@ export interface PreviewPaneSubjectMount {
 /**
  * Mount the pane and hand back the re-render that swaps which pane it is FOR.
  *
- * The swap is what a deck performs when a slot changes subject: React keeps the
+ * The swap is what a pane layout performs when a slot changes subject: React keeps the
  * component instance and hands it a different `paneId`, so every piece of state the
  * pane carries between renders has to say whose it is. A suite that could only mount
  * a fresh tree could not reach that case at all.

@@ -20,13 +20,13 @@
 // value FROM its longhands — so on a conformant engine the shorthand can carry nothing
 // the axes do not already say, and when the axes differ it serializes as two
 // space-separated keywords that no single-keyword membership test would match. Read as
-// a third co-equal test, which is how the deck's copy read it, it is dead code on the
+// a third co-equal test, which is how the pane layout's copy read it, it is dead code on the
 // engine that ships. It is not dead everywhere: `happy-dom`, the document the
 // `console-unit` tier runs on, expands neither direction — an element with
 // `style.overflow = "auto"` reports the empty string for both axes there, and an
 // `overflow-x`-only element reports the empty string for the shorthand — so the browser
 // copy, which read only the axes, was blind under that tier to exactly the ancestors
-// the deck's suite builds. The axes are therefore read first and the shorthand is
+// the pane layout's suite builds. The axes are therefore read first and the shorthand is
 // consulted only when neither axis is readable at all: a branch no conformant engine
 // reaches, and the only reading a shim like that offers.
 

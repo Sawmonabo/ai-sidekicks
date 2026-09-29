@@ -16,10 +16,10 @@
  * the feature follows the scheme attribute with no conditional in JSX.
  */
 
-/* --- The deck's shell --------------------------------------------------- */
+/* --- The pane layout's shell --------------------------------------------------- */
 
 /*
- * The empty-deck state: one pane, full width, filling the surface.
+ * The empty pane layout state: one pane, full width, filling the surface.
  *
  * A grid rather than a block, because `.meridian-frame__surface` is a scroll
  * container and a percentage-height chain through a block would collapse the moment

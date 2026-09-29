@@ -33,7 +33,7 @@ installDiffPaneLayout();
 describe("diff pane — the chrome it wears", () => {
   it("is named by the whole trail, not by the word Review", () => {
     // The claim the binding exists for. A body drawing its own header named every diff
-    // pane in a deck "Review"; the chrome names it by where it is, so two panes of one
+    // pane in a pane layout "Review"; the chrome names it by where it is, so two panes of one
     // kind are told apart by the subjects they are views of.
     const { getByRole } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
     const region = getByRole("region", { name: /Review$/u });

@@ -1,4 +1,4 @@
-// What a saved deck layout carries, and the five ways a saved one can be wrong.
+// What a saved pane layout carries, and the five ways a saved one can be wrong.
 //
 // The restore cases are the point of this file. Three of the five are ORDINARY —
 // a record written by another build, a pane kind this one has not got, an entity
@@ -14,8 +14,8 @@
 // Every clean assertion below has a negative control, because the failure mode
 // that matters here is a validator that passes everything.
 //
-// How the layout behaves when the deck moves it — opening, ordering, focus, and the
-// panel group's settled sizes — is `deck-layout.test.ts`.
+// How the layout behaves when the pane layout moves it — opening, ordering, focus, and the
+// panel group's settled sizes — is `pane-layout-store.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -89,7 +89,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
 describe("PaneLayoutStore — what a restore refuses", () => {
   it("discards a snapshot of an unknown version WHOLE", () => {
     // A grammar this build does not know is a grammar whose members it cannot
-    // interpret, and a half-restored deck hides which half went missing.
+    // interpret, and a half-restored pane layout hides which half went missing.
     const layout = twoPaneLayout();
     const snapshot = layout.toSnapshot();
     const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];

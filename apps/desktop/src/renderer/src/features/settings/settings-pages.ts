@@ -46,7 +46,7 @@ export interface SettingsPageDescriptor {
 /**
  * One entry of the page table, in one of exactly two forms.
  *
- * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
+ * THE PANE LAYOUT'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
  * product fact and normalized by the same `LoaderBackedBody`. `seats/pane/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
@@ -114,7 +114,7 @@ export class SettingsPageRegistry {
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalized here exactly as the deck's and the frame's
+   * A loader-form registration is normalized here exactly as the pane layout's and the frame's
    * boards normalize theirs: one `LoaderBackedBody` per registration — one memoised promise
    * and one stable lazy component — and a descriptor whose `render` mounts it. So
    * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same

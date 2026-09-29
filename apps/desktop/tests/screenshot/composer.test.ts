@@ -12,7 +12,7 @@
 // too. That claim is invisible to a DOM assertion reading one attribute and is
 // exactly what an image holds, so the addresses are captured rather than described:
 //
-//   • the session's own composer, which is what focus outside the deck addresses —
+//   • the session's own composer, which is what focus outside the pane layout addresses —
 //     the composition a person meets first;
 //   • a working run, the new-turn path;
 //   • a run waiting on a person, which is the one address that sketch labels

@@ -18,7 +18,7 @@
 // exists to catch.
 //
 // So the pane is held WHOLE here: the built console in a real Electron window, a
-// `terminal` pane resolved out of the deck's own registry and mounted through a
+// `terminal` pane resolved out of the pane layout's own registry and mounted through a
 // real React commit, its emulator on a live WebGL2 context, bound to a session the
 // scenario engine has delivered into. The three claims that make that true are
 // asserted rather than assumed — the renderer mode each instance REPORTS, the

@@ -3,7 +3,7 @@
 // Every overlay primitive registers its own rectangle on mount. The visibility
 // predicate consults the registry, and an overlay whose rectangle intersects the pane
 // makes the view yield. Registration happens once, at the primitive layer, never per
-// overlay instance. The deck states the same rule from its own side and calls it the
+// overlay instance. The pane layout states the same rule from its own side and calls it the
 // airspace registry. The wire table for both reads `renderer-local`, and this module
 // is that locality.
 //
@@ -14,7 +14,7 @@
 // nothing ever put anything into. The registrants are the primitive layer and the
 // reader is a view family, and `core/` is the only rung both of them can reach — one
 // airspace per window, not one per family that draws into it. Nothing but review keeps
-// that true: the workspace deck once carried a second class of this name for the same
+// that true: the session screen's pane layout once carried a second class of this name for the same
 // rule, and because it built none and reached no accessor it passed every automated
 // claim made about it.
 //

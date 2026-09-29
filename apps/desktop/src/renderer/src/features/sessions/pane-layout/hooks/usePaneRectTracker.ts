@@ -29,7 +29,7 @@ export function usePaneRectTracker(options: {
         onFlush: (rects) => sink.current?.(rects),
         // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
         // reading of the same rule: the overlays register on the registry their own
-        // element's document holds, so a deck handed one by a caller would be tracking
+        // element's document holds, so a pane layout handed one by a caller would be tracking
         // an airspace nothing claims — which is what four prop hops of an `airspace`
         // nobody ever passed had this family doing.
         airspace: airspaceRegistryFor(document),

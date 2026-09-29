@@ -21,7 +21,7 @@
 //     from the other's mount: `identity_mismatch` needs a persisted identity anchor a
 //     plain directory has none of, and the unreachable row's path is the thing that
 //     stopped answering.
-//   • The DIFF PANE takes its model as a prop and no wire produces one, so the deck's
+//   • The DIFF PANE takes its model as a prop and no wire produces one, so the pane layout's
 //     own body renders the `not-checked` absence — which is the emptiest frame the
 //     surface has and would pin a baseline of a box. The pane is mounted with
 //     `extendedHeaderChangeSet()` instead, which is the composition `DiffPane.tsx`

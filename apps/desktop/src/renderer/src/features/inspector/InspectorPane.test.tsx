@@ -116,7 +116,7 @@ describe("the inspector with an entity and a session", () => {
     // The name is `aria-labelledby` and not an `aria-label`: the two cannot both name
     // one element, so the chrome points at the crumb list and the pane's name is
     // "session-inspector worktree-1 Inspector" rather than "Inspector" for every
-    // inspector in the deck. The entity contributes its ID and not its kind — the
+    // inspector in the pane layout. The entity contributes its ID and not its kind — the
     // kind is already said by the glyph and the last crumb.
     const store = new SessionStore({ sessionId: SESSION_ID });
     const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
@@ -147,8 +147,8 @@ describe("the inspector with an entity and a session", () => {
 });
 
 describe("a linked inspector says which pane opened it", () => {
-  it("names the source pane the deck opened it from", () => {
-    // The deck puts the source pane's id on the seat, and the record has rendered
+  it("names the source pane the pane layout opened it from", () => {
+    // The pane layout puts the source pane's id on the seat, and the record has rendered
     // that provenance line all along — the pane was discarding the member before
     // the record could read it, so every linked inspector looked unlinked.
     const container = renderPane(

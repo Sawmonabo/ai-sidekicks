@@ -96,7 +96,7 @@ export class PaneRectTracker {
     // above the first, and any registered overlay MOVING, are changes the registry is
     // right to publish — the browser family's publisher re-samples rectangles on
     // exactly those — and re-measuring every tracked pane for them would spend the
-    // whole deck on an answer that cannot differ.
+    // whole pane layout on an answer that cannot differ.
     this.#releaseAirspace = options.airspace.subscribeToChanges(() => {
       const isOccupied = this.#airspace.registeredCount > 0;
       if (isOccupied === this.#wasAirspaceOccupied) {
@@ -151,7 +151,7 @@ export class PaneRectTracker {
    *
    * This is the function all four invalidation sources call — the
    * `ResizeObserver` callback, the window's `resize` listener, the capture-phase
-   * `scroll` listener, and the deck itself when it moves a pane. It reads the DOM
+   * `scroll` listener, and the pane layout itself when it moves a pane. It reads the DOM
    * and arms one frame; the host's write happens there and nowhere else.
    */
   public invalidate(source: RectInvalidationSource): void {

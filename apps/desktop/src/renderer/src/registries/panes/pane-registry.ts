@@ -1,9 +1,9 @@
-// The deck's single mount door: one owner per pane kind.
+// The pane layout's single mount door: one owner per pane kind.
 //
-// The deck rule, in structural terms: one entity opens one pane, through a single
+// The pane layout rule, in structural terms: one entity opens one pane, through a single
 // mount door and a tripwire that fails on a second. This module is that door. A view
 // family is HANDED this table by the composition and claims the kind it owns inside its
-// own `register<Family>` entry point; the deck resolves a pane's kind to a descriptor
+// own `register<Family>` entry point; the pane layout resolves a pane's kind to a descriptor
 // and mounts it. There is deliberately no module-scope convenience that writes into the
 // process-wide instance — a family calling one would compose into production from
 // inside a composition that had handed it somewhere else.
@@ -11,7 +11,7 @@
 // WHY THIS IS NOT `registries/screens/screen-registry.ts`, BESIDE IT IN THIS FAMILY
 //
 // A SURFACE is what a route mounts — one per navigable destination, at most one on
-// screen. A PANE is what the deck holds — several at once, opened by the sidebar,
+// screen. A PANE is what the pane layout holds — several at once, opened by the sidebar,
 // keyed by the entity they are a view of. The two tables answer different questions and are
 // keyed by different closed sets, so folding them together would mean one key
 // space in which a route and a pane could collide.
@@ -20,7 +20,7 @@
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
 // hand-rolled tables that agree today.
 //
-// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
+// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A pane layout
 // links two panes when one opens the other — an inspector opened from a ledger row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
 // mount (`PaneContext.linkedSourcePaneId`), never as a handle held. That is

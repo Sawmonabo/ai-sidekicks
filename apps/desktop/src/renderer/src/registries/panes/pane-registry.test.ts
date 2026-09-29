@@ -1,6 +1,6 @@
-// One owner per pane kind, and the declaration order the deck answers in.
+// One owner per pane kind, and the declaration order the pane layout answers in.
 //
-// The deck rule stated structurally — a single mount door and a tripwire that fails
+// The pane layout rule stated structurally — a single mount door and a tripwire that fails
 // on a second — is enforced by the registry's `"owner-scoped"` policy. Six families
 // claim pane kinds on six branches, so the failure this file exists for is two of them
 // claiming one kind: without the refusal, which body mounts would depend on module
@@ -30,7 +30,7 @@ function descriptor(kind: PaneDescriptor["kind"], owner: string): PaneDescriptor
 describe("pane registry — one owner per kind", () => {
   it("replaces when the same owner re-claims", () => {
     // A hot reload re-runs a family's module. Refusing that would make the console
-    // unreloadable; silently keeping the FIRST would leave the deck rendering the
+    // unreloadable; silently keeping the FIRST would leave the pane layout rendering the
     // pre-edit body, which reads as an edit that did nothing.
     const registry = new PaneRegistry();
     const beforeEdit = descriptor("diff", "repos-family");
@@ -40,9 +40,9 @@ describe("pane registry — one owner per kind", () => {
     expect(registry.registeredPaneKinds()).toStrictEqual(["diff"]);
     // Identity of the BODY, not shape and not of the descriptor object: the registry
     // normalises both registration forms into a descriptor of its own, so what says
-    // which body the deck mounts is the `render` it kept. The two registrations are
+    // which body the pane layout mounts is the `render` it kept. The two registrations are
     // structurally identical, so a registry that kept the FIRST would satisfy every
-    // shape assertion while the deck went on rendering the pre-edit body.
+    // shape assertion while the pane layout went on rendering the pre-edit body.
     expect(registry.descriptorFor("diff")?.render).toBe(afterEdit.render);
     expect(registry.descriptorFor("diff")?.render).not.toBe(beforeEdit.render);
   });
@@ -129,11 +129,11 @@ describe("pane registry — the module-scope door", () => {
 
 describe("pane opener — a pane that opens another can name itself", () => {
   /**
-   * A deck-shaped opener: it records what it was asked for, exactly as a deck
+   * A pane-layout-shaped opener: it records what it was asked for, exactly as a pane layout
    * would copy the link onto the new pane's context.
    *
-   * Driven here rather than left to the ledger deck to discover, for the reason
-   * the module-scope door above is driven here: the deck ships on another branch,
+   * Driven here rather than left to the ledger pane layout to discover, for the reason
+   * the module-scope door above is driven here: the pane layout ships on another branch,
    * so the seat's second parameter would otherwise be a contract nothing exercises
    * until the first consumer gets it wrong.
    */
@@ -164,7 +164,7 @@ describe("pane opener — a pane that opens another can name itself", () => {
     entity: { kind: "worktree", id: "worktree-7" },
   };
 
-  it("carries the source pane id through to the deck", () => {
+  it("carries the source pane id through to the pane layout", () => {
     const { openPane, opens } = recordingOpener();
     openPane(diffAddress, { linkedSourcePaneId: "pane-ledger-2" });
     expect(opens).toStrictEqual([

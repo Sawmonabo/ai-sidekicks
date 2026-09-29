@@ -75,10 +75,10 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
 }
 
 /**
- * The context the deck hands this pane, over the shared builder.
+ * The context the pane layout hands this pane, over the shared builder.
  *
  * Exported because two suites outside this module mount the pane themselves rather
- * than through `renderPane`: the browser tier's box measurement and its deck fill
+ * than through `renderPane`: the browser tier's box measurement and its pane layout fill
  * check, which mount the pane inside a sized slot.
  *
  * The address arm carries no `entity` member: `terminal` is session-scoped, so the

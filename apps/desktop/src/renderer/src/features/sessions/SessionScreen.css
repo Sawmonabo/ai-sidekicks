@@ -8,7 +8,7 @@
 /* --- The session shell -------------------------------------------------- */
 
 /*
- * Three rows: the session header, the deck, and the composer's seat. The deck is the
+ * Three rows: the session header, the pane layout, and the composer's seat. The pane layout is the
  * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
  * the things that scroll rather than pushing the composer off the bottom.
  */

@@ -25,7 +25,7 @@
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through
 // `PaneRegistry` and the destination through `ScreenRegistry`, each
-// after the family registers into it — so a tier renders what the deck and the rail
+// after the family registers into it — so a tier renders what the pane layout and the rail
 // would actually mount rather than a component that happens to sit beside them, and
 // the family's stylesheets arrive on the edges its own modules already own, which is
 // what makes the captured pixels the ones a person would see.
@@ -41,7 +41,7 @@
 // WHY EACH SURFACE IS FOUND A DIFFERENT WAY. Each pane IS one region, and
 // `seats/PaneFrame` names it with `aria-labelledby` pointing at the crumb
 // TRAIL rather than at a heading — so a pane's accessible name is its whole address
-// ("session-1 run-01 Workflow run") and two panes of one kind in one deck are told
+// ("session-1 run-01 Workflow run") and two panes of one kind in one pane layout are told
 // apart by what they are scoped to. That is why the lookup below reads the trail's
 // current crumb rather than comparing the whole name. The destination is not a region
 // at all, so it is addressed by its own root instead.
@@ -97,7 +97,7 @@ function familyPaneRegistry(): PaneRegistry {
 }
 
 /**
- * The workflows pane body the deck holds for a kind, loaded.
+ * The workflows pane body the pane layout holds for a kind, loaded.
  *
  * The resolution — build a family-scoped registry, preload, read the descriptor, throw
  * by name — lives once in `pane-body-resolution.ts`; what stays here is
@@ -111,7 +111,7 @@ async function paneBodyComponent(
 }
 
 /**
- * The deck context a pane is mounted with, minus the parts each caller supplies.
+ * The pane layout context a pane is mounted with, minus the parts each caller supplies.
  *
  * The caller supplies the ADDRESS and the pane id, not a `Pick` of the context: the
  * address is a kind-scoped union, so `entity` is not a key every arm has and a `Pick`

@@ -26,7 +26,7 @@ describe("preview pane chrome", () => {
   it("is named by the trail it sits on rather than by its kind alone", async () => {
     // Through `aria-labelledby` and never `aria-label`: `seats/PaneFrame` names
     // every pane by its whole address — the session it belongs to, then what the pane is
-    // — so two preview panes in one deck are told apart. This mount addresses no session,
+    // — so two preview panes in one pane layout are told apart. This mount addresses no session,
     // so the trail opens on the chrome's own no-address crumb.
     const { region } = await renderPreviewPane();
     const crumbs = document.getElementById(region.getAttribute("aria-labelledby") ?? "");

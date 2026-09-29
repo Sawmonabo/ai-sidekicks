@@ -34,7 +34,7 @@ export type OpenDiffSubject = EntityRef & { readonly kind: "workspace" | "worktr
 
 export interface OpenDiffControlProps {
   readonly subject: OpenDiffSubject;
-  /** Open the pane. Supplied by whoever owns the deck, never reached for. */
+  /** Open the pane. Supplied by whoever owns the pane layout, never reached for. */
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 

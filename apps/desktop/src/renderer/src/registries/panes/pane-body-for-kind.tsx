@@ -30,11 +30,11 @@ declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
  * exists to hold. So the narrowing happens once, here, rather than six times in six
  * families with six different answers for the arm that cannot be served.
  *
- * A MISMATCH IS A RENDERED REFUSAL AND NEVER A THROW. The deck looks a body up BY kind
+ * A MISMATCH IS A RENDERED REFUSAL AND NEVER A THROW. The pane layout looks a body up BY kind
  * and hands it a context addressed at that kind, so the arm below is unreachable
- * through the deck — but the two untyped boundaries (a restored layout row, a typed
+ * through the pane layout — but the two untyped boundaries (a restored layout row, a typed
  * route) are where an address arrives without the compiler, and `core/refusal.ts`'s
- * rule is that one bad row loses that row rather than the deck. A throw here would take
+ * rule is that one bad row loses that row rather than the pane layout. A throw here would take
  * the whole window down for a pane; the refusal keeps the frame and names what was
  * asked for.
  */

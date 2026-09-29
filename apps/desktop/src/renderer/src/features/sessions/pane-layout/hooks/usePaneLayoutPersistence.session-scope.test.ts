@@ -1,10 +1,10 @@
-// What a route from one session to another leaves on the deck.
+// What a route from one session to another leaves on the pane layout.
 //
 // The workspace stays MOUNTED across a navigation between two open sessions — the shell
 // opens session stores and never closes them — so anything this hook holds for the life
 // of the mount is held across sessions too. The restore refusals were exactly that: a
 // session whose saved arrangement could not be read set them, and a session that
-// restored cleanly never replaced them, so the deck went on showing the first session's
+// restored cleanly never replaced them, so the pane layout went on showing the first session's
 // restore errors under the second session's panes.
 //
 // Every case drives the real hook against a real `PaneLayoutStore` and a real store through
@@ -31,7 +31,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
   it("stops showing one session's restore refusals once another session has restored", async () => {
     // The defect: the refusals were mount state. A person who opened a session whose
     // saved layout could not be read, then navigated to a session that restored
-    // cleanly, was shown the first session's errors over the second session's deck —
+    // cleanly, was shown the first session's errors over the second session's pane layout —
     // with nothing on screen tying them to a session they had left.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);

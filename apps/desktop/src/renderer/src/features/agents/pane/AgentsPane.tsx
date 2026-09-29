@@ -1,7 +1,7 @@
 // The Agents pane's body: what each agent in the session is running under.
 //
 // THE FRAME IS NOT THIS MODULE'S, AND THAT IS WHY THIS FILE IS A BODY RATHER THAN A
-// PANE. The deck mounts it inside `seats/PaneFrame`, which draws the section,
+// PANE. The pane layout mounts it inside `seats/PaneFrame`, which draws the section,
 // the kind glyph, the breadcrumb trail, the control strip and the body box. This
 // module draws no heading of its own: a second name inside the body would be a second
 // answer to what this surface is called. The column keeps its own heading, because it

@@ -270,11 +270,11 @@ export interface PaneLink {
 /**
  * The call a card and the palette make to open a pane.
  *
- * A callback handed down by whoever owns the deck, rather than a module-scope
- * function, so a pane opens in the deck that asked for it.
+ * A callback handed down by whoever owns the pane layout, rather than a module-scope
+ * function, so a pane opens in the pane layout that asked for it.
  *
  * The optional `link` is how a pane that opens another says which pane it is: the
- * deck copies it onto the new pane's `PaneContext.linkedSourcePaneId`.
+ * pane layout copies it onto the new pane's `PaneContext.linkedSourcePaneId`.
  * Optional because most opens have no source pane at all — a card and the
  * palette open from a list, not from a pane — and a required member would have both
  * of those inventing a value to pass.
@@ -287,7 +287,7 @@ export type PaneOpener = (address: PaneAddress, link?: PaneLink) => void;
 
 /**
  * One pane kind's entity scope, for the callers that decide at runtime — the
- * deck's layout validator and a card's open-pane call.
+ * pane layout's validator and a card's open-pane call.
  *
  * The read door onto the table above, so no caller keeps its own copy of a row.
  */

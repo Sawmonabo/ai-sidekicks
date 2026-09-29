@@ -6,9 +6,9 @@
 //   • The keybinding table asks the NARROW one, per binding: is text being typed?
 //     "Open the palette" must work while a person is composing a message, and
 //     "delete the selected row" must not. That is `isTextEntryTarget`.
-//   • The deck asks the WIDE one: does the focused widget own its arrow keys? On
+//   • The pane layout asks the WIDE one: does the focused widget own its arrow keys? On
 //     macOS Option+Arrow is word-wise caret movement and Option+Backspace deletes a
-//     word, so a deck chord that fired from inside a find field would rearrange or
+//     word, so a pane layout chord that fired from inside a find field would rearrange or
 //     close the pane a person was typing in. A combobox and a listbox own their
 //     arrows too, and neither is a text field. That is `isEditableTarget`.
 //

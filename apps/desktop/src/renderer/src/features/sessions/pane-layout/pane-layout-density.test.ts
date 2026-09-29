@@ -3,7 +3,7 @@
 // A preset is one number, so the ways it can be wrong are few and each is checked:
 // the axis has to run loosest to tightest (a control whose order is arbitrary is a
 // control nobody can predict), the lookup has to be total, and the fit calculation
-// has to answer at least one — a deck that answered zero would have nowhere to put
+// has to answer at least one — a pane layout that answered zero would have nowhere to put
 // the pane a person just opened.
 
 import { describe, expect, it } from "vitest";
@@ -52,15 +52,15 @@ describe("isPaneLayoutDensity — reading a preset off disk", () => {
 
 describe("panesThatFit", () => {
   it("answers at least one, even in a window narrower than one pane", () => {
-    // A deck that answered zero would have nowhere to put the pane a person just
+    // A pane layout that answered zero would have nowhere to put the pane a person just
     // opened. An unreadably narrow pane is a problem they can fix by resizing the
     // window; an invisible one is not.
     expect(panesThatFit("comfortable", 10)).toBe(1);
   });
 
-  it("negative control: a wide deck fits more than one", () => {
+  it("negative control: a wide pane layout fits more than one", () => {
     // Without this the case above would pass over a function that returned 1 for
-    // every input, which is a different and permanently broken deck.
+    // every input, which is a different and permanently broken pane layout.
     expect(panesThatFit("compact", minimumPaneWidthPx("compact") * 4)).toBe(4);
   });
 });

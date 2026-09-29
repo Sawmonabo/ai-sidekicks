@@ -1,7 +1,7 @@
 // The loader form on the FRAME's board: the same mechanism, keyed by slot.
 //
 // Split from `pane-registry.lazy-body.test.tsx` on the boundary the two boards already are. That file
-// makes the deck's claims — registration shape, reserved chrome, one fetch per
+// makes the pane layout's claims — registration shape, reserved chrome, one fetch per
 // registration, and survival of the duplicate policy — over `PaneRegistry`; these
 // three make the same claims over `ScreenRegistry`, whose key is a slot rather
 // than a pane kind. Reading either half no longer means holding the other's registry.

@@ -4,7 +4,7 @@
 // WHY THE BOUNDARY IS AT THE REGISTRY AND NOT IN THE FAMILIES
 //
 // Every view family registers what it draws through one of the console's boards — the
-// deck's pane registry and the frame's surface registry — by static import, so every
+// pane layout's pane registry and the frame's surface registry — by static import, so every
 // family's body code sits in the entry chunk whether or not that pane or that route is
 // ever reached. Measured on the `renderer-initial-bundle` budget (≤ 450 kB gzip): four
 // landed families spend it to about 79 %, and two more families each carry it past the
@@ -13,7 +13,7 @@
 // It changes ONCE, here, rather than per family and rather than per board. A family
 // supplies a `body` loader instead of a `render` function; the board normalises it into
 // the same resolved descriptor every mount site already reads. That is what keeps
-// `PaneHarnessSurface`'s claim true — the thing it measures is what the DECK would
+// `PaneHarnessSurface`'s claim true — the thing it measures is what the PANE LAYOUT would
 // mount — and what lets a family that has not landed yet take this form verbatim.
 //
 // WHY PRELOAD RATHER THAN A STATIC IMPORT

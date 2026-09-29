@@ -1,7 +1,7 @@
-// The five deck acts, driven against a real layout — what each one moves, and what
+// The five pane layout acts, driven against a real layout — what each one moves, and what
 // each one says.
 //
-// The announcements are the half that goes stale unwatched: the deck's focus is a
+// The announcements are the half that goes stale unwatched: the pane layout's focus is a
 // ring rather than DOM focus, so a screen reader follows nothing unless an act says
 // what happened. Every case below asserts the sentence as well as the move.
 
@@ -30,7 +30,7 @@ function announcer(): Announce & { readonly said: string[][] } {
 }
 
 describe("focusing the next and previous pane", () => {
-  it("cycles the deck and says which pane, and where it sits", () => {
+  it("cycles the pane layout and says which pane, and where it sits", () => {
     const layout = threePaneLayout();
     const announce = announcer();
     const acts = paneLayoutActsOn(layout, announce);
@@ -56,7 +56,7 @@ describe("focusing the next and previous pane", () => {
     expect(announce.said[0]?.[0]).toBe("Focused the Approvals pane, position 3 of 3.");
   });
 
-  it("says a one-pane deck has nowhere to cycle rather than moving in silence", () => {
+  it("says a pane layout of one pane has nowhere to cycle rather than moving in silence", () => {
     const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
     layout.open({ kind: "transcript" });
     const announce = announcer();
@@ -68,9 +68,9 @@ describe("focusing the next and previous pane", () => {
     ]);
   });
 
-  it("negative control: an empty deck says nothing, because the deck already does", () => {
+  it("negative control: an empty pane layout says nothing, because the pane layout already does", () => {
     // Without this the case above would pass over an act that announced on every
-    // press, including over a deck that renders its own "No panes are open."
+    // press, including over a pane layout that renders its own "No panes are open."
     const announce = announcer();
     paneLayoutActsOn(
       new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP }),

@@ -35,7 +35,7 @@ import { TranscriptFeed } from "./TranscriptFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
-/** The deck pane every fixture feed is the body of, so its seat is read under one key. */
+/** The pane every fixture feed is the body of, so its seat is read under one key. */
 export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-ledger-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const SHORT_LOG_EVENT_COUNT = 10;

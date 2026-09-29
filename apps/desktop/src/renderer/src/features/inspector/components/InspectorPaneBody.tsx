@@ -12,10 +12,10 @@ import { InspectedEntity } from "../entity-detail/components/InspectedEntity.js"
  * The two boundary arms, split from the frame so the record's hooks are never
  * called conditionally.
  *
- * `linkedSourcePaneId` comes straight off the pane context, which is where the deck
+ * `linkedSourcePaneId` comes straight off the pane context, which is where the pane layout
  * puts it: a pane opened from another carries the source pane's id on its seat, and
  * an unlinked one carries `undefined` there deliberately rather than by omission. So
- * the record claims a link exactly when the deck made one, and the pane invents
+ * the record claims a link exactly when the pane layout made one, and the pane invents
  * neither the presence nor the absence.
  */
 export function InspectorPaneBody(props: {

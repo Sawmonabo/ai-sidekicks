@@ -1,4 +1,4 @@
-// The harness the deck-persistence suites drive the real hook through.
+// The harness the pane layout persistence suites drive the real hook through.
 //
 // Three suites now: `layout-persistence.restore-order.test.tsx` holds what the restore
 // and the save do to each other in TIME, `layout-persistence.read-failure.test.tsx`

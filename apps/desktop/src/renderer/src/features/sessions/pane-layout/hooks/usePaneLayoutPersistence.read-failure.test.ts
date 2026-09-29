@@ -1,4 +1,4 @@
-// What the deck's restore does when the read never landed at all.
+// What the pane layout's restore does when the read never landed at all.
 //
 // A separate story from `layout-persistence.restore-order.test.tsx`, which is about
 // the ORDER the restore and the save happen in — both of which assume the read
@@ -6,7 +6,7 @@
 // `UiStateStore.read` resolved `undefined` for a record that was never written AND for
 // a read the adapter could not perform, so a transient failure read as a first run.
 // The hook opened its fallback ledger pane, counted zero restored panes, and filed
-// that one pane over the deck the adapter was still holding — and still perfectly
+// that one pane over the pane layout the adapter was still holding — and still perfectly
 // willing to accept a write for.
 //
 // The adapter is the real memory one with exactly one operation misbehaving, and the
@@ -48,7 +48,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
 
   it("negative control: saving is not disabled, so the next deliberate change lands", async () => {
     // Without this the fix could be "never settle the restore", which would leave the
-    // person rearranging their deck all session with nothing kept and no refusal
+    // person rearranging their pane layout all session with nothing kept and no refusal
     // raised — a worse failure than the one being fixed, and invisible in the case
     // above.
     const adapter = new ReadFailurePersistenceAdapter();
@@ -63,7 +63,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     });
     await drain();
 
-    // Two, not three: the deck the person is now looking at replaced the record, which
+    // Two, not three: the pane layout the person is now looking at replaced the record, which
     // is what saving IS. The restore settles on a failed read for exactly this reason.
     adapter.stopFailingReads();
     expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);

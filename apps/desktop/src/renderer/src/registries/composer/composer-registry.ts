@@ -1,7 +1,7 @@
 // The composer seat: what the workspace hands the message input.
 //
 // The composer is the shell chrome every session view already contains. Two
-// families meet on it: the workspace mounts it under the deck, and the composer
+// families meet on it: the workspace mounts it under the pane layout, and the composer
 // family fills it. Neither imports the other — the workspace reads
 // `findComposerRenderer()` and renders whatever is there, and an empty seat renders
 // nothing rather than a placeholder that looks broken.
@@ -48,8 +48,8 @@ export interface ComposerProps {
   readonly draftStore: DraftStore;
   readonly route: AppRoute;
   /**
-   * The deck pane the person is looking at, or `undefined` when focus is not in
-   * the deck.
+   * The pane the person is looking at, or `undefined` when focus is not in
+   * the pane layout.
    *
    * The composer reads it to address a send — a focused pane over an agent entity
    * is what "the addressed target" means at the moment Send is pressed. It is

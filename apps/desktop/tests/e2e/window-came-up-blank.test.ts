@@ -89,7 +89,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // previous revision of this probe pointed at a destination nobody owned — off
       // `#/workflows` when the workflows family took it, off `#/window/timeline/…` once the
       // ledger claimed the last unowned SURFACE slot, and then one layer down at a pane
-      // kind the deck declared and no family rendered. That last address is gone too:
+      // kind the pane layout declared and no family rendered. That last address is gone too:
       // `registeredPaneKinds()` now answers with all eleven of `PANE_KINDS`, so no address
       // anywhere in a built console reaches a reserved arm, and each earlier revision's
       // own instruction — re-point it, do not delete it — ends here, at the point it

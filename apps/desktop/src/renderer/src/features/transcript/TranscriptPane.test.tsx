@@ -78,7 +78,7 @@ describe("TranscriptPane — what it hands the chrome", () => {
     expect(addressCrumbs(pane)).toStrictEqual([]);
   });
 
-  it("hands over the hue the deck attributed the pane to, untouched", () => {
+  it("hands over the hue the pane layout attributed the pane to, untouched", () => {
     const actorHue = tokenReference(formatHueWheelTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);

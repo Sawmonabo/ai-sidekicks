@@ -3,7 +3,7 @@
 // The assertion that matters is the NEGATIVE one: a predicate that answered "these
 // are in order" over a document where they are not would make the whole patch
 // decorative, and the swap is invisible on screen — a screen reader announces a
-// range nobody looking at the deck can see is wrong. So every case below drives the
+// range nobody looking at the pane layout can see is wrong. So every case below drives the
 // real predicate over a document it can be shown to reject.
 
 import { describe, expect, it } from "vitest";

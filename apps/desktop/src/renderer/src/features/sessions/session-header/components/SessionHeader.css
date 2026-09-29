@@ -7,7 +7,7 @@
 /* --- The header --------------------------------------------------------- */
 
 /*
- * One line, and it stays one line: a header that grows to two rows moves the deck
+ * One line, and it stays one line: a header that grows to two rows moves the pane layout
  * under a person's cursor.
  */
 .meridian-session-header {

@@ -17,7 +17,7 @@
 // builder and differ in one argument each:
 //
 //   • the session's own default, which is what a composer addresses when focus is not
-//     in the deck;
+//     in the pane layout;
 //   • the provider-bound path with the run still `running`;
 //   • the provider-bound path with the run `waiting_for_input`, which is where the
 //     composer scenario ends and the one state the design calls "steer".
@@ -165,7 +165,7 @@ async function mountComposerAt(options: {
   return { element: requireRegion(container, "Message composer"), bridge };
 }
 
-/** The composer with focus outside the deck: addressed at the session. */
+/** The composer with focus outside the pane layout: addressed at the session. */
 export async function mountComposerSessionDefault(): Promise<MountedView> {
   return mountComposerAt({ throughKind: "run.running", focusedPane: undefined });
 }

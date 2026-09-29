@@ -10,16 +10,16 @@
 // renderer and not of a terminal pane, and it moved there when the tier's other two
 // figures needed the same forced collection this row already took.
 //
-// WHAT THE HARNESS IS, AND WHY IT IS NOT A DECK
+// WHAT THE HARNESS IS, AND WHY IT IS NOT A PANE LAYOUT
 //
-// The harness mounts a registered pane body without a deck: `registerTerminalPane` claims
+// The harness mounts a registered pane body without a pane layout: `registerTerminalPane` claims
 // the `terminal` kind, and `app/pane-harness/` is the smallest honest door — a fixture
 // surface the fixture launch registers, reached at
 // `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
 // `PaneRegistry` and mounts one more of it per press. It is deliberately not
-// a deck: a reading taken inside one would fold the deck's tab strip, layout, and
+// a pane layout: a reading taken inside one would fold the pane layout's tab strip, layout, and
 // drag machinery into a figure the row scopes to a pane INSTANCE, and would report
-// a pane over budget for the deck's own cost. The deck's absence from the subject
+// a pane over budget for the pane layout's own cost. The pane layout's absence from the subject
 // is closer to the row's sentence than its presence would be.
 
 import { expect } from "vitest";

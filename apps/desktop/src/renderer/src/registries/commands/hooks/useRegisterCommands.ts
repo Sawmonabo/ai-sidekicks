@@ -31,7 +31,7 @@
 //
 // NO CHORDS. The seat contributes acts and binds no keys: a chord is a
 // window-wide claim, the key-binding table refuses two bindings on one chord, and
-// a pane that bound one would be racing every other pane in the deck for it. The
+// a pane that bound one would be racing every other pane in the pane layout for it. The
 // keyboard path to these acts is the palette itself, which is one chord for all
 // of them.
 

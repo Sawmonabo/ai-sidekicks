@@ -268,7 +268,7 @@ export class PaneGeometryPublisher {
    * The move source — `layout-mover`'s producer, and the reason that reason exists.
    *
    * Until this arm the enumeration named a mover no production path ever raised: a
-   * deck reorder, a sibling pane shrinking, and a rail sliding in all move the pane
+   * pane layout reorder, a sibling pane shrinking, and a rail sliding in all move the pane
    * without changing its own box, and none of them reaches a size observer, a window
    * resize, a scroll, a theme attribute, or an overlay registration. The native view
    * therefore stayed at its old coordinates — painted over whatever chrome the pane

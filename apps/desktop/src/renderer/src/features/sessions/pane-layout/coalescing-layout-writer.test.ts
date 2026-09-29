@@ -191,8 +191,8 @@ async function settle(): Promise<void> {
 }
 
 describe("CoalescingLayoutWriter — one writer, two records", () => {
-  it("carries a record that is not the deck's, under its own key", async () => {
-    // The generalisation this class was moved out of `deck/` for. Without it a second
+  it("carries a record that is not the pane layout's, under its own key", async () => {
+    // The generalization this class exists for. Without it a second
     // record would need a second coalescing writer, which is the one thing this module
     // exists to be — and a second one is how two write paths start disagreeing about
     // what "the newest arrangement" means.
@@ -215,8 +215,8 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
 
   it("negative control: two records in flight coalesce independently of each other", async () => {
     // Without this the case above would pass over a writer holding one static slot
-    // for every caller — which would make one record's write drop the deck's queued
-    // arrangement, and the deck's drop the other's.
+    // for every caller — which would make one record's write drop the pane layout's queued
+    // arrangement, and the pane layout's drop the other's.
     const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
     const secondWrites: SecondRecord[] = [];
     const paneLayoutWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
@@ -241,7 +241,7 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
   });
 });
 
-/** A second record the writer carries, beside the deck's. */
+/** A second record the writer carries, beside the pane layout's. */
 type SecondRecord = Record<string, Record<string, number | boolean | string>>;
 
 describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {

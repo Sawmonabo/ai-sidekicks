@@ -1,7 +1,7 @@
 // The console's one live announcer.
 //
 // The console's headless primitives are own-built, and this is the one every family
-// after the substrate would otherwise re-mint: a deck drop outcome, a run-state change,
+// after the substrate would otherwise re-mint: a pane layout drop outcome, a run-state change,
 // an attention item, a toast. Each of those minting its own `aria-live` node is not a
 // style problem — a screen reader reads live regions in the order the DOM mutates them,
 // so N regions is N speakers talking over each other, and the second one to change wins

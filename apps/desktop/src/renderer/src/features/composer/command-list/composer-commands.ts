@@ -77,7 +77,7 @@ export function readComposerCommands(route: AppRoute): ComposerCommands {
  * neither can be true where the other is false.
  *
  * The three rail destinations are `false` for the same structural reason — the
- * composer is mounted under the workspace deck and does not render on the sessions
+ * composer is mounted on the session screen, under the pane layout, and does not render on the sessions
  * list, the workflows builder, or the settings pages.
  */
 function composerWhenContext(route: AppRoute): WindowWhenClauseContext {

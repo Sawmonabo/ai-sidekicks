@@ -3,14 +3,14 @@
 // THE DEFECT. `Suspense` does not reconcile a fallback into its children — it deletes one
 // subtree and inserts another — so the pane chrome a person was standing on is removed
 // and an equivalent one takes its place. Focus went to the document body: a keyboard user
-// on the close control lost their place mid-keystroke, and a deck that had focused a pane
+// on the close control lost their place mid-keystroke, and a pane layout that had focused a pane
 // programmatically lost its own routing. The defect is invisible in a screenshot, which
 // is why it survived every capture the tier takes.
 //
 // DRIVEN THROUGH THE REAL BOARD, not through `LazyBody` directly. What has to hold is the
 // property a family gets by registering a loader, so the case registers one, mounts what
 // the descriptor renders, and asks the document where focus is — the same three steps a
-// deck performs.
+// pane layout performs.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -40,8 +40,8 @@ function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
 /**
  * A registered loader-backed pane, mounted under a host that offers a close control.
  *
- * The controls arrive through the deck's own context rather than as props, because that
- * is how a deck supplies them — and it is what makes the reserved chrome and the loaded
+ * The controls arrive through the pane layout's own context rather than as props, because that
+ * is how a pane layout supplies them — and it is what makes the reserved chrome and the loaded
  * chrome draw the SAME control strip, which is the premise the transfer rests on.
  */
 function mountDeferredPane(): {

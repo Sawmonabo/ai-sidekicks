@@ -32,8 +32,8 @@ function leaseTransitionReasons(): readonly unknown[] {
     .map((beat) => beat.event.payload?.["reason"]);
 }
 
-describe("terminal family — claiming the deck's terminal pane", () => {
-  it("claims the terminal kind on terms the deck can hold it by", () => {
+describe("terminal family — claiming the pane layout's terminal pane", () => {
+  it("claims the terminal kind on terms the pane layout can hold it by", () => {
     const registry = new PaneRegistry();
     registerTerminalPane(registry);
     const descriptor = registry.descriptorFor("terminal");

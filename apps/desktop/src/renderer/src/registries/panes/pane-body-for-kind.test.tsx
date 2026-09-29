@@ -6,7 +6,7 @@
 // for one kind is handed an address of another. They share a module and nothing else, and
 // the two together were past the package's file ceiling.
 //
-// The claim worth a unit is the DISPOSITION. A mismatch is unreachable through the deck,
+// The claim worth a unit is the DISPOSITION. A mismatch is unreachable through the pane layout,
 // which looks a body up by kind; it is reachable from the two untyped boundaries a restored
 // layout row and a typed route are, and there `core/refusal.ts`'s rule is that one bad row
 // loses that row rather than the window. So both negative controls are about the disposition

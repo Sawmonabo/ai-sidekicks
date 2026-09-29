@@ -3,7 +3,7 @@
 // THREE OUTCOMES, BECAUSE TWO OF THEM DECIDE DIFFERENT THINGS. `UiStateStore.read`
 // resolves `undefined` for a record that was never written AND for a read the adapter
 // could not perform, and a caller handed the second reads it as the first: a store
-// that does not know has told it nothing was ever saved. The deck's layout restore is
+// that does not know has told it nothing was ever saved. The pane layout's restore is
 // the case that made it matter — it read `undefined`, opened its fallback ledger pane,
 // counted zero restored panes, and wrote that fallback, so one transient read failure
 // replaced a saved arrangement the adapter was still holding.

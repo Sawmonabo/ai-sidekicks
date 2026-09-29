@@ -45,7 +45,7 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
 export interface EntityDetailProps {
   /** The stored record, or `undefined` where the store holds none for this id. */
   readonly entity: StoredEntity | undefined;
-  /** The id the deck addressed this pane with, wire-verbatim. */
+  /** The id the pane layout addressed this pane with, wire-verbatim. */
   readonly entityId: string;
   /** The session store the record is read from. Details that compose read from it. */
   readonly sessionStore: SessionStore;
@@ -54,7 +54,7 @@ export interface EntityDetailProps {
   /** Set while the projection is known-incomplete; `undefined` while it is whole. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * The pane this inspector was opened from, when the deck linked the two.
+   * The pane this inspector was opened from, when the pane layout linked the two.
    *
    * A PROP and never a coupling: an inspector may be linked to a source pane, and
    * this console's own rule — stated in `InspectedEntity.tsx` — still keeps every

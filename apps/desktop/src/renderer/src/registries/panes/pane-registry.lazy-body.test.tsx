@@ -1,4 +1,4 @@
-// The loader form on the DECK's board: what registers, what mounts, and what is fetched once.
+// The loader form on the PANE LAYOUT's board: what registers, what mounts, and what is fetched once.
 //
 // The claims here are the ones the whole boundary rests on, and every one of them is a
 // claim about a SEAM rather than about a family: a body registered as a loader produces
@@ -41,7 +41,7 @@ function chromedBody(
     });
 }
 
-describe("the deck's board — a loader-form registration", () => {
+describe("the pane layout's board — a loader-form registration", () => {
   it("resolves to the same descriptor shape a component form does", () => {
     const registry = new PaneRegistry();
     registry.register({
@@ -127,7 +127,7 @@ describe("the deck's board — a loader-form registration", () => {
   });
 });
 
-describe("the deck's board — one fetch per registration", () => {
+describe("the pane layout's board — one fetch per registration", () => {
   it("mounts a preloaded body without ever committing the pending marker", async () => {
     // The pane board's half of the same claim, and the one the screenshot tier depends
     // on: a mount that begins after a completed preload must not photograph the marker.
@@ -228,7 +228,7 @@ describe("the deck's board — one fetch per registration", () => {
   });
 });
 
-describe("the deck's board — what the warm walk is offered", () => {
+describe("the pane layout's board — what the warm walk is offered", () => {
   it("reports unloaded loader-backed kinds in declaration order", () => {
     const registry = new PaneRegistry();
     // Registered back to front, and with a component form among them, so an
@@ -269,7 +269,7 @@ describe("the deck's board — what the warm walk is offered", () => {
   });
 });
 
-describe("the deck's board — a loader survives the duplicate policy", () => {
+describe("the pane layout's board — a loader survives the duplicate policy", () => {
   it("leaves no loader behind when a second owner is refused", async () => {
     const registry = new PaneRegistry();
     const admitted = countingLoader<PaneContext>(() => null);
@@ -289,7 +289,7 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
 
   it("replaces the loader when the same owner re-claims", async () => {
     // A hot reload re-runs a family's module. Keeping the first loader would leave the
-    // deck fetching the pre-edit chunk, which reads as an edit that did nothing.
+    // pane layout fetching the pre-edit chunk, which reads as an edit that did nothing.
     const registry = new PaneRegistry();
     const beforeEdit = countingLoader<PaneContext>(() => null);
     const afterEdit = countingLoader<PaneContext>(() => null);

@@ -1,7 +1,7 @@
-// The session screen: the session header, the deck, and the composer's seat.
+// The session screen: the session header, the pane layout, and the composer's seat.
 //
 // This is what a person is looking at when they are looking at a session. It
-// composes three things it does not own — `SessionHeader` (this family's), the deck's
+// composes three things it does not own — `SessionHeader` (this family's), the pane layout's
 // panes (six families', through one mount door), and the composer (the composer
 // family's, through its seat) — and owns exactly one thing itself: the arrangement.
 //
@@ -18,15 +18,15 @@
 //     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty deck opens the ledger.** This surface's own empty state, because no
+//   • **An empty pane layout opens the ledger.** This surface's own empty state, because no
 //     committed document states one: the workspace shows the ledger alone at full
 //     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
-//     to the deck and renders inside it; what a save refused changes what the whole
+//     to the pane layout and renders inside it; what a save refused changes what the whole
 //     surface can do and takes the workspace banner.
 //   • **A banner belongs to the session it was raised in.** This surface is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
-//     went on saying what a save refused in the session somebody left, over the deck
+//     went on saying what a save refused in the session somebody left, over the pane layout
 //     of the one they are looking at. The column rides `seats/session-subject.ts` on
 //     `(bridge, session)`, so the render that first sees the arriving session already
 //     reads an empty one, and a bridge replacement — which retires every call the
@@ -87,7 +87,7 @@ export interface SessionScreenProps {
   readonly paneRegistry: PaneRegistry;
 }
 
-/** The session screen: header, deck of panes, composer seat, and the banner column. */
+/** The session screen: header, pane layout, composer seat, and the banner column. */
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;

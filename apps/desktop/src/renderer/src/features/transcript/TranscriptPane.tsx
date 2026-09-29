@@ -9,7 +9,7 @@
 // draws each row's body, so the body here is a slot that reads the seat rather than a
 // dispatcher of its own.
 //
-// WHY THE CLOSE CONTROL IS NOT DEFAULTED. Closing a pane is the DECK's act. The honest
+// WHY THE CLOSE CONTROL IS NOT DEFAULTED. Closing a pane is the PANE LAYOUT's act. The honest
 // rendering of a control whose act nobody can perform is to leave it out, not to draw it
 // disabled, so the chrome takes it from the host's context and this pane forwards a prop
 // only where its own caller owns the pane's lifetime.
@@ -31,7 +31,7 @@ import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
  */
 export type TranscriptPaneContext = PaneContextOf<"transcript">;
 
-/** What a deck hands the transcript pane: its context and the close control it may offer. */
+/** What a pane layout hands the transcript pane: its context and the close control it may offer. */
 export interface TranscriptPaneProps {
   readonly context: TranscriptPaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */

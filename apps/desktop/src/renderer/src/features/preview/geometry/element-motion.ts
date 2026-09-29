@@ -29,7 +29,7 @@
 // AND A MOVE IS NEITHER OF THOSE. `observeElementPosition` is the composed answer
 // to "did this element change WHERE it is", which no single platform observer
 // reports: a pane keeps its size and its animation state while a sibling shrinks,
-// while the deck reorders around it, and while an ancestor is carried across the
+// while the pane layout reorders around it, and while an ancestor is carried across the
 // screen, and while a fixed-size box beside it is resized in one step by a class.
 // Five sources cover those ways, they share the one motion sampler in
 // `motion-sampling.ts`, and none of them samples at rest.
@@ -175,7 +175,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
  * one of them:
  *
  *   1. REORDER — the element's ancestors are watched for `childList` changes, which
- *      is what a deck reordering its seats performs. Watching the element's own
+ *      is what a pane layout reordering its seats performs. Watching the element's own
  *      children would report its content changing and never its placement.
  *   2. SIBLING RESIZE — each of those same ancestors is watched for size. A sibling
  *      that shrinks moves this element while neither this element nor any ancestor
@@ -252,7 +252,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
  * the one class of movement nothing else in this module can see.
  *
  * THE ANCESTOR WALK STOPS AT THE DOCUMENT BODY. No console surface declares a
- * pane-deck root today, so the body is the outermost box whose reordering can move a
+ * pane layout root today, so the body is the outermost box whose reordering can move a
  * pane; the walk gains a tighter boundary in the edit that declares one, and until
  * then a walk that went further would only add the document element, which no layout
  * reorders.

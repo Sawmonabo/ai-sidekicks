@@ -64,10 +64,10 @@ export interface PaneBindings {
    */
   readonly frameStore?: WindowStore | undefined;
   /**
-   * This pane's identity in the deck, where a case is about WHICH pane it is.
+   * This pane's identity in the pane layout, where a case is about WHICH pane it is.
    *
    * Defaulted from the kind, which is what every suite that has nothing to say here
-   * wants — and named by the one class of case that does: a deck moves a slot to
+   * wants — and named by the one class of case that does: a pane layout moves a slot to
    * another pane without remounting, so a suite proving the pane's state says whose
    * it is has to hold two ids at once. That is a claim the caller makes, and the
    * only reason this member exists rather than the derivation alone.
@@ -91,7 +91,7 @@ export interface PaneBindings {
  * The context a pane body is mounted with, over one address.
  *
  * The pane id is DERIVED from the kind unless the caller names one: the suites that
- * do not care named theirs `pane-<kind>`, and a deck's real ids are per-pane values
+ * do not care named theirs `pane-<kind>`, and a pane layout's real ids are per-pane values
  * most cases never assert on. The exception is a case whose subject IS the identity,
  * and {@link PaneBindings.paneId} is where it says so.
  *

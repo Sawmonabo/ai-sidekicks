@@ -2,7 +2,7 @@
 //
 // The cases that carry weight are the ones where a drop must commit NOTHING: a drag
 // that ended over no pane, and a drag whose payload belongs to somebody else's
-// draggable. Both leave the deck exactly as it was, and a coordinator that quietly
+// draggable. Both leave the pane layout exactly as it was, and a coordinator that quietly
 // dropped onto the last pane it saw would look identical until a person did it.
 //
 // The drop position arithmetic is tested against the same function the drop handler
@@ -14,7 +14,7 @@
 // gesture cannot be driven in this tier at all — jsdom implements neither
 // `DragEvent` nor `DataTransfer` — so a test that went through the monitor would be
 // testing nothing. What a drop announces is invisible to everyone who can see the
-// deck, so it is the half most likely to rot unwatched.
+// pane layout, so it is the half most likely to rot unwatched.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,7 +43,7 @@ describe("reading a drag payload", () => {
   });
 
   it("negative control: somebody else's draggable is not a pane drag", () => {
-    // Without this the deck's monitor would act on every element drag on the page,
+    // Without this the pane layout's monitor would act on every element drag on the page,
     // including a ledger row somebody made draggable later.
     expect(paneIdFromDragData({ ledgerRowId: "row-9" })).toBeUndefined();
     expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: 7 })).toBeUndefined();
@@ -102,7 +102,7 @@ describe("the drag coordinator", () => {
 
   it("negative control: clearing an empty indicator publishes nothing", () => {
     // Without this the coordinator could be publishing on every call, which would
-    // re-render the deck for every frame of a drag that crossed no midpoint.
+    // re-render the pane layout for every frame of a drag that crossed no midpoint.
     const coordinator = new PaneLayoutDragCoordinator();
     const published: (string | undefined)[] = [];
     coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
@@ -171,7 +171,7 @@ describe("what a settled drop says out loud", () => {
   });
 
   it("says a drop released over nothing moved nothing, in the lane that interrupts", () => {
-    // The outcome with no visual trace at all: the deck looks exactly as it did, so
+    // The outcome with no visual trace at all: the pane layout looks exactly as it did, so
     // silence here is indistinguishable from a move nobody saw.
     const layout = threePaneLayout();
     const { announce, recorded } = recordingAnnounce();
@@ -208,7 +208,7 @@ describe("what a settled drop says out loud", () => {
     ]);
   });
 
-  it("negative control: a drag that is not a pane of this deck's says nothing at all", () => {
+  it("negative control: a drag that is not a pane of this pane layout's says nothing at all", () => {
     // Without this, the cases above would pass over a settlement that announced on
     // every drag end on the page — including somebody else's draggable, which it
     // could not name a pane for, and a pane closed while it was in the air.

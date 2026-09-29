@@ -4,7 +4,7 @@
 // `seats/PaneFrame` draws the section, its accessible name, the breadcrumb and the
 // actor's hue for every pane kind; this file returns only the body that goes inside it.
 // The frame is worn on every arm, so a pane that refused its address can still be closed.
-// Neither host control (close, tear off) is defaulted here: they are the deck's acts and
+// Neither host control (close, tear off) is defaulted here: they are the pane layout's acts and
 // reach the chrome through the host context, so no handler is threaded on any arm.
 //
 // The bodies:
@@ -34,7 +34,7 @@ import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addre
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
 
-/** The context the deck resolved for a `workflow-run` pane. */
+/** The context the pane layout resolved for a `workflow-run` pane. */
 export interface RunPageProps {
   readonly context: PaneContextOf<"workflow-run">;
 }

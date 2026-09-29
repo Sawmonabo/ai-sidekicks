@@ -1,6 +1,6 @@
-// The deck's browser pane: the body the registry mounts for the `browser` kind.
+// The pane layout's browser pane: the body the registry mounts for the `browser` kind.
 //
-// It draws the deck's frame and an empty body. The tab strip, the address field and the
+// It draws the pane layout's frame and an empty body. The tab strip, the address field and the
 // page viewport are `PreviewPaneContent.tsx`, which takes the page readings, the page acts
 // and a view host as arguments.
 

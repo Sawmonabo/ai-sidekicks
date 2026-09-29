@@ -121,8 +121,8 @@ describe("what the workflows screen mounts", () => {
   });
 
   it("swaps the runs for the run pane when a run opens, and goes back", async () => {
-    // The registered body, resolved through the deck's own door — so this screen
-    // renders what the deck will render and cannot drift from it.
+    // The registered body, resolved through the pane layout's own door — so this screen
+    // renders what the pane layout will render and cannot drift from it.
     const container = renderScreen();
     await settle();
 

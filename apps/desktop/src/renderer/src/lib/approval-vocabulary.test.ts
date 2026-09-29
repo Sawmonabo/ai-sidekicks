@@ -2,7 +2,7 @@
 //
 // Each table is asserted TOTAL over its own tuple rather than against a hand-typed
 // list, so widening a tuple without widening its tables fails here instead of
-// rendering a nameless token in whichever deck first opened the pane. The
+// rendering a nameless token in whichever pane layout first opened the pane. The
 // classifiers are asserted fail-closed, because "this build does not know that
 // value" and "that value is a member" are the two answers that must not merge.
 

@@ -1,7 +1,7 @@
 // The registered body a pane resolves to, or the refusal that says why it has none.
 //
 // Its own module for the one-component rule, and the narrowing is what earns the
-// split: whether the deck resolved an address or a refusal is a named predicate here
+// split: whether the pane layout resolved an address or a refusal is a named predicate here
 // rather than a condition inside the slot's ternary chain, which already has three
 // arms of its own.
 
@@ -21,7 +21,7 @@ export function PaneBody(props: {
   );
 }
 
-/** Whether what the deck resolved for a pane is an address or a refusal. */
+/** Whether what the pane layout resolved for a pane is an address or a refusal. */
 function isPaneContext(resolved: PaneContext | Refusal): resolved is PaneContext {
   return !("code" in resolved);
 }

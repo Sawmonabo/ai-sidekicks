@@ -182,7 +182,7 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
 
   it("reports an instant resize beside an ANCESTOR, not only beside the element", async () => {
     // Why the watch is rooted at the outermost ancestor. A fixed-size box beside the
-    // deck moves the pane exactly as one beside the pane does, and a subtree rooted
+    // pane layout moves the pane exactly as one beside the pane does, and a subtree rooted
     // at the element's own parent contains neither that box nor its mutation.
     installFakeResizeObserver();
     const { element } = attachedPair();

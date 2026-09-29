@@ -52,7 +52,7 @@ export interface IdleWarmScheduler {
 /**
  * Walk a board's unloaded bodies, one per idle callback, once.
  *
- * GENERIC IN THE KEY BECAUSE THE WALK IS. The deck's board is keyed by pane kind and the
+ * GENERIC IN THE KEY BECAUSE THE WALK IS. The pane layout's board is keyed by pane kind and the
  * frame's by surface slot, and the walk is the same walk over both — a second copy keyed
  * on the other would be one scheduler to keep in step with another, and the two would
  * drift the first time either grew a rule.

@@ -1,7 +1,7 @@
 // Whose draft the address field is holding, when one component instance serves two
 // panes in turn.
 //
-// The deck reuses the component: a slot that changes subject hands the same instance
+// The pane layout reuses the component: a slot that changes subject hands the same instance
 // a different `paneId`, and every case below is about the interval that opens then.
 // The failure it replaces is silent in the worst way — the replacement pane looks
 // like it is offering the operator their own half-typed destination, and Enter sends

@@ -8,7 +8,7 @@
 // Held apart for two reasons. The first is the ordinary one: a per-instance identity
 // rule and a context-composition rule are both testable without a DOM, and neither
 // needs React to state. The second is the rule the harness itself rests on — the
-// thing being measured is what the DECK would mount, which is the descriptor a family
+// thing being measured is what the PANE LAYOUT would mount, which is the descriptor a family
 // registered, so this module takes `PaneDescriptor` and never a pane component,
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
@@ -52,7 +52,7 @@ export function paneInstanceId(
  * Every store comes off the surface context rather than being minted here: the
  * budget's subject is a pane in a RUNNING console, so the pane reads the window's
  * own bridge, frame store, session store, durable UI state, and drafts — the same
- * five a deck would hand it. The two members a deck decides and this harness does
+ * five a pane layout would hand it. The two members a pane layout decides and this harness does
  * not are passed absent rather than invented: nothing opened this pane from another
  * pane, and no actor is attributed to it, which is the neutral answer
  * `PaneContext` documents for both.

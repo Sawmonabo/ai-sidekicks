@@ -18,7 +18,7 @@
  * `box-sizing` is stated here for the reason `primitives/figures/chip.css` states it on every
  * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
  * global `border-box` reset, so a padded box that also has to fill its slot sizes its
- * CONTENT to the slot and adds the padding outside it. In a fixed-height deck slot the
+ * CONTENT to the slot and adds the padding outside it. In a fixed-height pane layout slot the
  * pane was therefore taller than its slot by twice `--meridian-space-3`, which pushes
  * the emulator's bottom rows out of view or introduces a scrollbar nothing asked for.
  * The fill is now `flex: 1 1 auto` against the chrome's own column rather than

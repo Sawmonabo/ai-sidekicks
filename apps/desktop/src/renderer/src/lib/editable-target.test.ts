@@ -1,8 +1,8 @@
-// The two questions, and the gap between them that the deck's defect lived in.
+// The two questions, and the gap between them that the pane layout's defect lived in.
 //
 // The negative control this file exists for is the ANCESTOR arm: before it, a key
 // event fired from inside a `role="textbox"` composed of ordinary elements answered
-// "not editable", which is how a chord reached the deck while a person was typing.
+// "not editable", which is how a chord reached the pane layout while a person was typing.
 
 import { afterEach, describe, expect, it } from "vitest";
 

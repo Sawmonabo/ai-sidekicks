@@ -1,6 +1,6 @@
-// The deck: the panes a person is looking at, side by side.
+// The pane layout: the panes a person is looking at, side by side.
 //
-// The deck holds independent panes, each headed by an entity breadcrumb and a kind
+// The pane layout holds independent panes, each headed by an entity breadcrumb and a kind
 // glyph, with the actor's hue as the focus ring; one entity opens one pane,
 // structurally — a single mount door and a tripwire that fails on a second.
 //
@@ -17,12 +17,12 @@
 //     would then have two places to write. This component subscribes and dispatches.
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
 //     Rects are `rect/rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
-//   • **Rows are memoised.** A four-pane deck under a streaming session re-renders
+//   • **Rows are memoised.** A pane layout of four panes under a streaming session re-renders
 //     the pane whose store changed and not its neighbors, which is what the
 //     partitioned store buys and what an unmemoised map would give straight back.
 //   • **Keyboard before pointer.** Focus, move, and close are chords; resize is on
-//     the separator, which is focusable and operable with the arrow keys. A deck
-//     reachable only by dragging is a deck half the people using it cannot arrange.
+//     the separator, which is focusable and operable with the arrow keys. A pane layout
+//     reachable only by dragging is a pane layout half the people using it cannot arrange.
 //
 // WHAT THE TWO ADOPTED LIBRARIES OWN FOR LAYOUT, PANES AND DRAG, AND WHAT STAYS OURS:
 //
@@ -35,14 +35,14 @@
 //     `minSize` in PIXELS, which is what the density preset means; upstream issue
 //     #720 reports a pixel floor being rescaled as a percentage across a window
 //     resize, which is why `PaneLayoutStore.applyLayout` clamps again over a freshly
-//     measured deck — and only the store's clamp is written to disk.
+//     measured pane layout — and only the store's clamp is written to disk.
 //   • `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture, as the
 //     browser's own HTML5 drag, so no React render happens per frame. It provides
 //     no keyboard drag by design, which is why the Alt+Shift chord below is not an
 //     alternative to the gesture but the accessible path the row's constraint
-//     requires the deck to keep.
+//     requires the pane layout to keep.
 //
-// Own-built and staying own-built: the deck store, the separator's chrome, the drop
+// Own-built and staying own-built: the pane layout store, the separator's chrome, the drop
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
@@ -80,7 +80,7 @@ import { usePaneRectSources } from "../hooks/usePaneRectSources.js";
 import { usePaneRectTracker } from "../hooks/usePaneRectTracker.js";
 import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBoundsCorrection.js";
 
-/** What the deck needs: its layout store, where bodies come from, and how each is addressed. */
+/** What the pane layout needs: its layout store, where bodies come from, and how each is addressed. */
 export interface SessionPaneLayoutProps {
   readonly layout: PaneLayoutStore;
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
@@ -90,7 +90,7 @@ export interface SessionPaneLayoutProps {
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly Refusal[];
   /** Where measured pane rects go, for a body that hosts a native view.
-   * `deck/rect/rect-discipline.ts` holds the rules. */
+   * `pane-rect-tracker.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
@@ -101,7 +101,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   const containerReference = useRef<HTMLDivElement>(null);
   // The window's own clock, not a second time base beside it. In fixture mode that
   // is the scenario's FROZEN clock, which every other surface in the window already
-  // reads: a deck that minted a `RealClock` ran its rect-flush coalescing on wall
+  // reads: a pane layout that minted a `RealClock` ran its rect-flush coalescing on wall
   // time while the ledger and the reveal engine were frozen, so
   // whether a flush had happened when a screenshot was taken depended on how long
   // the runner took, and no advance of the fixture clock could settle it.
@@ -114,7 +114,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
 
   // Read HERE and not inside the drag seam: this is the component with the
-  // context, and a deck mounted outside `LiveAnnouncerProvider` throws on this line
+  // context, and a pane layout mounted outside `LiveAnnouncerProvider` throws on this line
   // rather than reordering panes in a silence nobody watching can detect.
   const announce = useAnnounce();
   const dragCoordinator = usePaneLayoutDragCoordinator();
@@ -123,16 +123,16 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
 
   // The five acts, built once per (layout, announcer) pair and shared by the two things
   // that dispatch them: this component's own key handler below, and the palette rows
-  // `commands/deck-command-seat.ts` contributes. One implementation, so a chord and a
+  // `contributions/commands.ts` contributes. One implementation, so a chord and a
   // palette row cannot mean two moves.
   const acts = useMemo(() => paneLayoutActsOn(layout, announce), [layout, announce]);
   useMountedPaneLayout(acts);
 
   /**
-   * The density floor as a share of the deck, in permille, right now.
+   * The density floor as a share of the pane layout, in permille, right now.
    *
    * Measured at the moment of the act rather than held in state: the floor is a
-   * width in pixels divided by the deck's own width, and a deck width kept in state
+   * width in pixels divided by the pane layout's own width, and a pane layout width kept in state
    * would be a second copy of a number the DOM already has — one that goes stale
    * exactly when the window is being resized. It is read inside a callback and
    * never during a render, so nothing here makes rendering depend on layout.
@@ -159,7 +159,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
       // AND NOT FROM INSIDE A WIDGET THAT OWNS THESE KEYS. `Alt` alone is not the
       // separation it was written as: on macOS Option+Arrow is word-wise caret
       // movement and Option+Backspace deletes a word, and a pane body's find field,
-      // composer, or listbox bubbles those here. Without this the deck would move
+      // composer, or listbox bubbles those here. Without this the pane layout would move
       // or CLOSE the pane somebody was typing in, and call `preventDefault` on the
       // keystroke they meant. The chords stay available from the pane chrome, which
       // is what has focus whenever a body does not.
@@ -186,7 +186,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
         }
         case "Backspace":
         case "Delete": {
-          // Consumed only where there is a pane to close, so a deck focusing nothing
+          // Consumed only where there is a pane to close, so a pane layout focusing nothing
           // leaves Backspace to whatever else wanted it rather than eating the key
           // and saying so — the same rule the window's binding table follows.
           if (state.focusedPaneId !== undefined) {
@@ -236,7 +236,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
    * second through the persistence writer. `onLayoutChange` fires on every frame of
    * the drag and does exactly one thing: invalidates the pane rects, so a native
    * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
-   * to them at the end of it (`deck/rect/rect-discipline.ts`). It is a read, queued to the
+   * to them at the end of it (`pane-rect-tracker.ts`). It is a read, queued to the
    * next frame by the tracker; it writes no layout, which is the rule that callback
    * exists under.
    */

@@ -115,7 +115,7 @@
    * sunken ground stood alone under a caption saying the phases were shown. And
    * content-sized is not the exotic case: `seats/pane-chrome.css` states no block size,
    * so a pane is as tall as its body wherever nothing bounds it — mounted for a
-   * capture, in a window of its own, or before a deck has laid it out. `flex: 1 1 auto`
+   * capture, in a window of its own, or before a pane layout has laid it out. `flex: 1 1 auto`
    * keeps the growth this box always had: the basis is the declaration below, so a
    * BOUNDED seat still stretches the canvas past that size, and the floor keeps a seat
    * too short for it from shrinking it under the height it paints at.

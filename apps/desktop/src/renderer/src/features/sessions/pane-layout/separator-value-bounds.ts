@@ -1,4 +1,4 @@
-// The one defect the deck's panel library is admitted with, and the wrap over it.
+// The one defect the pane layout's panel library is admitted with, and the wrap over it.
 //
 // `react-resizable-panels` 4.12.3 is adopted under the constraint that the open ARIA
 // min/max swap on three-plus pane groups is pinned or patched. The defect is upstream
@@ -57,7 +57,7 @@ export function readSeparatorValueBounds(separator: Element): SeparatorValueBoun
 /**
  * Whether every separator in `root` announces a range a screen reader can read.
  *
- * The predicate the deck's test asserts and the predicate the correction restores,
+ * The predicate the pane layout's test asserts and the predicate the correction restores,
  * in one function — so the test cannot pass against a rule the correction does not
  * enforce, and a negative control that swaps the attributes by hand fails it.
  */
@@ -74,7 +74,7 @@ export function separatorValueBoundsAreOrdered(root: ParentNode): boolean {
 /**
  * Put every crossed range back the right way round. Returns how many it corrected.
  *
- * Counted rather than silent, so the deck's test can assert the correction fired at
+ * Counted rather than silent, so the pane layout's test can assert the correction fired at
  * least once on a three-pane group — a patch that quietly stopped matching would
  * otherwise look identical to a library that had been fixed.
  */

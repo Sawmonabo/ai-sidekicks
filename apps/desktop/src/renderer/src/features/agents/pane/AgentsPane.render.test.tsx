@@ -1,6 +1,6 @@
 // The Agents pane's column, driven as the body it is.
 //
-// The body is mounted by the deck inside the shared pane chrome, so the cases here drive
+// The body is mounted by the pane layout inside the shared pane chrome, so the cases here drive
 // the COMPONENT and nothing about the frame.
 //
 // What the body ASKS FOR, and how long a linkage read lives, is

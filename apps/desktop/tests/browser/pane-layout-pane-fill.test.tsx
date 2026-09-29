@@ -1,18 +1,18 @@
-// Whether a pane fills the slot the deck gives it, in the arrangement the deck
+// Whether a pane fills the slot the pane layout gives it, in the arrangement the pane layout
 // actually uses.
 //
 // THE RULE, AND WHY IT HAD NO CASE. `seats/pane-chrome.css`' `.meridian-pane` is a
 // column flex container with `min-height: 0` and no `flex` and no `height`, so its
 // used `flex` is the initial `0 1 auto`. Under a GRID parent that is harmless — a grid
 // item stretches to its area — and under a COLUMN FLEX parent it is decisive: `0` grow
-// means the section never takes its slot and is sized by its content instead. The deck
-// is a column flex chain (`pane-layout/components/pane-layout.css`), so every pane the deck mounts was
+// means the section never takes its slot and is sized by its content instead. The pane layout
+// is a column flex chain (`pane-layout/components/pane-layout.css`), so every pane the pane layout mounts was
 // content-sized, while `terminal-pane-box.test.tsx` — the one case that measures a pane
 // against a slot — builds its harness as a grid and says so in its own comment. Both
 // paths ship; only the grid one was covered.
 //
 // WHAT IT COST, AND WHAT IT DID NOT. A pane sized by its content hands the ledger's
-// scroll surface a box a fraction of the deck's height, and the virtualizer ranges
+// scroll surface a box a fraction of the pane layout's height, and the virtualizer ranges
 // against that box — measured here at 200 px of a 600 px slot. It is deliberately NOT
 // the endurance tier's 149 px viewport: that reading survives this repair, because the
 // composer takes 463 px of that window and the ledger's share is what is left. Two
@@ -42,7 +42,7 @@ import "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js"
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
-/** The deck's own height. Every assertion below is against this one number. */
+/** The pane layout's own height. Every assertion below is against this one number. */
 const PANE_LAYOUT_HEIGHT_PX = 600;
 
 /**
@@ -76,7 +76,7 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
   const slot = container.querySelector(".meridian-pane-layout__pane");
   const pane = container.querySelector(".meridian-pane");
   if (!(slot instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
-    throw new Error("the pane did not mount into a deck slot");
+    throw new Error("the pane did not mount into a pane layout slot");
   }
   return { slot, pane };
 }
@@ -98,14 +98,14 @@ async function mountPaneInGridSlot(): Promise<MountedPane> {
   return { slot, pane };
 }
 
-describe("browser — a pane fills the slot the deck gives it", () => {
-  it("takes the whole slot height in the deck's column-flex arrangement", async () => {
+describe("browser — a pane fills the slot the pane layout gives it", () => {
+  it("takes the whole slot height in the pane layout's column-flex arrangement", async () => {
     const { slot, pane } = await mountPaneInPaneLayout();
 
     expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
-      "the pane is sized by its content rather than by its slot, so every box below it — the ledger's scroll surface included — is measuring against a height the deck never gave it",
+      "the pane is sized by its content rather than by its slot, so every box below it — the ledger's scroll surface included — is measuring against a height the pane layout never gave it",
     ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
@@ -125,7 +125,7 @@ describe("browser — a pane fills the slot the deck gives it", () => {
     // Without this the two cases above would pass over a `.meridian-pane` that had
     // simply been given a height, and the claim being made is the opposite one: the
     // pane takes what its slot HAS, and a slot with nothing to give leaves it at its
-    // content. This is also the shape the defect wore — the deck's slot did have a
+    // content. This is also the shape the defect wore — the pane layout's slot did have a
     // height, and the pane was reading it as though it did not.
     installMeridianTokens(document);
     const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });

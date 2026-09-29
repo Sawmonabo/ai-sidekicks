@@ -56,7 +56,7 @@ export function useApprovalArrivalAnnouncement(
     if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
       return;
     }
-    // Scoped to this pane, because a deck may hold a second one and its cards are
+    // Scoped to this pane, because a pane layout may hold a second one and its cards are
     // no more this arrival's than an older card of this pane's is.
     const action = findApprovalCardAction(cardRootRef.current ?? document, first.approvalRequestId);
     action?.focus();

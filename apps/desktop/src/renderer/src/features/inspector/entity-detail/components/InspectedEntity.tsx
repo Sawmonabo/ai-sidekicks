@@ -19,11 +19,11 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "../entity-detail-by-kind.js";
 
 export interface InspectedEntityProps {
-  /** What the deck addressed this pane with. */
+  /** What the pane layout addressed this pane with. */
   readonly entityRef: EntityRef & { readonly kind: EntityDetailKind };
   readonly sessionStore: SessionStore;
   /**
-   * The pane this inspector was opened from, when the deck linked the two.
+   * The pane this inspector was opened from, when the pane layout linked the two.
    *
    * A prop rather than a lookup. The inspector is a pane kind and not a fixed third
    * column, and this console's own rule is that a link to a source pane never costs

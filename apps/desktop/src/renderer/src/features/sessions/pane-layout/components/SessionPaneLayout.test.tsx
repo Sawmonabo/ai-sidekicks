@@ -1,4 +1,4 @@
-// The deck: one body per kind, one pane per entity, and the door that enforces both.
+// The pane layout: one body per kind, one pane per entity, and the door that enforces both.
 //
 // The negative control this file exists for is the SECOND MOUNT DOOR. A registry
 // that quietly replaced a claimed kind would look identical on screen — the pane
@@ -29,7 +29,7 @@ function emptyLayout(): PaneLayoutStore {
  * The pane context, cast.
  *
  * Every body below renders a marker string and reads nothing from the context —
- * the subject is the deck's frame, not a pane's content — so constructing four
+ * the subject is the pane layout's frame, not a pane's content — so constructing four
  * stores (one of which opens a database) to satisfy fields nothing reads would make
  * the setup the subject. `TranscriptPane.test.tsx` makes the same trade for the same
  * reason.
@@ -51,7 +51,7 @@ function registryWith(
     registry.register({
       kind: descriptor.kind,
       owner: descriptor.owner ?? "pane-layout-test",
-      // A body with a text field in it, because the deck's keyboard guard is about
+      // A body with a text field in it, because the pane layout's keyboard guard is about
       // where a keystroke came FROM: a marker-only body could not tell a chord
       // taken from the chrome apart from one taken out of somebody's typing.
       render: (context) => (
@@ -66,12 +66,12 @@ function registryWith(
 }
 
 /**
- * The deck under the two providers the frame mounts above every surface.
+ * The pane layout under the two providers the frame mounts above every surface.
  *
- * Not decoration: the deck reads `useAnnounce` to say what a drop settled on and
+ * Not decoration: the pane layout reads `useAnnounce` to say what a drop settled on and
  * `useClock` to hand its rect tracker the window's own time base, and both
  * throw outside their provider by design. `AppFrame` mounts both above every
- * surface, so a bare `render(<Deck/>)` here would be a mount shape production never
+ * surface, so a bare `render(<SessionPaneLayout/>)` here would be a mount shape production never
  * has — and the throw is the primitive refusing to let a surface speak through a
  * region nobody created, or read a clock no window resolved, which is a rule worth
  * honoring in a test rather than working around.
@@ -109,7 +109,7 @@ function threePaneLayout(): HTMLElement {
   );
 }
 
-describe("the deck's mount door", () => {
+describe("the pane layout's mount door", () => {
   it("refuses a second owner claiming a kind rather than replacing the first", () => {
     const registry = registryWith({ kind: "transcript", owner: "ledger" });
     expect(() =>
@@ -135,7 +135,7 @@ describe("the deck's mount door", () => {
   });
 });
 
-describe("the deck's panes", () => {
+describe("the pane layout's panes", () => {
   it("mounts one body per open pane, in the layout's order", () => {
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
@@ -177,9 +177,9 @@ describe("the deck's panes", () => {
     }
   });
 
-  it("announces a range the right way round on a three-pane deck", () => {
+  it("announces a range the right way round on a pane layout of three panes", () => {
     // Upstream issue #740 crosses `aria-valuemin` and `aria-valuemax` on every
-    // separator after the first at the pinned 4.12.3, so the deck corrects them
+    // separator after the first at the pinned 4.12.3, so the pane layout corrects them
     // after each commit. The predicate here is the correction's own.
     expect(separatorValueBoundsAreOrdered(threePaneLayout())).toBe(true);
   });
@@ -195,12 +195,12 @@ describe("the deck's panes", () => {
     expect(separatorValueBoundsAreOrdered(paneLayoutElement)).toBe(false);
   });
 
-  it("says the deck is empty rather than rendering an unexplained blank", () => {
+  it("says the pane layout is empty rather than rendering an unexplained blank", () => {
     const paneLayoutElement = renderPaneLayout(emptyLayout(), registryWith({ kind: "transcript" }));
     expect(paneLayoutElement.textContent).toContain("No panes are open.");
   });
 
-  it("renders what a restore refused, inside the deck the refusal is about", () => {
+  it("renders what a restore refused, inside the pane layout the refusal is about", () => {
     const layout = emptyLayout();
     const report = layout.restore({ $paneLayout: { version: 99 } });
     const { container } = render(
@@ -213,7 +213,7 @@ describe("the deck's panes", () => {
         />
       </PaneLayoutWindow>,
     );
-    // Scoped to the deck's own strip rather than the first `role="status"` in the
+    // Scoped to the pane layout's own strip rather than the first `role="status"` in the
     // tree: the announcer's polite region carries that role too and renders above
     // everything, so a bare role selector would find an empty live region.
     expect(
@@ -222,7 +222,7 @@ describe("the deck's panes", () => {
   });
 });
 
-describe("the deck's keyboard paths", () => {
+describe("the pane layout's keyboard paths", () => {
   it("moves focus with Alt+Arrow and moves the PANE with Alt+Shift+Arrow", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
@@ -276,7 +276,7 @@ describe("the deck's keyboard paths", () => {
   });
 
   it("negative control: the same chord from the pane chrome still moves the pane", () => {
-    // Without this, the case above would pass over a deck whose keyboard paths were
+    // Without this, the case above would pass over a pane layout whose keyboard paths were
     // dead everywhere rather than declining only where a widget owns the keys.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
@@ -298,7 +298,7 @@ describe("the deck's keyboard paths", () => {
   });
 
   it("negative control: the same keys without Alt do nothing", () => {
-    // Without this, the two cases above would pass over a deck that acted on every
+    // Without this, the two cases above would pass over a pane layout that acted on every
     // arrow key — which would make every text field inside a pane unusable.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
@@ -318,7 +318,7 @@ describe("the deck's keyboard paths", () => {
 /**
  * Focus a pane and let React commit before the next act.
  *
- * The commit is what the assertions depend on: the deck's key handler closes over
+ * The commit is what the assertions depend on: the pane layout's key handler closes over
  * the focused pane id from its last render, so a mutation whose re-render has not
  * flushed leaves the handler acting on the pane before last.
  */
@@ -328,7 +328,7 @@ function focus(layout: PaneLayoutStore, paneId: string): void {
   });
 }
 
-/** Dispatch one keydown the way a person's key reaches the deck: by bubbling. */
+/** Dispatch one keydown the way a person's key reaches the pane layout: by bubbling. */
 function press(paneLayoutElement: HTMLElement, init: KeyboardEventInit): void {
   act(() => {
     paneLayoutElement.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
@@ -338,7 +338,7 @@ function press(paneLayoutElement: HTMLElement, init: KeyboardEventInit): void {
 /**
  * Dispatch one keydown from a named element and hand the event back.
  *
- * The event itself is the subject of the editable-target cases: whether the deck
+ * The event itself is the subject of the editable-target cases: whether the pane layout
  * called `preventDefault` is the difference between declining a keystroke and
  * swallowing it, and only the dispatched object carries that.
  */
@@ -380,7 +380,7 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
   }
 
   it("arms its flush on the window's own clock, so a frozen fixture decides when it lands", () => {
-    // The deck used to mint a `RealClock` of its own, which in fixture mode is a
+    // The pane layout used to mint a `RealClock` of its own, which in fixture mode is a
     // second time base beside the frozen one every other surface in the window reads:
     // the rect flush then ran on wall time while the ledger and the reveal engine
     // were frozen, and whether it had fired when a screenshot was taken
@@ -399,9 +399,9 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
     expect(clock.pendingFrameCount).toBe(0);
   });
 
-  it("negative control: the frozen clock has nothing armed until a deck is mounted", () => {
+  it("negative control: the frozen clock has nothing armed until a pane layout is mounted", () => {
     // Without this, the case above would pass over a clock that reported a pending
-    // frame for anything at all, including work no deck ever asked for.
+    // frame for anything at all, including work no pane layout ever asked for.
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     expect(frozenClockOf(bridge).pendingFrameCount).toBe(0);
   });

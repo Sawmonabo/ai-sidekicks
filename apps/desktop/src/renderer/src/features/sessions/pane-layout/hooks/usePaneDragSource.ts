@@ -10,7 +10,7 @@ import { PANE_LAYOUT_DRAG_KEY, type PaneLayoutDragCoordinator } from "../pane-dr
  * The header and not the whole pane: a pane body holds text a person selects and
  * controls they click, and a draggable ancestor turns every one of those into the
  * start of a drag. The header is the strip that means "this pane", which is what
- * makes it the handle in every deck a person has used.
+ * makes it the handle in every pane layout a person has used.
  */
 export function usePaneDragSource(
   coordinator: PaneLayoutDragCoordinator,

@@ -18,7 +18,7 @@ import { DiffChangeSet } from "./DiffChangeSet.js";
 import { type DiffModel } from "../diff-model.js";
 
 /**
- * This body's own address arm, narrowed off the union the deck hands every pane.
+ * This body's own address arm, narrowed off the union the pane layout hands every pane.
  *
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind and a body does not, so the narrowing is stated

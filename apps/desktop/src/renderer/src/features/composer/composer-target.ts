@@ -73,7 +73,7 @@ export type ComposerTarget = ComposerSessionTarget | ComposerRunTarget;
 /** What `resolveComposerTarget` is given. All of it comes from the composer seat. */
 export interface ComposerTargetInput {
   readonly sessionId: string;
-  /** The deck pane a person is looking at, or `undefined` when focus is elsewhere. */
+  /** The pane a person is looking at, or `undefined` when focus is elsewhere. */
   readonly focusedPane: PaneAddress | undefined;
   /** The session store's `agent` partition, read through its selector. */
   readonly agents: Readonly<Record<string, StoredEntity>>;

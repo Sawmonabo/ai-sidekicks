@@ -19,7 +19,7 @@
 //
 // EVERY TABLE BELOW IS TOTAL OVER ITS SET BY CONSTRUCTION. A tenth category or a
 // sixth state fails to compile here rather than rendering as a nameless token in
-// whichever deck first opened the pane. A value the wire sends that this build
+// whichever pane layout first opened the pane. A value the wire sends that this build
 // does not know is NOT asserted into a member: the classifiers at the bottom
 // answer `undefined`, and the surface renders the wire string verbatim under an
 // unrecognized treatment, which is the fail-closed projection rule.

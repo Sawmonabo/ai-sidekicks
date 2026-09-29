@@ -2,7 +2,7 @@
 //
 // The feature owns the embedded browser: the pane's content (the tab strip, the address
 // line and the viewport a native view is placed over), the geometry that positions that
-// view, and the keyboard handback. The deck's seat for the pane is registered here, and
+// view, and the keyboard handback. The pane layout's seat for the pane is registered here, and
 // the body it names is `preview-pane-body.ts`, loaded as its own chunk.
 
 // NONE OF THIS FEATURE'S STYLESHEETS ENTERS HERE, and that is a fact about the graph

@@ -15,7 +15,7 @@
 // person would actually be looking at.
 //
 // AND THE SECOND THING IT OWNS IS WHAT THAT MOUNT LEFT BEHIND. The store the mount
-// opened is DURABLE and it is shared: the sidebar's collapse, the deck's
+// opened is DURABLE and it is shared: the sidebar's collapse, the pane layout's
 // arrangement and the color scheme are written into one IndexedDB database per
 // origin, and unmounting the tree closes a connection rather than removing a
 // record. So a case that collapsed the sidebar was restored into the NEXT case's

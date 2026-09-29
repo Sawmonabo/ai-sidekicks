@@ -57,7 +57,7 @@
 //
 // AND BOTH OF THOSE ARE ANSWERS ABOUT ONE RUN. A typed cancellation reason and a
 // chosen re-pin target are the operator's answers about the run in front of them, and
-// the pane holding this component is RETARGETED IN PLACE — the deck rewrites its
+// the pane holding this component is RETARGETED IN PLACE — the pane layout rewrites its
 // address and hands the same instance another run. Held for the mount, the reason
 // carried over as a sentence about a run it was never written about, and the re-pin
 // carried a version id that is in the new run's chain nowhere: the picker fell back to

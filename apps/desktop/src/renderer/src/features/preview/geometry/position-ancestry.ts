@@ -12,7 +12,7 @@
 //
 //   • WHO the ancestry is — every box whose relayout carries this element.
 //   • WHO IS BESIDE IT — the siblings whose intrinsic size can grow and push it.
-//   • THE CHILD LISTS MOVING — a deck reordering its seats.
+//   • THE CHILD LISTS MOVING — a pane layout reordering its seats.
 //   • THE LAYOUT ATTRIBUTES CHANGING — a width written in one step, which animates
 //     nothing and so is heard by no motion source at all.
 //
@@ -151,7 +151,7 @@ export class SiblingSizeObservers {
  *
  * WHY THE OUTERMOST ANCESTOR AND NOT EACH OF THEM. The box that moved this element
  * can sit beside ANY ancestor, not only beside the element: a fixed-size sibling of
- * the deck moves the pane exactly as a fixed-size sibling of the pane does, and a
+ * the pane layout moves the pane exactly as a fixed-size sibling of the pane does, and a
  * subtree rooted at the innermost ancestor contains neither. The outermost ancestor
  * is the one subtree that holds every one of them, and registering the inner ones
  * as well would queue duplicate records for one mutation without covering one more

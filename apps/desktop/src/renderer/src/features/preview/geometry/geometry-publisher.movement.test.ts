@@ -22,7 +22,7 @@ import {
 // The move source, and the reason that had no producer.
 //
 // `layout-mover` was in the invalidation enumeration and no production path raised
-// it: a repo-wide search found it only in this file. So a pane carried by a deck
+// it: a repo-wide search found it only in this file. So a pane carried by a pane layout
 // reorder, a sibling's relayout, or a rail sliding in kept publishing its old
 // rectangle until something unrelated — a scroll, a window resize, a theme flip —
 // happened to invalidate, and the native view sat over whatever chrome the pane had
@@ -38,7 +38,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     detachAttachedRoots();
   });
 
-  /** Reorder the pane's parent around it, which is what a deck does to its seats. */
+  /** Reorder the pane's parent around it, which is what a pane layout does to its seats. */
   function reorderAround(hostElement: HTMLElement): void {
     const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.insertBefore(sibling, hostElement);
@@ -169,7 +169,7 @@ describe("PaneGeometryPublisher — the move source", () => {
 
   it("negative control: a disposed publisher hears no reorder at all", async () => {
     // Without the disposer reaching the position sources, a pane that unmounted
-    // would keep sampling for the life of the window, once per deck reorder.
+    // would keep sampling for the life of the window, once per pane layout reorder.
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
     const { publisher, clock } = publishingPublisherOver(hostElement);
     publisher.dispose();

@@ -11,9 +11,9 @@
 // what fell off the bottom was the emulator's last rows.
 //
 // THE SLOT IS NOW TWO BOXES DEEP, because the frame is `seats/PaneFrame`'s.
-// The deck sizes the chrome's `<section>`; the chrome gives its body a flex slot
+// The pane layout sizes the chrome's `<section>`; the chrome gives its body a flex slot
 // under the head; this family's box grows into that. So the measurement is the same
-// one against a taller stack: the section fits the deck slot, and the body's own box
+// one against a taller stack: the section fits the pane layout slot, and the body's own box
 // spends its padding inside whatever the section left it rather than beyond it.
 
 import { describe, expect, it } from "vitest";
@@ -32,10 +32,10 @@ import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
-/** A deck slot of a fixed height, which is the only case the rule is about. */
+/** A pane layout slot of a fixed height, which is the only case the rule is about. */
 const SLOT_HEIGHT_PX = 400;
 
-/** What the three cases below measure: the deck's slot, the frame, and this box. */
+/** What the three cases below measure: the pane layout's slot, the frame, and this box. */
 interface MountedPaneBoxes {
   readonly slot: HTMLElement;
   readonly frame: HTMLElement;
@@ -49,7 +49,7 @@ async function mountPaneInFixedSlot(): Promise<MountedPaneBoxes> {
   const { container } = await renderSettled(
     // `display: grid` rather than a bare block, because that is what makes the slot
     // SIZE the pane: a grid item stretches to its area in both axes, so the chrome's
-    // section takes the 400 px the deck allotted it. A block parent would leave the
+    // section takes the 400 px the pane layout allotted it. A block parent would leave the
     // section at its content height and the case below would measure nothing.
     <div style={{ display: "grid", height: `${String(SLOT_HEIGHT_PX)}px` }}>
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />

@@ -1,4 +1,4 @@
-// The chrome every deck pane wears, and the two tables that make it legible.
+// The chrome every pane in the pane layout wears, and the two tables that make it legible.
 //
 // One entity lives in one pane behind a single mount door, and three of the head's
 // contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph,
@@ -9,26 +9,26 @@
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
 // kind's own actions and close. The close arrives either explicitly, from a caller that
-// owns the pane's lifetime, or from `pane-controls.ts`'s context, which the deck
+// owns the pane's lifetime, or from `pane-controls.ts`'s context, which the pane layout
 // provides around every pane body. Explicit wins, so a host that mounts a pane outside a
-// deck and still owns its lifetime is not forced through a context. With neither, THE
+// pane layout and still owns its lifetime is not forced through a context. With neither, THE
 // CONTROL DOES NOT RENDER: a control whose act nobody can perform is left out rather
 // than drawn disabled.
 //
 // AND THE HEAD IS ALSO THE DRAG HANDLE. Pointer reorder runs on
 // `@atlaskit/pragmatic-drag-and-drop`, which binds to an element. The head is the
-// strip that means "this pane" in every deck a person has used, and making the whole
+// strip that means "this pane" in every pane layout a person has used, and making the whole
 // pane draggable would turn selecting text in a body into the start of a drag.
 // The registration arrives through the same host context the two controls do, so a
-// pane rendered outside a deck is simply not draggable — the absent-not-disabled rule
+// pane rendered outside a pane layout is simply not draggable — the absent-not-disabled rule
 // again, applied to a gesture.
 //
 // AND SO IS THE PANE-LEVEL KEY CLAIM, for the same structural reason. A chord that
 // means "this pane" has to be heard wherever focus is inside the pane, and the head
 // is not inside the body — so a family that wants one cannot get it by wrapping its
-// own body, and wrapping the chrome from OUTSIDE puts an element between the deck and
+// own body, and wrapping the chrome from OUTSIDE puts an element between the pane layout and
 // the section it lays out. The browser pane shipped exactly that adapter, with
-// `display: contents` on it to stop the deck seeing a box; the prop below is what it
+// `display: contents` on it to stop the pane layout seeing a box; the prop below is what it
 // was standing in for.
 //
 import "./PaneFrame.css";
@@ -46,7 +46,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
  *
  * `Record<PaneKind, …>` rather than a lookup with a fallback: a twelfth pane kind
  * would be a decision taken outside this package, and it should fail to compile here
- * rather than render as a nameless square in whichever deck first opened it. Several
+ * rather than render as a nameless square in whichever pane layout first opened it. Several
  * kinds share a glyph on purpose — `runs` is a list OF runs and `workflow-run` is a run OF a
  * workflow — and inventing a distinct mark for each would grow the glyph family past
  * what a person can hold, which is the cost `tokens/glyphs.ts` names.
@@ -71,7 +71,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
  * One spelling serves the heading, the trail's current crumb, and the mismatch
  * refusal, which is why the ledger's `title` prop is gone rather than kept as an
  * override: a caller able to pass "Runs" to one pane and "Run list" to the next is a
- * deck that reads as two products.
+ * pane layout that reads as two products.
  *
  * Total for `GLYPH_BY_PANE_KIND`'s reason, and separate from the kind string because
  * the kind is a wire-shaped identifier (`workflow-run`) and a person reads a phrase
@@ -111,7 +111,7 @@ export interface PaneFrameProps {
    * A prop AND a mint, because both callers exist: a host that has already written
    * `aria-controls` or a heading reference at the id it chose passes it, and a family
    * mounting a body through the registry has no id to pass and must not have to invent
-   * one. `useId` is what makes the second case safe — two panes of one kind in one deck
+   * one. `useId` is what makes the second case safe — two panes of one kind in one pane layout
    * would otherwise collide on any literal.
    */
   readonly headingId?: string;
@@ -119,7 +119,7 @@ export interface PaneFrameProps {
   readonly runId?: string | undefined;
   readonly entity?: EntityRef | undefined;
   /**
-   * The focus treatments' color as a `var()` reference, or `undefined` where the deck
+   * The focus treatments' color as a `var()` reference, or `undefined` where the pane layout
    * has no actor to attribute the pane to. Undefined takes the neutral ring, which is
    * the fail-closed answer: an unattributed pane never borrows someone's hue.
    */
@@ -137,7 +137,7 @@ export interface PaneFrameProps {
    * this chrome draws is not a descendant of the body a family supplies. A family that
    * wraps `<PaneFrame>` from the outside to get the capture is drawing a second
    * element around a laid-out pane; the one that shipped had to declare
-   * `display: contents` to stop the deck seeing a box, which is an adapter that exists
+   * `display: contents` to stop the pane layout seeing a box, which is an adapter that exists
    * only because this prop did not.
    *
    * CAPTURE and not bubble, on the same reasoning: the claim is the pane's, so it is
@@ -153,16 +153,16 @@ export interface PaneFrameProps {
 /**
  * One pane's frame: kind glyph, breadcrumb, control strip, focus treatments, body.
  *
- * The section is focusable at `tabIndex={-1}` rather than `0`. A deck holds several
+ * The section is focusable at `tabIndex={-1}` rather than `0`. A pane layout holds several
  * panes and every one of them would otherwise sit in the tab order ahead of the
  * controls inside it; `-1` keeps the pane reachable programmatically — which is what a
- * deck's own focus routing needs — without spending a tab stop per pane.
+ * pane layout's own focus routing needs — without spending a tab stop per pane.
  *
  * IT IS NAMED BY ITS TRAIL AND NOT BY A SECOND ATTRIBUTE. `aria-labelledby` and
  * `aria-label` cannot both name one element: the accessible-name algorithm prefers the
  * reference, so an `aria-label` beside it is text nothing ever reads. The reference
  * points at the crumb list, whose last crumb is this pane's own name — so the name is
- * "session-1 run-01 Runs" rather than "Runs" for every runs pane in the deck.
+ * "session-1 run-01 Runs" rather than "Runs" for every runs pane in the pane layout.
  */
 export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();

@@ -41,7 +41,7 @@ export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): Re
   const { authoring } = props;
   const [pastedFile, setPastedFile] = useState("");
   const [importOpen, setImportOpen] = useState(false);
-  // Generated rather than fixed: two builder panes can stand in one deck, and a
+  // Generated rather than fixed: two builder panes can stand in one pane layout, and a
   // hardcoded id would give the second one's label a control belonging to the first.
   const pasteBoxId = useId();
   return (

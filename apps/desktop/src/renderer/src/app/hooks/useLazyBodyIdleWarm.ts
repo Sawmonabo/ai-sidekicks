@@ -6,7 +6,7 @@
 // effect runs after that commit, and the walk's own scheduler then waits for an idle
 // callback on top of it.
 //
-// ONE WALK PER BOARD, both boards. The deck's pane registry and the frame's surface
+// ONE WALK PER BOARD, both boards. The pane layout's pane registry and the frame's surface
 // registry each hold loader-backed bodies, and `LazyBodyIdleWarm` is generic in the key
 // precisely so this file arms the same walk over both rather than owning two.
 //

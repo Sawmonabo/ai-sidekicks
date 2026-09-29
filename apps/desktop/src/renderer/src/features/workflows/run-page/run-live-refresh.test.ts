@@ -247,7 +247,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("refuses a named frame on a pane that names no run of its own", async () => {
-    // The deck opens a run pane from a keybinding before an entity is chosen. Such a
+    // The pane layout opens a run pane from a keybinding before an entity is chosen. Such a
     // pane reads nothing, so a frame naming some other run is a frame about a run this
     // reading is not showing — the same refusal, arrived at from the other side.
     const clock = new ManualClock();
@@ -290,7 +290,7 @@ describe("WorkflowRunLiveRefresh — what does not advance it", () => {
   });
 
   it("observes nothing at all with no session behind the pane", async () => {
-    // The deck opens a run pane from a keybinding before a session is chosen. With no
+    // The pane layout opens a run pane from a keybinding before a session is chosen. With no
     // store there is no timeline to watch, and a reading that invented one would be
     // watching a session nobody named.
     const clock = new ManualClock();

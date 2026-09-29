@@ -20,7 +20,7 @@ export interface TranscriptRowHostProps {
   /** The registered row renderer, or `undefined` while none is registered. */
   readonly body: TranscriptRowRenderer | undefined;
   readonly sessionStore: SessionStore | undefined;
-  /** The deck pane this body fills, for the seat the feed claims under it. */
+  /** The pane this body fills, for the seat the feed claims under it. */
   readonly paneId: string;
 }
 

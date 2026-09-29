@@ -24,7 +24,7 @@
 // dismissed is still the newest thing the pane is doing, and its failure is news.
 //
 // AND EVERY ONE OF THOSE ACTS BELONGS TO A SUBJECT. A token orders acts against each
-// other and says nothing about which pane they were dispatched for, so a deck that
+// other and says nothing about which pane they were dispatched for, so a pane layout that
 // rebinds this component to another `paneId` or another bridge kept both halves: a
 // navigation dispatched under the previous subject settled afterwards and published
 // its refusal beside the NEW pane, naming a page nobody was looking at, and a local

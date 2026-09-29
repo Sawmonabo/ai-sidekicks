@@ -36,7 +36,7 @@ import {
 import { type ScreenName } from "@renderer/registries/screens/screen-registry.js";
 
 /**
- * The body the deck holds for a kind, with its module already loaded.
+ * The body the pane layout holds for a kind, with its module already loaded.
  *
  * TAKES THE FAMILY'S OWN REGISTRAR AND BUILDS THE REGISTRY HERE, for the reason each
  * caller used to state separately: the registry is owner-scoped state, so two tiers

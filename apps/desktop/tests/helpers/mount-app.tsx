@@ -56,7 +56,7 @@ export async function mountApp(): Promise<RenderResult> {
  * surface renders and never about timing.
  *
  * THE PANE BOARD IS DELIBERATELY NOT WALKED HERE. A surface is what a rail destination
- * mounts, and that is what these suites drive; the pane board holds every kind a deck
+ * mounts, and that is what these suites drive; the pane board holds every kind a pane layout
  * can seat, including ones whose modules stand up an emulator or a hosted view, and
  * loading all of them at every `AppProviders` mount stands up machinery no case asked
  * for. The pane side has its own answer next door — `app-harness.ts`

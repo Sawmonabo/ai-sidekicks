@@ -19,7 +19,7 @@
 // hand-repeated array is two closed sets that agree until someone widens one.
 
 /**
- * Every kind of pane the deck can hold, in the design's own order.
+ * Every kind of pane the pane layout can hold, in the design's own order.
  *
  * Two members are built now and wired live only once the decisions behind them
  * land — `browser` (a main-process `WebContentsView`) and `terminal` (gated on the

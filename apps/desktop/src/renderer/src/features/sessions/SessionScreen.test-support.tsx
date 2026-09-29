@@ -70,7 +70,7 @@ export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   return store;
 }
 
-/** A body that says which kind it is, so a pane is identifiable in the rendered deck. */
+/** A body that says which kind it is, so a pane is identifiable in the rendered pane layout. */
 function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
   return <p data-body={props.kind}>{props.kind} body</p>;
 }
@@ -146,7 +146,7 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
 /**
  * The workspace under the window's providers, which is where `AppFrame` mounts it.
  *
- * The deck inside reads `useAnnounce` to say what a pane drop settled on, and that
+ * The pane layout inside reads `useAnnounce` to say what a pane drop settled on, and that
  * hook throws outside the provider by design — so this wrapper is the production
  * mount shape rather than test scaffolding.
  */
@@ -176,7 +176,7 @@ export function otherSession(): SessionWithStore {
  * The workspace for one session, in the shape `AppFrame` mounts it in.
  *
  * The provider carries the SAME bridge the surface is handed, because that is what the
- * frame does: one window, one transport, and one clock resolved off it — the deck reads
+ * frame does: one window, one transport, and one clock resolved off it — the pane layout reads
  * that clock for its rect tracker.
  */
 export function workspaceFor(

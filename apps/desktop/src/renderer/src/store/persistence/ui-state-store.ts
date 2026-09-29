@@ -33,7 +33,7 @@
 //      same thing. What separates the two classes is not whether a caller writes at
 //      all but whether it writes a value it DERIVED from the absence back over the
 //      same record: a layout restore does — it opens its fallback arrangement and
-//      files it — so one failed read destroys a deck the adapter is still holding,
+//      files it — so one failed read destroys a pane layout the adapter is still holding,
 //      and both layout restores therefore take `readOutcome`. A caller that only
 //      re-files a constant mark, or that writes nothing until a person acts, reads
 //      the same answer either way and takes the projection.

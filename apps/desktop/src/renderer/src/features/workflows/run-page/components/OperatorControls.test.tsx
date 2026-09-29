@@ -247,7 +247,7 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
 });
 
 /*
- * THE PANE HOLDING THESE CONTROLS IS RETARGETED IN PLACE. The deck rewrites a pane's
+ * THE PANE HOLDING THESE CONTROLS IS RETARGETED IN PLACE. The pane layout rewrites a pane's
  * address and hands the same component instance another run, so the two fields here —
  * a typed cancellation reason and a chosen re-pin target — have to be answers about
  * the run the controls are now addressed at.

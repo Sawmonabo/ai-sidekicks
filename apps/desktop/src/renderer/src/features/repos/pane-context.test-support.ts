@@ -10,7 +10,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
  * own arm survives into the return. The binding half IS cast: the persistence stack
  * is three constructions no co-located case observes, and a builder that made them
  * anyway would put every pane suite on stores it never reads. A surface tier that
- * DOES mount the real deck composes `paneBinding` instead.
+ * DOES mount the real pane layout composes `paneBinding` instead.
  */
 export function paneContext<TAddress extends PaneAddress>(reached: {
   readonly address: TAddress;

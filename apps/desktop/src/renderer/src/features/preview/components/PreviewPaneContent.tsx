@@ -3,7 +3,7 @@
 // The chrome derives nothing. Back and forward are enabled from the view's reported
 // history state and the tabs are drawn from the page list, both handed in as readings,
 // and every control dispatches through the acts it is handed, so the component holds no
-// subscription and no second copy of either. `PreviewPane.tsx` is what the deck mounts;
+// subscription and no second copy of either. `PreviewPane.tsx` is what the pane layout mounts;
 // this is the body that goes inside `seats/PaneFrame`, which draws the section,
 // its accessible name and the actor's hue.
 //
@@ -56,7 +56,7 @@ export interface BrowserChromeActs {
   readonly reorderPage: (pageId: string, toIndex: number) => void;
 }
 
-/** What the pane's content draws from, beside the deck's context. */
+/** What the pane's content draws from, beside the pane layout's context. */
 export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
   /** Where the page is, and whether it can go back or forward. */
   readonly navigation: NavigationReading;

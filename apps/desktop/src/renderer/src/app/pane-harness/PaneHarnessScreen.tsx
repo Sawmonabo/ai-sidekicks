@@ -4,14 +4,14 @@
 // WHY IT EXISTS. The console budgets bound one `terminal` pane instance, and a budget's
 // harness has to hold the subject the row names: the emulator, its WebGL renderer, and
 // the pane's own React tree, lease, and store state. Nothing in this revision mounts a
-// registered pane — the deck that will open them is a later family's — so the endurance
+// registered pane — the pane layout that will open them is a later family's — so the endurance
 // tier had no window in which one could be held, and the row sat ungated for want of a
 // mount rather than for want of a measurement. This is that mount, and it is
 // deliberately the smallest one that is honest: an address, the registry's own resolve,
 // and a control that opens another instance.
 //
 // WHY IT RESOLVES THROUGH THE REGISTRY AND NEVER IMPORTS A PANE. The thing being
-// measured is what the DECK would mount, which is the descriptor a family
+// measured is what the PANE LAYOUT would mount, which is the descriptor a family
 // registered — the one the terminal feature's `registerTerminalPane` declares,
 // reached by `PaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
 // directly would measure a component that happens to sit beside the registration,
@@ -42,12 +42,12 @@
 // so the instances themselves were handed to a session they had never been bound to.
 //
 // WHAT THE SUBJECT IS, AND WHAT IT IS NOT. What this surface holds is one pane
-// instance and everything that instance owns. It is NOT a deck: there is no tab
+// instance and everything that instance owns. It is NOT a pane layout: there is no tab
 // strip, no layout, no drag target, and no detach path, and that is the right
 // boundary rather than a gap — the row's own sentence bounds "one `terminal` pane
 // instance … the `@xterm/xterm` instance, its WebGL renderer, and the pane's own
-// state", and a reading taken inside a deck would fold the deck's chrome into a
-// per-instance figure and report a pane over its budget for the deck's own cost.
+// state", and a reading taken inside a pane layout would fold the pane layout's chrome into a
+// per-instance figure and report a pane over its budget for the pane layout's own cost.
 
 import { useState } from "react";
 

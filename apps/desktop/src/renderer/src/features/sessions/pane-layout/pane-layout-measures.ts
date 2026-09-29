@@ -7,10 +7,10 @@
 //
 // The density axis travels with its widths: the width table is a total `Record` keyed by the
 // preset union, so a module holding the widths and importing the union from the module that
-// imports the widths would be a cycle. `deck/model/density.ts` keeps what reads these.
+// imports the widths would be a cycle. `pane-layout-density.ts` keeps what reads these.
 
 /**
- * The deck's density presets, widest first.
+ * The pane layout's density presets, widest first.
  *
  * Closed, and declared exactly once: the union below is derived from this tuple rather
  * than written beside it, because two hand-kept copies of a closed set drift in the
@@ -26,7 +26,7 @@ export const PANE_LAYOUT_DENSITIES = ["comfortable", "standard", "compact"] as c
 export type PaneLayoutDensity = (typeof PANE_LAYOUT_DENSITIES)[number];
 
 /**
- * What a new deck runs at, and what a restored snapshot falls back to.
+ * What a new pane layout runs at, and what a restored snapshot falls back to.
  *
  * This family's own default, stated with the presets it chooses between: new panes
  * open at the standard preset.
@@ -53,7 +53,7 @@ export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensit
   // half; two fill a wide external display.
   comfortable: 400,
   // ~44 characters plus chrome. Three panes on a 1440-point display, which is the
-  // arrangement the deck is designed around.
+  // arrangement the pane layout is designed around.
   standard: 340,
   // ~32 characters plus chrome — the legibility floor. Below this the ledger's own
   // rows start wrapping mid-clause and the density stops buying anything.
@@ -63,7 +63,7 @@ export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensit
 /**
  * The smallest visible extent a native view is drawn at, in CSS pixels.
  *
- * The hide threshold `deck/rect/rect-discipline.ts` states: a native view hides when either
+ * The hide threshold `pane-rect-tracker.ts` states: a native view hides when either
  * dimension of the visible clip is below one pixel. One pixel rather than zero because
  * a sub-pixel clip is a view the compositor still composites and nobody can see — the
  * cost with none of the benefit.

@@ -5,7 +5,7 @@
 // package's ceiling. Two of the three mount a chrome and then read the pane element out
 // of the render, and a second copy of that four-line lookup is a second answer to what
 // counts as "the pane": one file asserting on the section and another on whatever the
-// deck wrapped it in is exactly how a frame regression passes half a tier.
+// pane layout wrapped it in is exactly how a frame regression passes half a tier.
 
 import { render } from "@testing-library/react";
 

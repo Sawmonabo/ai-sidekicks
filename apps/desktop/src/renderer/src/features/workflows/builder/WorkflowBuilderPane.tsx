@@ -32,7 +32,7 @@
 // run of it. This pane authors the first, so a run id addressed here must not be
 // carried into a definition read and presented as the definition a person asked to
 // edit. The guard is a typed refusal rather than a throw, because one
-// mis-addressed pane must not take the deck down with it, and rather than a silent
+// mis-addressed pane must not take the pane layout down with it, and rather than a silent
 // empty arm, because a surface that renders nothing tells nobody what is wrong.
 //
 // GEOMETRY IS NOT DEFINITION BYTES. Canvas layout is client-local: dragging a node
@@ -55,7 +55,7 @@ import { NodeGraphMountPoint } from "./components/NodeGraphMountPoint.js";
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "A definition as a graph, refused at the point a refused shape is drawn.";
 
-/** What the deck hands the builder body: the pane's context, entity and stores included. */
+/** What the pane layout hands the builder body: the pane's context, entity and stores included. */
 export interface WorkflowBuilderPaneProps {
   readonly context: PaneContextOf<"workflow-builder">;
 }

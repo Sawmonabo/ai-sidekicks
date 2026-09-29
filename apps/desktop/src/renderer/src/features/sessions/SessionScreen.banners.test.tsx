@@ -7,7 +7,7 @@
 // touched, and a refusal raised in one session went on standing over the next.
 //
 // A banner is raised by a refused save, so each case commits an arrangement — cycling
-// deck focus commits one without opening or closing a pane — against a store whose
+// pane layout focus commits one without opening or closing a pane — against a store whose
 // writes have been made to fail.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
@@ -191,7 +191,7 @@ describe("SessionScreen — the banner column belongs to the session that raised
   it("stops showing one session's banners once the workspace routes to another", async () => {
     // The defect: a mount-lifetime list. The workspace is not remounted between two
     // open sessions, so a refusal raised while the first was on screen went on standing
-    // over the second's deck — a sentence about an act nobody performed in the session
+    // over the second's pane layout — a sentence about an act nobody performed in the session
     // they are looking at, with nothing on screen tying it to the one they left.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);

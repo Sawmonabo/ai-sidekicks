@@ -1,9 +1,9 @@
-// The deck's layout, driven: what one entity opens, what order and focus do, and what
+// The pane layout's arrangement, driven: what one entity opens, what order and focus do, and what
 // the panel group's settled sizes are allowed to change.
 //
-// Split from `deck-layout.snapshot.test.ts`, which is about what a saved layout
+// Split from `pane-layout-store.snapshot.test.ts`, which is about what a saved layout
 // carries and the five ways a restored one can be wrong. This half touches no
-// snapshot at all — it is the layout as the deck itself moves it.
+// snapshot at all — it is the layout as the pane layout itself moves it.
 
 import { describe, expect, it } from "vitest";
 
@@ -120,7 +120,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
 });
 
 describe("PaneLayoutStore — adopting what the panel group settled on", () => {
-  it("takes the group's percentages as the deck's widths, still summing to the total", () => {
+  it("takes the group's percentages as the pane layout's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
     layout.open({ kind: "runs" });
     const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
@@ -199,8 +199,8 @@ describe("PaneLayoutStore — the split act", () => {
     expect(after.reduce((total, size) => total + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  it("negative control: an open naming no source re-divides the whole deck", () => {
-    // Without this the case above would pass over a deck that never equalised at
+  it("negative control: an open naming no source re-divides the whole pane layout", () => {
+    // Without this the case above would pass over a pane layout that never equalised at
     // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
@@ -211,7 +211,7 @@ describe("PaneLayoutStore — the split act", () => {
 
   it("falls back to the list seating when the source is too narrow to halve", () => {
     // A pane at one permille has no width to give. The person still asked for a pane,
-    // so they get one and the deck re-divides rather than the open being refused.
+    // so they get one and the pane layout re-divides rather than the open being refused.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "runs" });

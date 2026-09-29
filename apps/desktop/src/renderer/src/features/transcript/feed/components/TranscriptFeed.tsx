@@ -73,9 +73,9 @@ import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
   /**
-   * The deck pane this feed is the body of.
+   * The pane this feed is the body of.
    *
-   * Carried rather than derived, because the follow seat is keyed by it: a deck can
+   * Carried rather than derived, because the follow seat is keyed by it: a pane layout can
    * hold this feed beside a second one, and a chip press names the pane it focused.
    */
   readonly paneId: string;

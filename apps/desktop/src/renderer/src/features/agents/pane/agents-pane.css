@@ -7,9 +7,9 @@
  * the chrome settles.
  *
  * Two equal columns at body width and one column when the body is narrow: the pane may
- * be half the deck wide or all of it. The breakpoint is on the CONTAINER rather than
+ * be half the pane layout wide or all of it. The breakpoint is on the CONTAINER rather than
  * the viewport for exactly that reason — the same body, two very different widths, and
- * a viewport query would answer about the wrong box in the deck.
+ * a viewport query would answer about the wrong box in the pane layout.
  */
 
 .meridian-agents {

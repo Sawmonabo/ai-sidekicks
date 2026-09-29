@@ -3,7 +3,7 @@
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
 
-/** The durable record the deck's arrangement is saved under, per session. */
+/** The durable record the pane layout's arrangement is saved under, per session. */
 export const PANE_LAYOUT_RECORD_KEY = "pane-layout";
 
 /** Why the workspace itself refused. Closed, so a second cause is a decision. */
@@ -27,7 +27,7 @@ export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[
  * re-arms it and a `UiStateStore` REPLACEMENT — a reconnect re-mints the store and
  * hands it down without remounting anything — does not. A restore that re-ran there
  * would replace a
- * deck the person has been arranging for minutes with whatever the record holds,
+ * pane layout the person has been arranging for minutes with whatever the record holds,
  * which reads as the window silently undoing their work.
  *
  * It owns nothing, so it is a value and not a resource: there is no disposal, and a
@@ -60,7 +60,7 @@ export class RestoreProgress {
    *
    * A read abandoned before it settled — the effect torn down, the strict-mode
    * double mount — has adopted nothing, so the next pass must be free to read again.
-   * A settled restore is never re-armed by this: it has already replaced the deck,
+   * A settled restore is never re-armed by this: it has already replaced the pane layout,
    * and reading a second time is what this whole holder exists to prevent.
    */
   public abandon(): void {

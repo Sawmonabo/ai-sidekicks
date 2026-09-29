@@ -103,7 +103,7 @@ describe("the ledger — which slots it holds", () => {
 });
 
 describe("the ledger — what it mounts", () => {
-  it("mounts the session screen — the session header, the deck, and the composer's seat", () => {
+  it("mounts the session screen — the session header, the pane layout, and the composer's seat", () => {
     const registry = registeredLedger();
     const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
     expect(shell.type).toBe(TranscriptSurface);

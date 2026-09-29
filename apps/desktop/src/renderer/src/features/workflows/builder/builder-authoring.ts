@@ -24,7 +24,7 @@ export const WORKFLOW_BUILDER_SUBJECT_KIND: EntityRef["kind"] = "workflow-defini
  * The state of a pane handed an entity it does not author.
  *
  * REFUSED AND NEVER THROWN, and never quietly read either. Both of the other
- * dispositions are worse than this one: a throw takes the whole deck down over one
+ * dispositions are worse than this one: a throw takes the whole pane layout down over one
  * mis-addressed pane, and treating any id as a definition id is what this guard
  * replaces — the pane would compose a read for a definition that does not exist and
  * present whatever came back as the definition a person asked to edit.

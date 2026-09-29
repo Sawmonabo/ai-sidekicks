@@ -39,7 +39,7 @@
 // The view families are SIBLINGS, and siblings have no edge at all — which is what
 // keeps six concurrent branches from serializing behind each other.
 //
-// But siblings still hand each other things: the deck mounts panes six families
+// But siblings still hand each other things: the pane layout mounts panes six families
 // build, the workspace mounts a composer the composer family fills, one sidebar
 // carries sections four families own, and the ledger renders cards the repos
 // family authors. Every one of those is a CONTRACT rather than an import — a type
@@ -51,7 +51,7 @@
 //
 // ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `PaneFrame`
 // is the chrome every pane wears — kind glyph, breadcrumb, control strip, focus
-// treatments — and it is here for the same reason every other seat is: the deck that
+// treatments — and it is here for the same reason every other seat is: the pane layout that
 // provides its host control is a VIEW family, six sibling families each draw a
 // pane inside it, and a sibling may not import a sibling. Six frames drawn
 // independently is six spacings and six answers to where the focus ring goes, which is
@@ -114,7 +114,7 @@ export type { ScreenContext } from "@renderer/registries/screens/screen-context.
 // either SET is inside this family or is a suite that drives the kinds directly, and
 // both take `seats/pane-kinds.js` by its own specifier. A door line no production
 // module reads is one the barrel census fails, so the sets leave rather than being
-// tagged. Their two predicates stay, because the deck asks both of them.
+// tagged. Their two predicates stay, because the pane layout asks both of them.
 export {
   isEphemeralPaneKind,
   isPaneKind,
@@ -154,7 +154,7 @@ export {
 
 // THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
 //
-// It was absent from this door while the deck's pane registry and the frame's surface
+// It was absent from this door while the pane layout's pane registry and the frame's surface
 // registry were the only boards that normalised a loader into a descriptor, and both sit
 // here. The settings family's page registry is a third: its rail mounts one page per
 // section, a page's body is a chunk like any other, and a settings page reachable from a
@@ -239,10 +239,10 @@ export {
 
 // The pane chrome and the seam its host control travels on. No marker on any of
 // these lines, and every half of the reason has now happened: shipped pane bodies
-// import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
+// import the chrome and narrow through `paneBodyForKind`; the pane layout — the one host that
 // provides the close control — ships and mounts every pane inside `PaneControlsContext`
 // and names `PaneControls` on the value it builds, so the close control is drawn
-// through the seam a deck provides it through rather than asserted by a test; and two
+// through the seam a pane layout provides it through rather than asserted by a test; and two
 // shipped families name the owner slot's contract on the slots they declare — the
 // ledger's message card and timeline pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.

@@ -228,7 +228,7 @@ describe("diff file list — the filter belongs to the change set it filters", (
   it("negative control: a re-render at the same change set keeps what was typed", () => {
     // Without this the case above would pass against a filter cleared on every render,
     // which would erase a user's narrowing on any unrelated pane update — and a
-    // deck composes a fresh props object on each of its own renders.
+    // pane layout composes a fresh props object on each of its own renders.
     const { container, rerender } = render(
       <DiffFileList
         diff={TEXTUAL_ONLY_DIFF}

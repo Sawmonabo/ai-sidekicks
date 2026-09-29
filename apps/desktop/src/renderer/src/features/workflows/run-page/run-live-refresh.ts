@@ -68,7 +68,7 @@ export interface WorkflowRunLiveRefreshOptions {
   /**
    * The session whose frames say this run moved.
    *
-   * ABSENT on a pane with no session behind it — the deck can open a run pane from a
+   * ABSENT on a pane with no session behind it — the pane layout can open a run pane from a
    * keybinding before a session is chosen. Such a reading observes nothing and its
    * round never advances, which is honest: with no store there is no timeline to
    * watch, and inventing one would be watching a session nobody named.

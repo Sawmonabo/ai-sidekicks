@@ -1,4 +1,4 @@
-// The diff pane's body, as the deck's registry loads it.
+// The diff pane's body, as the pane layout's registry loads it.
 //
 // A LOADER-BACKED BODY, so the diff viewer is not on the initial import graph. This
 // pane reaches `diff` (jsdiff), the shared virtualized diff-row renderer, and the
@@ -21,13 +21,13 @@ import { DiffPane } from "../diff/components/DiffPane.js";
 import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 
 /**
- * The diff pane, at an address the deck resolved to this kind.
+ * The diff pane, at an address the pane layout resolved to this kind.
  *
  * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
  * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s:
  * every pane body writing that comparison itself would be one answer per pane to one
  * question, and a mismatch is a rendered refusal rather than a throw because one bad
- * layout row must lose that row and not the deck.
+ * layout row must lose that row and not the pane layout.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind("diff", (context) =>
   createElement(DiffPane, { context }),

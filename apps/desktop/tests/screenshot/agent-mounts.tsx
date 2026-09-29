@@ -73,7 +73,7 @@ function AgentsPaneBody(props: { readonly context: PaneContext }): ReactNode {
   return renderAgentsPaneBody(props.context);
 }
 
-/** The deck context a pane is mounted with, about one named agent. */
+/** The pane layout context a pane is mounted with, about one named agent. */
 function paneContext(
   bridge: PlatformBridge,
   sessionStore: SessionStore,

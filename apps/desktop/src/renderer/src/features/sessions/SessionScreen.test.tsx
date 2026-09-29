@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { SESSION_ID, memoryStore, renderSessionScreen } from "./SessionScreen.test-support.js";
 
 describe("Workspace — what it composes", () => {
-  it("renders the session header above the deck", async () => {
+  it("renders the session header above the pane layout", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
       expect(container.querySelector(".meridian-pane-layout__pane")).not.toBeNull();
