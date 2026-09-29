@@ -100,7 +100,7 @@
 //   * Dotted-camelCase method names; all eight match the canonical regex.
 // It moved to `driver-subscribe.ts` with the handler that owes it.
 //
-// Mutating flags: `false` on the three roster reads and on
+// Mutating flags, stated in the contract's method table: `false` on the three roster reads and on
 // `listProviderCommands`, which reads live enumeration state and changes
 // nothing; `true` on `interruptRun`, `applyIntervention`, `respondToRequest`,
 // and `compactContext`, each of which drives a live run. The flag gates the
@@ -134,22 +134,7 @@ import type {
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import {
-  ApplyInterventionParamsSchema,
-  CompactContextRequestSchema,
-  DriverAckResultSchema,
-  DriverCompactionResultSchema,
-  DriverInterventionResultSchema,
-  DriverReadParamsSchema,
-  InterruptRunParamsSchema,
-  JsonRpcErrorCode,
-  ListCapabilitiesResultSchema,
-  ListModelsResultSchema,
-  ListModesResultSchema,
-  ListProviderCommandsRequestSchema,
-  ProviderCommandListResultSchema,
-  RespondToRequestParamsSchema,
-} from "@ai-sidekicks/contracts";
+import { DRIVER_METHOD_DESCRIPTORS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityCache } from "../../provider/capability-cache.js";
 import {
@@ -159,6 +144,8 @@ import {
 } from "../../provider/provider-registry.js";
 import { DaemonDomainError } from "../domain-error.js";
 import { SessionNotFoundError } from "../session-errors.js";
+
+import { registerDescribedMethod } from "./register-described-method.js";
 
 // --------------------------------------------------------------------------
 // Dependency contracts
@@ -592,13 +579,7 @@ export function registerDriverListCapabilities(
     return { drivers };
   };
 
-  registry.register(
-    "driver.listCapabilities",
-    DriverReadParamsSchema,
-    ListCapabilitiesResultSchema,
-    handler,
-    { mutating: false },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listCapabilities"], handler);
 }
 
 /**
@@ -633,9 +614,7 @@ export function registerDriverListModels(registry: MethodRegistry, deps: DriverC
     return { drivers };
   };
 
-  registry.register("driver.listModels", DriverReadParamsSchema, ListModelsResultSchema, handler, {
-    mutating: false,
-  });
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listModels"], handler);
 }
 
 /**
@@ -664,9 +643,7 @@ export function registerDriverListModes(registry: MethodRegistry, deps: DriverCa
     return { drivers };
   };
 
-  registry.register("driver.listModes", DriverReadParamsSchema, ListModesResultSchema, handler, {
-    mutating: false,
-  });
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], handler);
 }
 
 /**
@@ -690,13 +667,7 @@ export function registerDriverInterruptRun(
     });
   };
 
-  registry.register(
-    "driver.interruptRun",
-    InterruptRunParamsSchema,
-    DriverAckResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], handler);
 }
 
 /**
@@ -731,13 +702,7 @@ export function registerDriverApplyIntervention(
     });
   };
 
-  registry.register(
-    "driver.applyIntervention",
-    ApplyInterventionParamsSchema,
-    DriverInterventionResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], handler);
 }
 
 /** Bind `driver.respondToRequest`. Answers `{}` for the same reason as `interruptRun`. */
@@ -754,13 +719,7 @@ export function registerDriverRespondToRequest(
     });
   };
 
-  registry.register(
-    "driver.respondToRequest",
-    RespondToRequestParamsSchema,
-    DriverAckResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.respondToRequest"], handler);
 }
 
 /**
@@ -829,13 +788,7 @@ export function registerDriverCompactContext(
     });
   };
 
-  registry.register(
-    "driver.compactContext",
-    CompactContextRequestSchema,
-    DriverCompactionResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], handler);
 }
 
 /**
@@ -984,11 +937,9 @@ export function registerDriverListProviderCommands(
     });
   };
 
-  registry.register(
-    "driver.listProviderCommands",
-    ListProviderCommandsRequestSchema,
-    ProviderCommandListResultSchema,
+  registerDescribedMethod(
+    registry,
+    DRIVER_METHOD_DESCRIPTORS["driver.listProviderCommands"],
     handler,
-    { mutating: false },
   );
 }

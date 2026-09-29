@@ -100,6 +100,8 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import type { MethodDescriptor } from "./method-descriptor.js";
+import { defineMethodDescriptors } from "./method-descriptor.js";
 import { wireFreeFormString, SessionIdSchema, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -2878,3 +2880,116 @@ export const ProviderCommandListResultSchema: z.ZodType<
     bindings: z.array(ProviderCommandBindingGroupSchema).min(1),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// The method table
+// --------------------------------------------------------------------------
+//
+// `driver.subscribeEvents` is not in this table: its emission is the session
+// event, and naming that schema here would import the event module, which
+// itself imports this file.
+
+// Each entry names its procedure type, so the daemon can bind it as a query or a
+// mutation.
+export interface DriverMethodDescriptors {
+  readonly "driver.listCapabilities": MethodDescriptor<
+    "driver.listCapabilities",
+    DriverReadParams,
+    ListCapabilitiesResult
+  > & { readonly procedureType: "query" };
+  readonly "driver.listModels": MethodDescriptor<
+    "driver.listModels",
+    DriverReadParams,
+    ListModelsResult
+  > & { readonly procedureType: "query" };
+  readonly "driver.listModes": MethodDescriptor<
+    "driver.listModes",
+    DriverReadParams,
+    ListModesResult
+  > & { readonly procedureType: "query" };
+  readonly "driver.interruptRun": MethodDescriptor<
+    "driver.interruptRun",
+    InterruptRunParams,
+    DriverAckResult
+  > & { readonly procedureType: "mutation" };
+  readonly "driver.applyIntervention": MethodDescriptor<
+    "driver.applyIntervention",
+    ApplyInterventionParams,
+    DriverInterventionResult
+  > & { readonly procedureType: "mutation" };
+  readonly "driver.respondToRequest": MethodDescriptor<
+    "driver.respondToRequest",
+    RespondToRequestParams,
+    DriverAckResult
+  > & { readonly procedureType: "mutation" };
+  readonly "driver.compactContext": MethodDescriptor<
+    "driver.compactContext",
+    CompactContextRequest,
+    DriverCompactionResult
+  > & { readonly procedureType: "mutation" };
+  readonly "driver.listProviderCommands": MethodDescriptor<
+    "driver.listProviderCommands",
+    ListProviderCommandsRequest,
+    ProviderCommandListResult
+  > & { readonly procedureType: "query" };
+}
+
+/** The driver methods a client calls: their names, how each answers, and their shapes. */
+export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDescriptors({
+  "driver.listCapabilities": {
+    method: "driver.listCapabilities",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListCapabilitiesResultSchema,
+  },
+  "driver.listModels": {
+    method: "driver.listModels",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListModelsResultSchema,
+  },
+  "driver.listModes": {
+    method: "driver.listModes",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListModesResultSchema,
+  },
+  "driver.interruptRun": {
+    method: "driver.interruptRun",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: InterruptRunParamsSchema,
+    responseSchema: DriverAckResultSchema,
+  },
+  "driver.applyIntervention": {
+    method: "driver.applyIntervention",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ApplyInterventionParamsSchema,
+    responseSchema: DriverInterventionResultSchema,
+  },
+  "driver.respondToRequest": {
+    method: "driver.respondToRequest",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RespondToRequestParamsSchema,
+    responseSchema: DriverAckResultSchema,
+  },
+  "driver.compactContext": {
+    method: "driver.compactContext",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: CompactContextRequestSchema,
+    responseSchema: DriverCompactionResultSchema,
+  },
+  "driver.listProviderCommands": {
+    method: "driver.listProviderCommands",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: ListProviderCommandsRequestSchema,
+    responseSchema: ProviderCommandListResultSchema,
+  },
+});
